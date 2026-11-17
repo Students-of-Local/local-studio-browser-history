@@ -562,3 +562,28 @@ test("sol-F1 (round 2): the finish removes an alias only when it matches the tyc
 		assert.deepEqual(aliasList(), ["claude:polycarp", "opencode:polycarp"], "the kept aliases stay on the list");
 	});
 });
+
+test("sol-F4 (round 2): adjacent aliases beside tychicus are removed together and the file parses", () => {
+	inHome("finish-adjacent", (home) => {
+		const bin = join(home, ".config", "tychicus", "tychicus");
+		const entry = `{ "type": "stdio", "command": "${bin}", "args": ["mcp"], "env": {} }`;
+		// Claude Code: tychicus, then the two aliases at the end.
+		const claude = join(home, ".claude.json");
+		put(claude, `{\n  "mcpServers": {\n    "tychicus": ${entry},\n    "polycarp": ${entry},\n    "tabkyra": ${entry}\n  },\n  "numStartups": 3\n}\n`);
+		// Cursor: the two aliases first, then tychicus and another server.
+		const cursor = join(home, ".cursor", "mcp.json");
+		put(cursor, `{\n  "mcpServers": {\n    "polycarp": ${entry},\n    "tabkyra": ${entry},\n    "tychicus": ${entry},\n    "github": { "command": "npx" }\n  }\n}\n`);
+		recordAlias(home, ["claude", claude, "polycarp"], ["claude", claude, "tabkyra"], ["cursor", cursor, "polycarp"], ["cursor", cursor, "tabkyra"]);
+		const plans = m.planFinish(bin);
+		const by = Object.fromEntries(plans.map((p) => [p.harness, p]));
+		for (const h of ["claude", "cursor"]) {
+			assert.equal(by[h].status, "change", `${h}: ${by[h].reason ?? ""}`);
+			assert.deepEqual(by[h].finished, [{ name: "polycarp", action: "removed" }, { name: "tabkyra", action: "removed" }]);
+		}
+		assert.equal(by.claude.after, `{\n  "mcpServers": {\n    "tychicus": ${entry}\n  },\n  "numStartups": 3\n}\n`);
+		assert.equal(by.cursor.after, `{\n  "mcpServers": {\n    "tychicus": ${entry},\n    "github": { "command": "npx" }\n  }\n}\n`);
+		applyMigration(plans, new Date("2026-11-17T21:00:00Z"));
+		assert.deepEqual(Object.keys(JSON.parse(readFileSync(claude, "utf8")).mcpServers), ["tychicus"]);
+		assert.deepEqual(aliasList(), []);
+	});
+});

@@ -390,13 +390,35 @@ function planJsonMove(plan: FilePlan, text: string, format: JsonFormat): void {
 	settleJson(plan, text, edits, expected, format);
 }
 
-/** The text range that removes one entry from its object, with the comma that separated it. */
-function removalRange(scan: string, keyStart: number, end: number): [number, number] {
-	const next = skipSpace(scan, end);
-	if (scan[next] === ",") return [keyStart, skipSpace(scan, next + 1)];
-	let prev = keyStart - 1;
-	while (prev >= 0 && /\s/.test(scan[prev])) prev--;
-	return scan[prev] === "," ? [prev, end] : [prev + 1, end];
+/**
+ * The edits that take the removed entries out of their object, with the commas that separated them. Removed entries
+ * that sit next to each other go as one range, so no two edits overlap: up to the next kept key when one follows, else
+ * from the comma after the kept entry before them.
+ */
+function removalEdits(scan: string, spans: Map<string, [number, number, number]>, removed: Set<string>): Edit[] {
+	const order = [...spans].sort((a, b) => a[1][0] - b[1][0]).map(([name, span]) => ({ name, span }));
+	const edits: Edit[] = [];
+	let i = 0;
+	while (i < order.length) {
+		if (!removed.has(order[i].name)) {
+			i++;
+			continue;
+		}
+		let j = i;
+		while (j + 1 < order.length && removed.has(order[j + 1].name)) j++;
+		const first = order[i].span;
+		const last = order[j].span;
+		const next = order[j + 1]?.span;
+		const prev = order[i - 1]?.span;
+		if (next) edits.push({ at: first[0], end: next[0], text: "" });
+		else if (prev) edits.push({ at: skipSpace(scan, prev[2]), end: last[2], text: "" });
+		else {
+			const comma = skipSpace(scan, last[2]);
+			edits.push({ at: first[0], end: scan[comma] === "," ? skipSpace(scan, comma + 1) : last[2], text: "" });
+		}
+		i = j + 1;
+	}
+	return edits;
 }
 
 /**
@@ -449,13 +471,10 @@ function planJsonFinish(plan: FilePlan, text: string, format: JsonFormat): void 
 			edits.push({ at: span[0], end: valueEnd(scan, span[0]), text: JSON.stringify(MCP_NAME) });
 			renamed = alias;
 			tychicus = { entry: servers[alias], cmd };
-		} else {
-			const [from, to] = removalRange(scan, span[0], span[2]);
-			edits.push({ at: from, end: to, text: "" });
-			removed.add(alias);
-		}
+		} else removed.add(alias);
 		plan.finished.push({ name: alias, action: action === "rename" ? "renamed" : "removed" });
 	}
+	edits.push(...removalEdits(scan, spans, removed));
 	const rebuilt: Record<string, unknown> = {};
 	for (const [name, entry] of Object.entries(servers)) {
 		if (removed.has(name)) continue;
