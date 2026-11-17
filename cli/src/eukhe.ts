@@ -401,7 +401,7 @@ export class EukheRelay {
 			});
 			return;
 		}
-		if (typeof frame.type === "string" && FORWARDED.has(frame.type)) this.send({ type: "eukhe", conversation: name, event: frame });
+		if (typeof frame.type === "string" && FORWARDED.has(frame.type)) this.send({ type: "eukhe", conversation: name, event: panelFrame(frame) });
 	}
 
 	/** Answer a session's shell question with no: the panel runs no shell commands. */
@@ -441,6 +441,54 @@ export class EukheRelay {
 		if (this.folder) rmSync(this.folder, { recursive: true, force: true });
 		this.folder = undefined;
 	}
+}
+
+/** Cut a string to `max` characters. */
+function cut(text: unknown, max: number): string {
+	const s = typeof text === "string" ? text : "";
+	return s.length > max ? `${s.slice(0, max - 3)}...` : s;
+}
+
+/**
+ * The part of a daemon frame the panel reads (src/eukhe/models.ts EukheTurn.take). Eukhe's events carry the whole
+ * message so far, and turn_end and agent_end every message of the run, screenshots included: forwarded whole, one long
+ * answer resends itself on every word, and a run with a few screenshots outgrows a native message and is dropped.
+ */
+export function panelFrame(frame: Record<string, unknown>): Record<string, unknown> {
+	const base = { type: frame.type, activeSessionId: frame.activeSessionId };
+	if (frame.type !== "session_event") return { ...base, reason: frame.reason };
+	const ev = (frame.event ?? {}) as Record<string, unknown>;
+	const out: Record<string, unknown> = { type: ev.type };
+	switch (ev.type) {
+		case "message_update": {
+			const change = (ev.assistantMessageEvent ?? {}) as Record<string, unknown>;
+			out.assistantMessageEvent = { type: change.type, ...(typeof change.delta === "string" ? { delta: change.delta } : {}) };
+			break;
+		}
+		case "tool_execution_start": {
+			out.toolCallId = ev.toolCallId;
+			out.toolName = cut(ev.toolName, 200);
+			const args = ev.args && typeof ev.args === "object" ? JSON.stringify(ev.args) : "";
+			out.args = args.length > 1000 ? { args: cut(args, 1000) } : ev.args;
+			break;
+		}
+		case "tool_execution_end": {
+			out.toolCallId = ev.toolCallId;
+			out.toolName = cut(ev.toolName, 200);
+			out.isError = ev.isError === true;
+			const content = (ev.result as { content?: unknown } | undefined)?.content;
+			out.result = {
+				content: (Array.isArray(content) ? content : []).slice(0, 50).map((c: { type?: unknown; text?: unknown }) =>
+					c?.type === "text" ? { type: "text", text: cut(c.text, 1000) } : { type: String(c?.type ?? "unknown") },
+				),
+			};
+			break;
+		}
+		case "turn_end":
+			if (typeof ev.error === "string") out.error = cut(ev.error, 2000);
+			break;
+	}
+	return { ...base, event: out };
 }
 
 function asRpcError(err: unknown): RpcError {

@@ -275,6 +275,82 @@ test("first-F2: a stopped run's last events, arriving as the next prompt goes ou
 	assert.equal(text, "word0 word1 word2 ", "the new run's text only, all of it");
 });
 
+test("review-r2 first-F2: stop pressed while the session is being made sends no prompt and ends the turn as aborted", async () => {
+	const { sent } = fakeRuntime();
+	const { streamLocalStudio } = await import("../src/eukhe/stream.ts");
+	const controller = new AbortController();
+	const context = { systemPrompt: "sys", messages: [{ role: "user", content: "stop me early", timestamp: 6 }] };
+	const stream = streamLocalStudio(MODEL, context, { signal: controller.signal });
+	const ended = (async () => {
+		let final;
+		for await (const e of stream) if (e.type === "done" || e.type === "error") final = e;
+		return final;
+	})();
+	// Stop as soon as the Create is out, before its answer.
+	for (let i = 0; i < 200 && !sent.some((r) => r.command?.type === "create"); i++) await new Promise((r) => setTimeout(r, 1));
+	controller.abort();
+	const final = await ended;
+	assert.equal(final?.reason, "aborted", JSON.stringify(final));
+	assert.equal(sent.filter((r) => r.command?.type === "prompt").length, 0, "no prompt after the stop");
+});
+
+test("review-r1 second-S1: a chat stopped before its first prompt starts over next turn, with its first message", async () => {
+	const { sent } = fakeRuntime();
+	const { streamLocalStudio } = await import("../src/eukhe/stream.ts");
+	const first = { role: "user", content: "stop before the first prompt", timestamp: 7 };
+	const controller = new AbortController();
+	const stream = streamLocalStudio(MODEL, { systemPrompt: "sys", messages: [first] }, { signal: controller.signal });
+	const ended = (async () => {
+		let final;
+		for await (const e of stream) if (e.type === "done" || e.type === "error") final = e;
+		return final;
+	})();
+	for (let i = 0; i < 200 && !sent.some((r) => r.command?.type === "create"); i++) await new Promise((r) => setTimeout(r, 1));
+	controller.abort();
+	assert.equal((await ended)?.reason, "aborted");
+	const stopped = sent.filter((r) => r.command?.type === "create").length;
+	runtime.options.words = 2;
+	const two = await runTurn(streamLocalStudio, MODEL, {
+		systemPrompt: "sys",
+		messages: [first, { role: "user", content: "try again", timestamp: 8 }],
+	});
+	assert.equal(two.final.type, "done", two.final.error?.errorMessage);
+	assert.equal(sent.filter((r) => r.command?.type === "create").length, stopped + 1, "a new session, not the unprompted one");
+	assert.ok(sent.some((r) => r.command?.type === "kill"), "the unprompted session is ended");
+	assert.match(sent.filter((r) => r.command?.type === "prompt").at(-1).command.message, /stop before the first prompt/);
+});
+
+test("review-r1 first-F1: stop pressed during the retry Create after a restart sends no prompt on the new session", async () => {
+	const { sent, restart } = fakeRuntime({ words: 2 });
+	const { streamLocalStudio } = await import("../src/eukhe/stream.ts");
+	const first = { role: "user", content: "retry then stop", timestamp: 9 };
+	const one = await runTurn(streamLocalStudio, MODEL, { systemPrompt: "sys", messages: [first] });
+	assert.equal(one.final.type, "done");
+	restart();
+	const before = sent.filter((r) => r.command?.type === "create").length;
+	const controller = new AbortController();
+	const reply = { role: "assistant", content: [{ type: "text", text: one.text }] };
+	const stream = streamLocalStudio(
+		MODEL,
+		{ systemPrompt: "sys", messages: [first, reply, { role: "user", content: "more", timestamp: 10 }] },
+		{ signal: controller.signal },
+	);
+	const ended = (async () => {
+		let final;
+		for await (const e of stream) if (e.type === "done" || e.type === "error") final = e;
+		return final;
+	})();
+	// Stop as soon as the retry's Create is out, before its answer.
+	for (let i = 0; i < 400 && sent.filter((r) => r.command?.type === "create").length === before; i++)
+		await new Promise((r) => setTimeout(r, 1));
+	controller.abort();
+	assert.equal((await ended)?.reason, "aborted");
+	const prompts = sent.filter((r) => r.command?.type === "prompt");
+	const retried = sent.filter((r) => r.command?.type === "create").length > before;
+	assert.ok(retried, "the failed prompt was retried in a new session");
+	assert.equal(prompts.length, 2, "only the first turn's prompt and the refused one; none on the new session");
+});
+
 test("second-F7: overlapping model refreshes share one look, so neither ends the other", async () => {
 	const { sent } = fakeRuntime();
 	const { refreshLocalStudioModels } = await import("../src/eukhe/stream.ts");

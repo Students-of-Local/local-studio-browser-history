@@ -174,8 +174,7 @@ test("an abort mid-stream ends the turn: no more deltas, the turn closes as abor
 	await until(() => events("c").some((e) => e.event?.type === "agent_end"), 5000, "agent_end after the abort");
 	const deltas = events("c").filter((e) => e.event?.type === "message_update").length;
 	assert.ok(deltas < words.length, `the turn stopped early (${deltas} of ${words.length} deltas)`);
-	const end = events("c").find((e) => e.event?.type === "message_end");
-	assert.equal(end.event.message.stopReason, "aborted");
+	assert.equal(daemon.sessions.get(session).aborted, true, "the daemon's turn was aborted");
 });
 
 test("the panel sends only its own commands, on sessions its chat made, and every shell step is refused", { skip, timeout: 20_000 }, async (t) => {
@@ -310,4 +309,37 @@ test("review-r2 first-F1: a daemon that won't pin the session gets no chat, and 
 	await until(() => daemon.commands.some((c) => c.type === "kill" && c.activeSessionId === session), 2000, "the session to be ended");
 	const prompt = await ask("a", "command", { type: "prompt", activeSessionId: session, message: "hi" });
 	assert.equal(prompt.error?.code, "permission_denied", "the unpinned session is not this chat's to drive");
+});
+
+test("review-r2 second-second-F2: the panel gets only what it reads of each event, never a screenshot or the whole message", { skip, timeout: 20_000 }, async (t) => {
+	const dir = tempDir(t);
+	const screenshot = "A".repeat(2 * 1024 * 1024);
+	const daemon = await startFakeEukhe({
+		path: join(dir, "d.sock"),
+		turn: async (turn) => {
+			await turn.delta("Looking. ");
+			await turn.tool("screenshot", { fullPage: true, note: "x".repeat(10_000) }, async () => ({
+				content: [{ type: "image", data: screenshot, mimeType: "image/png" }, { type: "text", text: "the page" }],
+			}));
+			await turn.delta("A heron.");
+		},
+	});
+	t.after(() => daemon.close());
+	const { ask, frames, relay } = harness(daemon.path);
+	t.after(() => relay.closeAll());
+	const session = (await ask("a", "command", { type: "create", config: {} })).result.activeSessionId;
+	await ask("a", "command", { type: "attach", activeSessionId: session });
+	await ask("a", "command", { type: "prompt", activeSessionId: session, message: "look" });
+	await until(() => frames.some((f) => f.event?.event?.type === "agent_end"), 5000, "agent_end");
+	const sizes = frames.filter((f) => f.event).map((f) => JSON.stringify(f).length);
+	assert.ok(Math.max(...sizes) < 4096, `every event frame is small: ${Math.max(...sizes)} bytes at most`);
+	const events = frames.filter((f) => f.event?.type === "session_event").map((f) => f.event.event);
+	const end = events.find((e) => e.type === "tool_execution_end");
+	assert.deepEqual(end.result.content, [{ type: "image" }, { type: "text", text: "the page" }]);
+	assert.equal(end.toolName, "screenshot");
+	assert.deepEqual(
+		events.filter((e) => e.type === "message_update").map((e) => e.assistantMessageEvent),
+		[{ type: "text_delta", delta: "Looking. " }, { type: "text_delta", delta: "A heron." }],
+	);
+	assert.equal(events.find((e) => e.type === "agent_end").messages, undefined);
 });
