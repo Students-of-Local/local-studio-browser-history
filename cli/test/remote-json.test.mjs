@@ -81,9 +81,9 @@ function scenario(name, { lock = "Tailnet lock is NOT enabled.", status = `{"Sel
 		dir,
 		home,
 		script: (name, body) => script(join(bin, name), body),
-		/** The launcher `polycarp browser install` writes: an executable script that runs an existing file. */
+		/** The agent launcher `tychicus install` writes: an executable script that runs an existing file. */
 		launcher: () => {
-			const path = join(home, "cfg", "polycarp");
+			const path = join(home, "cfg", "tychicus");
 			mkdirSync(dirname(path), { recursive: true });
 			writeFileSync(path, `#!/bin/sh\nexec "${process.execPath}" "$@"\n`);
 			chmodSync(path, 0o755);
@@ -788,7 +788,7 @@ esac
 
 const signedIn = (s) => writeFileSync(join(s.home, ".cloudflared", "cert.pem"), "");
 const cfCalls = (s) => s.calls().filter((x) => x.startsWith("cloudflared "));
-const cfService = (s) => (process.platform === "darwin" ? join(s.home, "Library", "LaunchAgents", "com.polycarp.cloudflared.plist") : join(s.home, ".config", "systemd", "user", "polycarp-cloudflared.service"));
+const cfService = (s) => (process.platform === "darwin" ? join(s.home, "Library", "LaunchAgents", "com.tychicus.cloudflared.plist") : join(s.home, ".config", "systemd", "user", "tychicus-cloudflared.service"));
 
 async function cloudflareSetup(s, extra = []) {
 	s.launcher();
@@ -1474,7 +1474,7 @@ serviceTest("a terminal setup with no launcher writes only the launcher, never a
 		const r = await runTyped(s, ["remote", "setup", "--tailscale", "--port", String(port)], "");
 		assert.equal(r.code, 0, r.stdout + r.stderr);
 		assert.match(r.stdout, /setup writes it now/);
-		assert.ok(existsSync(join(s.env.TABKYRA_CONFIG_DIR, "polycarp")), "the launcher is written");
+		assert.ok(existsSync(join(s.env.TABKYRA_CONFIG_DIR, "tychicus")), "the launcher is written");
 		assert.equal(existsSync(join(browserFolder(s.home), "NativeMessagingHosts")), false, "no browser was registered");
 	} finally {
 		await new Promise((resolve) => srv.close(resolve));
