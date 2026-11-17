@@ -51,28 +51,27 @@ Renamed, with a fallback for installs made before the rename. The fallbacks stay
 build predates the rename; then remove them in one change and lower the counts in `RENAMED_ALLOWED` (product-name test):
 - the native host is `com.tychicus.browser` (`NATIVE_HOST_NAME`), Tychicus's own. Polycarp's names (`com.polycarp.browser`,
   `ai.tabkyra.bridge`) belong to Polycarp's helper: Tychicus never writes or asks for them (`test/native-host-name.test.mjs`).
-- the socket folder is `/tmp/polycarp-bridge-<user>`; clients (`listSockets`, the generated pi extension) also look in
-  `/tmp/tabkyra-bridge-<user>`, where a host started by an older helper is. `POLYCARP_SOCKET_DIR` replaces both.
+- the socket folder is `/tmp/tychicus-bridge-<user>`, Tychicus's own. Hosts listen and clients look only there, never in
+  Polycarp's `polycarp-bridge` or `tabkyra-bridge` (`cli/test/legacy-socket.test.mjs`). `TYCHICUS_SOCKET_DIR` replaces it.
 - the hub headers are `x-polycarp-hub-scopes` and `x-polycarp-hub-caller`. A hub sends them under the old `x-tabkyra-hub-*`
   names too, because an older device reads only those and without a scopes header gives the caller its link token's whole cap;
   a device reads either, the new one first.
 - `User-Agent` is `polycarp-browser/<version>` (`USER_AGENT` in `cli/src/version.ts`).
-- the npm package installs only `polycarp-browser` (the `tabkyra` and `sitegeist` bin aliases are gone). `polycarp browser`
-  runs the helper as `polycarp-browser`, which is what `ps` shows, and still finds a `tabkyra` on PATH or in its older spots.
-  `COMMAND_NAME` says `tabkyra` only for an npm link made before the rename. Polycarp.app's installer still links
-  `~/.local/bin/tabkyra` (`spaces/scripts/install-app.sh`), and shell completion still covers that name.
+- the npm package installs only `tychicus`. `polycarp` and `polycarp-browser` are Polycarp's commands; Tychicus never puts
+  them on PATH (`cli/test/polycarp-coexist.test.mjs`).
 
 These stay as they are on purpose, because agents, hooks or stored data depend on them, and no person reads them:
-- every MCP tool name. The server itself is `polycarp`, so Claude Code's qualified names are `mcp__polycarp__*`. `harness.ts` moves an entry under the old name `tabkyra` when it runs this helper, and `moveClaudeRules` moves the permission rules that named it. An entry that runs `~/.config/tabkyra/tabkyra mcp`, or a `tabkyra` that no longer resolves, is stale and `setup` rewrites it
+- every MCP tool name. The agent entry `setup` writes is `tychicus` (`MCP_NAME`), so Claude Code's qualified names are `mcp__tychicus__*`. A `polycarp` or `tabkyra` entry, and the permission rules that name it, are Polycarp's: never read, moved or removed
 - the manifest `key`: it fixes the extension id, `igjafcggmahiboobmnhfkndodphjdnhg`, which `src/bridge/extension-id.json`
   holds for the CLI and every test (`cli/test/release-install.test.mjs` checks the key gives it). Never change the key: every
   installed host manifest allows only this id
-- the helper's folders are `~/.config/polycarp/browser`, `~/.local/share/polycarp/browser` and `~/.cache/polycarp`
-  (`~/.config/polycarp` itself is the app's). `cli/src/migrate.ts` moves the old `tabkyra` ones once and leaves a symlink
-  at the old config and data paths; `migrateLegacyServices` in `service.ts` moves `com.tabkyra.*` services to
-  `com.polycarp.*`. Read variables through `envVar("NAME")` (`cli/src/env.ts`): `POLYCARP_NAME` wins, `TABKYRA_NAME` is the
-  fallback. The helper's config folder is `POLYCARP_BROWSER_CONFIG_DIR` (or `TABKYRA_CONFIG_DIR`), never `POLYCARP_CONFIG_DIR`,
-  which is the app's. Tests and fixtures set the first one.
+- the helper's folders are `~/.config/tychicus`, `~/.local/share/tychicus` and `~/.cache/tychicus`, its launchers
+  `tychicus` and `tychicus-host`, its services `com.tychicus.*`. Nothing writes under Polycarp's folders
+  (`~/.config/polycarp`, `~/.local/share/polycarp`, `~/.cache/polycarp`) or the `tabkyra` ones Polycarp moves itself; there
+  is no migration. Read variables through `envVar("NAME")` (`cli/src/env.ts`): `TYCHICUS_NAME` wins, then the inherited
+  `POLYCARP_NAME` and `TABKYRA_NAME`. The config folder override is `TYCHICUS_CONFIG_DIR` (the inherited
+  `POLYCARP_BROWSER_CONFIG_DIR` and `TABKYRA_CONFIG_DIR` still work, and test fixtures set them), never `POLYCARP_CONFIG_DIR`,
+  which is the Polycarp app's.
 - the extension's stored data: storage keys, database names and the `TabkyraAppStorage` class
 - the name OpenAI lists for a ChatGPT sign-in made before the rename: its saved client stays registered as "Tabkyra", so the unconfirmed-revoke note names it
 - the tab group title "Tabkyra · ..." that earlier versions made, which is still recognized and tidied; new groups say "Polycarp · ..."

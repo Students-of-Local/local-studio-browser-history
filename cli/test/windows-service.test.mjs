@@ -71,13 +71,13 @@ function fakeExec(answer = (cmd, args) => (args[0] === "/End" ? { code: 1, out: 
 
 afterEach(() => setServiceSeamForTests({}));
 
-/** Act as Windows, with the polycarp.cmd launcher `install` writes there unless a test names another. */
-const winSeam = (o) => setServiceSeamForTests({ platform: "win32", launcher: join(process.env.POLYCARP_BROWSER_CONFIG_DIR, "polycarp.cmd"), ...o });
+/** Act as Windows, with the tychicus.cmd launcher `install` writes there unless a test names another. */
+const winSeam = (o) => setServiceSeamForTests({ platform: "win32", launcher: join(process.env.POLYCARP_BROWSER_CONFIG_DIR, "tychicus.cmd"), ...o });
 
 // ---------- Mac and Linux are unchanged ----------
 
 test("the launchd plist is byte for byte what it was", () => {
-	const text = plistText("/Users/x/.config/polycarp/browser/polycarp", { POLYCARP_BROWSER_CONFIG_DIR: "/Users/x/a&b", TABKYRA_CONFIG_DIR: "/Users/x/a&b" }, "/Users/x/Library/Logs/polycarp-serve.log", SERVE_SERVICE);
+	const text = plistText("/Users/x/.config/tychicus/tychicus", { POLYCARP_BROWSER_CONFIG_DIR: "/Users/x/a&b", TABKYRA_CONFIG_DIR: "/Users/x/a&b" }, "/Users/x/Library/Logs/tychicus-serve.log", SERVE_SERVICE);
 	assert.equal(
 		text,
 		`<?xml version="1.0" encoding="UTF-8"?>
@@ -85,10 +85,10 @@ test("the launchd plist is byte for byte what it was", () => {
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>com.polycarp.serve</string>
+	<string>com.tychicus.serve</string>
 	<key>ProgramArguments</key>
 	<array>
-		<string>/Users/x/.config/polycarp/browser/polycarp</string>
+		<string>/Users/x/.config/tychicus/tychicus</string>
 		<string>serve</string>
 	</array>
 	<key>EnvironmentVariables</key>
@@ -105,9 +105,9 @@ test("the launchd plist is byte for byte what it was", () => {
 	<key>ThrottleInterval</key>
 	<integer>10</integer>
 	<key>StandardOutPath</key>
-	<string>/Users/x/Library/Logs/polycarp-serve.log</string>
+	<string>/Users/x/Library/Logs/tychicus-serve.log</string>
 	<key>StandardErrorPath</key>
-	<string>/Users/x/Library/Logs/polycarp-serve.log</string>
+	<string>/Users/x/Library/Logs/tychicus-serve.log</string>
 </dict>
 </plist>
 `,
@@ -119,7 +119,7 @@ test("the systemd unit is byte for byte what it was", () => {
 	assert.equal(
 		text,
 		`[Unit]
-Description=Polycarp hub (one connector URL for many devices)
+Description=Tychicus hub (one connector URL for many devices)
 
 [Service]
 ExecStart="/home/x/my dir/polycarp" hub serve
@@ -141,11 +141,11 @@ test("Linux install still runs the same systemctl steps and writes the unit wher
 		assert.equal(r.ok, true, r.message);
 		assert.deepEqual(fake.calls, [
 			["systemctl", "--user", "daemon-reload"],
-			["systemctl", "--user", "enable", "polycarp-serve.service"],
-			["systemctl", "--user", "restart", "polycarp-serve.service"],
+			["systemctl", "--user", "enable", "tychicus-serve.service"],
+			["systemctl", "--user", "restart", "tychicus-serve.service"],
 		]);
-		assert.equal(r.file, join(process.env.HOME, ".config", "systemd", "user", "polycarp-serve.service"));
-		assert.equal(serviceLogHint(SERVE_SERVICE), "journalctl --user -u polycarp-serve.service");
+		assert.equal(r.file, join(process.env.HOME, ".config", "systemd", "user", "tychicus-serve.service"));
+		assert.equal(serviceLogHint(SERVE_SERVICE), "journalctl --user -u tychicus-serve.service");
 		assert.ok(!fake.calls.some(([cmd]) => /schtasks/.test(cmd)));
 	});
 });
@@ -156,12 +156,12 @@ test("macOS install still writes the plist under LaunchAgents and its log under 
 		setServiceSeamForTests({ platform: "darwin", exec: fake.exec });
 		const r = await installService(SERVE_SERVICE);
 		assert.equal(r.ok, true, r.message);
-		assert.equal(r.file, join(process.env.HOME, "Library", "LaunchAgents", "com.polycarp.serve.plist"));
+		assert.equal(r.file, join(process.env.HOME, "Library", "LaunchAgents", "com.tychicus.serve.plist"));
 		assert.deepEqual(
 			fake.calls.map(([cmd, verb]) => `${cmd} ${verb}`),
 			["launchctl bootout", "launchctl print", "launchctl bootstrap"],
 		);
-		assert.equal(serviceLogHint(SERVE_SERVICE), join(process.env.HOME, "Library", "Logs", "polycarp-serve.log"));
+		assert.equal(serviceLogHint(SERVE_SERVICE), join(process.env.HOME, "Library", "Logs", "tychicus-serve.log"));
 	});
 });
 
@@ -170,20 +170,20 @@ test("macOS install still writes the plist under LaunchAgents and its log under 
 test("a fresh Windows install makes the task from XML and runs it once, with exact schtasks arguments and no /End between", async () => {
 	await inConfig("win-install", async (dir) => {
 		const fake = fakeExec();
-		winSeam({ exec: fake.exec, windowsUser: "DESKTOP-1\\Jane Doe", launcher: join(dir, "polycarp.cmd") });
+		winSeam({ exec: fake.exec, windowsUser: "DESKTOP-1\\Jane Doe", launcher: join(dir, "tychicus.cmd") });
 		const r = await installService(SERVE_SERVICE);
 		assert.equal(r.ok, true, r.message);
-		const script = join(dir, "services", "com.polycarp.serve.cmd");
-		const xmlFile = join(dir, "services", "com.polycarp.serve.xml");
+		const script = join(dir, "services", "com.tychicus.serve.cmd");
+		const xmlFile = join(dir, "services", "com.tychicus.serve.xml");
 		assert.equal(schtasksPath(), SCHTASKS);
 		assert.deepEqual(fake.calls, [
-			[SCHTASKS, "/Create", "/TN", "com.polycarp.serve", "/XML", xmlFile, "/F"],
-			[SCHTASKS, "/Run", "/TN", "com.polycarp.serve"],
+			[SCHTASKS, "/Create", "/TN", "com.tychicus.serve", "/XML", xmlFile, "/F"],
+			[SCHTASKS, "/Run", "/TN", "com.tychicus.serve"],
 		]);
 		assert.equal(r.file, script);
 		assert.equal(serviceFile(SERVE_SERVICE), script);
-		assert.equal(serviceLogHint(SERVE_SERVICE), join(dir, "logs", "polycarp-serve.log"));
-		assert.match(r.message, /logs in .*polycarp-serve\.log/);
+		assert.equal(serviceLogHint(SERVE_SERVICE), join(dir, "logs", "tychicus-serve.log"));
+		assert.match(r.message, /logs in .*tychicus-serve\.log/);
 		// The task file is gone once Task Scheduler has it; the script stays for the task to run.
 		assert.equal(existsSync(xmlFile), false);
 		assert.ok(existsSync(script));
@@ -209,19 +209,19 @@ test("a fresh Windows install makes the task from XML and runs it once, with exa
 
 test("the batch script sets the folders, logs to the file, restarts after 10 seconds, and names no path of this computer", async () => {
 	await inConfig("win-script", async (dir) => {
-		winSeam({ exec: fakeExec().exec, windowsUser: "PC\\x", launcher: join(dir, "polycarp.cmd") });
+		winSeam({ exec: fakeExec().exec, windowsUser: "PC\\x", launcher: join(dir, "tychicus.cmd") });
 		const r = await installService(CLOUDFLARE_SERVICE);
 		assert.equal(r.ok, true, r.message);
-		const text = readFileSync(join(dir, "services", "com.polycarp.cloudflared.cmd"), "utf8");
+		const text = readFileSync(join(dir, "services", "com.tychicus.cloudflared.cmd"), "utf8");
 		const lines = text.split("\r\n");
 		assert.ok(!/[^\r]\n/.test(text), "every line ends in CRLF");
 		assert.ok(!text.includes(dir) && !text.includes("Config & More"), "no folder of this computer is written in");
 		assert.equal(lines[0], "@echo off");
 		assert.ok(lines.includes("setlocal DisableDelayedExpansion"));
-		assert.ok(lines.includes("title com.polycarp.cloudflared (Polycarp; closing this window stops it until you log on again)"));
+		assert.ok(lines.includes("title com.tychicus.cloudflared (Polycarp; closing this window stops it until you log on again)"));
 		assert.ok(lines.includes('set "POLYCARP_BROWSER_CONFIG_DIR=%POLYCARP_HOME%"'));
-		assert.ok(lines.includes('set "POLYCARP_LOG=%POLYCARP_HOME%\\logs\\polycarp-cloudflared.log"'));
-		assert.ok(lines.includes('\tcall "%POLYCARP_HOME%\\polycarp.cmd" remote cloudflare run'), text);
+		assert.ok(lines.includes('set "POLYCARP_LOG=%POLYCARP_HOME%\\logs\\tychicus-cloudflared.log"'));
+		assert.ok(lines.includes('\tcall "%POLYCARP_HOME%\\tychicus.cmd" remote cloudflare run'), text);
 		assert.ok(lines.includes('"%SystemRoot%\\System32\\ping.exe" -n 11 127.0.0.1 >nul'));
 		assert.deepEqual(lines.slice(-2), ["goto run", ""]);
 		assert.ok(lines.indexOf(":run") < lines.indexOf("goto run"));
@@ -229,9 +229,9 @@ test("the batch script sets the folders, logs to the file, restarts after 10 sec
 });
 
 test("windowsScriptText refuses names and values cmd would misread", () => {
-	const ok = windowsScriptText("polycarp.cmd", { POLYCARP_BROWSER_CONFIG_DIR: "C:\\anything", POLYCARP_SOCKET_DIR: "C:\\pipes" }, LINK_SERVICE);
+	const ok = windowsScriptText("tychicus.cmd", { POLYCARP_BROWSER_CONFIG_DIR: "C:\\anything", POLYCARP_SOCKET_DIR: "C:\\pipes" }, LINK_SERVICE);
 	assert.ok(ok.includes('set "POLYCARP_SOCKET_DIR=C:\\pipes"\r\n'));
-	assert.ok(ok.includes('\tcall "%POLYCARP_HOME%\\polycarp.cmd" link run\r\n'));
+	assert.ok(ok.includes('\tcall "%POLYCARP_HOME%\\tychicus.cmd" link run\r\n'));
 	assert.ok(!ok.includes("C:\\anything"));
 	for (const bad of ['a"b.cmd', "a%b.cmd", "a^b.cmd", "a b.cmd", "a&b.cmd"]) assert.throws(() => windowsScriptText(bad, {}, LINK_SERVICE), /launcher name/, bad);
 	assert.throws(() => windowsScriptText("p.cmd", { "BAD NAME": "x" }), /variable name/);
@@ -292,11 +292,11 @@ test("Windows uninstall ends and deletes the task, removes the script, and keeps
 		const r = removeService(SERVE_SERVICE);
 		assert.equal(r.ok, true, r.failure);
 		assert.deepEqual(fake.calls, [
-			[SCHTASKS, "/End", "/TN", "com.polycarp.serve"],
-			[SCHTASKS, "/Delete", "/TN", "com.polycarp.serve", "/F"],
+			[SCHTASKS, "/End", "/TN", "com.tychicus.serve"],
+			[SCHTASKS, "/Delete", "/TN", "com.tychicus.serve", "/F"],
 		]);
-		assert.equal(existsSync(join(dir, "services", "com.polycarp.serve.cmd")), false);
-		assert.match(r.notes.join(" "), /log stays at .*polycarp-serve\.log/);
+		assert.equal(existsSync(join(dir, "services", "com.tychicus.serve.cmd")), false);
+		assert.match(r.notes.join(" "), /log stays at .*tychicus-serve\.log/);
 		// Nothing installed: nothing to run.
 		const again = fakeExec();
 		winSeam({ exec: again.exec, windowsUser: "PC\\x" });
@@ -307,16 +307,16 @@ test("Windows uninstall ends and deletes the task, removes the script, and keeps
 
 test("a failed delete keeps the script when the task is still there, and counts as removed when it is gone", async () => {
 	await inConfig("win-remove-fail", async (dir) => {
-		const script = join(dir, "services", "com.polycarp.serve.cmd");
+		const script = join(dir, "services", "com.tychicus.serve.cmd");
 		winSeam({ exec: fakeExec().exec, windowsUser: "PC\\x" });
 		await installService(SERVE_SERVICE);
 		const stuck = fakeExec((cmd, args) => (args[0] === "/Delete" ? { code: 1, out: "ERROR: denied" } : args[0] === "/End" ? { code: 1, out: "not running" } : { code: 0, out: "" }));
 		winSeam({ exec: stuck.exec });
 		const r = removeService(SERVE_SERVICE);
 		assert.equal(r.ok, false);
-		assert.match(r.failure, /schtasks \/Delete \/TN com\.polycarp\.serve failed: ERROR: denied\. The task is still there and remote\.json is kept\./);
+		assert.match(r.failure, /schtasks \/Delete \/TN com\.tychicus\.serve failed: ERROR: denied\. The task is still there and remote\.json is kept\./);
 		assert.ok(existsSync(script));
-		assert.deepEqual(stuck.calls.at(-1), [SCHTASKS, "/Query", "/TN", "com.polycarp.serve"]);
+		assert.deepEqual(stuck.calls.at(-1), [SCHTASKS, "/Query", "/TN", "com.tychicus.serve"]);
 		const gone = fakeExec((cmd, args) => (["/Delete", "/Query", "/End"].includes(args[0]) ? { code: 1, out: "ERROR: The system cannot find the file specified." } : { code: 0, out: "" }));
 		winSeam({ exec: gone.exec });
 		assert.equal(removeService(SERVE_SERVICE).ok, true);
@@ -329,7 +329,7 @@ test("a task that won't start right away says it starts at the next logon", asyn
 		winSeam({ exec: fakeExec((cmd, args) => (args[0] === "/Run" ? { code: 1, out: "ERROR: x" } : { code: 0, out: "" })).exec, windowsUser: "PC\\x" });
 		const r = await installService(HUB_SERVICE);
 		assert.equal(r.ok, false);
-		assert.match(r.message, /schtasks \/Run \/TN com\.polycarp\.hub failed: ERROR: x\. The task is made and starts at your next logon\./);
+		assert.match(r.message, /schtasks \/Run \/TN com\.tychicus\.hub failed: ERROR: x\. The task is made and starts at your next logon\./);
 	});
 });
 
@@ -409,10 +409,10 @@ test("a non-ASCII profile folder is never written into the script: it is plain A
 	await inConfig(
 		"win-unicode",
 		async (dir) => {
-			winSeam({ exec: fakeExec().exec, windowsUser: "PC\\Jos\u00e9", launcher: join(dir, "polycarp.cmd") });
+			winSeam({ exec: fakeExec().exec, windowsUser: "PC\\Jos\u00e9", launcher: join(dir, "tychicus.cmd") });
 			const r = await installService(SERVE_SERVICE);
 			assert.equal(r.ok, true, r.message);
-			const bytes = readFileSync(join(dir, "services", "com.polycarp.serve.cmd"));
+			const bytes = readFileSync(join(dir, "services", "com.tychicus.serve.cmd"));
 			assert.ok(bytes.every((b) => b < 0x80), "every byte cmd reads is ASCII, whatever its code page");
 			const lines = bytes.toString("latin1").split("\r\n");
 			assert.ok(!lines.some((l) => l.includes("Jos")), lines.join("\n"));
@@ -420,9 +420,9 @@ test("a non-ASCII profile folder is never written into the script: it is plain A
 			assert.ok(lines.includes('for %%I in ("%~dp0..") do set "POLYCARP_HOME=%%~fI"'));
 			assert.ok(lines.includes('set "POLYCARP_BROWSER_CONFIG_DIR=%POLYCARP_HOME%"'));
 			assert.ok(lines.includes('set "TABKYRA_CONFIG_DIR=%POLYCARP_HOME%"'));
-			assert.ok(lines.includes('set "POLYCARP_LOG=%POLYCARP_HOME%\\logs\\polycarp-serve.log"'));
+			assert.ok(lines.includes('set "POLYCARP_LOG=%POLYCARP_HOME%\\logs\\tychicus-serve.log"'));
 			assert.ok(lines.includes('>>"%POLYCARP_LOG%" 2>&1 ('));
-			assert.ok(lines.includes('\tcall "%POLYCARP_HOME%\\polycarp.cmd" serve'));
+			assert.ok(lines.includes('\tcall "%POLYCARP_HOME%\\tychicus.cmd" serve'));
 		},
 		"Jos\u00e9 M\u00fcller",
 	);
@@ -437,7 +437,7 @@ test("a launcher outside the config folder, or a folder variable with a non-ASCI
 		assert.match(r.message, /isn't in the config folder/);
 		assert.deepEqual(fake.calls, []);
 	});
-	assert.throws(() => windowsScriptText("polycarp.cmd", { POLYCARP_SOCKET_DIR: "C:\\Jos\u00e9\\s" }, SERVE_SERVICE), /plain ASCII/);
+	assert.throws(() => windowsScriptText("tychicus.cmd", { POLYCARP_SOCKET_DIR: "C:\\Jos\u00e9\\s" }, SERVE_SERVICE), /plain ASCII/);
 });
 
 test("Windows runs only a launcher it can execute: .exe, .cmd or .bat, never the extensionless POSIX one", async () => {
@@ -450,7 +450,7 @@ test("Windows runs only a launcher it can execute: .exe, .cmd or .bat, never the
 			assert.match(r.message, /Windows can't run it/, name);
 			assert.deepEqual(fake.calls, [], name);
 		}
-		for (const name of ["polycarp.cmd", "polycarp-browser.exe", "polycarp.bat"]) {
+		for (const name of ["tychicus.cmd", "polycarp-browser.exe", "polycarp.bat"]) {
 			winSeam({ exec: fakeExec().exec, windowsUser: "PC\\x", launcher: join(dir, name) });
 			const r = await installService(SERVE_SERVICE);
 			assert.equal(r.ok, true, `${name}: ${r.message}`);
@@ -495,12 +495,12 @@ function windowsWith(pid, image, { started = STARTED, stubborn = false, onKill, 
 const verbsOf = (calls) => calls.map(([cmd, ...a]) => (cmd === SCHTASKS ? a[0] : cmd === TASKKILL ? `taskkill ${a.join(" ")}` : cmd === POWERSHELL ? "powershell" : cmd === TASKLIST ? "tasklist" : cmd));
 const record = (dir, pid, image, started = STARTED) => {
 	mkdirSync(join(dir, "services"), { recursive: true });
-	writeFileSync(join(dir, "services", "com.polycarp.serve.pid"), `${pid}\n${image}\n${started}\n`);
+	writeFileSync(join(dir, "services", "com.tychicus.serve.pid"), `${pid}\n${image}\n${started}\n`);
 };
 
 test("the service's helper records its pid, image and start time, marks the record exited on exit, and its children don't inherit the variable", async () => {
 	await inConfig("win-pid", async (dir) => {
-		const file = join(dir, "services", "com.polycarp.serve.pid");
+		const file = join(dir, "services", "com.tychicus.serve.pid");
 		mkdirSync(join(dir, "services"), { recursive: true });
 		const env = { POLYCARP_SERVICE_PID_FILE: file };
 		const hooks = [];
@@ -522,8 +522,8 @@ test("the service's helper records its pid, image and start time, marks the reco
 });
 
 test("the script tells the helper where to record its pid", async () => {
-	const text = windowsScriptText("polycarp.cmd", {}, SERVE_SERVICE);
-	assert.ok(text.includes('set "POLYCARP_SERVICE_PID_FILE=%POLYCARP_HOME%\\services\\com.polycarp.serve.pid"\r\n'));
+	const text = windowsScriptText("tychicus.cmd", {}, SERVE_SERVICE);
+	assert.ok(text.includes('set "POLYCARP_SERVICE_PID_FILE=%POLYCARP_HOME%\\services\\com.tychicus.serve.pid"\r\n'));
 });
 
 test("the task replaces a running copy itself (StopExisting), so /Run can't be ignored while the old one is ending", () => {
@@ -536,7 +536,7 @@ test("the task replaces a running copy itself (StopExisting), so /Run can't be i
 
 test("reinstalling, through the async runner, confirms the recorded process by start time, kills its tree and sees it gone before the script is rewritten", async () => {
 	await inConfig("win-reinstall", async (dir) => {
-		const script = join(dir, "services", "com.polycarp.serve.cmd");
+		const script = join(dir, "services", "com.tychicus.serve.cmd");
 		record(dir, 777, "node.exe");
 		writeFileSync(script, "OLD SCRIPT");
 		let scriptAtKill;
@@ -548,7 +548,7 @@ test("reinstalling, through the async runner, confirms the recorded process by s
 		assert.deepEqual(verbsOf(fake.calls), ["/End", "tasklist", "powershell", "taskkill /PID 777 /T /F", "tasklist", "/Create", "/Run"]);
 		assert.deepEqual(fake.calls[1], [TASKLIST, "/FI", "PID eq 777", "/FO", "CSV", "/NH"]);
 		assert.deepEqual(fake.calls[2], [POWERSHELL, "-NoProfile", "-NonInteractive", "-Command", "[DateTimeOffset]::new((Get-Process -Id 777 -ErrorAction Stop).StartTime).ToUnixTimeMilliseconds()"]);
-		assert.equal(existsSync(join(dir, "services", "com.polycarp.serve.pid")), false);
+		assert.equal(existsSync(join(dir, "services", "com.tychicus.serve.pid")), false);
 		assert.notEqual(readFileSync(script, "utf8"), "OLD SCRIPT");
 	});
 });
@@ -577,8 +577,8 @@ test("when the start time can't be read, nothing is killed and stop fails in one
 		const r = removeService(SERVE_SERVICE);
 		assert.equal(r.ok, false);
 		assert.ok(!fake.calls.some(([cmd]) => cmd === TASKKILL));
-		assert.match(r.failure, /^Polycarp couldn't confirm that pid 666 is still the node\.exe its com\.polycarp\.serve task started, so it ended nothing: /);
-		assert.ok(existsSync(join(dir, "services", "com.polycarp.serve.cmd")));
+		assert.match(r.failure, /^Polycarp couldn't confirm that pid 666 is still the node\.exe its com\.tychicus\.serve task started, so it ended nothing: /);
+		assert.ok(existsSync(join(dir, "services", "com.tychicus.serve.cmd")));
 		assert.ok(!fake.calls.some(([cmd, verb]) => cmd === SCHTASKS && verb === "/Delete"));
 	});
 });
@@ -591,8 +591,8 @@ test("a running task with no pid record is not reported stopped: the task and sc
 		winSeam({ exec: fake.exec });
 		const r = removeService(SERVE_SERVICE);
 		assert.equal(r.ok, false);
-		assert.match(r.failure, /com\.polycarp\.serve task was running, but its program left no record of its pid/);
-		assert.ok(existsSync(join(dir, "services", "com.polycarp.serve.cmd")));
+		assert.match(r.failure, /com\.tychicus\.serve task was running, but its program left no record of its pid/);
+		assert.ok(existsSync(join(dir, "services", "com.tychicus.serve.cmd")));
 		assert.deepEqual(verbsOf(fake.calls), ["/End"]);
 	});
 });
@@ -608,7 +608,7 @@ test("a program that survives taskkill fails stop and uninstall, keeps the scrip
 		assert.equal(r.ok, false);
 		assert.match(r.failure, /polycarp-browser\.exe \(pid 888\) is still running/);
 		assert.match(r.failure, /taskkill \/PID 888 \/T \/F/);
-		assert.ok(existsSync(join(dir, "services", "com.polycarp.serve.cmd")));
+		assert.ok(existsSync(join(dir, "services", "com.tychicus.serve.cmd")));
 		assert.ok(!fake.calls.some(([cmd, verb]) => cmd === SCHTASKS && verb === "/Delete"));
 		const again = await installService(SERVE_SERVICE);
 		assert.equal(again.ok, false);
@@ -668,7 +668,7 @@ test("remote off without Tailscale names the folder searched on this platform: t
 });
 
 test("the Windows script keeps one old log and starts a new one past 10 MB, before each start, while the log isn't open", () => {
-	const lines = windowsScriptText("polycarp.cmd", {}, SERVE_SERVICE).split("\r\n");
+	const lines = windowsScriptText("tychicus.cmd", {}, SERVE_SERVICE).split("\r\n");
 	const rotate = 'if exist "%POLYCARP_LOG%" for %%F in ("%POLYCARP_LOG%") do if %%~zF GTR 10485760 move /y "%POLYCARP_LOG%" "%POLYCARP_LOG%.1" >nul 2>&1';
 	const at = lines.indexOf(rotate);
 	assert.ok(at > lines.indexOf(":run"), "rotation runs on every pass of the loop");
@@ -708,14 +708,14 @@ test("the Tailscale sign-in hint and download link name what Windows has", () =>
 });
 
 test("the script marks each start, so stop can tell a start in progress from a program that exited", () => {
-	const lines = windowsScriptText("polycarp.cmd", {}, SERVE_SERVICE).split("\r\n");
+	const lines = windowsScriptText("tychicus.cmd", {}, SERVE_SERVICE).split("\r\n");
 	const at = lines.indexOf('>"%POLYCARP_SERVICE_PID_FILE%" echo starting');
 	assert.ok(at > lines.indexOf(":run") && at < lines.indexOf('>>"%POLYCARP_LOG%" 2>&1 ('));
 });
 
 test("a running task whose program exited cleanly, or whose record is stale, is stopped; only a missing or starting record fails", async () => {
 	await inConfig("win-between", async (dir) => {
-		const pidFile = join(dir, "services", "com.polycarp.serve.pid");
+		const pidFile = join(dir, "services", "com.tychicus.serve.pid");
 		const cases = [
 			["exited", () => writeFileSync(pidFile, "exited\n"), windowsWith(1, "node.exe", { ended: 0 }), ["/End", "/Delete"]],
 			["pid gone", () => record(dir, 321, "node.exe"), windowsWith(999, "node.exe", { ended: 0 }), ["/End", "tasklist", "/Delete"]],

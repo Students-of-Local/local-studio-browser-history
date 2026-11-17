@@ -14,7 +14,6 @@
 import { execFileSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import type { InstallMode, LastUpdate, UpdatePhase } from "../../src/bridge/protocol.ts";
 import type { UpdatePolicy } from "../../src/update/logic.ts";
@@ -28,8 +27,6 @@ import { extractZip } from "./zip.ts";
 import { COMMAND_NAME } from "./self.ts";
 import { envVar } from "./env.ts";
 import { configDir, dataDir } from "./files.ts";
-import { migrateLegacyPaths } from "./migrate.ts";
-import { migrateLegacyServices } from "./service.ts";
 
 export { configDir };
 
@@ -563,10 +560,6 @@ export async function runUpdate(options: UpdateOptions): Promise<number> {
 	const log = (line: string) => {
 		if (!options.json) console.log(line);
 	};
-	if (!options.check && !options.json) {
-		migrateLegacyPaths();
-		for (const r of await migrateLegacyServices()) if (!r.ok) log(`${sym.warn} ${r.message}`);
-	}
 	// A read-only --check never changes settings; --channel is remembered when updating.
 	if (!options.check && (options.channel || options.autoCheck !== undefined)) {
 		const saved = readSavedSettings();

@@ -1,5 +1,5 @@
 /**
- * Coding harnesses Polycarp can serve: how to find them, whether the MCP server is
+ * Coding harnesses Tychicus can serve: how to find them, whether the MCP server is
  * configured, and how to add it. Claude Code and Codex have `mcp add` commands; the
  * others get a config block to paste, because editing their JSON for the user would
  * risk clobbering comments and other servers.
@@ -9,7 +9,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, delimiter, isAbsolute, join } from "node:path";
-import { cliLauncherPath, launcherWorks, legacyCliLauncherPaths } from "./install.ts";
+import { cliLauncherPath, launcherWorks } from "./install.ts";
 import { COMPILED } from "./self.ts";
 
 /**
@@ -20,10 +20,11 @@ import { COMPILED } from "./self.ts";
  */
 export type Configured = boolean | "stale" | "other" | undefined;
 
-/** What agents call the MCP server. Its tools keep their names. */
-export const MCP_NAME = "polycarp";
-/** The name it had. An entry under it is replaced, wherever the helper finds one. */
-export const OLD_MCP_NAME = "tabkyra";
+/**
+ * What agents call the MCP server: Tychicus's own entry. A `polycarp` entry belongs to Polycarp and is never read,
+ * replaced or removed here.
+ */
+export const MCP_NAME = "tychicus";
 
 export type HarnessId = "claude" | "codex" | "opencode" | "cursor" | "omp" | "pi";
 
@@ -36,8 +37,6 @@ export interface Harness {
 	/** The command the existing entry runs, when there is one. */
 	currentCommand?: string;
 	note?: string;
-	/** The entry found is under the old name. */
-	oldName?: boolean;
 	/** Command that removes a stale entry before re-adding it. */
 	removeCommand?: string[];
 	/** Command that adds the server, when the harness has one. */
@@ -82,9 +81,6 @@ function sameFile(a: string, b: string): boolean {
 export function classify(command: string | undefined, args: string[]): Configured {
 	if (!command) return undefined;
 	const resolved = isAbsolute(command) ? command : which(command);
-	if (resolved && basename(resolved) === "polycarp" && args.join(" ") === "browser mcp") return existsSync(resolved) ? true : "stale";
-	// An entry written before the rename runs `~/.config/tabkyra/tabkyra`. Setup replaces it with the new launcher.
-	if (legacyCliLauncherPaths().includes(command) && args.join(" ") === "mcp") return "stale";
 	if (command === cliLauncherPath()) {
 		if (!launcherValid()) return "stale";
 		// The right launcher with other arguments is a deliberate customization, not breakage.
@@ -111,36 +107,15 @@ interface EntryState {
 	currentCommand?: string;
 	/** Why the state is what it is, when that isn't obvious. */
 	note?: string;
-	oldName?: boolean;
 }
 
-/**
- * An entry under the old name. One that runs this helper, or nothing any more, is moved. One that runs something else may
- * be the person's own wrapper: it's reported like any other entry and left alone unless they say so.
- */
-function oldEntry(state: Configured, command: string | undefined): EntryState {
-	return {
-		configured: state === "other" ? "other" : "stale",
-		currentCommand: command,
-		oldName: true,
-		note: "It's under the old name.",
-	};
-}
-
-/** The Polycarp entry under `key` in a JSON config. Unparseable files are "unknown", not "configured". */
+/** The Tychicus entry under `key` in a JSON config. Unparseable files are "unknown", not "configured". */
 function jsonServerState(file: string, key: string, commandOf: (entry: Record<string, unknown>) => { command?: unknown; args?: unknown }): EntryState {
 	if (!existsSync(file)) return { configured: false };
 	const data = readJson(file);
 	if (!data) return { configured: undefined };
 	const servers = data[key] as Record<string, Record<string, unknown>> | undefined;
-	const current = servers?.[MCP_NAME];
-	const old = servers?.[OLD_MCP_NAME];
-	if (!current && old && typeof old === "object") {
-		const { command, args } = commandOf(old);
-		const cmd = typeof command === "string" ? command : undefined;
-		return oldEntry(classify(cmd, Array.isArray(args) ? args.map(String) : []), cmd);
-	}
-	const entry = current;
+	const entry = servers?.[MCP_NAME];
 	if (!entry || typeof entry !== "object") return { configured: false };
 	const { command, args } = commandOf(entry);
 	const cmd = typeof command === "string" ? command : undefined;
@@ -157,19 +132,12 @@ function cliServerState(binary: string, fields: { command: RegExp; args: RegExp;
 	if (process.platform === "win32") return { configured: undefined, note: "Not checked on Windows." };
 	const result = spawnSync(binary, ["mcp", "get", MCP_NAME], { encoding: "utf8", timeout: 15000, cwd: homedir() });
 	if (result.error || result.signal) return { configured: undefined };
-	if (result.status !== 0) {
-		const old = spawnSync(binary, ["mcp", "get", OLD_MCP_NAME], { encoding: "utf8", timeout: 15000, cwd: homedir() });
-		if (old.error || old.signal || old.status !== 0) return { configured: false };
-		const text = old.stdout ?? "";
-		const command = text.match(fields.command)?.[1]?.trim();
-		const args = (text.match(fields.args)?.[1] ?? "").trim().split(/\s+/).filter(Boolean);
-		return oldEntry(classify(command, args), command);
-	}
+	if (result.status !== 0) return { configured: false };
 	const out = result.stdout ?? "";
 	// Claude Code: only a user-scope entry serves every project.
 	if (fields.scope && !fields.scope.test(out)) {
 		const scope = out.match(/^\s*Scope:\s*(.+)$/m)?.[1]?.trim() ?? "another scope";
-		return { configured: undefined, note: `Claude Code has a polycarp entry in ${scope}, not in user scope.` };
+		return { configured: undefined, note: `Claude Code has a ${MCP_NAME} entry in ${scope}, not in user scope.` };
 	}
 	const command = out.match(fields.command)?.[1]?.trim();
 	if (command === undefined) return { configured: undefined };
@@ -195,7 +163,7 @@ export function harnesses(binary = launcherBinary()): Harness[] {
 		detected: Boolean(claude),
 		...claudeEntry,
 		addCommand: ["claude", "mcp", "add", "--scope", "user", MCP_NAME, "--", binary, "mcp"],
-		removeCommand: ["claude", "mcp", "remove", "--scope", "user", claudeEntry.oldName ? OLD_MCP_NAME : MCP_NAME],
+		removeCommand: ["claude", "mcp", "remove", "--scope", "user", MCP_NAME],
 	});
 
 	const codex = which("codex");
@@ -206,7 +174,7 @@ export function harnesses(binary = launcherBinary()): Harness[] {
 		detected: Boolean(codex),
 		...codexEntry,
 		addCommand: ["codex", "mcp", "add", MCP_NAME, "--", binary, "mcp"],
-		removeCommand: ["codex", "mcp", "remove", codexEntry.oldName ? OLD_MCP_NAME : MCP_NAME],
+		removeCommand: ["codex", "mcp", "remove", MCP_NAME],
 	});
 
 	const opencodeFile = join(configHome, "opencode", "opencode.json");

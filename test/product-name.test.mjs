@@ -113,8 +113,6 @@ test("the extension's stored data keeps its names", () => {
 const RENAMED = /ai\.tabkyra\.bridge|tabkyra-bridge|x-tabkyra-hub|tabkyra-cli/;
 const RENAMED_ALLOWED = new Map([
 	["src/bridge/native.ts", 1], // the keepalive alarm's name, which no one sees
-	["cli/src/paths.ts", 2], // the old socket folder and pipe, searched after the new ones
-	["cli/src/pi-extension.ts", 1], // the same, in the generated pi extension
 	["cli/src/remote.ts", 2], // LEGACY_HUB_SCOPES_HEADER and LEGACY_HUB_CALLER_HEADER
 ]);
 
@@ -136,10 +134,10 @@ test("renamed identifiers come back only as the named fallbacks", () => {
 	assert.deepEqual(Object.fromEntries(counts), Object.fromEntries(RENAMED_ALLOWED), `use com.polycarp.browser, polycarp-bridge, x-polycarp-hub or USER_AGENT:\n${found.join("\n")}`);
 });
 
-test("the helper's npm package installs tychicus, polycarp-browser and the polycarp command the skills name, and no older alias", () => {
+test("the helper's npm package installs only tychicus: polycarp and polycarp-browser are Polycarp's commands", () => {
 	const pkg = JSON.parse(readFileSync(join(root, "cli/package.json"), "utf8"));
-	assert.deepEqual(Object.keys(pkg.bin).sort(), ["polycarp", "polycarp-browser", "tychicus"], "no tabkyra or sitegeist alias");
+	assert.deepEqual(Object.keys(pkg.bin).sort(), ["tychicus"], "no polycarp, tabkyra or sitegeist alias");
 	const lock = JSON.parse(readFileSync(join(root, "cli/package-lock.json"), "utf8"));
 	// npm writes the lockfile's names sorted, so the order is not part of the check.
-	assert.deepEqual(Object.keys(lock.packages[""].bin ?? {}).sort(), ["polycarp", "polycarp-browser", "tychicus"], "the lockfile agrees");
+	assert.deepEqual(Object.keys(lock.packages[""].bin ?? {}).sort(), ["tychicus"], "the lockfile agrees");
 });

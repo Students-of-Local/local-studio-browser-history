@@ -192,13 +192,13 @@ test("the launcher harnesses run turns on Node's compile cache without overridin
 	run("install");
 	if (process.platform === "win32") {
 		// The Windows launcher is a .cmd that runs the CLI as it is, with no compile cache.
-		const cmd = join(home, ".config", "polycarp", "browser", "polycarp.cmd");
+		const cmd = join(home, ".config", "tychicus", "tychicus.cmd");
 		assert.doesNotMatch(readFileSync(cmd, "utf8"), /NODE_COMPILE_CACHE/);
 		const r = spawnSync("cmd.exe", ["/d", "/c", cmd, "--version"], { env: { ...process.env, USERPROFILE: home }, encoding: "utf8" });
 		assert.equal(r.stdout.trim(), manifestVersion, r.stderr);
 		return;
 	}
-	const launcher = join(home, ".config", "polycarp", "browser", "polycarp");
+	const launcher = join(home, ".config", "tychicus", "tychicus");
 	const text = readFileSync(launcher, "utf8");
 	assert.match(text, /: "\$\{NODE_COMPILE_CACHE:=.*node-compile-cache\}"\nexport NODE_COMPILE_CACHE\nexec /);
 	assert.ok(statSync(launcher).mode & 0o100);
@@ -208,9 +208,9 @@ test("the launcher harnesses run turns on Node's compile cache without overridin
 	const prefix = text.split("\n").slice(1, 3).join("\n");
 	const effective = (extra) => execFileSync("sh", ["-c", `${prefix}\nprintf %s "$NODE_COMPILE_CACHE"`], { env: { PATH: process.env.PATH, HOME: home, ...extra }, encoding: "utf8" });
 	assert.equal(effective({ NODE_COMPILE_CACHE: "/tmp/mine" }), "/tmp/mine");
-	assert.match(effective({}), /\.cache\/polycarp\/node-compile-cache$/);
+	assert.match(effective({}), /\.cache\/tychicus\/node-compile-cache$/);
 	// The native host the browser starts keeps its environment as it was.
-	assert.doesNotMatch(readFileSync(join(home, ".config", "polycarp", "browser", "polycarp-host"), "utf8"), /NODE_COMPILE_CACHE/);
+	assert.doesNotMatch(readFileSync(join(home, ".config", "tychicus", "tychicus-host"), "utf8"), /NODE_COMPILE_CACHE/);
 });
 
 test("help rows and the parsers agree on every flag, including setup's and update's own parsers", async () => {
@@ -260,7 +260,7 @@ test("help rows and the parsers agree on every flag, including setup's and updat
 });
 
 test("token list and token list --json agree on when a token was last used", () => {
-	const dir = join(home, ".config", "polycarp", "browser");
+	const dir = join(home, ".config", "tychicus");
 	mkdirSync(dir, { recursive: true });
 	const record = { id: "t1", name: "phone", scopes: ["browser.read"], sha256: "0".repeat(64), createdAt: "2026-10-01T00:00:00.000Z", lastUsedAt: "2026-10-20T00:00:00.000Z" };
 	writeFileSync(join(dir, "tokens.json"), JSON.stringify({ tokens: [record] }));

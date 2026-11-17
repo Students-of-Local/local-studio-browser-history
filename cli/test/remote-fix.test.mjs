@@ -121,14 +121,14 @@ async function machine(name, { serve = "down", funnel = false, dns = DNS, record
 		writeFileSync(join(bin, "cloudflared"), `#!/bin/sh\necho "cloudflared $*" >> ${log}\n`);
 		chmodSync(join(bin, "cloudflared"), 0o755);
 		writeFileSync(join(cfg, "cloudflared.yml"), `tunnel: x\ningress:\n  - hostname: ${CF_HOST}\n    service: http://127.0.0.1:${port}\n  - service: http_status:404\n`);
-		const cfFile = process.platform === "darwin" ? join(home, "Library", "LaunchAgents", "com.polycarp.cloudflared.plist") : join(home, ".config", "systemd", "user", "polycarp-cloudflared.service");
+		const cfFile = process.platform === "darwin" ? join(home, "Library", "LaunchAgents", "com.tychicus.cloudflared.plist") : join(home, ".config", "systemd", "user", "tychicus-cloudflared.service");
 		mkdirSync(dirname(cfFile), { recursive: true });
 		writeFileSync(cfFile, "left by an earlier setup\n");
 	}
 	// The launcher the service runs, and the service file an earlier setup left.
-	writeFileSync(join(cfg, "polycarp"), `#!/bin/sh\nexec "${process.execPath}" "$@"\n`);
-	chmodSync(join(cfg, "polycarp"), 0o755);
-	const serviceFile = process.platform === "darwin" ? join(home, "Library", "LaunchAgents", "com.polycarp.serve.plist") : join(home, ".config", "systemd", "user", "polycarp-serve.service");
+	writeFileSync(join(cfg, "tychicus"), `#!/bin/sh\nexec "${process.execPath}" "$@"\n`);
+	chmodSync(join(cfg, "tychicus"), 0o755);
+	const serviceFile = process.platform === "darwin" ? join(home, "Library", "LaunchAgents", "com.tychicus.serve.plist") : join(home, ".config", "systemd", "user", "tychicus-serve.service");
 	mkdirSync(dirname(serviceFile), { recursive: true });
 	writeFileSync(serviceFile, "left by an earlier setup\n");
 	const serveStatus = JSON.stringify({ TCP: { 8443: { HTTPS: true } }, Web: { [`${dns}:8443`]: { Handlers: { "/": { Proxy: `http://127.0.0.1:${port}` } } } } });
@@ -143,11 +143,11 @@ async function machine(name, { serve = "down", funnel = false, dns = DNS, record
 	};
 	script(
 		"launchctl",
-		`case "$1" in\nprint) case "$2" in *com.polycarp.serve) if [ -f ${pidFile} ]; then echo "state = running"; exit 0; fi ;; *com.polycarp.cloudflared) ${cfDie("state = running", 0)}${cfStill("state = spawn scheduled", 0)}if [ -f ${cfRunning} ]; then echo "state = running"; exit 0; fi ;; esac; exit 1 ;;\nbootout) case "$2" in *com.polycarp.serve) ${stop} ;; *com.polycarp.cloudflared) /bin/rm -f ${cfRunning} ;; esac ;;\nbootstrap) case "$3" in *com.polycarp.serve.plist) ${start} ;; *com.polycarp.cloudflared.plist) ${cfStart} ;; esac ;;\nesac\n`,
+		`case "$1" in\nprint) case "$2" in *com.tychicus.serve) if [ -f ${pidFile} ]; then echo "state = running"; exit 0; fi ;; *com.tychicus.cloudflared) ${cfDie("state = running", 0)}${cfStill("state = spawn scheduled", 0)}if [ -f ${cfRunning} ]; then echo "state = running"; exit 0; fi ;; esac; exit 1 ;;\nbootout) case "$2" in *com.tychicus.serve) ${stop} ;; *com.tychicus.cloudflared) /bin/rm -f ${cfRunning} ;; esac ;;\nbootstrap) case "$3" in *com.tychicus.serve.plist) ${start} ;; *com.tychicus.cloudflared.plist) ${cfStart} ;; esac ;;\nesac\n`,
 	);
 	script(
 		"systemctl",
-		`case "$2" in\nis-active) if [ "$3" = polycarp-cloudflared.service ]; then ${cfDie("active", 0)}${cfStill("activating", 3)}:; fi; if { [ "$3" = polycarp-serve.service ] && [ -f ${pidFile} ]; } || { [ "$3" = polycarp-cloudflared.service ] && [ -f ${cfRunning} ]; }; then echo active; else echo inactive; exit 3; fi ;;\nrestart) if [ "$3" = polycarp-serve.service ]; then ${stop}; ${start}; else ${cfStart}; fi ;;\ndisable) if [ "$4" = polycarp-serve.service ]; then ${stop}; else /bin/rm -f ${cfRunning}; fi ;;\nesac\n`,
+		`case "$2" in\nis-active) if [ "$3" = tychicus-cloudflared.service ]; then ${cfDie("active", 0)}${cfStill("activating", 3)}:; fi; if { [ "$3" = tychicus-serve.service ] && [ -f ${pidFile} ]; } || { [ "$3" = tychicus-cloudflared.service ] && [ -f ${cfRunning} ]; }; then echo active; else echo inactive; exit 3; fi ;;\nrestart) if [ "$3" = tychicus-serve.service ]; then ${stop}; ${start}; else ${cfStart}; fi ;;\ndisable) if [ "$4" = tychicus-serve.service ]; then ${stop}; else /bin/rm -f ${cfRunning}; fi ;;\nesac\n`,
 	);
 	script("loginctl", `echo "Linger=yes"\n`);
 	const env = {
@@ -415,7 +415,7 @@ serviceTest("remote fix waits for the restarted tunnel service to be running bef
 	try {
 		const r = await m.run(["remote", "fix", "--yes", "--json"]);
 		assert.deepEqual(r.json().actions.map((a) => `${a.kind} ${a.status}`), ["restart_cloudflared done"], r.stdout);
-		assert.ok(m.calls().filter((x) => /^(launchctl print .*cloudflared|systemctl --user is-active polycarp-cloudflared)/.test(x)).length >= 3, "it read the service again while it was starting");
+		assert.ok(m.calls().filter((x) => /^(launchctl print .*cloudflared|systemctl --user is-active tychicus-cloudflared)/.test(x)).length >= 3, "it read the service again while it was starting");
 	} finally {
 		m.cleanup();
 	}
@@ -477,7 +477,7 @@ serviceTest("a repair that is done while its check still fails stops after one t
 		assert.equal(r.code, 1, r.stdout);
 		assert.equal(r.json().code, "restart_cloudflared");
 		assert.match(r.json().message, /done, and the check still fails/);
-		assert.equal(m.calls().filter((x) => /^(launchctl bootstrap .*cloudflared|systemctl --user restart polycarp-cloudflared)/.test(x)).length, 1, "it restarted once, not in a loop");
+		assert.equal(m.calls().filter((x) => /^(launchctl bootstrap .*cloudflared|systemctl --user restart tychicus-cloudflared)/.test(x)).length, 1, "it restarted once, not in a loop");
 	} finally {
 		m.cleanup();
 	}

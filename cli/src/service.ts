@@ -9,7 +9,7 @@ import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve, win32 } from "node:path";
 import { launcherBinary } from "./harness.ts";
 import { cliLauncherPath, ensureLauncherIsSelf } from "./install.ts";
-import { configDir, configDirOverride, legacyConfigDir } from "./files.ts";
+import { configDir, configDirOverride } from "./files.ts";
 import { COMMAND_NAME } from "./self.ts";
 import { envVar } from "./env.ts";
 import { tasklistCall, tasklistImage } from "./tool-paths.ts";
@@ -142,17 +142,7 @@ function savedFolders(spec: ServiceSpec): { config?: string; socket?: string } {
 	}
 	const config = found.get("POLYCARP_BROWSER_CONFIG_DIR") ?? found.get("TABKYRA_CONFIG_DIR");
 	const socket = found.get("POLYCARP_SOCKET_DIR") ?? found.get("TABKYRA_SOCKET_DIR");
-	return { config: config && isAbsolute(config) ? migratedFolder(config) : undefined, socket: socket && isAbsolute(socket) ? socket : undefined };
-}
-
-/** The old default config folder now lives at the new one (the migration left a symlink); a folder that still holds the state stays as it is. */
-function migratedFolder(dir: string): string {
-	try {
-		if (resolve(dir) === resolve(legacyConfigDir()) && lstatSync(dir).isSymbolicLink()) return configDir();
-	} catch {
-		/* keep it */
-	}
-	return dir;
+	return { config: config && isAbsolute(config) ? config : undefined, socket: socket && isAbsolute(socket) ? socket : undefined };
 }
 
 /** A user service: what runs (`polycarp-browser <args>`), and the names the service manager knows it by. */
@@ -170,39 +160,34 @@ export interface ServiceSpec {
 	legacy?: { label: string; unit: string; logName: string };
 }
 
-const legacyNames = (name: string) => ({ label: `com.tabkyra.${name}`, unit: `tabkyra-${name}.service`, logName: `tabkyra-${name}.log` });
-
 export const SERVE_SERVICE: ServiceSpec = {
-	label: "com.polycarp.serve",
-	unit: "polycarp-serve.service",
+	label: "com.tychicus.serve",
+	unit: "tychicus-serve.service",
 	args: ["serve"],
-	logName: "polycarp-serve.log",
-	description: "Polycarp serve (MCP over HTTP for claude.ai, ChatGPT and grok.com)",
+	logName: "tychicus-serve.log",
+	description: "Tychicus serve (MCP over HTTP for claude.ai, ChatGPT and grok.com)",
 	off: `${COMMAND_NAME} remote off`,
 	kept: "remote.json",
-	legacy: legacyNames("serve"),
 };
 
 export const HUB_SERVICE: ServiceSpec = {
-	label: "com.polycarp.hub",
-	unit: "polycarp-hub.service",
+	label: "com.tychicus.hub",
+	unit: "tychicus-hub.service",
 	args: ["hub", "serve"],
-	logName: "polycarp-hub.log",
-	description: "Polycarp hub (one connector URL for many devices)",
+	logName: "tychicus-hub.log",
+	description: "Tychicus hub (one connector URL for many devices)",
 	off: `${COMMAND_NAME} hub off`,
 	kept: "hub.json",
-	legacy: legacyNames("hub"),
 };
 
 export const LINK_SERVICE: ServiceSpec = {
-	label: "com.polycarp.link",
-	unit: "polycarp-link.service",
+	label: "com.tychicus.link",
+	unit: "tychicus-link.service",
 	args: ["link", "run"],
-	logName: "polycarp-link.log",
-	description: "Polycarp link (this device, behind a hub)",
+	logName: "tychicus-link.log",
+	description: "Tychicus link (this device, behind a hub)",
 	off: `${COMMAND_NAME} link off`,
 	kept: "link.json",
-	legacy: legacyNames("link"),
 };
 
 const plistPath = (spec: ServiceSpec) => join(homedir(), "Library", "LaunchAgents", `${spec.label}.plist`);
@@ -783,20 +768,6 @@ async function installFresh(spec: ServiceSpec, exec: Runner, saved: { config?: s
 	}
 	if (platform() === "win32") return installWindows(spec, exec, binary, env);
 	return { ok: false, message: `No service manager is set up for ${platform()}. Keep it running yourself: ${binary} ${spec.args.join(" ")}` };
-}
-
-/**
- * Services installed under the old tabkyra names are installed again under the polycarp ones (same arguments, the current
- * launcher) and the old ones stopped and deleted. Runs from install, setup and update, never from a service itself: a service
- * that retired its own old label would stop itself.
- */
-export async function migrateLegacyServices(): Promise<Array<{ label: string } & InstallResult>> {
-	const out: Array<{ label: string } & InstallResult> = [];
-	for (const spec of [SERVE_SERVICE, HUB_SERVICE, LINK_SERVICE]) {
-		if (!legacyServiceInstalled(spec)) continue;
-		out.push({ label: spec.label, ...(await installService(spec)) });
-	}
-	return out;
 }
 
 /** Stop and remove the user service. A failed stop keeps the service file so `remote off` can be run again. */

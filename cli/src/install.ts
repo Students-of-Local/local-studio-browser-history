@@ -13,8 +13,7 @@ import { NATIVE_HOST_NAME, NATIVE_HOST_NAMES } from "../../src/bridge/protocol.t
 import { COMPILED, selfExec, selfPrefix } from "./self.ts";
 import { VERSION } from "./version.ts";
 import { envVar } from "./env.ts";
-import { CLI_LAUNCHER_NAME, cacheDir, configDir, HOST_LAUNCHER_NAME, LEGACY_CLI_LAUNCHER_NAME, LEGACY_HOST_LAUNCHER_NAME, legacyConfigDir } from "./files.ts";
-import { migrateLegacyPaths } from "./migrate.ts";
+import { CLI_LAUNCHER_NAME, cacheDir, configDir, HOST_LAUNCHER_NAME } from "./files.ts";
 
 /**
  * Stable id from the `key` in static/manifest.chrome.json: unpacked and bundled copies. The one place it is written is
@@ -154,7 +153,7 @@ export function registeredBrowserNames(): string[] {
 		.map(({ name }) => name);
 }
 
-export { CLI_LAUNCHER_NAME, HOST_LAUNCHER_NAME, LEGACY_CLI_LAUNCHER_NAME, LEGACY_HOST_LAUNCHER_NAME };
+export { CLI_LAUNCHER_NAME, HOST_LAUNCHER_NAME };
 
 export function launcherPath(): string {
 	return join(configDir(), HOST_LAUNCHER_NAME);
@@ -166,11 +165,6 @@ export function launcherPath(): string {
  */
 export function cliLauncherPath(): string {
 	return join(configDir(), CLI_LAUNCHER_NAME);
-}
-
-/** Where the agent launcher used to live: the old config folder, plus the old launcher name. Agent entries written then point here. */
-export function legacyCliLauncherPaths(): string[] {
-	return [...new Set([join(legacyConfigDir(), LEGACY_CLI_LAUNCHER_NAME), join(homedir(), ".config", "tabkyra", LEGACY_CLI_LAUNCHER_NAME)])];
 }
 
 /** Node by its PATH name when that is this same binary (survives upgrades), else execPath. */
@@ -299,7 +293,6 @@ export interface InstallOptions {
 }
 
 export function install(options: InstallOptions = {}): InstallResult {
-	if (!options.dryRun) migrateLegacyPaths();
 	const only = options.browsers ?? (options.browser !== undefined ? [options.browser] : undefined);
 	// A chosen set of browsers: working launchers (a standalone Polycarp's, say) stay as they are, so nothing else is repointed.
 	const keepLaunchers = options.keepLaunchers !== false && only !== undefined && launchersWork();

@@ -154,7 +154,7 @@ function oldCopy(home, text, recorded) {
 	const file = join(home, ".claude", "skills", "tabkyra", "SKILL.md");
 	mkdirSync(dirname(file), { recursive: true });
 	writeFileSync(file, text);
-	const recordFile = join(home, ".config", "polycarp", "browser", "skills-installed.json");
+	const recordFile = join(home, ".config", "tychicus", "skills-installed.json");
 	mkdirSync(dirname(recordFile), { recursive: true });
 	writeFileSync(recordFile, JSON.stringify(recorded ? { [file]: sha(recorded) } : {}));
 	return { file, recordFile };
@@ -193,7 +193,7 @@ test("skill install removes the tabkyra copy it wrote before the rename, and onl
 	const link = join(h, ".claude", "skills", "tabkyra");
 	mkdirSync(dirname(link), { recursive: true });
 	symlinkSync(dirname(real), link);
-	const recordFile2 = join(h, ".config", "polycarp", "browser", "skills-installed.json");
+	const recordFile2 = join(h, ".config", "tychicus", "skills-installed.json");
 	mkdirSync(dirname(recordFile2), { recursive: true });
 	writeFileSync(recordFile2, JSON.stringify({ [join(link, "SKILL.md")]: sha(ours) }));
 	assert.equal(run(h, "skill", "install").code, 0);

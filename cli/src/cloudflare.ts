@@ -26,11 +26,11 @@ const LOGIN_TIMEOUT_MS = 300_000;
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/;
 
 export const CLOUDFLARE_SERVICE: ServiceSpec = {
-	label: "com.polycarp.cloudflared",
-	unit: "polycarp-cloudflared.service",
+	label: "com.tychicus.cloudflared",
+	unit: "tychicus-cloudflared.service",
 	args: ["remote", "cloudflare", "run"],
-	logName: "polycarp-cloudflared.log",
-	description: "Polycarp's Cloudflare tunnel",
+	logName: "tychicus-cloudflared.log",
+	description: "Tychicus's Cloudflare tunnel",
 	off: `${COMMAND_NAME} remote off`,
 	kept: "remote.json",
 };

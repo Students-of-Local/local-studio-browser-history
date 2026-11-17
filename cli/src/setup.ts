@@ -4,16 +4,13 @@
  * after a yes and always points harnesses at the absolute path of the launcher.
  */
 
-import { moveClaudeRules } from "./always-allow.ts";
 import { COMMAND_NAME } from "./self.ts";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { BridgeClient, listSockets } from "./client.ts";
 import { buildState, builtVersion, sourceVersion } from "./doctor.ts";
-import { migrateLegacyPaths } from "./migrate.ts";
-import { migrateLegacyServices } from "./service.ts";
-import { harnesses, launcherValid, runCommand, shellJoin, launcherBinary, which } from "./harness.ts";
+import { harnesses, launcherBinary, launcherValid, MCP_NAME, runCommand, shellJoin, which } from "./harness.ts";
 import { browserDirs, install, installedBrowserDirs, registeredBrowserNames } from "./install.ts";
 import { extensionDir, repoRoot } from "./paths.ts";
 import { installSkills, skillTargets } from "./skill.ts";
@@ -209,8 +206,7 @@ async function connectHarnesses(options: SetupOptions): Promise<boolean> {
 		}
 		const replacing = h.configured === "stale" || h.configured === "other";
 		if (h.addCommand) {
-			// Moving to the new name, the new entry goes in first: a failed add must not cost a working entry.
-			const commands = !replacing || !h.removeCommand ? [h.addCommand] : h.oldName ? [h.addCommand, h.removeCommand] : [h.removeCommand, h.addCommand];
+			const commands = !replacing || !h.removeCommand ? [h.addCommand] : [h.removeCommand, h.addCommand];
 			const shown = commands.map(shellJoin).join(" && ");
 			// Windows harness CLIs are .cmd shims that need a shell; print the command there instead.
 			if (process.platform === "win32") {
@@ -218,8 +214,8 @@ async function connectHarnesses(options: SetupOptions): Promise<boolean> {
 				continue;
 			}
 			let question = `Add Polycarp to ${c.bold(h.name)}?`;
-			if (h.configured === "stale") question = h.oldName ? `Move ${c.bold(h.name)}'s entry to its new name, polycarp?` : `${c.bold(h.name)}'s polycarp entry points at a missing command. Replace it?`;
-			if (h.configured === "other") question = `${c.bold(h.name)}'s polycarp entry runs ${h.currentCommand}. Replace it with this install?`;
+			if (h.configured === "stale") question = `${c.bold(h.name)}'s ${MCP_NAME} entry points at a missing command. Replace it?`;
+			if (h.configured === "other") question = `${c.bold(h.name)}'s ${MCP_NAME} entry runs ${h.currentCommand}. Replace it with this install?`;
 			// An entry running some other existing command may be the user's own wrapper:
 			// --yes doesn't replace it, and the interactive default is no.
 			const assumeYes = options.yes && h.configured !== "other";
@@ -248,12 +244,6 @@ async function connectHarnesses(options: SetupOptions): Promise<boolean> {
 		} else if (h.snippet) {
 			console.log(`  ${sym.dot} ${c.bold(h.name)}: run ${c.bold(h.snippet)}`);
 		}
-	}
-	// However the entry got its new name (this run, a pasted command, an earlier version), rules naming the old one move now.
-	if (harnesses().find((h) => h.id === "claude")?.configured === true) {
-		const moved = moveClaudeRules();
-		if (moved.rewritten) console.log(`  ${sym.ok} ${moved.rewritten} permission rule(s) in Claude Code's settings now name polycarp.`);
-		if (moved.elsewhere) console.log(`  ${sym.warn} ${c.dim("Claude Code's settings still mention mcp__tabkyra outside its permission rules (a hook, say). Those no longer match.")}`);
 	}
 	await offerSkill(options);
 	return ok;
@@ -388,9 +378,6 @@ export async function runSetup(options: SetupOptions): Promise<number> {
 	const opts = { ...options, timeoutS };
 	console.log(banner(`setup ${VERSION}`));
 	console.log(c.dim("You steer. Your agents work the tabs."));
-
-	migrateLegacyPaths();
-	for (const r of await migrateLegacyServices()) console.log(r.ok ? `  ${sym.ok} Moved the ${r.label} service to its new name` : `  ${sym.warn} ${r.message}`);
 
 	step(1, "Build the extension");
 	if (!(await ensureBuild(opts))) return 1;

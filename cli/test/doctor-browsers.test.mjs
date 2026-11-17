@@ -105,7 +105,7 @@ test("install --browser refuses a name it doesn't know, and writes nothing", () 
 	const r = spawnSync(process.execPath, [cli, "install", "--browser", "chrome"], { env: env(), encoding: "utf8" });
 	assert.notEqual(r.status, 0);
 	assert.match(r.stderr + r.stdout, /Unknown browser "chrome"\. Use one of: Helium, Chrome/);
-	assert.equal(existsSync(join(root, "home", ".config", "polycarp", "browser")), false, "no launcher was written");
+	assert.equal(existsSync(join(root, "home", ".config", "tychicus")), false, "no launcher was written");
 });
 
 const reset = async () => {
@@ -178,7 +178,7 @@ test("a launcher that runs an older copy of the helper fails doctor, with instal
 	writeFileSync(other, "");
 	// The pre-rename checkout on the Mac was 1.1.9 against 1.1.10.
 	writeFileSync(join(dirname(other), "build-info.json"), JSON.stringify({ version: "0.0.1" }));
-	const host = checks.find((c) => c.id === "launcher").detail.replace(/[^/]+$/, "polycarp-host");
+	const host = checks.find((c) => c.id === "launcher").detail.replace(/[^/]+$/, "tychicus-host");
 	for (const [file, args] of [[checks.find((c) => c.id === "launcher").detail, ""], [host, "host "]]) {
 		assert.ok(existsSync(file), file);
 		writeFileSync(file, `#!/bin/sh\nexec "${process.execPath}" "${other}" ${args}"$@"\n`);

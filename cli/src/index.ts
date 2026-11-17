@@ -5,7 +5,6 @@ import { claudeAllows, setClaudeAllows } from "./always-allow.ts";
 import { harnesses } from "./harness.ts";
 import { BridgeClient, BridgeRpcError, isConnectionError, listSockets, NOT_CONNECTED } from "./client.ts";
 import { runDoctor } from "./doctor.ts";
-import { migrateLegacyPaths } from "./migrate.ts";
 import { runNativeHost } from "./host.ts";
 import { browserDirs, browserRunning, cliLauncherPath, extensionInProfile, hostStatus, install, isInstalled } from "./install.ts";
 import { runMcpServer } from "./mcp.ts";
@@ -38,7 +37,7 @@ import { runSubmit } from "./skill-submit.ts";
 import { banner, c, confirm, sym } from "./ui.ts";
 import { runUpdate, UpdateError } from "./update.ts";
 import { detectMode, recoverCheckoutQuietly } from "./checkout.ts";
-import { migrateLegacyServices, recordServicePid } from "./service.ts";
+import { recordServicePid } from "./service.ts";
 import { type HostRunAction, refuseHostAction, runHostAction } from "./update-run.ts";
 import { BUILD } from "../../src/update/build.ts";
 import { argsProblem, COMMANDS, completionScript, EXIT_CODES, helpRows, REMOTE_GUIDE, VALUE_FLAGS, VISIBLE_COMMANDS } from "./commands.ts";
@@ -288,8 +287,6 @@ async function main(): Promise<void> {
 	// `host` is spawned by the browser with its origin as an argument; leave it alone.
 	// `polycarp browser link https://hub...` is `link enroll`.
 	if (command && command !== "host") checkArgs(command, command === "link" && /^https?:\/\//.test(argv[1] ?? "") ? ["enroll", ...argv.slice(1)] : argv.slice(1));
-	// The folders and names from before the rename move once, before anything reads config. Help, version and completions never touch it.
-	if (command && !["--version", "-v", "version", "--help", "-h", "help", "completion"].includes(command)) migrateLegacyPaths();
 	// Bad setup or update options are refused before anything below touches the checkout.
 	const setupArgs = command === "setup" ? parseSetupArgs(argv.slice(1)) : undefined;
 	if (typeof setupArgs === "string") throw new UsageError(`${setupArgs} Usage: ${COMMAND_NAME} setup [--yes] [--no-wait] [--timeout <seconds>] [--browser <name>]`);
@@ -398,7 +395,6 @@ async function main(): Promise<void> {
 				process.exitCode = await installFromRelease(release, { dryRun, skipAttestation: flag("--skip-attestation"), passOn: argv.slice(1) });
 				return;
 			}
-			if (!dryRun) for (const r of await migrateLegacyServices()) console.log(r.ok ? `${sym.ok} Moved the ${r.label} service to its new name` : `${sym.warn} ${r.message}`);
 			const result = install({ force: flag("--force"), browser: only, dryRun });
 			const verb = dryRun ? "Would write" : "Wrote";
 			console.log(`${sym.ok} Launcher ${c.dim(result.launcher)}`);

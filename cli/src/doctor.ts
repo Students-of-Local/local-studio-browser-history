@@ -3,16 +3,13 @@
  * one exact fix per failure. Exits 1 when any check fails.
  */
 
-import { claudeRulesLeft } from "./always-allow.ts";
 import { COMMAND_NAME } from "./self.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { NATIVE_HOST_NAME, type UserScriptsStatus } from "../../src/bridge/protocol.ts";
 import { BridgeClient, listSockets } from "./client.ts";
-import { harnesses, launcherValid, shellJoin } from "./harness.ts";
-import { legacyLeftovers } from "./migrate.ts";
-import { HUB_SERVICE, LINK_SERVICE, legacyServiceInstalled, SERVE_SERVICE } from "./service.ts";
-import { cliLauncherPath, extensionOrigins, hostTarget, installedBrowserDirs, launcherPath, launcherRunsOlder, legacyCliLauncherPaths, manifestLauncherRuns, originsCurrent } from "./install.ts";
+import { harnesses, launcherValid, MCP_NAME, shellJoin } from "./harness.ts";
+import { cliLauncherPath, extensionOrigins, hostTarget, installedBrowserDirs, launcherPath, launcherRunsOlder, manifestLauncherRuns, originsCurrent } from "./install.ts";
 import { EXTENSION_FILES, extensionDir, repoRoot } from "./paths.ts";
 import { banner, c, sym } from "./ui.ts";
 import { VERSION } from "./version.ts";
@@ -107,30 +104,6 @@ function launcherCheck(): Check {
 				detail: `${cliLauncherPath()} is what harness configs run.`,
 				fix: `${COMMAND_NAME} install --force`,
 			};
-}
-
-/** Old tabkyra folders and services the migration did not take: reported, never deleted or merged. */
-function legacyChecks(): Check[] {
-	const out: Check[] = [];
-	const left = legacyLeftovers();
-	if (left.length) {
-		out.push({
-			id: "legacy-folders",
-			status: "warn",
-			label: "Old tabkyra folders were not moved",
-			detail: `${left.join(", ")}. Either a polycarp folder already exists (nothing is merged) or a link to the new place could not be made. Look through them before deleting anything; a service may still use one.`,
-		});
-	}
-	const services = [SERVE_SERVICE, HUB_SERVICE, LINK_SERVICE].filter(legacyServiceInstalled);
-	if (services.length) {
-		out.push({
-			id: "legacy-services",
-			status: "warn",
-			label: `Services still under the old tabkyra names: ${services.map((s) => s.legacy?.label).join(", ")}`,
-			fix: `${COMMAND_NAME} install`,
-		});
-	}
-	return out;
 }
 
 /** `live`: browsers a running connection names, which count as installed even if their app can't be found. */
@@ -380,13 +353,11 @@ function harnessChecks(): Check[] {
 		.map((h): Check => {
 			const id = `mcp:${h.id}`;
 			if (h.configured === true) {
-				const left = h.id === "claude" ? claudeRulesLeft() : 0;
-				if (left) return { id, status: "warn", label: `${h.name}: ${left} permission rule(s) still name tabkyra`, detail: "They match nothing now: an allow prompts again, and a deny no longer denies.", fix: `${COMMAND_NAME} setup` };
 				return { id, status: "ok", label: `${h.name}: Polycarp MCP server configured` };
 			}
 			const replace = h.configured === "stale" || h.configured === "other";
 			let fix: string;
-			if (h.addCommand) fix = replace && h.removeCommand ? (h.oldName ? `${COMMAND_NAME} setup` : `${shellJoin(h.removeCommand)} && ${shellJoin(h.addCommand)}`) : shellJoin(h.addCommand);
+			if (h.addCommand) fix = replace && h.removeCommand ? `${shellJoin(h.removeCommand)} && ${shellJoin(h.addCommand)}` : shellJoin(h.addCommand);
 			else if (h.snippet?.startsWith("{")) fix = `${replace ? "Replace the Polycarp entry in" : "Add this to"} ${h.configFile}:\n${h.snippet}`;
 			else fix = h.snippet ?? "";
 			if (h.configured === undefined) {
@@ -394,16 +365,16 @@ function harnessChecks(): Check[] {
 					id,
 					status: "warn",
 					label: `${h.name}: couldn't tell whether Polycarp is configured`,
-					detail: h.note ?? (h.configFile ? `${h.configFile} could not be parsed.` : `\`${h.id} mcp get polycarp\` failed or printed something unexpected.`),
-					fix: h.configFile ? `Check ${h.configFile}` : `${h.id} mcp get polycarp`,
+					detail: h.note ?? (h.configFile ? `${h.configFile} could not be parsed.` : `\`${h.id} mcp get ${MCP_NAME}\` failed or printed something unexpected.`),
+					fix: h.configFile ? `Check ${h.configFile}` : `${h.id} mcp get ${MCP_NAME}`,
 				};
 			}
 			if (h.configured === "stale") {
-				return { id, status: "fail", label: h.oldName ? `${h.name}: Polycarp's entry is under its old name` : h.currentCommand && legacyCliLauncherPaths().includes(h.currentCommand) ? `${h.name}: the polycarp entry points at the old launcher path` : `${h.name}: the polycarp entry points at a missing command`, detail: h.currentCommand, fix };
+				return { id, status: "fail", label: `${h.name}: the ${MCP_NAME} entry points at a missing command`, detail: h.currentCommand, fix };
 			}
 			if (h.configured === "other") {
 				// Could be the user's own wrapper; flag it, don't fail on it.
-				return { id, status: "warn", label: `${h.name}: the polycarp entry runs a different command`, detail: h.currentCommand, fix };
+				return { id, status: "warn", label: `${h.name}: the ${MCP_NAME} entry runs a different command`, detail: h.currentCommand, fix };
 			}
 			return {
 				id,
@@ -418,7 +389,7 @@ function harnessChecks(): Check[] {
 
 export async function runDoctor(options: { json: boolean }): Promise<number> {
 	const connection = await connectionChecks();
-	const checks: Check[] = [nodeCheck(), buildCheck(), launcherCheck(), ...legacyChecks(), ...hostChecks(connection.holders), ...connection.checks, ...harnessChecks()];
+	const checks: Check[] = [nodeCheck(), buildCheck(), launcherCheck(), ...hostChecks(connection.holders), ...connection.checks, ...harnessChecks()];
 	const failed = checks.filter((check) => check.status === "fail").length;
 	if (options.json) {
 		process.stdout.write(`${JSON.stringify({ ok: failed === 0, version: VERSION, checks }, null, 2)}\n`);

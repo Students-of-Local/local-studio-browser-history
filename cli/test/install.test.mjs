@@ -52,7 +52,7 @@ test("install registers com.tychicus.browser for Helium and Chrome, leaves Polyc
 		const host = JSON.parse(readFileSync(join(dir, "NativeMessagingHosts", "com.tychicus.browser.json"), "utf8"));
 		assert.equal(host.name, "com.tychicus.browser");
 		assert.deepEqual(host.allowed_origins, [`chrome-extension://${id}/`]);
-		assert.equal(host.path, join(home, ".config", "polycarp", "browser", "polycarp-host"));
+		assert.equal(host.path, join(home, ".config", "tychicus", "tychicus-host"));
 		// Polycarp's helper owns these names; Tychicus never writes them.
 		for (const name of ["com.polycarp.browser", "ai.tabkyra.bridge"]) assert.equal(existsSync(join(dir, "NativeMessagingHosts", `${name}.json`)), false, name);
 	}

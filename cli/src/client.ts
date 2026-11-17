@@ -79,7 +79,7 @@ export function listSockets(dirs: readonly string[] = socketDirs()): string[] {
 		}
 		for (const n of readdirSync(dir)) if (n.endsWith(".sock")) found.push(join(dir, n));
 	});
-	// A host listens in both folders (paths.ts legacySocketPath): keep its socket in the first one.
+	// The same host listed under two given folders is kept once, from the first.
 	const seen = new Set<string>();
 	return found
 		.filter((p) => {
