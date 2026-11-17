@@ -8,7 +8,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { NATIVE_HOST_NAME, type UserScriptsStatus } from "../../src/bridge/protocol.ts";
 import { BridgeClient, listSockets } from "./client.ts";
-import { aliasFile, liveAlias, planMigration, readAliases } from "./agent-migration.ts";
+import { aliasFile, knownAliases, liveAlias, planMigration } from "./agent-migration.ts";
 import { harnesses, launcherBinary, launcherValid, MCP_NAME, shellJoin } from "./harness.ts";
 import { cliLauncherPath, extensionOrigins, hostTarget, installedBrowserDirs, launcherPath, launcherRunsOlder, manifestLauncherRuns, originsCurrent } from "./install.ts";
 import { EXTENSION_FILES, extensionDir, repoRoot } from "./paths.ts";
@@ -420,7 +420,7 @@ function polycarpAgentChecks(): Check[] {
 		}
 		for (const line of plan.leftAlone) checks.push({ id: `${id}:manual`, status: "warn", label: `${plan.name}: an entry still runs Polycarp's browser MCP server`, detail: line });
 	}
-	const aliases = readAliases();
+	const aliases = knownAliases();
 	if (aliases.length > 0) {
 		const list = aliases.map((a) => `"${a.name}" in ${a.harness}`).join(", ");
 		checks.push({

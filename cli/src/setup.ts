@@ -229,6 +229,13 @@ function printPlan(plan: FilePlan, binary: string): void {
  * entry had to be left for a manual fix during finish, or a write failed. A file that doesn't parse but names neither
  * polycarp nor tabkyra is only a warning: there was nothing in it to move.
  */
+/** Write the plans, then name any file whose aliases couldn't be recorded. Never called in a dry run. */
+function applyAndWarn(plans: FilePlan[]): ReturnType<typeof applyMigration> {
+	const done = applyMigration(plans);
+	for (const plan of plans) if (plan.aliasWarning) console.log(`  ${sym.warn} ${c.bold(plan.name)}: ${plan.aliasWarning}`);
+	return done;
+}
+
 async function runAgentPlans(kind: "move" | "finish", options: Pick<SetupOptions, "yes" | "dryRun">): Promise<boolean> {
 	const binary = launcherBinary();
 	const plans = kind === "move" ? planMigration(binary) : planFinish(binary);
@@ -237,13 +244,13 @@ async function runAgentPlans(kind: "move" | "finish", options: Pick<SetupOptions
 	const shown = plans.filter((p) => p.status === "change" || p.status === "refused" || p.leftAlone.length + p.projects.length + p.notes.length > 0);
 	if (shown.length === 0) {
 		console.log(`  ${sym.ok} ${kind === "move" ? "No agent runs Polycarp's browser MCP server; nothing to move." : "No temporary aliases are left; nothing to finish."}`);
-		if (kind === "finish") applyMigration(plans);
+		if (kind === "finish") applyAndWarn(plans);
 		return true;
 	}
 	for (const plan of shown) printPlan(plan, binary);
 	if (changes.length === 0 || options.dryRun) {
 		if (options.dryRun) console.log(`  ${c.dim("Dry run: nothing was written.")}`);
-		else if (kind === "finish") applyMigration(plans);
+		else if (kind === "finish") applyAndWarn(plans);
 		return !failed();
 	}
 	if (!launcherValid()) {
@@ -257,7 +264,7 @@ async function runAgentPlans(kind: "move" | "finish", options: Pick<SetupOptions
 		return !failed();
 	}
 	try {
-		for (const { file, backup } of applyMigration(plans)) console.log(`  ${sym.ok} ${file} ${c.dim(`(backup: ${backup})`)}`);
+		for (const { file, backup } of applyAndWarn(plans)) console.log(`  ${sym.ok} ${file} ${c.dim(`(backup: ${backup})`)}`);
 	} catch (err) {
 		console.log(`  ${sym.fail} Writing failed: ${err instanceof Error ? err.message : String(err)}. Files written before it, and their backups, are listed above.`);
 		return false;

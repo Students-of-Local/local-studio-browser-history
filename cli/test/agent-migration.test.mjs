@@ -587,3 +587,33 @@ test("sol-F4 (round 2): adjacent aliases beside tychicus are removed together an
 		assert.deepEqual(aliasList(), []);
 	});
 });
+
+test("sol-F3 (round 2): when agent-aliases.json can't be written, the moved alias is still found by finish and doctor", () => {
+	inHome("alias-unwritable", (home) => {
+		const bin = join(home, ".config", "tychicus", "tychicus");
+		const claude = join(home, ".claude.json");
+		put(claude, CLAUDE, 0o600);
+		// A folder where the list should be: writing it fails (EISDIR), for root too.
+		mkdirSync(join(process.env.TYCHICUS_CONFIG_DIR, "agent-aliases.json"), { recursive: true });
+		const plans = planMigration(bin);
+		let thrown;
+		try {
+			applyMigration(plans, new Date("2026-11-17T20:00:00Z"));
+		} catch (err) {
+			thrown = err;
+		}
+		assert.equal(JSON.parse(readFileSync(claude, "utf8")).mcpServers.polycarp.command, bin, "the config was written");
+		assert.equal(m.liveAlias("claude")?.name, "polycarp", "setup and doctor still see the alias, so they add no second server");
+		assert.equal(thrown, undefined, "the move doesn't fail after its config write");
+		const plan = plans.find((p) => p.harness === "claude");
+		assert.match(plan.aliasWarning, /agent-aliases\.json couldn't be updated .*still find entries named polycarp or tabkyra/);
+		// A retry finds nothing to move; the finish finds the alias by name and renames it.
+		assert.equal(planMigration(bin).find((p) => p.harness === "claude").status, "unchanged");
+		const [finish] = m.planFinish(bin);
+		assert.equal(finish.harness, "claude");
+		assert.deepEqual(finish.finished, [{ name: "polycarp", action: "renamed" }]);
+		applyMigration([finish], new Date("2026-11-17T21:00:00Z"));
+		assert.deepEqual(Object.keys(JSON.parse(readFileSync(claude, "utf8")).mcpServers), ["github", "tychicus"]);
+		assert.equal(m.liveAlias("claude"), undefined);
+	});
+});

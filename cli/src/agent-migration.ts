@@ -78,13 +78,16 @@ export interface FilePlan {
 	notes: string[];
 	before?: string;
 	after?: string;
+	/** Set after the write when agent-aliases.json couldn't be updated; the config write itself stands. */
+	aliasWarning?: string;
 }
 
 export interface AliasRecord {
 	harness: MigrationHarness;
 	file: string;
 	name: string;
-	since: string;
+	/** When the move recorded it. An alias found by its name and launcher, with no record, has none. */
+	since?: string;
 }
 
 const NAMES: Record<MigrationHarness, string> = { claude: "Claude Code", codex: "Codex", opencode: "OpenCode", cursor: "Cursor", omp: "OMP" };
@@ -693,10 +696,10 @@ export function planMigration(binary: string): FilePlan[] {
 	return migrationFiles().map(({ harness, file }) => planFile(newPlan("move", harness, file, binary)));
 }
 
-/** What finishing the move would change: each recorded alias renamed to tychicus. Nothing is written. */
+/** What finishing the move would change: each alias renamed to tychicus. Nothing is written. */
 export function planFinish(binary: string): FilePlan[] {
 	const byFile = new Map<string, { harness: MigrationHarness; names: string[] }>();
-	for (const record of readAliases()) {
+	for (const record of knownAliases()) {
 		const group = byFile.get(record.file) ?? { harness: record.harness, names: [] };
 		if (!group.names.includes(record.name)) group.names.push(record.name);
 		byFile.set(record.file, group);
@@ -828,6 +831,10 @@ function forgetAliases(plan: FilePlan): void {
 	if (kept.length !== known.length) writeAliases(kept);
 }
 
+function entryCommand(harness: MigrationHarness, entry: unknown): Command | undefined {
+	return harness === "codex" ? tomlCommand(entry) : jsonCommand(entry, JSON_FORMATS[harness].shape);
+}
+
 function readServers(harness: MigrationHarness, text: string): Record<string, unknown> | undefined {
 	if (harness === "codex") {
 		const data = parseToml(text) as Record<string, unknown>;
@@ -840,15 +847,44 @@ function readServers(harness: MigrationHarness, text: string): Record<string, un
 }
 
 /**
- * The recorded alias through which this harness runs Tychicus, if its entry is still there and still runs a Tychicus
- * launcher. Setup and doctor count it as configured, so they don't add a second `tychicus` entry beside it.
+ * Entries named like polycarp or tabkyra (any case) that run a Tychicus launcher, in each harness's config. They are
+ * temporary aliases whether or not agent-aliases.json lists them: the move's write of that list can fail after the
+ * config was written, and the finish and doctor must still find them.
+ */
+function foundAliases(): AliasRecord[] {
+	const found: AliasRecord[] = [];
+	for (const { harness, file } of migrationFiles()) {
+		let servers: Record<string, unknown> | undefined;
+		try {
+			servers = readServers(harness, readFileSync(file, "utf8"));
+		} catch {
+			continue;
+		}
+		for (const [name, entry] of Object.entries(servers ?? {})) {
+			if (name === MCP_NAME || !couldHoldEntry(name)) continue;
+			const cmd = entryCommand(harness, entry);
+			if (cmd && runsTychicus(cmd.command, cmd.args)) found.push({ harness, file, name });
+		}
+	}
+	return found;
+}
+
+/** The recorded aliases, and the ones found by name and launcher that the list is missing. */
+export function knownAliases(): AliasRecord[] {
+	const known = readAliases();
+	for (const f of foundAliases()) if (!known.some((k) => k.harness === f.harness && k.file === f.file && k.name === f.name)) known.push(f);
+	return known;
+}
+
+/**
+ * The alias through which this harness runs Tychicus, if its entry is still there and still runs a Tychicus launcher.
+ * Setup and doctor count it as configured, so they don't add a second `tychicus` entry beside it.
  */
 export function liveAlias(harness: string): AliasRecord | undefined {
-	for (const record of readAliases()) {
+	for (const record of knownAliases()) {
 		if (record.harness !== harness) continue;
 		try {
-			const entry = readServers(record.harness, readFileSync(record.file, "utf8"))?.[record.name];
-			const cmd = record.harness === "codex" ? tomlCommand(entry) : jsonCommand(entry, JSON_FORMATS[record.harness].shape);
+			const cmd = entryCommand(record.harness, readServers(record.harness, readFileSync(record.file, "utf8"))?.[record.name]);
 			if (cmd && runsTychicus(cmd.command, cmd.args)) return record;
 		} catch {
 			// An unreadable file is no alias.
@@ -864,17 +900,31 @@ function changedWhileDeciding(plan: FilePlan): void {
 }
 
 /**
+ * Bring agent-aliases.json in step with a plan. A failure there doesn't undo or stop the config write: the finish and
+ * doctor also find aliases by name and launcher, so it becomes a warning on the plan.
+ */
+function updateAliasList(plan: FilePlan, update: () => void): void {
+	try {
+		update();
+	} catch (err) {
+		const unnamed = plan.kind === "move" ? plan.repointed.map((r) => r.name).filter((n) => n !== MCP_NAME && !couldHoldEntry(n)) : [];
+		const byHand = unnamed.length > 0 ? ` Rename ${unnamed.map((n) => `"${n}"`).join(", ")} to ${MCP_NAME} by hand once nothing names ${unnamed.length === 1 ? "it" : "them"}.` : "";
+		plan.aliasWarning = `${aliasFile()} couldn't be updated (${message(err)}). ${COMMAND_NAME} setup --agents --finish and ${COMMAND_NAME} doctor still find entries named polycarp or tabkyra that run Tychicus.${byHand}`;
+	}
+}
+
+/**
  * Write each changed file: the new text to a temporary file beside the real one (through a link to its target), a
  * last check that the file is still the text this run planned from, a backup of that text, then a rename. A file that
  * changed after it was planned is planned again and written only if the same entries move; otherwise it is refused
  * (the plan's status says so) and nothing is written to it. Each file's aliases are recorded (move) or taken off the
- * list (finish) right after its rename. Returns the backups made.
+ * list (finish) right after its rename; a failure there is set as the plan's aliasWarning. Returns the backups made.
  */
 export function applyMigration(plans: FilePlan[], now = new Date()): { file: string; backup: string }[] {
 	const done: { file: string; backup: string }[] = [];
 	const stamp = backupStamp(now);
 	for (const plan of plans) {
-		if (plan.kind === "finish" && plan.status !== "change" && plan.status !== "refused") forgetAliases(plan);
+		if (plan.kind === "finish" && plan.status !== "change" && plan.status !== "refused") updateAliasList(plan, () => forgetAliases(plan));
 		if (plan.status !== "change" || plan.after === undefined) continue;
 		const real = realpathSync(plan.file);
 		const mode = statSync(real).mode & 0o777;
@@ -901,8 +951,7 @@ export function applyMigration(plans: FilePlan[], now = new Date()): { file: str
 			chmodSync(backup, mode);
 			renameSync(temp, real);
 			done.push({ file: plan.file, backup });
-			if (plan.kind === "move") recordAliases(plan, now);
-			else forgetAliases(plan);
+			updateAliasList(plan, () => (plan.kind === "move" ? recordAliases(plan, now) : forgetAliases(plan)));
 		} finally {
 			rmSync(temp, { force: true });
 		}
