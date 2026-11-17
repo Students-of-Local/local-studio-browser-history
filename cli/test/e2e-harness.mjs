@@ -63,6 +63,46 @@ export async function cdp(wsUrl, method, params = {}) {
 	}
 }
 
+/** True while any process of the group `pgid` is alive. */
+function groupAlive(pgid) {
+	try {
+		process.kill(-pgid, 0);
+		return true;
+	} catch (err) {
+		return err.code === "EPERM";
+	}
+}
+
+/**
+ * End a browser started with `detached: true` and every process in its group: SIGTERM (it saves its profile), then
+ * SIGKILL after 5 s, and return only once no process of the group is left (or after 15 s, with a warning).
+ */
+export async function stopGroup(child) {
+	const exited = child.exitCode !== null || child.signalCode !== null ? Promise.resolve() : new Promise((r) => child.once("exit", r));
+	if (process.platform === "win32") {
+		child.kill();
+		await exited;
+		return;
+	}
+	const pgid = child.pid;
+	const signal = (sig) => {
+		try {
+			process.kill(-pgid, sig);
+		} catch {
+			/* the group is gone */
+		}
+	};
+	signal("SIGTERM");
+	await Promise.race([exited, new Promise((r) => setTimeout(r, 5000))]);
+	const deadline = Date.now() + 10_000;
+	while (groupAlive(pgid) && Date.now() < deadline) {
+		signal("SIGKILL");
+		await new Promise((r) => setTimeout(r, 50));
+	}
+	await exited;
+	if (groupAlive(pgid)) console.error(`stopGroup: processes of group ${pgid} are still alive after SIGKILL`);
+}
+
 function listen(server) {
 	return new Promise((r) => server.listen(0, "127.0.0.1", r));
 }
@@ -86,8 +126,12 @@ export async function startHarness({ name = "dom-bench", onElicit, chromiumArgs 
 	const env = () => ({
 		...process.env,
 		HOME: home,
-		// Linux looks for browser profiles under XDG_CONFIG_HOME first; a runner may set it.
+		// Linux looks for browser profiles under XDG_CONFIG_HOME first; a runner may set it. The data, state and cache folders
+		// stay in this HOME too, so the helper's thread mirror and caches never land in the real ones.
 		XDG_CONFIG_HOME: join(home, ".config"),
+		XDG_DATA_HOME: join(home, ".local", "share"),
+		XDG_STATE_HOME: join(home, ".local", "state"),
+		XDG_CACHE_HOME: join(home, ".cache"),
 		TABKYRA_SOCKET_DIR: socketDir,
 		TABKYRA_AUTO_ALLOW: "1",
 		TABKYRA_CLIENT_NAME: name,
@@ -148,12 +192,12 @@ export async function startHarness({ name = "dom-bench", onElicit, chromiumArgs 
 	let mcp;
 	const stop = async () => {
 		await mcp?.close().catch(() => {});
-		browser?.kill();
-		if (browser) await new Promise((r) => browser.once("exit", r));
+		// Chromium's zygote, renderers and utility processes outlive the browser process for a while and keep writing the
+		// profile, so removing HOME after only the browser exited failed with ENOTEMPTY on CI. The browser leads its own
+		// process group: stop the whole group and wait until none of it is left before removing anything.
+		if (browser) await stopGroup(browser);
 		serverA.close();
 		serverB.close();
-		// Chromium's helper processes can still be writing the profile after the browser exits (ENOTEMPTY on CI), so the
-		// removal retries, as the panel tests' does.
 		rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 		rmSync(socketDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 	};
@@ -182,7 +226,8 @@ export async function startHarness({ name = "dom-bench", onElicit, chromiumArgs 
 				`--load-extension=${extensionDir}`,
 				"about:blank",
 			],
-			{ env: env(), stdio: ["ignore", "ignore", "pipe"] },
+			// Its own process group (POSIX), so stop() can end every process it starts.
+			{ env: env(), stdio: ["ignore", "ignore", "pipe"], detached: process.platform !== "win32" },
 		);
 		let stderr = "";
 		browser.stderr.on("data", (d) => {
