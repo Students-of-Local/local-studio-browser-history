@@ -22,8 +22,9 @@ import { COMPILED } from "./self.ts";
 export type Configured = boolean | "stale" | "other" | undefined;
 
 /**
- * What agents call the MCP server: Tychicus's own entry. A `polycarp` entry belongs to Polycarp and is never read,
- * replaced or removed here.
+ * What agents call the MCP server: Tychicus's own entry. This file never edits another entry. An entry that runs
+ * Polycarp's browser server is moved by agent-migration.ts (`tychicus setup --agents`), which keeps its old name as a
+ * temporary alias for Tychicus.
  */
 export const MCP_NAME = "tychicus";
 
@@ -60,7 +61,7 @@ export function which(name: string): string | undefined {
 	return undefined;
 }
 
-/** The absolute path harness configs run: the launcher `polycarp browser install` writes. */
+/** The absolute path harness configs run: the launcher `tychicus install` writes. */
 export function launcherBinary(): string {
 	return cliLauncherPath();
 }
