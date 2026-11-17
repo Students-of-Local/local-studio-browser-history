@@ -109,7 +109,7 @@ export const COMMANDS: CommandSpec[] = [
 			{ name: "status", what: "Is the SDK installed?" },
 		],
 	},
-	{ name: "pi-extension", positional: 1, paths: true, args: "[dir]", what: "Write a pi extension to ~/.pi/agent/extensions/polycarp.ts", group: "Agents" },
+	{ name: "pi-extension", positional: 1, paths: true, args: "[dir]", what: "Write a pi extension to ~/.pi/agent/extensions/tychicus.ts", group: "Agents" },
 	{
 		name: "skill",
 		selfParsed: true,

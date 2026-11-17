@@ -949,9 +949,16 @@ async function main(): Promise<void> {
 			console.log(sdkInstalled() ? `${sym.ok} GitHub's Copilot SDK is installed.` : `${sym.warn} Not installed. Run \`${COMMAND_NAME} copilot-sdk install\`.`);
 			return;
 		}
-		case "pi-extension":
-			console.log(`${sym.ok} Wrote ${writePiExtension(argv[1])}`);
+		case "pi-extension": {
+			const pi = writePiExtension(argv[1]);
+			console.log(`${sym.ok} Wrote ${pi.file}`);
+			for (const path of pi.removed) console.log(`${sym.ok} Removed ${path}, which an older copy of this helper wrote`);
+			if (pi.polycarp)
+				console.log(
+					`${sym.warn} The Polycarp app's pi extension is also at ${pi.polycarp}. pi loads both, and their browser tools have the same names: keep one.`,
+				);
 			return;
+		}
 		case "completion": {
 			const script = completionScript(argv[1] ?? "");
 			if (!script) throw new UsageError(`Usage: ${COMMAND_NAME} completion zsh|bash|fish. For zsh: eval "$(${COMMAND_NAME} completion zsh)" in ~/.zshrc`);
