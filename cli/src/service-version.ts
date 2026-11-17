@@ -2,14 +2,15 @@
  * Services left on an old version. `install --release` moves the `release` pointer, but a service keeps the program it was
  * started with until it is restarted: launchd, systemd and the Windows task run the launcher once, and the launcher execs
  * <base>/versions/<version>-<sha>/tychicus. This reads which version folder each Tychicus service's process runs from, and
- * restarts the ones that are not the release through installService, the same way setup and `remote fix` start them.
+ * restarts the ones that are not the release (restartService), keeping the folders each was set up with.
  */
 import { existsSync, realpathSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { CLOUDFLARE_SERVICE } from "./cloudflare.ts";
 import { envVar } from "./env.ts";
+import { configDir } from "./files.ts";
 import { loadRemoteConfig, waitForServe } from "./remote-setup.ts";
-import { HUB_SERVICE, installService, LINK_SERVICE, processProgram, SERVE_SERVICE, type ServiceSpec, serviceFile, servicePid, servicePlatform, sleep } from "./service.ts";
+import { HUB_SERVICE, LINK_SERVICE, processProgram, restartService, SERVE_SERVICE, type ServiceSpec, savedFolders, serviceFile, servicePid, servicePlatform, sleep } from "./service.ts";
 import { c, sym } from "./ui.ts";
 
 /** Every service Tychicus installs, in the order they restart: serve before the tunnel in front of it, then hub and link. */
@@ -134,14 +135,16 @@ export async function restartStaleServices(root: string, program: string, say: (
 			say(`  Run: ${restartCommand(program)}`);
 			return 1;
 		};
-		const r = await installService(s.spec);
+		// Restart only: the service keeps the config folder it was set up with.
+		const r = await restartService(s.spec);
 		if (!r.ok) return failed(`restart failed: ${r.message}`);
 		const pid = await readBack(s.spec, current, root);
 		if (!pid) return failed(`restarted, but it doesn't run ${s.release} after ${Math.round(waitMs() / 1000)} seconds`);
 		if (s.spec === SERVE_SERVICE) {
 			let config: ReturnType<typeof loadRemoteConfig>;
 			try {
-				config = loadRemoteConfig();
+				// remote.json in the folder the service reads, which may not be this shell's.
+				config = loadRemoteConfig(join(savedFolders(s.spec).config ?? configDir(), "remote.json"));
 			} catch {
 				config = undefined;
 			}

@@ -242,12 +242,13 @@ export function launcherRunsSelf(path: string = cliLauncherPath()): boolean {
 
 /**
  * Rewrite the agent launcher when it is missing or runs another program. Only that one: the host launcher is the browser's
- * business and `install` decides about it. Returns true when it wrote.
+ * business and `install` decides about it. `path` is another config folder's launcher, such as the one a service set up with
+ * its own folder runs. Returns true when it wrote.
  */
-export function ensureLauncherIsSelf(): boolean {
-	if (launcherRunsSelf()) return false;
-	mkdirSync(configDir(), { recursive: true, mode: 0o700 });
-	writeScript(cliLauncherPath(), "", { compileCache: true });
+export function ensureLauncherIsSelf(path: string = cliLauncherPath()): boolean {
+	if (launcherRunsSelf(path)) return false;
+	mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+	writeScript(path, "", { compileCache: true });
 	return true;
 }
 
