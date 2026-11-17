@@ -99,7 +99,7 @@ The agent's page actions run through the Debugger API and the User Scripts API, 
 
 **Data usage: what the extension handles.** Tick these:
 
-- Authentication information: API keys the user adds under "Use an API key instead". Stored locally and sent only to that provider. Local Studio sign-ins stay in Local Studio; the extension never sees them.
+- Authentication information: API keys the user adds under "Use an API key instead", stored locally and sent only to that provider; and the ChatGPT and GitHub Copilot sign-ins, whose tokens the helper keeps on this computer (the extension never holds them). Local Studio sign-ins stay in Local Studio.
 - Web history: the addresses of pages the agent opens.
 - User activity: the agent's clicks and typing in its own tabs.
 - Website content: text, images and form contents of pages the agent reads.
