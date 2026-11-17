@@ -14,7 +14,9 @@ import { askYes, closeInput, interactiveTerminal } from "./remote-guide.ts";
 import { FUNNEL_PORT, lingerWarning, loadRemoteConfig, openFunnel, operatorWarning, probeLocal, proofLines, type RemoteConfig, saveRemoteConfig, serveWaitMs, tailscaleReady, waitForServe } from "./remote-setup.ts";
 import { CLOUDFLARED_DOWNLOAD_URL, EXIT_FAILED, EXIT_NEEDS_PERSON, EXIT_ON, printReport, type RemoteState, TAILSCALE_OPERATOR_FIX } from "./remote-state.ts";
 import { type ProofCheck, publicChecks } from "./remote-test.ts";
+import { releaseRoot } from "./release.ts";
 import { COMMAND_NAME } from "./self.ts";
+import { currentRelease, staleServices } from "./service-version.ts";
 import { installService, SERVE_SERVICE, type ServiceSpec, serviceFile, serviceLogHint, serviceRunning, sleep } from "./service.ts";
 import { c, sym } from "./ui.ts";
 
@@ -81,8 +83,19 @@ async function diagnose(config: RemoteConfig): Promise<Diagnosis> {
 		if (!file || !existsSync(file) || serviceRunning(CLOUDFLARE_SERVICE) === false) actions.push({ kind: "restart_cloudflared", what: "Start the Cloudflare tunnel's service again" });
 	}
 
+	// A service started before `install --release` moved the pointer keeps running the old version until it restarts.
+	const release = currentRelease(releaseRoot());
+	const stale = new Map(staleServices(release, config.route === "cloudflare" ? [SERVE_SERVICE, CLOUDFLARE_SERVICE] : [SERVE_SERVICE]).map((s) => [s.spec.label, s]));
+	const oldCloudflared = stale.get(CLOUDFLARE_SERVICE.label);
+	if (oldCloudflared && !actions.some((a) => a.kind === "restart_cloudflared")) {
+		actions.push({ kind: "restart_cloudflared", what: `Restart the Cloudflare tunnel's service: it runs ${oldCloudflared.running}, and release is ${oldCloudflared.release}` });
+	}
+
 	const local = await probeLocal(config.port, expected, 3000);
-	if (local.state !== "match") {
+	const oldServe = stale.get(SERVE_SERVICE.label);
+	if (local.state === "match" && oldServe) {
+		actions.push({ kind: "restart_serve", what: `Restart ${COMMAND_NAME} serve's service: it runs ${oldServe.running}, and release is ${oldServe.release}` });
+	} else if (local.state !== "match") {
 		const file = serveFile();
 		if (file && existsSync(file)) actions.push({ kind: "restart_serve", what: `Restart ${COMMAND_NAME} serve's service, so 127.0.0.1:${config.port} answers for ${expected}` });
 		else if (local.state === "other")

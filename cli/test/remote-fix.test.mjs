@@ -4,7 +4,7 @@
 // manager, cloudflared or ~/.config/tabkyra.
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer as createHttpServer } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { createServer as createNetServer } from "node:net";
@@ -98,7 +98,7 @@ async function fakeDoh() {
  * reads of the tunnel's service, after it is started, say it is still starting ("spawn scheduled", "activating"). cfDies: it stops
  * right after its first read says running. funnelMode: the tailscale stub's `funnel` (see tailscale-stub.mjs).
  */
-async function machine(name, { serve = "down", funnel = false, dns = DNS, recorded = DNS, doh, route = "funnel", cfLate = 0, cfDies = false, funnelMode } = {}) {
+async function machine(name, { serve = "down", funnel = false, dns = DNS, recorded = DNS, doh, route = "funnel", cfLate = 0, cfDies = false, funnelMode, stale = false } = {}) {
 	const dir = join(root, name);
 	const bin = join(dir, "bin");
 	const home = join(dir, "home");
@@ -135,7 +135,20 @@ async function machine(name, { serve = "down", funnel = false, dns = DNS, record
 	writeTailscaleStub(join(bin, "tailscale"), { dir, log, dns, serveStatus, ...(funnelMode ? { funnel: funnelMode } : {}) });
 	if (funnel) writeFileSync(join(dir, "funnel-on"), "on\n");
 	const pidFile = join(dir, "serve.pid");
-	const start = `"${process.execPath}" ${fakeServe} ${port} ${remote} >/dev/null 2>&1 & echo $! > ${pidFile}`;
+	// stale: two installed versions, `release` naming 2.0.0, each holding a copy of Node as its program. The service manager
+	// starts serve through the pointer, as the launcher runs the release; the serve already up runs the old version.
+	const versions = join(home, ".local", "share", "tychicus", "versions");
+	const oldProgram = join(versions, "1.0.0-aaaaaaaaaaaa", "tychicus");
+	if (stale) {
+		mkdirSync(dirname(oldProgram), { recursive: true });
+		mkdirSync(join(versions, "2.0.0-bbbbbbbbbbbb"));
+		copyFileSync(process.execPath, oldProgram);
+		linkSync(oldProgram, join(versions, "2.0.0-bbbbbbbbbbbb", "tychicus"));
+		symlinkSync(join(versions, "2.0.0-bbbbbbbbbbbb"), join(home, ".local", "share", "tychicus", "release"));
+	}
+	const serveProgram = stale ? join(home, ".local", "share", "tychicus", "release", "tychicus") : process.execPath;
+	const startWith = (program) => `"${program}" ${fakeServe} ${port} ${remote} >/dev/null 2>&1 & echo $! > ${pidFile}`;
+	const start = startWith(serveProgram);
 	const stop = `if [ -f ${pidFile} ]; then read p < ${pidFile}; kill $p; /bin/rm -f ${pidFile}; fi`;
 	const script = (file, body) => {
 		writeFileSync(join(bin, file), `#!/bin/sh\necho "${file} $*" >> ${log}\n${body}`);
@@ -147,7 +160,7 @@ async function machine(name, { serve = "down", funnel = false, dns = DNS, record
 	);
 	script(
 		"systemctl",
-		`case "$2" in\nis-active) if [ "$3" = tychicus-cloudflared.service ]; then ${cfDie("active", 0)}${cfStill("activating", 3)}:; fi; if { [ "$3" = tychicus-serve.service ] && [ -f ${pidFile} ]; } || { [ "$3" = tychicus-cloudflared.service ] && [ -f ${cfRunning} ]; }; then echo active; else echo inactive; exit 3; fi ;;\nrestart) if [ "$3" = tychicus-serve.service ]; then ${stop}; ${start}; else ${cfStart}; fi ;;\ndisable) if [ "$4" = tychicus-serve.service ]; then ${stop}; else /bin/rm -f ${cfRunning}; fi ;;\nesac\n`,
+		`case "$2" in\nshow) if [ "$6" = tychicus-serve.service ] && [ -f ${pidFile} ]; then read p < ${pidFile}; echo $p; else echo 0; fi ;;\nis-active) if [ "$3" = tychicus-cloudflared.service ]; then ${cfDie("active", 0)}${cfStill("activating", 3)}:; fi; if { [ "$3" = tychicus-serve.service ] && [ -f ${pidFile} ]; } || { [ "$3" = tychicus-cloudflared.service ] && [ -f ${cfRunning} ]; }; then echo active; else echo inactive; exit 3; fi ;;\nrestart) if [ "$3" = tychicus-serve.service ]; then ${stop}; ${start}; else ${cfStart}; fi ;;\ndisable) if [ "$4" = tychicus-serve.service ]; then ${stop}; else /bin/rm -f ${cfRunning}; fi ;;\nesac\n`,
 	);
 	script("loginctl", `echo "Linger=yes"\n`);
 	const env = {
@@ -162,7 +175,7 @@ async function machine(name, { serve = "down", funnel = false, dns = DNS, record
 		NODE_EXTRA_CA_CERTS: join(certDir, "cert.pem"),
 	};
 	if (serve === "up") {
-		spawnSync("/bin/sh", ["-c", start]);
+		spawnSync("/bin/sh", ["-c", stale ? startWith(oldProgram) : start]);
 		const deadline = Date.now() + 5000;
 		while (Date.now() < deadline) {
 			const r = spawnSync(process.execPath, ["-e", `fetch("http://127.0.0.1:${port}${METADATA_PATH}").then(()=>process.exit(0),()=>process.exit(1))`]);
@@ -190,6 +203,7 @@ async function machine(name, { serve = "down", funnel = false, dns = DNS, record
 		calls: () => (existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean) : []),
 		funnelOpen: () => existsSync(join(dir, "funnel-on")),
 		serveRunning: () => existsSync(pidFile),
+		serveExe: () => readlinkSync(`/proc/${readFileSync(pidFile, "utf8").trim()}/exe`),
 		cleanup: () => {
 			if (existsSync(pidFile)) {
 				try {
@@ -497,6 +511,28 @@ serviceTest("the Cloudflare tunnel's service installed but not running: status s
 		const after = spawnSync(process.execPath, [cli, "remote", "status", "--json"], { env: m.env, encoding: "utf8" });
 		assert.equal(JSON.parse(after.stdout).checks.find((c) => c.name === "cloudflare").status, "ok", after.stdout);
 		assert.ok(!m.calls().some((x) => /^cloudflared tunnel (route|delete|create)/.test(x)), "no DNS record or tunnel is touched");
+		never(m);
+	} finally {
+		m.cleanup();
+	}
+});
+
+// Issue 23: serve answers, but runs a version other than the one `release` names (started before install --release moved it).
+(process.platform === "linux" ? test : test.skip)("remote fix reports a serve that runs another version than release, and restarts it on the release", async () => {
+	const m = await machine("stale", { serve: "up", funnel: true, stale: true });
+	try {
+		assert.match(m.serveExe(), /versions\/1\.0\.0-aaaaaaaaaaaa\/tychicus$/);
+		const dry = await m.run(["remote", "fix", "--dry-run", "--json"]);
+		assert.equal(dry.code, 0, dry.stdout + dry.stderr);
+		const planned = dry.json().actions;
+		assert.deepEqual(planned.map((a) => `${a.kind} ${a.status}`), ["restart_serve planned"], dry.stdout);
+		assert.match(planned[0].what, /runs 1\.0\.0, and release is 2\.0\.0/);
+		assert.deepEqual(changes(m), [], "a dry run restarted something");
+		const text = await m.run(["remote", "fix", "--dry-run"]);
+		assert.match(text.stdout, /1\. Restart .* serve's service: it runs 1\.0\.0, and release is 2\.0\.0/);
+		const r = await m.run(["remote", "fix", "--yes", "--json"]);
+		assert.deepEqual(r.json().actions.map((a) => `${a.kind} ${a.status}`), ["restart_serve done"], r.stdout);
+		assert.match(m.serveExe(), /versions\/2\.0\.0-bbbbbbbbbbbb\/tychicus$/);
 		never(m);
 	} finally {
 		m.cleanup();

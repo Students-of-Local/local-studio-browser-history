@@ -4,7 +4,7 @@
  */
 
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve, win32 } from "node:path";
 import { launcherBinary } from "./harness.ts";
@@ -832,5 +832,53 @@ export function serviceRunning(spec: ServiceSpec): boolean | undefined {
 		return r.code === 0 && /\bstate = running\b/.test(r.out);
 	}
 	if (platform() === "linux") return exec("systemctl", ["--user", "is-active", spec.unit]).out.trim() === "active";
+	return undefined;
+}
+
+/**
+ * Read-only: the pid of the service's main process, or undefined when none runs or it can't be told. launchd's `pid = N`,
+ * systemd's MainPID (the launcher execs the program, so that is the program itself), or on Windows the pid its program
+ * recorded (recordServicePid).
+ */
+export function servicePid(spec: ServiceSpec): number | undefined {
+	const exec: SyncRunner = seam.exec ?? ((cmd, args) => run(cmd, args, 10_000));
+	let text: string | undefined;
+	if (platform() === "darwin") {
+		const r = exec("launchctl", ["print", launchdTarget(spec)]);
+		text = r.code === 0 ? /^\s*pid = (\d+)\s*$/m.exec(r.out)?.[1] : undefined;
+	} else if (platform() === "linux") {
+		const r = exec("systemctl", ["--user", "show", "-p", "MainPID", "--value", spec.unit]);
+		text = r.code === 0 ? r.out.trim() : undefined;
+	} else if (platform() === "win32") text = (readIfFile(windowsPidPath(spec)) ?? "").split(/\r?\n/)[0]?.trim();
+	const pid = Number(text);
+	return Number.isInteger(pid) && pid > 0 ? pid : undefined;
+}
+
+/**
+ * Read-only: the path of the program a process runs, or undefined when it can't be told. Linux reads /proc/<pid>/exe, macOS
+ * asks ps (as pruneVersions does), Windows asks Get-Process for its Path and checks it is the program the service recorded.
+ */
+export function processProgram(pid: number, spec?: ServiceSpec): string | undefined {
+	const exec: SyncRunner = seam.exec ?? ((cmd, args) => run(cmd, args, 10_000));
+	if (platform() === "linux") {
+		try {
+			return readlinkSync(`/proc/${pid}/exe`).replace(/ \(deleted\)$/, "");
+		} catch {
+			return undefined;
+		}
+	}
+	if (platform() === "darwin") {
+		const r = exec("/bin/ps", ["-o", "comm=", "-p", String(pid)]);
+		const path = r.out.trim();
+		return r.code === 0 && isAbsolute(path) ? path : undefined;
+	}
+	if (platform() === "win32") {
+		const r = exec(powershellPath(), ["-NoProfile", "-NonInteractive", "-Command", `(Get-Process -Id ${pid} -ErrorAction Stop).Path`]);
+		const path = r.out.trim();
+		if (r.code !== 0 || !win32.isAbsolute(path)) return undefined;
+		// A pid Windows has since given another program is not the service's.
+		const image = spec ? (readIfFile(windowsPidPath(spec)) ?? "").split(/\r?\n/)[1]?.trim() : undefined;
+		return image && win32.basename(path).toLowerCase() !== image.toLowerCase() ? undefined : path;
+	}
 	return undefined;
 }

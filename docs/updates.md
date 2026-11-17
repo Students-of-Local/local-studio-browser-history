@@ -12,7 +12,10 @@ does), unpacks each version into a folder of its own under `~/.local/share/tychi
 `~/.local/share/tychicus/release/tychicus` is the program. The extension is copied to one fixed folder,
 `~/.local/share/tychicus/extension`, so the browser keeps loading it from the same place. To upgrade, download the
 newer release and run its `tychicus install --release .` the same way: the pointer moves only after the new version
-registers itself, and an old version is removed once no program runs from it. The side panel's Update now doesn't
+registers itself, and an old version is removed once no program runs from it. A running service (serve, the
+Cloudflare tunnel, hub, link) keeps the version it started with, so install restarts each one still on an older version
+and checks that it runs the new one; `--no-restart` names them with the command that does it later
+(`~/.local/share/tychicus/release/tychicus install --restart-services`). The side panel's Update now doesn't
 upgrade a release install yet: the updater below still reads the archived Tabkyra releases (issue #13).
 
 **Beside the Polycarp app.** Polycarp keeps its own copy of the helper and the extension and updates them with

@@ -299,9 +299,9 @@ export const COMMANDS: CommandSpec[] = [
 	},
 	{
 		name: "install",
-		what: "Register the native host with every browser (--browser <name>: one); --release <folder> checks and installs a downloaded release; --local-studio adds the Local Studio plugins; --dry-run lists what it would write",
+		what: "Register the native host with every browser (--browser <name>: one); --release <folder> checks and installs a downloaded release; --local-studio adds the Local Studio plugins; --dry-run lists what it would write; after --release, services on an older version restart (--no-restart names them instead, --restart-services restarts them later)",
 		group: "Troubleshoot",
-		flags: ["--force", "--browser", "--dry-run", "--local-studio", "--release", "--skip-attestation"],
+		flags: ["--force", "--browser", "--dry-run", "--local-studio", "--release", "--skip-attestation", "--no-restart", "--restart-services"],
 	},
 	{ name: "reload", what: "Reload the extension after rebuilding dist-chrome", group: "Troubleshoot", flags: ["--if-idle"] },
 	{ name: "debug", what: "Bridge state, request timings and a benchmark (JSON)", group: "Troubleshoot" },

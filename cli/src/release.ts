@@ -16,12 +16,13 @@
 
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, renameSync, rmdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { delimiter, dirname, join, relative, resolve, sep } from "node:path";
 import { browserDirs } from "./install.ts";
 import { eukheSettingsPath, localStudioPluginsDir, PLUGINS } from "./local-studio.ts";
 import { NATIVE_HOST_NAMES } from "../../src/bridge/protocol.ts";
+import { restartCommand, serviceName, staleLines, staleServices } from "./service-version.ts";
 import { c, sym } from "./ui.ts";
 
 /** Where the releases are built and attested. */
@@ -374,7 +375,7 @@ const PASSED_ON = new Set(["--force", "--local-studio", "--browser"]);
  * Check, unpack and register a downloaded release. Returns the exit code. A dry run checks the release, then lists
  * what an install would write; it unpacks and writes nothing.
  */
-export async function installFromRelease(dir: string, options: { dryRun?: boolean; skipAttestation?: boolean; passOn?: string[] }): Promise<number> {
+export async function installFromRelease(dir: string, options: { dryRun?: boolean; skipAttestation?: boolean; noRestart?: boolean; passOn?: string[] }): Promise<number> {
 	let check: ReleaseCheck;
 	try {
 		check = verifyRelease(dir, { skipAttestation: options.skipAttestation, log: (line) => console.log(`${sym.ok} ${line}`) });
@@ -407,6 +408,8 @@ export async function installFromRelease(dir: string, options: { dryRun?: boolea
 			console.log(`  ${eukheSettingsPath()} (mcpServers.tychicus)`);
 		}
 		console.log(`${sym.ok} Then would point ${c.dim(`${root} -> ${target}`)}, copy its extension to ${c.dim(releaseExtensionDir(base))} and remove older versions no program runs from`);
+		const stale = staleServices(real(target) ?? target).map((s) => `${serviceName(s.spec)} (${s.running})`);
+		if (stale.length) console.log(`${sym.ok} Then would ${options.noRestart ? "name" : "restart"} the services on another version: ${stale.join(", ")}`);
 		return 0;
 	}
 	const already = releaseCurrent(check.sha256, target);
@@ -433,8 +436,39 @@ export async function installFromRelease(dir: string, options: { dryRun?: boolea
 		return 1;
 	}
 	console.log(`${sym.ok} ${c.dim(`${root} -> ${target}`)}`);
+	const restarted = restartServices(target, root, options.noRestart === true);
 	const removed = pruneVersions(target, base);
 	if (removed.length) console.log(`${sym.ok} Removed ${removed.length} older version${removed.length === 1 ? "" : "s"} no program runs from`);
 	for (const line of loadSteps(extension)) console.log(line);
-	return 0;
+	return restarted;
+}
+
+const real = (path: string): string | undefined => {
+	try {
+		return realpathSync(path);
+	} catch {
+		return undefined;
+	}
+};
+
+/**
+ * After the pointer moved: a service keeps the program it was started with, so each Tychicus service still on an older
+ * version is restarted by the new version's own program (its install points the services' launcher at itself; this process
+ * may be the old one), or with `noRestart` named with the command that restarts it. Returns the exit code.
+ */
+function restartServices(target: string, root: string, noRestart: boolean): number {
+	const stale = staleServices(real(target) ?? target);
+	if (!stale.length) return 0;
+	const program = releaseProgram(root);
+	if (noRestart) {
+		for (const line of staleLines(stale, program)) console.log(`${sym.warn} ${line}`);
+		return 0;
+	}
+	const r = spawnSync(releaseProgram(target), ["install", "--restart-services"], { stdio: "inherit", env: { ...process.env, TYCHICUS_RELEASE_PARENT: "1" } });
+	// Read back here too: a version from before --restart-services would take it for a plain install and exit 0.
+	const left = staleServices(real(target) ?? target);
+	if (r.status === 0 && !left.length) return 0;
+	for (const line of staleLines(left, program)) console.log(`${sym.fail} ${line}`);
+	console.log(`${sym.fail} The services on an older version weren't all restarted (${r.status === 0 ? "still running the old version" : (r.status ?? r.signal ?? r.error?.message)}). Run: ${restartCommand(program)}`);
+	return 1;
 }
