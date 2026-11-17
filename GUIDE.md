@@ -145,22 +145,22 @@ codex mcp add tychicus -- ~/.config/tychicus/tychicus mcp
 **OpenCode** (`~/.config/opencode/opencode.json`)
 
 ```json
-{ "mcp": { "polycarp": { "type": "local", "command": ["/Users/you/.config/polycarp/browser/polycarp", "mcp"], "enabled": true } } }
+{ "mcp": { "tychicus": { "type": "local", "command": ["/Users/you/.config/tychicus/tychicus", "mcp"], "enabled": true } } }
 ```
 
 **Cursor** (`~/.cursor/mcp.json`)
 
 ```json
-{ "mcpServers": { "polycarp": { "command": "/Users/you/.config/polycarp/browser/polycarp", "args": ["mcp"] } } }
+{ "mcpServers": { "tychicus": { "command": "/Users/you/.config/tychicus/tychicus", "args": ["mcp"] } } }
 ```
 
 **OMP** (`~/.omp/agent/mcp.json`)
 
 ```json
-{ "mcpServers": { "polycarp": { "type": "stdio", "command": "/Users/you/.config/polycarp/browser/polycarp", "args": ["mcp"], "enabled": true } } }
+{ "mcpServers": { "tychicus": { "type": "stdio", "command": "/Users/you/.config/tychicus/tychicus", "args": ["mcp"], "enabled": true } } }
 ```
 
-**pi** has no MCP client, so `tychicus pi-extension` writes a native pi extension instead.
+**pi** has no MCP client, so `tychicus pi-extension` writes a native pi extension instead, `~/.pi/agent/extensions/tychicus.ts`.
 
 Any other MCP client can run the stdio server with `~/.config/tychicus/tychicus mcp`. For an
 agent on another machine, or to add Tychicus to claude.ai, ChatGPT or grok.com as a
