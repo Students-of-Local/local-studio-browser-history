@@ -45,7 +45,7 @@ For driving the browser from an agent on this computer, use the `polycarp-browse
    - claude.ai: Settings > Connectors > Add custom connector, paste the address.
    - ChatGPT: Settings > Apps & Connectors, turn on dev mode, Create, paste the address, OAuth.
    - grok.com: grok.com/connectors > New Connector > Custom, paste the address.
-7. **Tell them what the approval page asks.** A page from this computer opens. They check the name and tick what it may do. A new connector needs a one-time connect code, which lasts ten minutes: in the Tychicus side panel's Settings > Agents they press Get a connect code, or in their own terminal they run `tychicus token approval-code`. Later approvals of that connector take the code or their passcode.
+7. **Tell them what the approval page asks.** A page from this computer opens. They check the name and tick what it may do. A new connector needs a one-time connect code, which lasts ten minutes: in the Tychicus side panel's Settings > Agents, under "Use Tychicus from Claude, ChatGPT and Grok", they press New code (on a hub, Get a connect code), or in their own terminal they run `tychicus token approval-code`. Later approvals of that connector take the code or their passcode.
    - Browsing permissions are ticked to start with.
    - `computer.read` and `computer.act` are not ticked. They open the agent workspace and apps the person lends, and never other windows, even with Full Access on. The apps run as the person, so tick these only for an assistant they'd let sit at their keyboard.
 8. **Check it.** Run `tychicus remote status --json` again.
@@ -83,4 +83,4 @@ They ask: "I want to use my Mac from claude.ai. I have Cloudflare."
 2. Run `tychicus remote cloudflare login`. Say: "Your browser opened Cloudflare. Sign in and pick your domain."
 3. Ask: "Which name? Something like tychicus.yourdomain.com." They say `tychicus.example.com`.
 4. Ask before running `tychicus remote setup --no-passcode --cloudflare tychicus.example.com`. Run it after their yes.
-5. Say: "In claude.ai, add a custom connector with https://tychicus.example.com/mcp. On the page that opens, tick computer use only if you want it there. For the code it asks for, press Get a connect code in the Tychicus side panel's Settings > Agents."
+5. Say: "In claude.ai, add a custom connector with https://tychicus.example.com/mcp. On the page that opens, tick computer use only if you want it there. For the code it asks for, press New code in the Tychicus side panel's Settings > Agents."
