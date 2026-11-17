@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, test } from "node:test";
@@ -377,6 +378,32 @@ test("install --release restarts the service still on the old version and reads 
 		assert.match(svc.calls(), /systemctl --user restart tychicus-serve\.service/);
 		// Once nothing runs from it, the old version is removed.
 		assert.match(r.out, /Removed 1 older version/);
+	} finally {
+		svc.stop();
+	}
+});
+
+test("a restart whose serve doesn't answer points at remote status and remote fix, not at restarting again", linuxOnly, async () => {
+	const home = freshHome();
+	const svc = serviceStub(home);
+	assert.equal(run(home, ["install", "--release", withSleeper(makeRelease("9.9.8")).dir], svc.env).status, 0);
+	// remote.json names a port nothing answers on.
+	const port = await new Promise((done) => {
+		const server = createServer();
+		server.listen(0, "127.0.0.1", () => {
+			const { port } = server.address();
+			server.close(() => done(port));
+		});
+	});
+	mkdirSync(join(home, ".config", "tychicus"), { recursive: true });
+	writeFileSync(join(home, ".config", "tychicus", "remote.json"), JSON.stringify({ publicUrl: "https://serve.example.com", port, route: "custom" }));
+	svc.start();
+	try {
+		const r = run(home, ["install", "--release", withSleeper(makeRelease("9.9.9", restartingProgram)).dir], { ...svc.env, TYCHICUS_SERVE_WAIT_MS: "1500" });
+		assert.notEqual(r.status, 0, r.out);
+		assert.match(r.out, /The services were restarted on 9\.9\.9, but tychicus serve doesn't answer\. Run: tychicus remote status, then tychicus remote fix/);
+		assert.doesNotMatch(r.out, /weren't all restarted/);
+		assert.match(svc.exe(), /versions\/9\.9\.9-[0-9a-f]{12}\/sleeper$/);
 	} finally {
 		svc.stop();
 	}

@@ -22,7 +22,8 @@ import { browserDirs } from "./install.ts";
 import { releaseBase, releaseRoot } from "./paths.ts";
 import { eukheSettingsPath, localStudioPluginsDir, PLUGINS } from "./local-studio.ts";
 import { NATIVE_HOST_NAMES } from "../../src/bridge/protocol.ts";
-import { restartCommand, serviceName, staleLines, staleServices } from "./service-version.ts";
+import { COMMAND_NAME } from "./self.ts";
+import { restartCommand, serviceName, staleLines, staleServices, versionName } from "./service-version.ts";
 import { c, sym } from "./ui.ts";
 
 /** Where the releases are built and attested. */
@@ -472,6 +473,12 @@ function restartServices(target: string, root: string, before: string | undefine
 	const left = new Map(staleServices(current, { root, before: current }).map((s) => [s.spec.label, s]));
 	for (const s of staleServices(current, { root, before })) if (oldPids.has(s.pid)) left.set(s.spec.label, s);
 	if (r.status === 0 && !left.size) return 0;
+	// Every service runs the release, but the restart said one failed: serve came back on it and doesn't answer. Running the
+	// restart again would find nothing to restart, so this points at what checks and repairs the route.
+	if (!left.size && r.status !== null && r.status !== 0) {
+		console.log(`${sym.fail} The services were restarted on ${versionName(current)}, but ${COMMAND_NAME} serve doesn't answer. Run: ${COMMAND_NAME} remote status, then ${COMMAND_NAME} remote fix`);
+		return 1;
+	}
 	for (const line of staleLines([...left.values()], program)) console.log(`${sym.fail} ${line}`);
 	console.log(`${sym.fail} The services on an older version weren't all restarted (${r.status === 0 ? "still running the old version" : (r.status ?? r.signal ?? r.error?.message)}). Run: ${restartCommand(program)}`);
 	return 1;
