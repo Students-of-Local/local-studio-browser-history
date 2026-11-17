@@ -290,7 +290,7 @@ async function main(): Promise<void> {
 	if (command && command !== "host") checkArgs(command, command === "link" && /^https?:\/\//.test(argv[1] ?? "") ? ["enroll", ...argv.slice(1)] : argv.slice(1));
 	// Bad setup or update options are refused before anything below touches the checkout.
 	const setupArgs = command === "setup" ? parseSetupArgs(argv.slice(1)) : undefined;
-	if (typeof setupArgs === "string") throw new UsageError(`${setupArgs} Usage: ${COMMAND_NAME} setup [--yes] [--no-wait] [--timeout <seconds>] [--browser <name>]`);
+	if (typeof setupArgs === "string") throw new UsageError(`${setupArgs} Usage: ${COMMAND_NAME} setup [--yes] [--no-wait] [--timeout <seconds>] [--browser <name>] [--agents [--finish]] [--dry-run]`);
 	const updateArgs = command === "update" && argv[1] !== "--host" ? parseUpdateArgs(argv.slice(1)) : undefined;
 	if (typeof updateArgs === "string") throw new UsageError(`${updateArgs} ${UPDATE_USAGE}`);
 	// A checkout whose install or rollback a crash interrupted is repaired by any of these, so
@@ -318,7 +318,7 @@ async function main(): Promise<void> {
 	}
 	switch (command) {
 		case "setup": {
-			if (!setupArgs) throw new UsageError(`Usage: ${COMMAND_NAME} setup [--yes] [--no-wait] [--timeout <seconds>] [--browser <name>]`);
+			if (!setupArgs) throw new UsageError(`Usage: ${COMMAND_NAME} setup [--yes] [--no-wait] [--timeout <seconds>] [--browser <name>] [--agents [--finish]] [--dry-run]`);
 			if (setupArgs.browser !== undefined) {
 				const known = browserDirs();
 				if (!known.some((b) => b.name === setupArgs.browser)) throw new UsageError(`Unknown browser "${setupArgs.browser}". Use one of: ${known.map((b) => b.name).join(", ")}.`);

@@ -1,5 +1,6 @@
 /**
- * `polycarp browser setup`: build, register, wire up the harnesses, then load and connect.
+ * `tychicus setup`: build, register, wire up the harnesses, then load and connect. `--agents` runs only the agent
+ * step, which first moves entries that still run Polycarp's browser MCP server; `--dry-run` prints that move.
  * Interactive by default; `--yes` accepts every offer. It edits a harness config only
  * after a yes and always points harnesses at the absolute path of the launcher.
  */
@@ -10,6 +11,7 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { BridgeClient, listSockets } from "./client.ts";
 import { buildState, builtVersion, sourceVersion } from "./doctor.ts";
+import { aliasFile, applyMigration, type FilePlan, liveAlias, planFinish, planMigration, unifiedDiff } from "./agent-migration.ts";
 import { harnesses, launcherBinary, launcherValid, MCP_NAME, runCommand, shellJoin, which } from "./harness.ts";
 import { browserDirs, install, installedBrowserDirs, registeredBrowserNames } from "./install.ts";
 import { extensionDir, repoRoot } from "./paths.ts";
@@ -26,6 +28,12 @@ export interface SetupOptions {
 	timeoutS: number;
 	/** Register this browser (by the name browserDirs() gives it) in addition to the ones already registered. */
 	browser?: string;
+	/** Only the agent step: move agents from Polycarp, then offer Tychicus to each. */
+	agentsOnly?: boolean;
+	/** Print what moving agents from Polycarp (or finishing the move) would change in each file, and change nothing. */
+	dryRun?: boolean;
+	/** Finish moving agents from Polycarp: rename each temporary alias to tychicus. */
+	finish?: boolean;
 }
 
 /** Without a terminal nobody can press Ctrl+C on an endless wait, so it gets a bound. */
@@ -186,6 +194,98 @@ async function reloadExtension(socket: string): Promise<void> {
 	}
 }
 
+/** One file's part of the move or the finish: what changes, and the exact lines. */
+function printPlan(plan: FilePlan, binary: string): void {
+	if (plan.status === "refused") {
+		if (plan.blocking) console.log(`  ${sym.fail} ${c.bold(plan.name)}: ${c.cyan(plan.file)} was not changed: ${plan.reason}`);
+		else console.log(`  ${sym.warn} ${c.bold(plan.name)}: ${c.cyan(plan.file)} was not read: ${plan.reason} ${c.dim("It names neither polycarp nor tabkyra, so there was nothing in it to move.")}`);
+		return;
+	}
+	if (plan.status === "change") {
+		console.log(`  ${sym.dot} ${c.bold(plan.name)}: ${c.cyan(plan.file)}`);
+		for (const r of plan.repointed) {
+			const alias = r.name === MCP_NAME ? "" : c.dim(` (a temporary alias until ${COMMAND_NAME} setup --agents --finish)`);
+			console.log(`    ${r.name}: ${r.from} -> ${binary} mcp${alias}`);
+		}
+		for (const f of plan.finished) {
+			console.log(`    ${f.name}: ${f.action === "renamed" ? `renamed to ${MCP_NAME}` : `removed: the ${MCP_NAME} entry is the same in every field`}`);
+		}
+		for (const line of unifiedDiff(plan.file, plan.before ?? "", plan.after ?? "").split("\n")) {
+			const color = line.startsWith("+") && !line.startsWith("+++") ? c.green : line.startsWith("-") && !line.startsWith("---") ? c.red : c.dim;
+			console.log(`    ${color(line)}`);
+		}
+	}
+	for (const p of plan.projects) {
+		console.log(`  ${sym.warn} ${plan.name}: project ${p.project}: "${p.name}" runs ${p.from} in local scope, which wins over the user entry there. It was left alone.`);
+		console.log(`    ${c.dim("Fix:")} cd ${shellJoin([p.project])} && claude mcp remove ${shellJoin([p.name])} -s local ${c.dim(`(the user entry then applies), or point it at ${binary} mcp`)}`);
+	}
+	for (const line of plan.leftAlone) console.log(`  ${sym.warn} ${plan.name}: ${line}`);
+	for (const note of plan.notes) console.log(`  ${c.dim(`${plan.name}: ${note}`)}`);
+}
+
+/**
+ * Plan, show, ask, then write: the move (entries that run Polycarp's browser MCP now run Tychicus under their old names)
+ * or the finish (those aliases renamed to tychicus). Returns false when a file that could hold an entry was refused, an
+ * entry had to be left for a manual fix during finish, or a write failed. A file that doesn't parse but names neither
+ * polycarp nor tabkyra is only a warning: there was nothing in it to move.
+ */
+/** Write the plans, then name any file whose aliases couldn't be recorded. Never called in a dry run. */
+function applyAndWarn(plans: FilePlan[]): ReturnType<typeof applyMigration> {
+	const done = applyMigration(plans);
+	for (const plan of plans) if (plan.aliasWarning) console.log(`  ${sym.warn} ${c.bold(plan.name)}: ${plan.aliasWarning}`);
+	return done;
+}
+
+async function runAgentPlans(kind: "move" | "finish", options: Pick<SetupOptions, "yes" | "dryRun">): Promise<boolean> {
+	const binary = launcherBinary();
+	const plans = kind === "move" ? planMigration(binary) : planFinish(binary);
+	const failed = () => plans.some((p) => p.status === "refused" && p.blocking) || (kind === "finish" && plans.some((p) => p.leftAlone.length > 0));
+	const changes = plans.filter((p) => p.status === "change");
+	const shown = plans.filter((p) => p.status === "change" || p.status === "refused" || p.leftAlone.length + p.projects.length + p.notes.length > 0);
+	if (shown.length === 0) {
+		console.log(`  ${sym.ok} ${kind === "move" ? "No agent runs Polycarp's browser MCP server; nothing to move." : "No temporary aliases are left; nothing to finish."}`);
+		if (kind === "finish" && !options.dryRun) applyAndWarn(plans);
+		return true;
+	}
+	for (const plan of shown) printPlan(plan, binary);
+	if (changes.length === 0 || options.dryRun) {
+		if (options.dryRun) console.log(`  ${c.dim("Dry run: nothing was written.")}`);
+		else if (kind === "finish") applyAndWarn(plans);
+		return !failed();
+	}
+	if (!launcherValid()) {
+		console.log(`  ${sym.fail} Tychicus's launcher isn't installed at ${binary}, so these entries would run nothing. Run ${c.bold(`${COMMAND_NAME} install`)} first.`);
+		return false;
+	}
+	const files = changes.length === 1 ? "this file" : `these ${changes.length} files`;
+	const question = kind === "move" ? `Move ${files} to Tychicus?` : `Rename the aliases in ${files} to ${MCP_NAME}?`;
+	if (!(await confirm(`  ${sym.dot} ${question} A backup of each is made first.`, { assumeYes: options.yes }))) {
+		console.log(`    ${c.dim("Later:")} ${COMMAND_NAME} setup --agents${kind === "finish" ? " --finish" : ""}`);
+		return !failed();
+	}
+	try {
+		for (const { file, backup } of applyAndWarn(plans)) console.log(`  ${sym.ok} ${file} ${c.dim(`(backup: ${backup})`)}`);
+	} catch (err) {
+		console.log(`  ${sym.fail} Writing failed: ${err instanceof Error ? err.message : String(err)}. Files written before it, and their backups, are listed above.`);
+		return false;
+	}
+	for (const plan of changes) if (plan.status === "refused") console.log(`  ${sym.fail} ${c.bold(plan.name)}: ${c.cyan(plan.file)} ${plan.reason}`);
+	if (kind === "move" && changes.some((p) => p.status === "change" && p.repointed.some((r) => r.name !== MCP_NAME))) {
+		console.log(`  ${c.dim(`The old names are temporary aliases for Tychicus, listed in ${aliasFile()}. Once nothing names them, run ${COMMAND_NAME} setup --agents --finish.`)}`);
+	}
+	return !failed();
+}
+
+/** Move agents from Polycarp's browser MCP to Tychicus, keeping their old names as temporary aliases. */
+export function moveAgentsFromPolycarp(options: Pick<SetupOptions, "yes" | "dryRun">): Promise<boolean> {
+	return runAgentPlans("move", options);
+}
+
+/** Finish the move: rename each temporary alias to tychicus. */
+export function finishAgentsMove(options: Pick<SetupOptions, "yes" | "dryRun">): Promise<boolean> {
+	return runAgentPlans("finish", options);
+}
+
 /** Offer each detected harness the MCP server. Returns false if an attempted add failed. */
 async function connectHarnesses(options: SetupOptions): Promise<boolean> {
 	const binary = launcherBinary();
@@ -198,6 +298,12 @@ async function connectHarnesses(options: SetupOptions): Promise<boolean> {
 	for (const h of found) {
 		if (h.configured === true) {
 			console.log(`  ${sym.ok} ${h.name.padEnd(12)} ${c.dim("already has Tychicus")}`);
+			continue;
+		}
+		// Moved from Polycarp: Tychicus runs under the old name until the finish step, so no second entry is added.
+		const alias = h.configured === false ? liveAlias(h.id) : undefined;
+		if (alias) {
+			console.log(`  ${sym.ok} ${h.name.padEnd(12)} ${c.dim(`runs Tychicus as "${alias.name}", a temporary alias (${COMMAND_NAME} setup --agents --finish renames it)`)}`);
 			continue;
 		}
 		if (h.configured === undefined) {
@@ -377,6 +483,22 @@ export async function runSetup(options: SetupOptions): Promise<number> {
 	const timeoutS = options.timeoutS || (process.stdin.isTTY ? 0 : UNATTENDED_TIMEOUT_S);
 	const opts = { ...options, timeoutS };
 	console.log(banner(`setup ${VERSION}`));
+	if (opts.finish) {
+		step(1, `Finish moving agents from Polycarp${opts.dryRun ? " (dry run)" : ""}`);
+		return (await finishAgentsMove(opts)) ? 0 : 1;
+	}
+	if (opts.dryRun) {
+		step(1, "Move agents from Polycarp (dry run)");
+		return (await moveAgentsFromPolycarp(opts)) ? 0 : 1;
+	}
+	if (opts.agentsOnly) {
+		step(1, "Move agents from Polycarp");
+		const moved = await moveAgentsFromPolycarp(opts);
+		step(2, "Connect your coding agents");
+		// A refused file doesn't stop the offers: the other agents still get Tychicus.
+		const connected = await connectHarnesses(opts);
+		return moved && connected ? 0 : 1;
+	}
 	console.log(c.dim("You steer. Your agents work the tabs."));
 
 	step(1, "Build the extension");
@@ -395,7 +517,9 @@ export async function runSetup(options: SetupOptions): Promise<number> {
 	// Harnesses come before the wait, so an unattended run configures them even if the
 	// browser step is still to come.
 	step(3, "Connect your coding agents");
-	const harnessesOk = await connectHarnesses(opts);
+	// Entries still running Polycarp's browser server move first, so the offers below see them as Tychicus.
+	const moved = await moveAgentsFromPolycarp(opts);
+	const harnessesOk = (await connectHarnesses(opts)) && moved;
 
 	step(4, "Load the extension");
 	const loaded = await loadExtension(opts);

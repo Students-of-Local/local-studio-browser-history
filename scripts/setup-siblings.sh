@@ -94,5 +94,9 @@ for pkg in tui ai agent web-ui; do
 done
 
 cd "$here"
-npm install --no-audit --no-fund
-(cd cli && npm install --no-audit --no-fund)
+# CI (GitHub sets CI=true) installs exactly what the lockfiles say and never rewrites them. Node 22's npm 10 drops the
+# libc fields a newer npm wrote into package-lock.json, so `npm install` left the tag's checkout modified and every
+# release's build-info.json said "dirty": true. A local run keeps `npm install`, which leaves a linked node_modules be.
+if [ -n "${CI:-}" ]; then npm_install=ci; else npm_install=install; fi
+npm "$npm_install" --no-audit --no-fund
+(cd cli && npm "$npm_install" --no-audit --no-fund)

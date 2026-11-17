@@ -95,7 +95,7 @@ export const VALUE_FLAGS = new Set(Object.keys(VALUE_HINTS));
 const PATH_VALUES = new Set(["--cases", "--base", "--router", "--out", "--file", "--release"]);
 
 export const COMMANDS: CommandSpec[] = [
-	{ name: "setup", selfParsed: true, what: "Build, register, load, connect and add to your agents", group: "Get started", flags: SETUP_FLAGS },
+	{ name: "setup", selfParsed: true, what: "Build, register, load, connect and add to your agents; --agents moves agents from Polycarp's browser MCP under their old names, --agents --finish renames those to tychicus, --dry-run shows either", group: "Get started", flags: SETUP_FLAGS },
 	{ name: "status", what: "Is the extension connected? Which sites are allowed?", group: "Get started", flags: ["--json"] },
 	{ name: "mcp", what: "MCP server on stdio (what Claude Code, Codex, OpenCode run)", group: "Agents", flags: ["--session", "--profile", "--name"] },
 	{

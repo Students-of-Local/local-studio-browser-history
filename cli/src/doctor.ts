@@ -1,5 +1,5 @@
 /**
- * `polycarp browser doctor`: every check that has to pass for an agent to drive a tab, with
+ * `tychicus doctor`: every check that has to pass for an agent to drive a tab, with
  * one exact fix per failure. Exits 1 when any check fails.
  */
 
@@ -8,7 +8,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { NATIVE_HOST_NAME, type UserScriptsStatus } from "../../src/bridge/protocol.ts";
 import { BridgeClient, listSockets } from "./client.ts";
-import { harnesses, launcherValid, MCP_NAME, shellJoin } from "./harness.ts";
+import { aliasFile, knownAliases, liveAlias, planMigration } from "./agent-migration.ts";
+import { harnesses, launcherBinary, launcherValid, MCP_NAME, shellJoin } from "./harness.ts";
 import { cliLauncherPath, extensionOrigins, hostTarget, installedBrowserDirs, launcherPath, launcherRunsOlder, manifestLauncherRuns, originsCurrent } from "./install.ts";
 import { EXTENSION_FILES, extensionDir, repoRoot } from "./paths.ts";
 import { banner, c, sym } from "./ui.ts";
@@ -181,7 +182,7 @@ export interface DebugInfo {
 const GRANT_STEPS =
 	`Open the Tychicus side panel > Settings > Agents > Page scripts and click Allow, then accept the browser's prompt. If doctor still warns, run ${COMMAND_NAME} reload.`;
 
-/** The "Allow user scripts" row of `polycarp browser doctor`, or undefined when there is nothing to say. */
+/** The "Allow user scripts" row of `tychicus doctor`, or undefined when there is nothing to say. */
 export function userScriptsCheck(info: DebugInfo): Check | undefined {
 	const status = info.userScripts;
 	const slow = "Page scripts fall back to a slower path (the debugger).";
@@ -235,7 +236,7 @@ export function userScriptsCheck(info: DebugInfo): Check | undefined {
 	};
 }
 
-/** A worker this young may not have settled since `polycarp browser reload`; ask it again once. */
+/** A worker this young may not have settled since `tychicus reload`; ask it again once. */
 const SETTLE_S = 10;
 const RETRY_MS = 1500;
 
@@ -355,6 +356,9 @@ function harnessChecks(): Check[] {
 			if (h.configured === true) {
 				return { id, status: "ok", label: `${h.name}: Tychicus MCP server configured` };
 			}
+			// Moved from Polycarp: Tychicus runs under the old name until `setup --agents --finish`.
+			const alias = h.configured === false ? liveAlias(h.id) : undefined;
+			if (alias) return { id, status: "ok", label: `${h.name}: Tychicus MCP server configured as "${alias.name}", a temporary alias` };
 			const replace = h.configured === "stale" || h.configured === "other";
 			let fix: string;
 			if (h.addCommand) fix = replace && h.removeCommand ? `${shellJoin(h.removeCommand)} && ${shellJoin(h.addCommand)}` : shellJoin(h.addCommand);
@@ -387,9 +391,51 @@ function harnessChecks(): Check[] {
 		});
 }
 
+/** Agents that still run Polycarp's browser MCP server, and the temporary aliases a move left (agent-migration.ts). */
+function polycarpAgentChecks(): Check[] {
+	const checks: Check[] = [];
+	const binary = launcherBinary();
+	for (const plan of planMigration(binary)) {
+		const id = `agents:${plan.harness}`;
+		if (plan.status === "change") {
+			const names = plan.repointed.map((r) => `"${r.name}"`).join(", ");
+			checks.push({
+				id,
+				status: "warn",
+				label: `${plan.name} still runs Polycarp's browser MCP server (${names})`,
+				detail: `${plan.file}: when Polycarp drops its browser, these lose their browser tools.`,
+				fix: `${COMMAND_NAME} setup --agents`,
+			});
+		} else if (plan.status === "refused" && plan.blocking) {
+			checks.push({ id, status: "warn", label: `${plan.name}: couldn't check ${plan.file} for Polycarp's browser MCP server`, detail: plan.reason });
+		}
+		for (const p of plan.projects) {
+			checks.push({
+				id: `${id}:project`,
+				status: "warn",
+				label: `${plan.name} project ${p.project} still runs Polycarp's browser MCP server ("${p.name}", local scope)`,
+				detail: `It wins over the user entry in that project, so the move left it alone. Remove it so the user entry applies, or point it at ${binary} mcp.`,
+				fix: `cd ${shellJoin([p.project])} && claude mcp remove ${shellJoin([p.name])} -s local`,
+			});
+		}
+		for (const line of plan.leftAlone) checks.push({ id: `${id}:manual`, status: "warn", label: `${plan.name}: an entry still runs Polycarp's browser MCP server`, detail: line });
+	}
+	const aliases = knownAliases();
+	if (aliases.length > 0) {
+		const list = aliases.map((a) => `"${a.name}" in ${a.harness}`).join(", ");
+		checks.push({
+			id: "agents:aliases",
+			status: "ok",
+			label: `Temporary aliases that run Tychicus: ${list} (${aliasFile()})`,
+			fix: `Once nothing names them: ${COMMAND_NAME} setup --agents --finish`,
+		});
+	}
+	return checks;
+}
+
 export async function runDoctor(options: { json: boolean }): Promise<number> {
 	const connection = await connectionChecks();
-	const checks: Check[] = [nodeCheck(), buildCheck(), launcherCheck(), ...hostChecks(connection.holders), ...connection.checks, ...harnessChecks()];
+	const checks: Check[] = [nodeCheck(), buildCheck(), launcherCheck(), ...hostChecks(connection.holders), ...connection.checks, ...harnessChecks(), ...polycarpAgentChecks()];
 	const failed = checks.filter((check) => check.status === "fail").length;
 	if (options.json) {
 		process.stdout.write(`${JSON.stringify({ ok: failed === 0, version: VERSION, checks }, null, 2)}\n`);

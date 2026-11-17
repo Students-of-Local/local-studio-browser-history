@@ -11,6 +11,7 @@ import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, delimiter, isAbsolute, join } from "node:path";
 import { cliLauncherPath, launcherWorks } from "./install.ts";
+import { parseJsonc } from "./jsonc.ts";
 import { COMPILED } from "./self.ts";
 
 /**
@@ -22,8 +23,9 @@ import { COMPILED } from "./self.ts";
 export type Configured = boolean | "stale" | "other" | undefined;
 
 /**
- * What agents call the MCP server: Tychicus's own entry. A `polycarp` entry belongs to Polycarp and is never read,
- * replaced or removed here.
+ * What agents call the MCP server: Tychicus's own entry. This file never edits another entry. An entry that runs
+ * Polycarp's browser server is moved by agent-migration.ts (`tychicus setup --agents`), which keeps its old name as a
+ * temporary alias for Tychicus; `tychicus setup --agents --finish` renames it to this.
  */
 export const MCP_NAME = "tychicus";
 
@@ -60,7 +62,7 @@ export function which(name: string): string | undefined {
 	return undefined;
 }
 
-/** The absolute path harness configs run: the launcher `polycarp browser install` writes. */
+/** The absolute path harness configs run: the launcher `tychicus install` writes. */
 export function launcherBinary(): string {
 	return cliLauncherPath();
 }
@@ -95,9 +97,11 @@ export function classify(command: string | undefined, args: string[]): Configure
 	return "other";
 }
 
-function readJson(file: string): Record<string, unknown> | undefined {
+/** A JSON config, or JSONC for a harness that reads it (OpenCode). Read only: this file never writes these configs. */
+function readJson(file: string, jsonc = false): Record<string, unknown> | undefined {
 	try {
-		return JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+		const text = readFileSync(file, "utf8");
+		return (jsonc ? parseJsonc(text) : JSON.parse(text)) as Record<string, unknown>;
 	} catch {
 		return undefined;
 	}
@@ -111,9 +115,9 @@ interface EntryState {
 }
 
 /** The Tychicus entry under `key` in a JSON config. Unparseable files are "unknown", not "configured". */
-function jsonServerState(file: string, key: string, commandOf: (entry: Record<string, unknown>) => { command?: unknown; args?: unknown }): EntryState {
+function jsonServerState(file: string, key: string, commandOf: (entry: Record<string, unknown>) => { command?: unknown; args?: unknown }, jsonc = false): EntryState {
 	if (!existsSync(file)) return { configured: false };
-	const data = readJson(file);
+	const data = readJson(file, jsonc);
 	if (!data) return { configured: undefined };
 	const servers = data[key] as Record<string, Record<string, unknown>> | undefined;
 	const entry = servers?.[MCP_NAME];
@@ -183,7 +187,7 @@ export function harnesses(binary = launcherBinary()): Harness[] {
 		id: "opencode",
 		name: "OpenCode",
 		detected: Boolean(which("opencode")) || existsSync(join(configHome, "opencode")),
-		...jsonServerState(opencodeFile, "mcp", (e) => (Array.isArray(e.command) ? { command: e.command[0], args: e.command.slice(1) } : { command: e.command, args: e.args })),
+		...jsonServerState(opencodeFile, "mcp", (e) => (Array.isArray(e.command) ? { command: e.command[0], args: e.command.slice(1) } : { command: e.command, args: e.args }), true),
 		configFile: opencodeFile,
 		snippet: snippet({ mcp: { [MCP_NAME]: { type: "local", command: [binary, "mcp"], enabled: true } } }),
 	});

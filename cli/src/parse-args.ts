@@ -7,7 +7,7 @@
 import type { SetupOptions } from "./setup.ts";
 import type { Channel, UpdateOptions } from "./update.ts";
 
-export const SETUP_FLAGS = ["--yes", "--no-wait", "--timeout", "--browser"];
+export const SETUP_FLAGS = ["--yes", "--no-wait", "--timeout", "--browser", "--agents", "--dry-run", "--finish"];
 export const UPDATE_FLAGS = ["--check", "--json", "--rollback", "--yes", "--channel", "--auto-check"];
 
 /** Parse `setup` flags strictly: a typo should not silently change what setup does. */
@@ -17,6 +17,9 @@ export function parseSetupArgs(args: string[]): SetupOptions | string {
 		const arg = args[i];
 		if (arg === "--yes" || arg === "-y") options.yes = true;
 		else if (arg === "--no-wait") options.wait = false;
+		else if (arg === "--agents") options.agentsOnly = true;
+		else if (arg === "--dry-run") options.dryRun = true;
+		else if (arg === "--finish") options.finish = true;
 		else if (arg === "--browser" || arg.startsWith("--browser=")) {
 			const raw = arg === "--browser" ? args[++i] : arg.slice("--browser=".length);
 			if (!raw || raw.startsWith("-")) return `--browser needs a browser name, for example Helium or "Chrome Beta".`;
