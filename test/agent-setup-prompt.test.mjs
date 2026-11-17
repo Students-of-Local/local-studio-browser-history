@@ -46,6 +46,16 @@ test("the setup prompt installs the signed release first and builds from source 
 	assert.match(prompt, /It needs Node 22 or newer: node -v/);
 });
 
+test("sol-F1: the setup prompt checks the archive with the computer's own tools before it extracts or runs it", () => {
+	const extract = prompt.indexOf("tar -xzf tychicus-1.2.3-");
+	assert.ok(extract > 0, "the prompt extracts the release archive");
+	for (const check of ["grep ARCHIVE SHA256SUMS | sha256sum -c", "grep ARCHIVE SHA256SUMS | shasum -a 256 -c", "Get-FileHash ARCHIVE", "gh attestation verify ARCHIVE --repo baney75/tychicus"]) {
+		const at = prompt.indexOf(check);
+		assert.ok(at > 0 && at < extract, `${check} comes before the archive is extracted`);
+	}
+	assert.match(prompt, /If either check fails, stop[^\n]*Don't extract or run the archive/);
+});
+
 test("the setup prompt refuses to install without a version to pin", () => {
 	assert.throws(() => agentSetupPrompt(""), /No extension version/);
 	assert.match(prompt, /git checkout --detach v1\.2\.3/);
