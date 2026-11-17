@@ -4,7 +4,8 @@
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 /** id is new for every build; commit and version say what it was built from. */
 export function buildInfo(repo) {
@@ -27,4 +28,9 @@ export function buildInfo(repo) {
 	}
 	const version = JSON.parse(readFileSync(join(repo, "static", "manifest.chrome.json"), "utf8")).version;
 	return { id: randomUUID(), commit, commitDate, dirty, version, builtAt: new Date().toISOString() };
+}
+
+// `node scripts/build-info.mjs` prints what a build made now would record, so a release check can read "dirty".
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+	console.log(JSON.stringify(buildInfo(join(dirname(fileURLToPath(import.meta.url)), "..")), null, "\t"));
 }

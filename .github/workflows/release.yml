@@ -72,6 +72,18 @@ jobs:
           npm run build
           (cd cli && npm run build)
 
+      # build-info.json says "dirty" when a tracked file differs from the tag. A release is the tag as it is, so a step
+      # that changes one (setup-siblings' npm install once rewrote package-lock.json) fails here instead of shipping.
+      - name: The build left the tag's files unchanged
+        run: |
+          node scripts/build-info.mjs
+          changed=$(git status --porcelain --untracked-files=no)
+          if [ -n "$changed" ]; then
+            echo "$changed"
+            echo "::error::A release step changed tracked files, so build-info.json says dirty."
+            exit 1
+          fi
+
       # The plugins and their skills carry the version (scripts/plugin-version.mjs); the test fails when they drift.
       - name: The plugins carry the release version
         working-directory: cli
