@@ -168,6 +168,36 @@ function sameCommand(a: Command, b: Command): boolean {
 	return a.command === b.command && a.args.join("\0") === b.args.join("\0");
 }
 
+/** A config value as plain data with its object keys sorted, so two entries compare whatever their key order. */
+function canonical(value: unknown): unknown {
+	if (Array.isArray(value)) return value.map(canonical);
+	if (value && typeof value === "object") {
+		const object = value as Record<string, unknown>;
+		return Object.fromEntries(
+			Object.keys(object)
+				.sort()
+				.map((k) => [k, canonical(object[k])]),
+		);
+	}
+	return value;
+}
+
+/** The fields (command, args, env, enabled and any other) in which two server entries differ. */
+function differingFields(a: unknown, b: unknown): string[] {
+	// Through JSON first: TOML dates become their text and inline tables plain objects.
+	const plain = (v: unknown) => (isObject(v) ? (JSON.parse(JSON.stringify(v)) as Record<string, unknown>) : {});
+	const x = plain(a);
+	const y = plain(b);
+	const keys = [...new Set([...Object.keys(x), ...Object.keys(y)])];
+	return keys.filter((k) => JSON.stringify(canonical(x[k])) !== JSON.stringify(canonical(y[k])));
+}
+
+/** A server entry and the command it runs. */
+interface Server {
+	entry: unknown;
+	cmd: Command;
+}
+
 // ---- JSON (and OpenCode's JSONC): find where each value sits, so only what moves is rewritten ----
 
 /** End offset (exclusive) of the JSON value starting at `i`. The text is already known to parse. */
@@ -369,8 +399,12 @@ function removalRange(scan: string, keyStart: number, end: number): [number, num
 	return scan[prev] === "," ? [prev, end] : [prev + 1, end];
 }
 
-/** What the finish step does with one alias, given the tychicus entry (if any) already in the file. */
-function finishAction(plan: FilePlan, alias: string, cmd: Command | undefined, present: boolean, tychicus: Command | undefined): "rename" | "remove" | undefined {
+/**
+ * What the finish step does with one alias, given the tychicus entry (if any) already in the file. The alias is removed
+ * only when the two entries are the same in every field; otherwise removing it could drop the server the agent runs
+ * (an enabled alias beside a disabled tychicus) or its env and other settings, so it is left for a manual fix.
+ */
+function finishAction(plan: FilePlan, alias: string, entry: unknown, cmd: Command | undefined, present: boolean, tychicus: Server | undefined): "rename" | "remove" | undefined {
 	if (!present) {
 		plan.forget.push(alias);
 		plan.notes.push(`"${alias}" is no longer in the file; it leaves the list of aliases.`);
@@ -382,9 +416,16 @@ function finishAction(plan: FilePlan, alias: string, cmd: Command | undefined, p
 		return undefined;
 	}
 	if (!tychicus) return "rename";
-	if (sameCommand(tychicus, cmd)) return "remove";
+	if (!sameCommand(tychicus.cmd, cmd)) {
+		plan.leftAlone.push(
+			`"${alias}" runs ${commandLine(cmd.command, cmd.args)}, but the ${MCP_NAME} entry runs ${commandLine(tychicus.cmd.command, tychicus.cmd.args)}. Remove one of the two by hand, then run ${COMMAND_NAME} setup --agents --finish again.`,
+		);
+		return undefined;
+	}
+	const fields = differingFields(entry, tychicus.entry);
+	if (fields.length === 0) return "remove";
 	plan.leftAlone.push(
-		`"${alias}" runs ${commandLine(cmd.command, cmd.args)}, but the ${MCP_NAME} entry runs ${commandLine(tychicus.command, tychicus.args)}. Remove one of the two by hand, then run ${COMMAND_NAME} setup --agents --finish again.`,
+		`"${alias}" runs the same command as the ${MCP_NAME} entry but differs in ${fields.map((f) => `"${f}"`).join(", ")}, so both were left as they are. Keep the settings you want under ${MCP_NAME} and remove "${alias}" by hand, then run ${COMMAND_NAME} setup --agents --finish again.`,
 	);
 	return undefined;
 }
@@ -395,22 +436,21 @@ function planJsonFinish(plan: FilePlan, text: string, format: JsonFormat): void 
 	const { data, scan } = parsed;
 	const servers = isObject(data[format.key]) ? (data[format.key] as Record<string, unknown>) : {};
 	const spans = serverSpans(scan, format.key) ?? new Map();
-	let tychicus = Object.hasOwn(servers, MCP_NAME) ? (jsonCommand(servers[MCP_NAME], format.shape) ?? { command: "", args: [] }) : undefined;
+	let tychicus: Server | undefined = Object.hasOwn(servers, MCP_NAME) ? { entry: servers[MCP_NAME], cmd: jsonCommand(servers[MCP_NAME], format.shape) ?? { command: "", args: [] } } : undefined;
 	const edits: Edit[] = [];
 	let renamed: string | undefined;
 	const removed = new Set<string>();
 	for (const alias of plan.aliases) {
 		const cmd = jsonCommand(servers[alias], format.shape);
 		const span = spans.get(alias);
-		const action = finishAction(plan, alias, cmd, Object.hasOwn(servers, alias) && span !== undefined, tychicus);
+		const action = finishAction(plan, alias, servers[alias], cmd, Object.hasOwn(servers, alias) && span !== undefined, tychicus);
 		if (!action || !span || !cmd) continue;
-		const [keyStart, , end] = span;
 		if (action === "rename") {
-			edits.push({ at: keyStart, end: valueEnd(scan, keyStart), text: JSON.stringify(MCP_NAME) });
+			edits.push({ at: span[0], end: valueEnd(scan, span[0]), text: JSON.stringify(MCP_NAME) });
 			renamed = alias;
-			tychicus = cmd;
+			tychicus = { entry: servers[alias], cmd };
 		} else {
-			const [from, to] = removalRange(scan, keyStart, end);
+			const [from, to] = removalRange(scan, span[0], span[2]);
 			edits.push({ at: from, end: to, text: "" });
 			removed.add(alias);
 		}
@@ -563,12 +603,12 @@ function planTomlFinish(plan: FilePlan, text: string): void {
 	const tables = tomlTables(lines);
 	const replace = new Map<number, string>();
 	const drop = new Set<number>();
-	let tychicus = Object.hasOwn(servers, MCP_NAME) ? (tomlCommand(servers[MCP_NAME]) ?? { command: "", args: [] }) : undefined;
+	let tychicus: Server | undefined = Object.hasOwn(servers, MCP_NAME) ? { entry: servers[MCP_NAME], cmd: tomlCommand(servers[MCP_NAME]) ?? { command: "", args: [] } } : undefined;
 	let renamed: string | undefined;
 	const removed = new Set<string>();
 	for (const alias of plan.aliases) {
 		const cmd = tomlCommand(servers[alias]);
-		const action = finishAction(plan, alias, cmd, Object.hasOwn(servers, alias), tychicus);
+		const action = finishAction(plan, alias, servers[alias], cmd, Object.hasOwn(servers, alias), tychicus);
 		if (!action || !cmd) continue;
 		const family = tables.filter((t) => t.name === alias);
 		if (!family.some((t) => t.sub === "")) {
@@ -578,7 +618,7 @@ function planTomlFinish(plan: FilePlan, text: string): void {
 		if (action === "rename") {
 			for (const t of family) replace.set(t.header, lines[t.header].replace(/(\[\s*mcp_servers\.)(?:"[^"\\]+"|'[^']+'|[A-Za-z0-9_-]+)/, `$1${MCP_NAME}`));
 			renamed = alias;
-			tychicus = cmd;
+			tychicus = { entry: servers[alias], cmd };
 		} else {
 			for (const t of family) for (let i = t.header; i < t.end; i++) drop.add(i);
 			removed.add(alias);

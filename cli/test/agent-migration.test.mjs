@@ -394,13 +394,20 @@ POLYCARP_SESSION = "codex"
 		assert.equal(held.status, "unchanged");
 		assert.match(held.leftAlone[0], /Remove one of the two by hand/);
 
-		// With the inline tychicus running the same launcher, the alias and its env table go, and the file parses.
-		const same = readFileSync(file, "utf8").replace('"/opt/tychicus/tychicus"', JSON.stringify(bin));
-		writeFileSync(file, same);
+		// The same launcher but without the alias's timeout and env: removing the alias would drop them, so it stays.
+		const moved = readFileSync(file, "utf8");
+		writeFileSync(file, moved.replace('"/opt/tychicus/tychicus"', JSON.stringify(bin)));
+		const [partial] = m.planFinish(bin);
+		assert.equal(partial.status, "unchanged");
+		assert.match(partial.leftAlone[0], /runs the same command as the tychicus entry but differs in "startup_timeout_sec", "env"/);
+
+		// With the inline tychicus the same in every field, the alias and its env table go, and the file parses.
+		const full = `{ command = ${JSON.stringify(bin)}, args = ["mcp"], startup_timeout_sec = 30, env = { POLYCARP_SESSION = "codex" } }`;
+		writeFileSync(file, moved.replace('{ command = "/opt/tychicus/tychicus", args = ["mcp"] }', full));
 		const [finish] = m.planFinish(bin);
 		assert.deepEqual(finish.finished, [{ name: "polycarp", action: "removed" }]);
 		applyMigration([finish], new Date("2026-11-17T21:00:00Z"));
-		assert.deepEqual(parseToml(readFileSync(file, "utf8")).mcp_servers, { tychicus: { command: bin, args: ["mcp"] } });
+		assert.deepEqual(parseToml(readFileSync(file, "utf8")).mcp_servers, { tychicus: { command: bin, args: ["mcp"], startup_timeout_sec: 30, env: { POLYCARP_SESSION: "codex" } } });
 		assert.deepEqual(m.readAliases(), []);
 	});
 });
@@ -515,5 +522,43 @@ test("an entry written on one line stays on one line", () => {
 		put(file, `{\n  "mcpServers": {\n    "polycarp": { "command": "polycarp", "args": ["browser", "mcp"] },\n    "other": { "command": "x" }\n  }\n}\n`);
 		const [plan] = planMigration("/t/tychicus").filter((p) => p.harness === "cursor");
 		assert.equal(plan.after, `{\n  "mcpServers": {\n    "polycarp": { "command": "/t/tychicus", "args": ["mcp"] },\n    "other": { "command": "x" }\n  }\n}\n`);
+	});
+});
+
+/** Record aliases the way the move does, for tests that start from a moved config. */
+function recordAlias(home, ...aliases) {
+	const file = join(process.env.TYCHICUS_CONFIG_DIR, "agent-aliases.json");
+	put(file, `${JSON.stringify({ note: "Temporary", aliases: aliases.map(([harness, f, name]) => ({ harness, file: f, name, since: "2026-11-17T20:00:00.000Z" })) }, null, 2)}\n`);
+	return file;
+}
+
+test("sol-F1 (round 2): the finish removes an alias only when it matches the tychicus entry in every field", () => {
+	inHome("finish-fields", (home) => {
+		const bin = join(home, ".config", "tychicus", "tychicus");
+		const oc = join(home, ".config", "opencode", "opencode.json");
+		const claude = join(home, ".claude.json");
+		const cursor = join(home, ".cursor", "mcp.json");
+		// OpenCode: the alias is the enabled server; tychicus runs the same command but is disabled.
+		const ocText = `{\n  "mcp": {\n    "tychicus": { "type": "local", "command": ["${bin}", "mcp"], "enabled": false },\n    "polycarp": { "type": "local", "command": ["${bin}", "mcp"], "enabled": true },\n  },\n}\n`;
+		// Claude Code: the same command, but the alias carries env the tychicus entry lacks.
+		const claudeText = `{\n  "mcpServers": {\n    "tychicus": { "type": "stdio", "command": "${bin}", "args": ["mcp"] },\n    "polycarp": { "type": "stdio", "command": "${bin}", "args": ["mcp"], "env": { "POLYCARP_SESSION": "claude" } }\n  }\n}\n`;
+		// Cursor: the same in every field, in another key order, so the alias goes.
+		const cursorText = `{\n  "mcpServers": {\n    "tychicus": { "command": "${bin}", "args": ["mcp"], "env": { "A": "1" } },\n    "polycarp": { "env": { "A": "1" }, "args": ["mcp"], "command": "${bin}" }\n  }\n}\n`;
+		put(oc, ocText);
+		put(claude, claudeText);
+		put(cursor, cursorText);
+		recordAlias(home, ["opencode", oc, "polycarp"], ["claude", claude, "polycarp"], ["cursor", cursor, "polycarp"]);
+		const plans = m.planFinish(bin);
+		const by = Object.fromEntries(plans.map((p) => [p.harness, p]));
+		assert.equal(by.opencode.status, "unchanged", "the enabled alias beside a disabled tychicus is kept");
+		assert.match(by.opencode.leftAlone[0], /"polycarp" runs the same command as the tychicus entry but differs in "enabled"/);
+		assert.equal(by.claude.status, "unchanged", "the alias's env is not dropped");
+		assert.match(by.claude.leftAlone[0], /differs in "env"/);
+		assert.deepEqual(by.cursor.finished, [{ name: "polycarp", action: "removed" }]);
+		applyMigration(plans, new Date("2026-11-17T21:00:00Z"));
+		assert.equal(readFileSync(oc, "utf8"), ocText);
+		assert.equal(readFileSync(claude, "utf8"), claudeText);
+		assert.deepEqual(Object.keys(JSON.parse(readFileSync(cursor, "utf8")).mcpServers), ["tychicus"]);
+		assert.deepEqual(aliasList(), ["claude:polycarp", "opencode:polycarp"], "the kept aliases stay on the list");
 	});
 });
