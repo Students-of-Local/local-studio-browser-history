@@ -1,4 +1,4 @@
-# Runs on every pull request and every push to main. Four jobs:
+# Runs on every pull request and every push to main. These jobs:
 #   skills:           the gate for skills/ and community/skills/. Lints every skill for hidden
 #                     text, prompt injection, remote code, secret handling and structure, and
 #                     runs the red-team tests that prove the lint still catches each attack.
@@ -22,6 +22,8 @@
 #   check:            the full build, format, type and test pass that a release runs.
 #   cli-windows:      the CLI's Windows cases, on Windows.
 #   e2e:              the built extension in headless Chromium: bridge and MCP end to end, side panel, DOM benchmark.
+#   tasks:            the same build: the ten-task set (evals/tasks) three times, every run must pass, then the
+#                     speed check, which fails at a median click of 150 ms or fill of 100 ms.
 # Nothing here gets a write token or a secret, so a pull request from a fork can't use CI
 # to reach anything.
 name: CI
@@ -382,3 +384,40 @@ jobs:
       - name: DOM benchmark against the floor
         working-directory: cli
         run: npm run bench:dom
+
+  tasks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      - name: Check out the pinned siblings and install
+        run: ./scripts/setup-siblings.sh
+
+      - name: Build the extension and the CLI
+        env:
+          TABKYRA_NO_BUMP: "1"
+        run: |
+          npm run build
+          (cd cli && npm run build)
+
+      - name: Install Playwright's Chromium
+        working-directory: cli
+        run: npx playwright-core install --with-deps chromium
+
+      - name: Let Chromium's sandbox start
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: Task set, 10 tasks x 3
+        run: node evals/tasks/run.mjs --repeat 3
+
+      - name: Speed check (median of 5)
+        run: node evals/tasks/speed.mjs 5

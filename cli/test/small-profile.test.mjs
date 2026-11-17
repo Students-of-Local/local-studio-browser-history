@@ -13,8 +13,8 @@ const cli = join(dirname(fileURLToPath(import.meta.url)), "..", "dist", "index.j
 let root;
 const clients = [];
 
-async function connect(args, extraEnv = {}) {
-	const c = new Client({ name: "small-profile-test", version: "0" });
+async function connect(args, extraEnv = {}, name = "small-profile-test") {
+	const c = new Client({ name, version: "0" });
 	await c.connect(
 		new StdioClientTransport({
 			command: process.execPath,
@@ -57,6 +57,33 @@ test("POLYCARP_PROFILE=small picks it too, and a mistyped profile fails", async 
 	assert.ok(viaEnv.some((t) => t.name === "more_tools"));
 	assert.ok(!viaEnv.some((t) => t.name === "run_js"));
 	await assert.rejects(connect(["--profile", "smal"]));
+});
+
+test("D53: a client that runs local models gets the small list unless told otherwise; others keep the full list", async () => {
+	const listed = async (args, env, name) => (await (await connect(args, env, name)).listTools()).tools.map((t) => t.name);
+	for (const name of ["LM Studio", "ollama-mcp-bridge", "Jan", "open-webui", "mcphost"]) {
+		const tools = await listed([], {}, name);
+		assert.ok(tools.includes("more_tools") && !tools.includes("run_js"), `${name}: ${tools.length} tools`);
+	}
+	// Told otherwise: the flag, then the variable.
+	assert.ok((await listed(["--profile", "full"], {}, "LM Studio")).includes("run_js"));
+	assert.ok((await listed([], { POLYCARP_PROFILE: "full" }, "LM Studio")).includes("run_js"));
+	// A local model behind a client with another name says so with POLYCARP_LOCAL_MODEL.
+	assert.ok((await listed([], { POLYCARP_LOCAL_MODEL: "1" }, "opencode")).includes("more_tools"));
+	assert.ok(!(await listed([], { POLYCARP_LOCAL_MODEL: "0" }, "opencode")).includes("more_tools"));
+	for (const name of ["claude-code", "codex-mcp-client", "Cursor", "opencode"]) assert.ok((await listed([], {}, name)).includes("run_js"), name);
+});
+
+test("D53: chooseProfile reads flag, then variable, then the local-model hints", async () => {
+	const { chooseProfile } = await import("../src/small-profile.ts");
+	assert.equal(chooseProfile({ flag: "full", env: "small", clientName: "LM Studio" }).profile, undefined);
+	assert.equal(chooseProfile({ flag: "small" }).profile, "small");
+	assert.equal(chooseProfile({ env: "full", clientName: "ollama" }).profile, undefined);
+	assert.equal(chooseProfile({ env: "small" }).profile, "small");
+	assert.equal(chooseProfile({ localModel: "1" }).profile, "small");
+	assert.equal(chooseProfile({ clientName: "msty" }).profile, "small");
+	assert.equal(chooseProfile({ clientName: "January" }).profile, undefined);
+	assert.equal(chooseProfile({}).profile, undefined);
 });
 
 test("the instructions name more_tools and drop sentences about tools it hides", async () => {

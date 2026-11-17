@@ -3019,14 +3019,17 @@ test("a ref never heals onto another row because the page reused its position id
 	// tw-1 is now the last draft's, which looks like tw-0's: nothing proves which one the old ref named.
 	assert.match(await failure("click", { ref: tw1 }), /^stale_ref: /);
 	assert.deepEqual(await left(), [["Buy milk", "Walk the dog", "Call mom"], 2]);
-	// Rows with their own text: rm-0's repeat, and rm-1 (never acted on) now in "Call mom"'s row, are refused.
+	// Rows with their own text: rm-0's repeat is refused. rm-1 (never acted on) named "Walk the dog"'s Remove; its id now
+	// belongs to "Call mom"'s row, and the id proves nothing. D51: the same role, name and row text find "Walk the dog"'s
+	// Remove again (now rm-0), the control the read showed, so the click goes there and says so; "Call mom" stays.
 	const page = await tool("read_page", { filter: "interactive" });
 	const [rm0, rm1] = refsOf("Remove", page);
 	await tool("click", { ref: rm0 });
 	assert.deepEqual(await left(), [["Walk the dog", "Call mom"], 2], "row 0 removed");
 	assert.match(await failure("click", { ref: rm0 }), /^stale_ref: .*may already have happened/);
-	assert.match(await failure("click", { ref: rm1 }), /^stale_ref: Ref e\d+ not found: the element it named left the page\. Nothing was done\./);
 	assert.deepEqual(await left(), [["Walk the dog", "Call mom"], 2]);
+	assert.match(await tool("click", { ref: rm1 }), /"refound": ?"button \\"Remove\\": the page rebuilt it, and the same control in the same row took the ref"/);
+	assert.deepEqual(await left(), [["Call mom"], 2], "the row the ref was read in, and only that row, is removed");
 });
 
 // PR 208 first-F1: buttons in a wrapper (<span class=actions>) whose own text is just "Remove", with ids that follow

@@ -96,9 +96,9 @@ try {
 }
 const byId = new Map(results.map((r) => [r.id, r]));
 const problems = [];
-// On Linux this page times out when `wait` polls often in a background tab (polling every 2 s passes); it still gates Mac runs.
-const notOnCi = new Set(process.env.CI ? ["infinite-scroll"] : []);
-for (const id of floor.passing.filter((x) => !notOnCi.has(x))) {
+// infinite-scroll was skipped on CI: a hidden tab drew no frame between a scroll and the next, so the page's
+// IntersectionObserver never fired. scroll now waits for the frame the page owes (D50), and it gates every run.
+for (const id of floor.passing) {
 	const r = byId.get(id);
 	if (!r) {
 		// A passing case that vanished (file deleted, id renamed) is a drop, unless this run picked ids.

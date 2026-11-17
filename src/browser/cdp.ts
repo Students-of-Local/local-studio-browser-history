@@ -755,7 +755,14 @@ export async function click(
 	const clickCount = options.clickCount ?? 1;
 	const modifiers = options.modifiers ?? 0;
 	cuePointer(tabId, "click", x, y);
-	await cdpSend(tabId, "Input.dispatchMouseEvent", { type: "mouseMoved", x, y, modifiers });
+	// Not awaited before the press: Chromium holds a move (continuous input) for the next frame, and a hidden agent tab
+	// may draw one a second, so its reply came up to a second late. A press is discrete input, which makes the page
+	// take every queued move first, so the move still lands before the press (docs/verification/speed-trace.md).
+	// A click that arms an answer for its box (on_dialog) still waits: nothing is armed until its input is going out,
+	// so a box the page opens on its own meanwhile never takes the answer (sol-F2 in test/dialog-preset.test.mjs).
+	const moved = cdpSend(tabId, "Input.dispatchMouseEvent", { type: "mouseMoved", x, y, modifiers });
+	moved.catch(() => undefined);
+	if (options.beforeFirstPress) await moved;
 	for (let i = 1; i <= clickCount; i++) {
 		options.stop?.();
 		if (i === 1) options.beforeFirstPress?.();
@@ -776,6 +783,7 @@ export async function click(
 		}
 		await send(tabId, "Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button, clickCount: i, modifiers });
 	}
+	await moved;
 }
 
 export async function hover(tabId: number, x: number, y: number): Promise<void> {

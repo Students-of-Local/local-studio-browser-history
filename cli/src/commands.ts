@@ -52,7 +52,7 @@ export const VALUE_HINTS: Record<string, string> = {
 	"--offset": "N",
 	"--limit": "N",
 	"--session": "<name>",
-	"--profile": "panel",
+	"--profile": "panel|small|full",
 	"--top": "N",
 	"--to": "<version>",
 	"--cases": "<file>",

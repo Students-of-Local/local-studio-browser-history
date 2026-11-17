@@ -31,7 +31,7 @@ import { VERSION } from "./version.ts";
 import { COMPUTER_INSTRUCTION, COMPUTER_STATUS_TOOL, type ComputerClient, LOCAL_COMPUTER_INSTRUCTION, LocalComputer } from "./computer.ts";
 import { COMMAND_NAME } from "./self.ts";
 import { envVar } from "./env.ts";
-import { hideOutsideCore, SMALL_CORE, SMALL_INSTRUCTION } from "./small-profile.ts";
+import { chooseProfile, hideOutsideCore, peekClientName, SMALL_CORE, SMALL_INSTRUCTION } from "./small-profile.ts";
 import type { RosterDevice } from "./link-protocol.ts";
 
 /** Controls an interactive read lists by default: a first look of about 1,500 tokens on a busy page (evals/weak-model). */
@@ -824,7 +824,10 @@ export function createMcpServer(options: McpServerOptions = {}): { server: McpSe
 			description: "Click with real mouse events. Give a ref (best), a selector, or x/y from your latest screenshot. Example: {\"ref\":\"e12\"}",
 			inputSchema: {
 				...targetSchema,
-				button: z.enum(["left", "right", "middle"]).optional().describe('Mouse button (default "left")'),
+				mouseButton: z.enum(["left", "right", "middle"]).optional().describe('Mouse button (default "left")'),
+				// The old name for mouseButton stays, described in two words to keep tools/list small: a value that is not a mouse
+				// button is read as the control's name (D52).
+				button: z.string().optional().describe("Old name"),
 				clickCount: z.number().int().optional().describe("2 for a double click"),
 				...onDialog,
 			},
@@ -1495,14 +1498,19 @@ function registerSkillManagement(server: McpServer, library: <T>(fn: () => Promi
 	);
 }
 
-export async function runMcpServer(options: { session?: string; profile?: "small"; serverName?: string } = {}): Promise<void> {
+export async function runMcpServer(options: { session?: string; profile?: "small" | "full"; serverName?: string } = {}): Promise<void> {
 	if (!isInstalled()) {
 		// First run from any harness completes setup; the extension reconnects on its alarm.
 		const result = install();
 		process.stderr.write(`[polycarp] installed native host manifests (${result.written.length} file(s))\n`);
 	}
 	const localComputer = new LocalComputer();
-	const profile = options.profile ?? (envVar("PROFILE") === "small" ? "small" : undefined);
+	// A local model gets the small tool list unless told otherwise (D53). Its client names itself only in its first message,
+	// so that message is read before the server is built and handed on to the transport untouched.
+	const decided = options.profile || envVar("PROFILE") === "small" || envVar("PROFILE") === "full";
+	const peeked = decided ? undefined : await peekClientName(process.stdin);
+	const { profile, why } = chooseProfile({ flag: options.profile, env: envVar("PROFILE"), localModel: envVar("LOCAL_MODEL"), clientName: peeked?.clientName });
+	if (profile === "small" && !options.profile) process.stderr.write(`[polycarp] small tool profile: ${why} (--profile full for every tool)\n`);
 	const { server, client } = createMcpServer({ sessionFlag: options.session, localComputer, profile, serverName: options.serverName });
 	process.stdin.on("end", () => localComputer.close());
 	// Community skills, about daily, in the background: many harnesses keep this server running.
@@ -1510,7 +1518,7 @@ export async function runMcpServer(options: { session?: string; profile?: "small
 	const sync = () => syncCommunity({ due: true }).catch(() => undefined);
 	void sync();
 	setInterval(sync, 6 * 60 * 60 * 1000).unref();
-	const transport = new StdioServerTransport();
+	const transport = new StdioServerTransport(peeked?.stream ?? process.stdin);
 	await server.connect(transport);
 	// Connect lazily on the first call, but try once now so a missing extension is reported early.
 	client.connect().catch((err) => process.stderr.write(`[polycarp] ${err instanceof Error ? err.message : String(err)}\n`));

@@ -82,6 +82,26 @@ function delta(a: Node, b: Node): string | undefined {
 		: undefined;
 }
 
+/**
+ * What kind of change an action made, for the result's `effect` (D50): a new document or URL, a control's value or
+ * checked/selected/pressed state, anything else on the page (controls that came, went or were renamed, text, focus,
+ * the title), a tab opened or closed, or a report that could not compare ("unknown", never "nothing").
+ */
+export type EffectKind = "navigation" | "value" | "dom" | "newTab" | "tabClosed" | "dialog" | "download" | "unknown";
+
+/** States that are a control's value (a checkbox ticked, an option picked), not the page changing around it. */
+const VALUE_STATE = /^(checked|selected|pressed|mixed)$/;
+
+/** The kinds one changed control shows: its value (or a value state), or anything else about it. */
+function deltaKinds(a: Node, b: Node, kinds: Set<EffectKind>): void {
+	if ((a.value ?? "") !== (b.value ?? "")) kinds.add("value");
+	if (a.name !== b.name) kinds.add("dom");
+	const sa = new Set(a.states ?? []);
+	const sb = new Set(b.states ?? []);
+	for (const st of [...sa].filter((x) => !sb.has(x)).concat([...sb].filter((x) => !sa.has(x))))
+		kinds.add(VALUE_STATE.test(st) ? "value" : "dom");
+}
+
 async function look(
 	tabId: number,
 	hosts: readonly string[],
@@ -135,9 +155,29 @@ export async function afterAction(
 	tabs: number[],
 	urlOf: (tabId: number) => Promise<string>,
 	skip: (url: string) => boolean,
+	/** Filled with the kinds of change the report saw, before any of it is cut to fit. */
+	kinds: Set<EffectKind> = new Set(),
 ): Promise<Record<string, unknown> | string> {
 	// Short by construction: one report never passes CHANGES_MAX_CHARS, whatever the page puts in it.
-	return fitChanges(await report(b, tabs, urlOf, skip), CHANGES_MAX_CHARS);
+	return fitChanges(await report(b, tabs, urlOf, skip, kinds), CHANGES_MAX_CHARS);
+}
+
+/**
+ * The kinds of change in a report this file did not compare itself (a navigate's "new page", a report handed over
+ * whole): read off its keys. A report from afterAction is classified as it is made instead.
+ */
+export function effectOfReport(changes: unknown, kinds: Set<EffectKind>): void {
+	if (changes === undefined || typeof changes === "string") return;
+	const c = changes as Record<string, unknown>;
+	if (c.tabsOpened) kinds.add("newTab");
+	if (c.tabsClosed) kinds.add("tabClosed");
+	if (c.url) kinds.add("navigation");
+	if (c.page === UNCOMPARED || c.page === TOO_LARGE) kinds.add("unknown");
+	else if (c.page === NOT_LOADED) kinds.add("unknown");
+	else if (typeof c.page === "string") kinds.add("navigation");
+	for (const k of ["appeared", "gone", "title", "focus", "newText", "moreText", "text", "partial"])
+		if (c[k] !== undefined) kinds.add("dom");
+	if (c.changed !== undefined && !kinds.has("value") && !kinds.has("dom")) kinds.add("dom");
 }
 
 /** The session's tabs an action opened (with their URLs, masked) and closed, for any report. */
@@ -164,8 +204,11 @@ async function report(
 	tabs: number[],
 	urlOf: (tabId: number) => Promise<string>,
 	skip: (url: string) => boolean,
+	kinds: Set<EffectKind>,
 ): Promise<Record<string, unknown> | string> {
 	const out: Record<string, unknown> = await tabChanges(b.tabs, tabs, urlOf);
+	if (out.tabsOpened) kinds.add("newTab");
+	if (out.tabsClosed) kinds.add("tabClosed");
 	const gone = !tabs.includes(b.tabId);
 	const url = gone ? "" : await urlOf(b.tabId).catch(() => "");
 	// No second look when the first is missing: the report can't compare, and the action is not held longer.
@@ -182,22 +225,34 @@ async function report(
 					);
 	if (typeof got === "string" || !b.look) {
 		// A report is a diff of two real looks, or it says plainly that it isn't.
-		if (!gone && !openDialog(b.tabId)) out.page = got === "large" ? TOO_LARGE : UNCOMPARED;
+		if (!gone && !openDialog(b.tabId)) {
+			out.page = got === "large" ? TOO_LARGE : UNCOMPARED;
+			kinds.add("unknown");
+		}
 		return Object.keys(out).length ? out : "nothing changed";
 	}
 	const a = got;
-	if (a.url !== b.look.url) out.url = cut(a.url, URL_CHARS);
-	if (a.title !== b.look.title) out.title = oneLine(a.title).slice(0, 120);
+	if (a.url !== b.look.url) {
+		out.url = cut(a.url, URL_CHARS);
+		kinds.add("navigation");
+	}
+	if (a.title !== b.look.title) {
+		out.title = oneLine(a.title).slice(0, 120);
+		kinds.add("dom");
+	}
 	const byRef = new Map(a.nodes.map((n) => [n.ref, n]));
 	const named = (ref: string) => {
 		const n = byRef.get(ref);
 		return n ? cut(`${n.ref} ${n.role.replace(/[^a-z-]/g, "") || "generic"} ${q(n.name)}`, LINE_CHARS) : "";
 	};
-	if (a.focus !== b.look.focus && !(a.focus && a.focus === b.target))
+	if (a.focus !== b.look.focus && !(a.focus && a.focus === b.target)) {
 		out.focus = (a.focus && named(a.focus)) || "nothing listed";
+		kinds.add("dom");
+	}
 	if (a.doc !== b.look.doc) {
 		// A new document: every ref is new, so a list would be the page itself. read_page has it.
 		out.page = `new page, ${a.nodes.length}${a.nodes.length >= MAX_NODES ? "+" : ""} controls; read_page lists them`;
+		kinds.add("navigation");
 		return out;
 	}
 	// Over the limit, which controls make the first MAX_NODES depends on the scroll: a list would
@@ -205,6 +260,7 @@ async function report(
 	if (a.nodes.length >= MAX_NODES || b.look.nodes.length >= MAX_NODES) {
 		textChanges(b.look, a, new Set(), out);
 		out.partial = `over ${MAX_NODES} controls, so they were not compared; read_page lists them`;
+		kinds.add(out.newText !== undefined || out.text !== undefined ? "dom" : "unknown");
 		return out;
 	}
 	const old = new Map(b.look.nodes.map((n) => [n.ref, n]));
@@ -224,8 +280,10 @@ async function report(
 	const changed = a.nodes.flatMap((n) => {
 		const o = old.get(n.ref);
 		const d = o && delta(o, n);
+		if (d && o) deltaKinds(o, n, kinds);
 		return d ? [d] : [];
 	});
+	if (appeared.length || renamed.size) kinds.add("dom");
 	for (const [ref, was] of renamed) {
 		const n = byRef.get(ref) as Node;
 		// The old ref goes right after the new one, so a long line's cut never drops it.
@@ -238,6 +296,7 @@ async function report(
 		);
 	}
 	const vanished = b.look.nodes.filter((n) => goneSet.has(n.ref) && !paired.has(n.ref)).map(line);
+	if (vanished.length) kinds.add("dom");
 	let room = MAX_LINES;
 	const take = (list: string[], key: string) => {
 		if (!list.length) return;
@@ -253,6 +312,7 @@ async function report(
 		a.nodes.filter((n) => !old.has(n.ref) || delta(old.get(n.ref) as Node, n)).map((n) => n.name.trim()),
 	);
 	textChanges(b.look, a, listed, out);
+	if (out.newText !== undefined || out.moreText !== undefined || out.text !== undefined) kinds.add("dom");
 	const more = appeared.length + changed.length + vanished.length - (MAX_LINES - room);
 	if (more > 0) out.more = `${more} more; read_page lists them`;
 	return Object.keys(out).length ? out : "nothing changed";
@@ -268,4 +328,22 @@ function textChanges(b: ChangeLook, a: ChangeLook, listed: Set<string>, out: Rec
 	// The count stays out of newText, where it would read as a line of the page.
 	if (fresh.length > MAX_TEXT_LINES) out.moreText = fresh.length - MAX_TEXT_LINES;
 	else if (!added.length && a.text !== b.text) out.text = "changed; get_page_text shows it";
+}
+
+/**
+ * The top-level fields every action result carries (D50). `newTabs`: the tabs the action opened, with their URLs,
+ * so an agent can switch to one without listing tabs. `effect`: the kinds of change it made, in a fixed order, or
+ * ["nothing"] when the page, its tabs and its dialogs are as they were. A report that could not compare says
+ * "unknown", never "nothing".
+ */
+export function effectFields(changes: unknown, kinds: Set<EffectKind>): { newTabs?: unknown; effect: string[] } {
+	const opened = changes && typeof changes === "object" ? (changes as { tabsOpened?: unknown }).tabsOpened : undefined;
+	const order: EffectKind[] = ["dialog", "newTab", "navigation", "download", "value", "dom", "tabClosed", "unknown"];
+	const effect = order.filter((k) => kinds.has(k));
+	// "unknown" next to a kind that was seen adds nothing.
+	const known = effect.length > 1 ? effect.filter((k) => k !== "unknown") : effect;
+	return {
+		...(Array.isArray(opened) && opened.length ? { newTabs: opened } : {}),
+		effect: known.length ? known : ["nothing"],
+	};
 }
