@@ -9,13 +9,13 @@ echo "Starting development servers..."
 echo ""
 
 # Check if required directories exist
-if [ ! -d "../pi-mono" ]; then
-    echo "Error: pi-mono not found at ../pi-mono"
+if [ ! -d "vendor/pi-mono" ]; then
+    echo "Error: pi-mono not found at vendor/pi-mono"
     exit 1
 fi
 
-if [ ! -d "../mini-lit" ]; then
-    echo "Error: mini-lit not found at ../mini-lit"
+if [ ! -d "vendor/mini-lit" ]; then
+    echo "Error: mini-lit not found at vendor/mini-lit"
     exit 1
 fi
 
@@ -24,11 +24,11 @@ trap 'echo ""; echo "Stopping all dev servers..."; kill 0' EXIT INT TERM
 
 # Start dev servers
 echo "Starting mini-lit dev server..."
-(cd ../mini-lit && npm run dev:tsc) &
+(cd vendor/mini-lit && npm run dev:tsc) &
 MINI_LIT_PID=$!
 
 echo "Starting pi-mono dev server..."
-(cd ../pi-mono && npm run dev:tsc) &
+(cd vendor/pi-mono && npm run dev:tsc) &
 PI_MONO_PID=$!
 
 # Wait a moment for dependencies to start building

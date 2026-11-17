@@ -99,9 +99,9 @@ uses `font-serif`), so only `type.ui`, `type.mono` and `type.size` show. If a he
 - Always ask before removing functionality or code that appears intentional
 
 ## Dependencies
-- `@mariozechner/mini-lit`, `@mariozechner/pi-ai`, `@mariozechner/pi-web-ui`, `@mariozechner/pi-agent-core` are linked via `file:` to sibling repos `../mini-lit` and `../pi-mono`
+- `@mariozechner/mini-lit`, `@mariozechner/pi-ai`, `@mariozechner/pi-web-ui`, `@mariozechner/pi-agent-core` are linked via `file:` to pinned upstream checkouts in `vendor/mini-lit` and `vendor/pi-mono` (gitignored)
 - Changes to those packages require rebuilding them (the dev watcher handles this)
-- If you need to modify upstream code, edit it in `../pi-mono` or `../mini-lit` directly and rebuild
+- If you need to modify upstream code, edit it in `vendor/pi-mono` or `vendor/mini-lit` directly and rebuild
 - Changes to pi-mono that Tabkyra depends on go in `patches/pi-mono.patch`, which `scripts/setup-siblings.sh` applies at the pinned commit
 
 ## Skills

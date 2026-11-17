@@ -2,6 +2,7 @@
 // `remote setup` prints its own copy of the assistant steps (cli/src/remote-setup.ts, which can import the module once PR 132
 // lands); the Mac app holds Swift literals of all of it (spaces/Sources/BaneySpacesCore/RemoteSharedCopy.swift). This test
 // fails if any side changes alone.
+import { needsPolycarp, polycarpFile } from "./polycarp-root.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -35,7 +36,8 @@ test("the panel's assistant steps are the lines `remote setup` prints", () => {
 
 // The Mac app's literals, read from its source. Each is a Swift string literal on one line, which is JSON-compatible here
 // (no escapes are used), so JSON.parse reads it.
-const swift = () => read("../spaces/Sources/BaneySpacesCore/RemoteSharedCopy.swift");
+const MAC_COPY = "spaces/Sources/BaneySpacesCore/RemoteSharedCopy.swift";
+const swift = () => polycarpFile(MAC_COPY);
 const lit = '"(?:[^"\\\\]|\\\\.)*"';
 const str = (s) => JSON.parse(s);
 /** A Swift `[String: String]` literal by name, as an object. */
@@ -47,7 +49,7 @@ function swiftDict(name) {
 	return Object.fromEntries([...body.matchAll(new RegExp(`(${lit}): (${lit}),`, "g"))].map((m) => [str(m[1]), str(m[2])]));
 }
 
-test("the Mac app's step words are the panel's, entry by entry", () => {
+test("the Mac app's step words are the panel's, entry by entry", { skip: needsPolycarp(MAC_COPY) }, () => {
 	const re = new RegExp(`(${lit}): RemoteStepCopy\\(title: (${lit}), body: (${lit}|nil), action: (${lit}|nil), kind: (${lit}|nil), waits: (true|false)\\),`, "g");
 	const mac = Object.fromEntries(
 		[...swift().matchAll(re)].map((m) => [
@@ -63,7 +65,7 @@ test("the Mac app's step words are the panel's, entry by entry", () => {
 	assert.deepEqual(mac, JSON.parse(JSON.stringify(STEP_COPY)));
 });
 
-test("the Mac app's assistant steps, approval line, result, checks and routes are the panel's", () => {
+test("the Mac app's assistant steps, approval line, result, checks and routes are the panel's", { skip: needsPolycarp(MAC_COPY) }, () => {
 	const re = new RegExp(`RemoteAssistantStep\\(id: (${lit}), name: (${lit}), where: (${lit})\\)`, "g");
 	const steps = [...swift().matchAll(re)].map((m) => ({ id: str(m[1]), name: str(m[2]), where: str(m[3]) }));
 	assert.deepEqual(steps, ASSISTANT_STEPS.map((a) => ({ ...a })));
@@ -86,7 +88,7 @@ test("the Mac app's assistant steps, approval line, result, checks and routes ar
 	assert.deepEqual(list("flowSteps"), [...FLOW_STEPS]);
 });
 
-test("the Mac app's key function names every state and code copyKey does", () => {
+test("the Mac app's key function names every state and code copyKey does", { skip: needsPolycarp(MAC_COPY) }, () => {
 	// The Swift switch, as text: each state and code copyKey names appears there. launcher is the app's own entry.
 	const src = swift();
 	for (const state of ["tailscale_missing", "tailscale_signed_out", "tailnet_lock", "ready", "funnel_not_allowed", "funnel_closed", "on", "no_browser_connected", "turning_on", "cloudflared_missing", "port_busy", "problem"]) {

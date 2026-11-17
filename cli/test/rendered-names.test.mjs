@@ -10,6 +10,7 @@ import { dirname, join } from "node:path";
 import { after, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
+import { needsPolycarp, polycarpFile } from "../../test/polycarp-root.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const cli = join(here, "..", "dist", "index.js");
@@ -68,10 +69,10 @@ test("the host does not ask the system for its parent browser until it runs as t
 	assert.equal(r.status, 0);
 });
 
-test("first-F5/sol-F2: the app opens a browser by the same bundle ids the helper uses to find it", () => {
+test("first-F5/sol-F2: the app opens a browser by the same bundle ids the helper uses to find it", { skip: needsPolycarp("spaces/Sources/BaneySpacesCore/BrowserSetup.swift") }, () => {
 	const pairs = (text) => Object.fromEntries([...text.matchAll(/"?([A-Z][A-Za-z ]+)"?:\s*"([A-Za-z0-9.-]+)",/g)].map((m) => [m[1], m[2]]));
 	const helper = readFileSync(join(here, "..", "src", "install.ts"), "utf8");
-	const swift = readFileSync(join(here, "..", "..", "..", "spaces", "Sources", "BaneySpacesCore", "BrowserSetup.swift"), "utf8");
+	const swift = polycarpFile("spaces/Sources/BaneySpacesCore/BrowserSetup.swift");
 	const ids = (text, from, to) => pairs(text.slice(text.indexOf(from), text.indexOf(to, text.indexOf(from))));
 	const fromHelper = ids(helper, "const MAC_BUNDLE_IDS", "};");
 	const fromApp = ids(swift, "public static let bundleIDs", "]\n");

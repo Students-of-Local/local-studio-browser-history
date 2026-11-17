@@ -68,7 +68,7 @@ async function ensureBuild(options: SetupOptions): Promise<boolean> {
 		return false;
 	}
 	// The extension compiles against sibling checkouts of pi-mono and mini-lit.
-	if (!existsSync(join(root, "..", "pi-mono")) || !existsSync(join(root, "node_modules"))) {
+	if (!existsSync(join(root, "vendor", "pi-mono")) || !existsSync(join(root, "node_modules"))) {
 		if (!run("./scripts/setup-siblings.sh", [], root)) {
 			console.log(`  ${sym.fail} Sibling setup failed. Fix the error above, then run ${c.bold(`${COMMAND_NAME} setup`)} again.`);
 			return false;

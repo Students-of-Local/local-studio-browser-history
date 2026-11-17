@@ -10,7 +10,7 @@ import { runNativeHost } from "./host.ts";
 import { browserDirs, browserRunning, cliLauncherPath, extensionInProfile, hostStatus, install, isInstalled } from "./install.ts";
 import { runMcpServer } from "./mcp.ts";
 import { runPanelProfile } from "./panel-profile.ts";
-import { COMMAND_NAME, COMPILED } from "./self.ts";
+import { COMMAND_NAME, COMPILED, DEFAULT_MCP_NAME } from "./self.ts";
 import { EXTENSION_FILES, extensionDir } from "./paths.ts";
 import { writePiExtension } from "./pi-extension.ts";
 import { parseSetupArgs, parseUpdateArgs } from "./parse-args.ts";
@@ -350,9 +350,10 @@ async function main(): Promise<void> {
 			// --profile small: the core tools listed, the rest behind more_tools, for small models (cli/src/small-profile.ts).
 			// A mistyped profile must fail, not quietly serve the full tool list to a run that measures the panel's.
 			if (argv.some((a) => a === "--profile" || a.startsWith("--profile=")) && option("--profile") !== "panel" && option("--profile") !== "small")
-				throw new UsageError(`--profile takes panel or small. Usage: ${COMMAND_NAME} mcp [--session <name>] [--profile panel|small]`);
+				throw new UsageError(`--profile takes panel or small. Usage: ${COMMAND_NAME} mcp [--session <name>] [--profile panel|small] [--name <name>]`);
 			if (option("--profile") === "panel") await runPanelProfile({ session: option("--session") });
-			else await runMcpServer({ session: option("--session"), profile: option("--profile") === "small" ? "small" : undefined });
+			// --name polycarp: the server keeps the name configs written for Polycarp expect.
+			else await runMcpServer({ session: option("--session"), profile: option("--profile") === "small" ? "small" : undefined, serverName: option("--name") || DEFAULT_MCP_NAME });
 			return;
 		case "threads": {
 			const rest = argv.slice(1).filter((a, i, all) => !a.startsWith("-") && !VALUE_FLAGS.has(all[i - 1] ?? ""));

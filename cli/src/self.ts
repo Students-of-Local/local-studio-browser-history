@@ -6,7 +6,7 @@ import { realpathSync } from "node:fs";
  * and there is no Node and no script path to point at.
  */
 
-import { delimiter, dirname, join } from "node:path";
+import { basename, delimiter, dirname, join } from "node:path";
 
 declare const __POLYCARP_COMPILED__: boolean | undefined;
 
@@ -28,8 +28,28 @@ export function bundledExtensionDir(): string | undefined {
 	return COMPILED ? join(dirname(process.execPath), "extension") : undefined;
 }
 
-/** The command a person types for this program: `polycarp browser` inside the app, `polycarp-browser` for an npm link or a checkout. */
-export const COMMAND_NAME: string = COMPILED ? "polycarp browser" : !linkedAs("polycarp-browser") && linkedAs("tabkyra") ? "tabkyra" : "polycarp-browser";
+/** The name this program was started under: `tychicus`, or an old alias such as `polycarp-browser`. */
+const INVOKED = basename(process.argv[1] ?? "").replace(/\.(?:js|cmd|exe)$/, "");
+
+/**
+ * The command a person types for this program: `tychicus`, or the alias it was started as (`polycarp-browser`),
+ * `polycarp browser` inside the Polycarp app. A plain `node dist/index.js` keeps the old name until the fleet moves over.
+ */
+export const COMMAND_NAME: string = COMPILED
+	? "polycarp browser"
+	: INVOKED === "tychicus" || INVOKED === "polycarp-browser"
+		? INVOKED
+		: linkedAs("tychicus")
+			? "tychicus"
+			: !linkedAs("polycarp-browser") && linkedAs("tabkyra")
+				? "tabkyra"
+				: "polycarp-browser";
+
+/**
+ * The MCP server's name when `mcp --name` is not given: `tychicus`, and `polycarp` under an old command name, so
+ * configs written for Polycarp keep seeing the server they know.
+ */
+export const DEFAULT_MCP_NAME: string = COMMAND_NAME === "tychicus" ? "tychicus" : "polycarp";
 
 /** Whether `name` on PATH is this program. An npm link made before the rename answers only to `tabkyra`. */
 function linkedAs(name: string): boolean {

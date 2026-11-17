@@ -16,7 +16,7 @@ const OPEN_BYTES_LIMIT = 1_903_000;
 // Each of these is large and needed only by some chats. None may load with the panel.
 const ON_FIRST_USE = ["pdfjs-dist", "xlsx", "docx-preview", "jszip", "katex", "chart.js", "@lmstudio/sdk", "@mistralai", "@google/genai", "openai/", "@anthropic-ai/sdk", "library-skills", "highlight.js/lib/languages/1c", "ajv/", "src/tools/default-skills"];
 
-const siblings = existsSync(join(root, "../pi-mono/packages")) && existsSync(join(root, "node_modules"));
+const siblings = existsSync(join(root, "vendor/pi-mono/packages")) && existsSync(join(root, "node_modules"));
 
 test("the panel opens with less than the budget, and without the libraries that load on first use", { skip: !siblings }, () => {
 	const out = mkdtempSync(join(tmpdir(), "panel-size-"));
@@ -75,7 +75,7 @@ test("a library that failed to load can be tried again, since an update can repl
 	for (const file of ["src/dialogs/chart-lib.ts", "src/lazy/highlight.ts", "src/lazy/katex.ts"]) {
 		assert.match(readFileSync(join(root, file), "utf8"), /(lib|all|loading) = undefined;/, file);
 	}
-	assert.match(readFileSync(join(root, "../pi-mono/packages/web-ui/src/utils/lazy-documents.ts"), "utf8"), /pdfjs = undefined;/);
+	assert.match(readFileSync(join(root, "vendor/pi-mono/packages/web-ui/src/utils/lazy-documents.ts"), "utf8"), /pdfjs = undefined;/);
 });
 
 test("the model button opens the picker before anything that waits on the network or the helper", () => {

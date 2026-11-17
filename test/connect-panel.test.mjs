@@ -1,5 +1,6 @@
 // The side panel's Connect pieces that don't need a browser: the relay's first check, the text
 // helpers, and the header, tab and welcome wiring the UX review asked for.
+import { needsPolycarp, polycarpFile } from "./polycarp-root.mjs";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -706,9 +707,12 @@ test("the connect code is kept in memory only: no storage writes, and it is drop
 
 test("the unsourced claim about claude.ai and Funnel addresses is gone everywhere; the Tailnet Lock reason (D30) replaces it", () => {
 	const claim = /claude\.ai often can't reach Tailscale Funnel/i;
-	for (const f of ["src/dialogs/ConnectTab.ts", "src/dialogs/RemoteFlow.ts", "src/connect/remote-copy.ts", "src/connect/format.ts", "docs/remote.md", "../spaces/Sources/BaneySpacesCore/BrowserRemote.swift", "../spaces/Sources/BaneySpaces/BrowserRemoteView.swift"]) {
+	for (const f of ["src/dialogs/ConnectTab.ts", "src/dialogs/RemoteFlow.ts", "src/connect/remote-copy.ts", "src/connect/format.ts", "docs/remote.md"]) {
 		assert.doesNotMatch(read(f), claim, f);
 	}
+	// The Mac app's copies, when a Polycarp checkout is at hand (test/polycarp-root.mjs).
+	const mac = ["spaces/Sources/BaneySpacesCore/BrowserRemote.swift", "spaces/Sources/BaneySpaces/BrowserRemoteView.swift"];
+	if (!needsPolycarp(...mac)) for (const f of mac) assert.doesNotMatch(polycarpFile(f), claim, f);
 	assert.match(read("src/connect/remote-copy.ts"), /Tailnet Lock turned on, and Funnel doesn't work with it/);
 });
 

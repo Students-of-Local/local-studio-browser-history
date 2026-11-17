@@ -790,7 +790,7 @@ test("the tests exercise the JSZip and SheetJS the bundle ships", async () => {
 	// SafeZip stops inflating at its cap through JSZip's internal stream; without it the cap would only apply after.
 	const zip = await JSZip.loadAsync(await new JSZip().file("a", "b").generateAsync({ type: "uint8array" }));
 	assert.equal(typeof zip.file("a").internalStream, "function");
-	const piMono = new URL("../../pi-mono/node_modules/", import.meta.url);
+	const piMono = new URL("../vendor/pi-mono/node_modules/", import.meta.url);
 	for (const pkg of ["xlsx", "jszip"]) {
 		const theirs = new URL(`${pkg}/package.json`, piMono);
 		if (!existsSync(theirs)) continue;

@@ -1,6 +1,7 @@
 // The weak-model eval's stub computer (evals/weak-model/stub): its tool list is the real helper's, it answers with the
 // real rows, refs and error codes, and every stub task is scored by machine both ways: a scripted solution passes and an
 // untouched world fails. No real app, window or model is involved.
+import { needsPolycarp, polycarpFile } from "./polycarp-root.mjs";
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -58,8 +59,8 @@ function startStub(name, files = {}) {
 const task = (id) => stubTasks.find((t) => t.id === id);
 const scored = (s, id, final = "") => task(id).check(s.world(), { final, file: s.file, dir: s.dir });
 
-test("the stub lists the real helper's verbs and arguments (spaces Tools.swift), and names itself the connector", async () => {
-	const swift = readFileSync(join(here, "..", "..", "spaces", "Sources", "BaneySpacesCore", "Hands", "Tools.swift"), "utf8");
+test("the stub lists the real helper's verbs and arguments (spaces Tools.swift), and names itself the connector", { skip: needsPolycarp("spaces/Sources/BaneySpacesCore/Hands/Tools.swift") }, async () => {
+	const swift = polycarpFile("spaces/Sources/BaneySpacesCore/Hands/Tools.swift");
 	const base = swift.slice(swift.indexOf("static let base"));
 	const want = new Map();
 	for (const m of base.matchAll(/HandsTool\(verb: "([a-z-]+)", summary: (?:[^\n]*?), params: \[([\s\S]*?)\], acts: (true|false)\)/g)) {

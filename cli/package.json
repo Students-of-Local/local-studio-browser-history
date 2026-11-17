@@ -1,10 +1,11 @@
 {
-	"name": "tabkyra",
+	"name": "tychicus",
 	"version": "0.1.0",
-	"description": "Bridge between coding harnesses (MCP, pi) and the Polycarp browser extension",
+	"description": "Tychicus CLI helper and MCP server: the bridge between coding agents (MCP, pi) and the Tychicus browser extension",
 	"license": "AGPL-3.0",
 	"type": "module",
 	"bin": {
+		"tychicus": "./dist/index.js",
 		"polycarp-browser": "./dist/index.js",
 		"polycarp": "./dist/polycarp.js"
 	},

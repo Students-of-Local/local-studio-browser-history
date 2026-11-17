@@ -197,6 +197,8 @@ export function browserInstructions(has: (tool: string) => boolean): string[] {
 export interface McpServerOptions {
 	/** Tab group label and bridge client name. */
 	name?: string;
+	/** The name the server reports to its client (`mcp --name`). Default `tychicus`; `polycarp` keeps old configs working. */
+	serverName?: string;
 	/** Browser session key; one per MCP session. Without it, cli/src/session-name.ts decides. */
 	session?: string;
 	/** `tabkyra mcp --session <name>`: a name the user chose. */
@@ -314,7 +316,7 @@ export function createMcpServer(options: McpServerOptions = {}): { server: McpSe
 	const small = options.profile === "small";
 
 	const server = new McpServer(
-		{ name: "polycarp", version: VERSION },
+		{ name: options.serverName ?? "tychicus", version: VERSION },
 		{
 			// The small profile names only its core tools, so a small model isn't sent after one it has to unlock.
 			instructions: browserInstructions((t) => (!allowedTools || allowedTools.has(t)) && (!small || SMALL_CORE.has(t)))
@@ -1493,7 +1495,7 @@ function registerSkillManagement(server: McpServer, library: <T>(fn: () => Promi
 	);
 }
 
-export async function runMcpServer(options: { session?: string; profile?: "small" } = {}): Promise<void> {
+export async function runMcpServer(options: { session?: string; profile?: "small"; serverName?: string } = {}): Promise<void> {
 	if (!isInstalled()) {
 		// First run from any harness completes setup; the extension reconnects on its alarm.
 		const result = install();
@@ -1501,7 +1503,7 @@ export async function runMcpServer(options: { session?: string; profile?: "small
 	}
 	const localComputer = new LocalComputer();
 	const profile = options.profile ?? (envVar("PROFILE") === "small" ? "small" : undefined);
-	const { server, client } = createMcpServer({ sessionFlag: options.session, localComputer, profile });
+	const { server, client } = createMcpServer({ sessionFlag: options.session, localComputer, profile, serverName: options.serverName });
 	process.stdin.on("end", () => localComputer.close());
 	// Community skills, about daily, in the background: many harnesses keep this server running.
 	// The whole reconciliation (skill.ts syncCommunity), not just the fetch: pulled skills lose their installed copies here too.

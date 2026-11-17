@@ -1,8 +1,8 @@
 {
-	"name": "tabkyra",
+	"name": "tychicus",
 	"version": "1.1.8",
 	"private": true,
-	"description": "Tabkyra browser extension",
+	"description": "Tychicus browser extension: browser use and computer use for agents",
 	"type": "module",
 	"main": "dist/background.js",
 	"scripts": {
@@ -17,10 +17,10 @@
 	"dependencies": {
 		"@huggingface/transformers": "4.3.2",
 		"@mariozechner/jailjs": "^0.1.0",
-		"@mariozechner/mini-lit": "file:../mini-lit",
-		"@mariozechner/pi-agent-core": "file:../pi-mono/packages/agent",
-		"@mariozechner/pi-ai": "file:../pi-mono/packages/ai",
-		"@mariozechner/pi-web-ui": "file:../pi-mono/packages/web-ui",
+		"@mariozechner/mini-lit": "file:vendor/mini-lit",
+		"@mariozechner/pi-agent-core": "file:vendor/pi-mono/packages/agent",
+		"@mariozechner/pi-ai": "file:vendor/pi-mono/packages/ai",
+		"@mariozechner/pi-web-ui": "file:vendor/pi-mono/packages/web-ui",
 		"@sinclair/typebox": "^0.34.41",
 		"chart.js": "^4.5.1",
 		"docx-preview": "^0.3.7",

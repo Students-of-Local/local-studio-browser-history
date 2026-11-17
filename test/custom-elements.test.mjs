@@ -28,9 +28,9 @@ function names(dir) {
 }
 
 test("our custom element names are not taken upstream", (t) => {
-	const upstreamDir = join(repo, "..", "pi-mono", "packages", "web-ui", "src");
+	const upstreamDir = join(repo, "vendor", "pi-mono", "packages", "web-ui", "src");
 	if (!existsSync(upstreamDir)) return t.skip("pi-mono is not checked out");
-	const upstream = new Set([...names(upstreamDir), ...names(join(repo, "..", "mini-lit", "src"))]);
+	const upstream = new Set([...names(upstreamDir), ...names(join(repo, "vendor", "mini-lit", "src"))]);
 	const ours = names(join(repo, "src"));
 	const clashes = [...ours].filter((n) => upstream.has(n));
 	assert.deepEqual(clashes, [], `Rename these elements; pi-web-ui or mini-lit already defines them: ${clashes.join(", ")}`);

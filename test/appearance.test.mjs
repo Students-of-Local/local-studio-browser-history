@@ -1,6 +1,7 @@
 // The side panel's colors come from the same presets as the approval and hub pages. Every pair of
 // text on a background the panel draws reaches WCAG AA (4.5:1) for every preset, in light and dark,
 // and for custom accents, computed from the CSS variables the panel actually sets.
+import { needsPolycarp, polycarpFile } from "./polycarp-root.mjs";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -451,8 +452,8 @@ test("type.display reaches no panel heading, and browser/AGENTS.md says so; the 
 });
 
 // #13 sol-F1: an open approval or hub page keeps the CSS it was served with, and nothing said so.
-test("the guide says an open approval or hub page takes a new theme only on reload", () => {
-	const guide = readFileSync(new URL("../../docs/guide.md", import.meta.url), "utf8");
+test("the guide says an open approval or hub page takes a new theme only on reload", { skip: needsPolycarp("docs/guide.md") }, () => {
+	const guide = polycarpFile("docs/guide.md");
 	assert.match(guide, /An approval or hub page that is already open keeps the colors it opened with; reload it/);
 	for (const page of ["oauth.ts", "hub-server.ts"]) {
 		const text = readFileSync(new URL(`../cli/src/${page}`, import.meta.url), "utf8");

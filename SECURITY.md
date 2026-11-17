@@ -8,8 +8,8 @@ more than most. Thank you for taking the time to send one.
 Don't open a public issue, discussion or pull request for a vulnerability. Use either:
 
 - **GitHub private vulnerability reporting:** the **Report a vulnerability** button on the
-  repository's [Security tab](https://github.com/baney75/tabkyra/security), or
-  [this form](https://github.com/baney75/tabkyra/security/advisories/new) directly.
+  repository's [Security tab](https://github.com/baney75/tychicus/security), or
+  [this form](https://github.com/baney75/tychicus/security/advisories/new) directly.
 - **Email:** [donovan@dbaney.com](mailto:donovan@dbaney.com), with "Polycarp security" in
   the subject.
 

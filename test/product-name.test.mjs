@@ -71,10 +71,10 @@ function manifests() {
 	return list;
 }
 
-test("the manifest and every locale file name the product Polycarp", () => {
+test("the manifest and every locale file name the product Tychicus", () => {
 	for (const file of manifests()) {
 		const m = JSON.parse(readFileSync(file, "utf8"));
-		assert.equal(m.name, "Polycarp", file);
+		assert.equal(m.name, "Tychicus", file);
 		assert.doesNotMatch(String(m.description), /tabkyra/i, file);
 		assert.doesNotMatch(String(m.action?.default_title), /tabkyra/i, file);
 		assert.equal(m.default_locale, undefined, "a locale would need scanning too");
@@ -132,10 +132,10 @@ test("renamed identifiers come back only as the named fallbacks", () => {
 	assert.deepEqual(Object.fromEntries(counts), Object.fromEntries(RENAMED_ALLOWED), `use com.polycarp.browser, polycarp-bridge, x-polycarp-hub or USER_AGENT:\n${found.join("\n")}`);
 });
 
-test("the helper's npm package installs polycarp-browser and the polycarp command the skills name, and no old alias", () => {
+test("the helper's npm package installs tychicus, polycarp-browser and the polycarp command the skills name, and no older alias", () => {
 	const pkg = JSON.parse(readFileSync(join(root, "cli/package.json"), "utf8"));
-	assert.deepEqual(Object.keys(pkg.bin).sort(), ["polycarp", "polycarp-browser"], "no tabkyra or sitegeist alias");
+	assert.deepEqual(Object.keys(pkg.bin).sort(), ["polycarp", "polycarp-browser", "tychicus"], "no tabkyra or sitegeist alias");
 	const lock = JSON.parse(readFileSync(join(root, "cli/package-lock.json"), "utf8"));
 	// npm writes the lockfile's names sorted, so the order is not part of the check.
-	assert.deepEqual(Object.keys(lock.packages[""].bin ?? {}).sort(), ["polycarp", "polycarp-browser"], "the lockfile agrees");
+	assert.deepEqual(Object.keys(lock.packages[""].bin ?? {}).sort(), ["polycarp", "polycarp-browser", "tychicus"], "the lockfile agrees");
 });

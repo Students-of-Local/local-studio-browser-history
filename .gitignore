@@ -19,3 +19,6 @@ cli/dist
 !media/demo.mp4
 !media/hero.mp4
 !media/hero-vertical.mp4
+
+# Pinned upstream checkouts (scripts/setup-siblings.sh): pi-mono and mini-lit.
+vendor/

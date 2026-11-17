@@ -1,4 +1,5 @@
 // The extension's logo is Polycarp's: the source files in brand/browser, nothing of the old helm, and PNGs for each size.
+import { needsPolycarp, polycarpFile } from "./polycarp-root.mjs";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -9,9 +10,9 @@ import { POLYCARP_ICON, POLYCARP_ICON_16 } from "../src/components/polycarp-svg.
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
-test("the logo in the code is the one in brand/browser", () => {
-	assert.equal(POLYCARP_ICON, readFileSync(join(root, "../brand/browser/icon.svg"), "utf8").trim());
-	assert.equal(POLYCARP_ICON_16, readFileSync(join(root, "../brand/browser/icon-16.svg"), "utf8").trim());
+test("the logo in the code is the one in brand/browser", { skip: needsPolycarp("brand/browser/icon.svg", "brand/browser/icon-16.svg") }, () => {
+	assert.equal(POLYCARP_ICON, polycarpFile("brand/browser/icon.svg").trim());
+	assert.equal(POLYCARP_ICON_16, polycarpFile("brand/browser/icon-16.svg").trim());
 });
 
 test("the old helm is gone from the extension", () => {

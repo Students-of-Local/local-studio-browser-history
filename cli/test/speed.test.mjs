@@ -3,11 +3,16 @@
 // machine that recorded them.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { test } from "node:test";
+import { pathToFileURL } from "node:url";
+import { needsPolycarp } from "../../test/polycarp-root.mjs";
 
-const { measure, regressions, speedFile, TOLERANCE } = await import(new URL("../../../spaces/scripts/browser-speed.mjs", import.meta.url));
+// The speed spec and its script are Polycarp's (spaces/); this runs when POLYCARP_ROOT names a checkout.
+const skip = needsPolycarp("spaces/scripts/browser-speed.mjs");
+const { measure, regressions, speedFile, TOLERANCE } = skip ? {} : await import(pathToFileURL(join(process.env.POLYCARP_ROOT, "spaces/scripts/browser-speed.mjs")).href);
 
-test("a slowdown over 25% is a regression, 25% is not", () => {
+test("a slowdown over 25% is a regression, 25% is not", { skip }, () => {
 	const recorded = { versionMs: 100, toolsListMs: 200 };
 	assert.equal(TOLERANCE, 0.25);
 	assert.deepEqual(regressions(recorded, { versionMs: 125, toolsListMs: 250 }), []);
@@ -17,7 +22,7 @@ test("a slowdown over 25% is a regression, 25% is not", () => {
 	assert.deepEqual(regressions(undefined, { versionMs: 9999, toolsListMs: 9999 }), [], "nothing recorded, nothing to regress from");
 });
 
-test("speed.json records the browser helper's numbers", () => {
+test("speed.json records the browser helper's numbers", { skip }, () => {
 	const speed = JSON.parse(readFileSync(speedFile, "utf8"));
 	assert.equal(typeof speed.browser.versionMs, "number");
 	assert.equal(typeof speed.browser.toolsListMs, "number");
@@ -25,7 +30,7 @@ test("speed.json records the browser helper's numbers", () => {
 });
 
 const helper = process.env.POLYCARP_SPEED_HELPER;
-test("the built helper starts within 25% of the recorded time", { skip: !helper && "set POLYCARP_SPEED_HELPER to a built helper" }, async () => {
+test("the built helper starts within 25% of the recorded time", { skip: skip || (!helper && "set POLYCARP_SPEED_HELPER to a built helper") }, async () => {
 	const recorded = JSON.parse(readFileSync(speedFile, "utf8")).browser;
 	let last;
 	for (let i = 0; i < 3; i++) {

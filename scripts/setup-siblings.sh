@@ -4,7 +4,9 @@
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")/.." && pwd)"
-parent="$(dirname "$here")"
+# Pinned upstream checkouts live in vendor/ (gitignored), not beside the repo.
+parent="$here/vendor"
+mkdir -p "$parent"
 pi_mono_rev="ff1ea1232"
 mini_lit_rev="dee21bf1175de0cb16a946ba8fb62c1e590fbd3c"
 

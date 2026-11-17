@@ -7,7 +7,7 @@ import {
 	ARTIFACTS_RUNTIME_PROVIDER_DESCRIPTION_RW,
 	ARTIFACTS_TOOL_DESCRIPTION,
 	ATTACHMENTS_RUNTIME_DESCRIPTION,
-} from "../../../pi-mono/packages/web-ui/dist/prompts/prompts.js";
+} from "../../vendor/pi-mono/packages/web-ui/dist/prompts/prompts.js";
 import {
 	ASK_USER_WHICH_ELEMENT_TOOL_DESCRIPTION,
 	BROWSERJS_RUNTIME_PROVIDER_DESCRIPTION,
