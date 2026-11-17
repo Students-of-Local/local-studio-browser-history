@@ -30,7 +30,7 @@ import { VERSION } from "./version.ts";
 import { COMMAND_NAME } from "./self.ts";
 import { envVar } from "./env.ts";
 
-export const DEFAULT_REPO = "baney75/tabkyra";
+export const DEFAULT_REPO = "baney75/tychicus";
 
 export class SubmitError extends Error {
 	readonly code: number;

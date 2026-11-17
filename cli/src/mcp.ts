@@ -22,7 +22,7 @@ import { spawn } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkSkill, listSkills, matchTask, readSkill, removeSkill, skillInfo, syncCommunity, writeSkill } from "./skill.ts";
-import { stageCases } from "./skill-submit.ts";
+import { DEFAULT_REPO, stageCases } from "./skill-submit.ts";
 import { firecrawlCrawl, firecrawlMap, pageMarkdown } from "./firecrawl.ts";
 import { capCrawl, capJson, capOutput, fitSnapshot, MARKDOWN_CHARS, passwordHandoff, type RankCounts, rankedSlice, rankNote, sliceText, VALUE_CHARS } from "./output-cap.ts";
 import { searxSearch } from "./searx.ts";
@@ -1440,7 +1440,7 @@ async function previewSubmission(name: string, note?: string): Promise<string> {
 	const p = JSON.parse(stdout) as { code: string; title: string; body: string; files: Array<{ path: string; text: string }> };
 	return [
 		"Nothing was sent. Show this whole preview to the user and ask whether to submit it.",
-		`Pull request to baney75/tabkyra from a fork on the user's GitHub account. Title: ${p.title}`,
+		`Pull request to ${DEFAULT_REPO} from a fork on the user's GitHub account. Title: ${p.title}`,
 		...p.files.flatMap((f) => [`--- ${f.path} ---`, f.text.trimEnd()]),
 		"--- pull request body ---",
 		p.body,

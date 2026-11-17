@@ -89,7 +89,7 @@ Only the user edits this file; never change it yourself.
     path it printed, and that `tychicus skill revert <name>` undoes it.
 12. **Offer upstream,** when `submit` is `"ask"`: ask whether to propose the change to the
     Tychicus skill library. Only on an explicit yes, open a pull request to
-    `baney75/tabkyra` that changes `skills/<name>/SKILL.md`, with the evidence in the
+    `baney75/tychicus` that changes `skills/<name>/SKILL.md`, with the evidence in the
     description. Its CI lints it and a maintainer reviews it before anyone else gets it.
 
 ## Done when

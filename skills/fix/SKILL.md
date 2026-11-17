@@ -64,7 +64,7 @@ For a small lesson from your own work, use `rsi` instead.
     - `"never"`: keep it local;
     - `"ask"` (default): ask whether to propose it to the Tychicus skill library;
     - `"auto"`: propose it.
-    A proposal is a pull request to `baney75/tabkyra` that changes `skills/<name>/SKILL.md`.
+    A proposal is a pull request to `baney75/tychicus` that changes `skills/<name>/SKILL.md`.
     Its description names the failing tier and the cause, and describes the before and
     after results as patterns ("cited a paper that doesn't exist"), never as the user's
     content. Before opening it, scrub everything in it the way the `bug` skill's step 4
