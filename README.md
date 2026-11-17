@@ -42,9 +42,14 @@ You need a Chromium 141+ browser (Helium, Chrome, Brave, Edge or Chromium). Noth
    `.\tychicus-<version>-win-x64\tychicus.exe install --release .`
    The installer checks every file against `SHA256SUMS`, and against its build attestation when
    the [GitHub CLI](https://cli.github.com) is installed, and refuses the whole install on any
-   mismatch. It copies the program and the extension to one fixed folder and registers the native
-   host with each Chromium browser it finds. Add `--local-studio` to also install the Local Studio
-   plugins and their Eukhe tool server; `--dry-run` lists what it would write.
+   mismatch. It unpacks each version into a folder of its own under
+   `~/.local/share/tychicus/versions/` (`%LOCALAPPDATA%\Tychicus\versions\` on Windows), registers
+   the native host with each Chromium browser it finds, then points `release` at the new version
+   and copies the extension to the fixed folder `~/.local/share/tychicus/extension`. An upgrade
+   never deletes a version a running host or MCP server was started from; the old folder is
+   removed by a later install, once nothing runs from it. Add `--local-studio` to also install the
+   Local Studio plugins and their Eukhe tool server; `--dry-run` lists what it would write and
+   writes nothing.
 3. Load the extension: open `chrome://extensions`, turn on Developer mode, choose **Load
    unpacked** and pick the folder the installer printed. Its ID is fixed by the manifest key, so
    the host registration already allows it.
@@ -77,15 +82,32 @@ The extension ID (`igjafcggmahiboobmnhfkndodphjdnhg`) comes from the manifest ke
 differs from Polycarp's, and the native host is `com.tychicus.browser`, so Tychicus and Polycarp
 can be installed side by side without either one answering for the other.
 
-### Old names still work
+### Tychicus keeps to its own files
 
-| Old | Now |
-| --- | --- |
-| `polycarp-browser <command>` | `tychicus <command>` (both binaries ship) |
-| MCP server named `polycarp` | `tychicus mcp` reports `tychicus`; `tychicus mcp --name polycarp` keeps the old name, and `polycarp-browser mcp` still reports `polycarp` |
-| `polycarp browser <command>` | still forwarded by the `polycarp` shim |
+Tychicus never writes to Polycarp's files. It has its own config folder (`~/.config/tychicus`),
+data and cache folders, launchers (`tychicus`, `tychicus-host`), native host
+(`com.tychicus.browser`), socket folder (`/tmp/tychicus-bridge-<user>`), service names
+(`com.tychicus.serve`, `tychicus-serve.service` and so on) and MCP entry (`tychicus`). The npm
+package installs only the `tychicus` command; `polycarp` and `polycarp-browser` stay Polycarp's.
+Polycarp's folders, launchers, host manifest, MCP entry and permission rules are left as they are,
+and so are the older `tabkyra` folders Polycarp moves itself.
 
-Stored data did not change. The native host name and the extension ID did (see above).
+### Upgrading from a build with the old ID
+
+Builds before the manifest key ran under Polycarp's extension ID, `kenehmggpggpiolepbjojeenmeapgfoc`.
+The browser keeps each extension's chats, API keys, skills and settings under its ID, so the new
+ID, `igjafcggmahiboobmnhfkndodphjdnhg`, starts empty: nothing carries over by itself.
+Removing the old extension deletes everything stored under it. In this order:
+
+1. While the old extension is still loaded, save the chats you want with the helper that came
+   with that build: `polycarp-browser threads list`, then
+   `polycarp-browser threads export <id> --out <file>` for each one. The new `tychicus` command
+   talks only to the new extension. The on-disk thread mirror, if you turned it on, also keeps
+   them.
+2. Write down which providers you use; API keys are not exported, so you enter them again.
+3. Load the new build. It appears as a second extension with the new ID.
+4. Enter your keys and settings in the new one, and check it works.
+5. Only then remove the old extension.
 
 ## Checks
 
