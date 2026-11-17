@@ -1745,3 +1745,95 @@ ref, under its 50 MiB limit and its rules for other sites.
 
 **Proof.** `test/downloads.test.mjs` drives `click` through the bridge on fake chrome (all four fail on main
 93a70440); the e2e "a click on a download link reports the file it started" runs real Chrome.
+
+## D50. Click and fill return when the page shows no reaction; every action says what it changed (Claude, 2026-11-17)
+
+**Problem.** The 2026-11-17 study measured a median click of 808 ms and fill of 532 ms on a plain form, where the
+rivals took under 100 ms. The trace (`docs/verification/speed-trace.md`) found three waits, none of them the page's:
+a fixed two-frame wait after `scrollIntoView` even when nothing moved (about 200 ms, since a hidden agent tab draws
+about one frame a second); the 300 ms quiet window waited out in full on a page that never reacted; and, once those
+were gone, the `mouseMoved` before the press, whose reply waits for the hidden tab's next frame (up to a second).
+And a result said what changed only in `changes`, so a weak model could not tell a click that did nothing from one
+whose report was cut.
+
+**Decision.** Click and fill settle with `idleMs` (`IDLE_MS`, 60 ms): when nothing in the first 60 ms shows the page
+reacting (a mutation, a request, a pending navigation, a parse, a refused look, a tab it opened), the action returns;
+any sign of one keeps the full D41 settle. A target=_blank link changes nothing in its own tab, so the tab it opens
+counts as the reaction, and the quiet window gives that tab time to join the session before `newTabs` is read. The box is measured before `scrollIntoView` and the two-frame wait runs only if it moved.
+The `mouseMoved` is sent without waiting for its reply: Chrome flushes queued moves before a press, so the press
+still lands after it. `scroll` waits (up to 1.1 s) for a frame the page owes since its last mutation, so an
+IntersectionObserver sees the content it appended (infinite-scroll failed without it). Every action result carries
+`effect`: the kinds of change seen, in the order dialog, newTab, navigation, download, value, dom, tabClosed, unknown,
+or `["nothing"]` when the look compared and saw none; a look that failed is `unknown`, never nothing. A tab the action
+opened is also listed at the top as `newTabs` with its id and URL.
+
+**Limits.** A page that reacts after 60 ms with no request, mutation or navigation first (a `setTimeout(500)` before
+any change) returns before its change, and the result says `nothing`; the next read sees it. Drag still awaits each
+of its 12 moves, since a drop target may need the frames, so a drag takes about a second per move in a hidden tab. A
+click with `on_dialog` still waits for its move before it arms the answer and presses, so a box the page opens on its
+own in that time is never answered with it; such a click keeps the old speed.
+
+**Proof.** `evals/tasks/speed.mjs` fails at a median click of 150 ms or fill of 100 ms (it measured 552 and 518 on
+fa4bf63, 73 and 76 after). dom-bench `no-effect-click` and `new-tab-click`, and `test/changes.test.mjs` "D50:" for the kinds.
+`test/settle.test.mjs` "an idle settle returns early..." for the opened tab (without it the settle returned idle at
+64 ms and the e2e change report missed the tab under load).
+
+## D51. A stale ref is found again by role, name and row, or refused with the candidates (Claude, 2026-11-17)
+
+**Problem.** A page that rebuilds its list after each click (a framework render without keys) left every ref from the
+last read stale. The agent was told "left the page" and had to read again, which weak models often skipped, and the
+error named nothing to use instead.
+
+**Decision.** `read_page` keeps each ref's role, accessible name and row text (the nearest list item, row or
+section, squashed), and marks a ref whose role, name and row another control shared when it was read. When a ref's
+element left the page or now shows something else, the page is searched (document, open shadow roots, same-origin
+frames) for controls with that role and name. Exactly one in a row with the same text takes the ref, for a ref never
+acted on and with no look-alike at read time; the result says so in `refound`. Anything else is refused as before,
+with the matches named and given refs (`e41 in "Q3 sales (checked 2 min ago)"`), split into "the same row" and
+"other rows". The rules the e2e tests pin stand: a ref an action went through is never moved (the action may already
+have happened), and a control in another row is another control.
+
+**Limits.** A row whose text changed (a timestamp, a counter) has no proven match, so it is refused with candidates.
+Closed shadow roots and cross-origin frames are not searched.
+
+**Proof.** dom-bench `stale-ref-rebuilt` and `stale-ref-ambiguous`. The e2e "a ref never heals onto another row"
+now has rm-1 found again in its own row ("Walk the dog"), which the read showed, while the id it had moved to
+"Call mom"'s row; it used to be refused.
+
+## D52. A name where a ref goes is looked up; `mouseButton` replaces click's `button` (Claude, 2026-11-17)
+
+**Problem.** In the study a weak model sent `{"ref":"Save"}`, `{"ref":"@e12"}` or `{"button":"Submit"}` (click's
+mouse button field, read as "the button to click"), and each failed with an error it could not act on.
+
+**Decision.** Click, fill, hover, scroll and type clean up a ref's spelling (`@e12`, `ref=e12`, `[ref=e12]`). A ref
+that is still not a ref and has a letter in it is a name: the page's controls (`read_page` all, 600 nodes) are
+matched by exact name, then with role words and articles taken off ("the Email field"), then by whole words; a role
+word narrows them, and a control wins over text that only describes the page. One match is acted on, and the result
+says which in `lookedUp`; none is `not_found`; more than one is refused, naming up to 8. Click's mouse button is
+`mouseButton`; `button` still works for left, right and middle, and any other `button` value with no ref, selector
+or point is the control's name.
+
+**Limits.** The side panel's `act` tool still calls it `button`; the alias covers it. The tool descriptions do not
+advertise names as refs (a ref stays the way to name a control; the lookup only forgives a model that sends a name),
+and the alias's schema line says only "Old name": tools/list grows 57 bytes for the two (cli/test/mcp.test.mjs).
+
+**Proof.** `test/ref-lookup.test.mjs`, and dom-bench `name-as-ref`.
+
+## D53. A local model gets the small tool list by default (Claude, 2026-11-17)
+
+**Problem.** The study's 8B run did best with the small profile (4/10 tasks, 1.5 errors and 47k tokens per task,
+against 3/10, 4.9 and 189k with every tool), but a session got it only with `--profile small` or
+`POLYCARP_PROFILE=small`, which nobody running LM Studio or Ollama knew to set.
+
+**Decision.** `polycarp mcp` chooses: `--profile small|full`, then `POLYCARP_PROFILE=small|full`, then the small list
+when `POLYCARP_LOCAL_MODEL` is set (not 0) or the client's `initialize` names an app that runs local models (LM
+Studio, Ollama, Jan, Msty, AnythingLLM, Open WebUI, Cherry Studio, oterm, mcphost, llama.cpp, KoboldCpp, LocalAI,
+GPT4All, 5ire), and the full list otherwise. The client names itself only in its first message, so the server reads
+that line before it is built and hands it on to the transport unchanged. The choice is logged to stderr with
+`--profile full` as the way back. `evals/weak-model/run.mjs` now passes `--profile full` when no profile is given, so
+its full round stays full.
+
+**Limits.** A client with another name running a local model (opencode, Goose) needs `POLYCARP_LOCAL_MODEL=1`.
+
+**Proof.** `cli/test/small-profile.test.mjs` "D53:" connects as LM Studio, Ollama, Jan, Open WebUI and mcphost (small),
+as Claude Code, Codex, Cursor and opencode (full), and checks both overrides.

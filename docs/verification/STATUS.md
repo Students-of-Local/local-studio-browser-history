@@ -72,3 +72,17 @@ item until that item's own Check runs. Review records are in each PR's Review bl
 | New | Skills: writing, and writing in the user's voice from their own mail and documents | none | D15 |
 | New | Hooks and linting system for harnesses | none | |
 | New | Autoresearch kanban (add and check tasks) with a traces view | none | Pairs with the DC-12 dashboard skill |
+
+## Study follow-ups (2026-11-17, branch reliability-speed-ci)
+
+From the 2026-11-17 competitor study. Each Check fails on fa4bf63 and passes on the branch.
+
+| ID | Item | Label | Evidence or gap |
+| --- | --- | --- | --- |
+| S-1 | dom-bench green, ratchet clean | verified | 49/49 (44 plus 5 new), floor 49 passing and 0 failing. shadow-input was a harness error (an outside port scanner's `/v1/models` request counted as a page miss); infinite-scroll a product bug (no frame drew in the hidden tab, D50) |
+| S-2 | Median click under 150 ms, fill under 100 ms | verified | `evals/tasks/speed.mjs`: median click 73 ms and fill 76 ms (fa4bf63: 552 and 518). Trace in [speed-trace.md](speed-trace.md) |
+| S-3 | Stale ref found again by role, name and row; ambiguity refused with candidates | verified | dom-bench stale-ref-rebuilt, stale-ref-ambiguous (D51) |
+| S-4 | Name as ref, `mouseButton` with `button` alias, small profile for local models | verified | dom-bench name-as-ref, `test/ref-lookup.test.mjs`, `cli/test/small-profile.test.mjs` D53 (D52, D53) |
+| S-5 | Click results list new tabs | verified | dom-bench new-tab-click; task set t03 takes the tab from `newTabs` |
+| S-6 | `effect` on every action result, "nothing" when nothing changed | verified | dom-bench no-effect-click, `test/changes.test.mjs` D50 |
+| S-7 | CI runs dom-bench, e2e, the task set and the speed check | prepared | `e2e` and `tasks` jobs in `.github/workflows/ci.yml`; verified once the PR's run passes. Task set locally: 30/30 over 3 reps (fa4bf63: 27/30, t03 had no `newTabs`) |

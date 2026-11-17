@@ -38,6 +38,9 @@ import {
 	afterAction,
 	type Before,
 	beforeAction,
+	type EffectKind,
+	effectFields,
+	effectOfReport,
 	movedTo,
 	NEW_PAGE,
 	NOT_LOADED,
@@ -61,10 +64,11 @@ import {
 	runInPage,
 	scrollPage,
 	snapshot,
+	takeRefound,
 	waitFor,
 } from "../browser/page.js";
 import { type BrowserSession, TabLimitError, takeNotices } from "../browser/session.js";
-import { settle, settleStart, unsettledNote, WAIT_SETTLE } from "../browser/settle.js";
+import { IDLE_MS, settle, settleStart, unsettledNote, WAIT_SETTLE } from "../browser/settle.js";
 import { isPdfTab, pdfText } from "../offscreen/pdf-client.js";
 import {
 	added as addedEdit,
@@ -95,6 +99,7 @@ import {
 } from "./paging.js";
 import { getAllowedHosts, getPermissionMode } from "./permissions.js";
 import { ERR } from "./protocol.js";
+import { cleanRef, matchByName, nodeLine, REF_RE } from "./ref-lookup.js";
 
 export { BridgeError, detachedError };
 
@@ -183,6 +188,8 @@ async function settleAfter(
 		before?: Before;
 		wait?: { capMs: number; quietMs: number };
 		changes?: Record<string, unknown> | (() => Promise<Record<string, unknown>>);
+		/** Click and fill: return sooner when the page shows no sign of reacting (settle.ts IDLE_MS, D50). */
+		idle?: boolean;
 	} = {},
 ): Promise<Record<string, unknown>> {
 	if (ctx.batch) {
@@ -199,12 +206,19 @@ async function settleAfter(
 			guardedHosts: ctx.guardedHosts,
 			watched: options.watched ?? true,
 			...options.wait,
+			...(options.idle ? { idleMs: IDLE_MS } : {}),
 		}).catch(() => undefined);
 		const out: Record<string, unknown> = settled ? unsettledNote(settled) : {};
+		const kinds = new Set<EffectKind>();
 		const downloads = await downloadsSince(tabId, since, DOWNLOAD_WAIT_MS);
-		if (downloads.length) Object.assign(out, { downloads, downloadNote: DOWNLOAD_NOTE });
-		if (options.changes && !openDialog(tabId))
+		if (downloads.length) {
+			Object.assign(out, { downloads, downloadNote: DOWNLOAD_NOTE });
+			kinds.add("download");
+		}
+		if (options.changes && !openDialog(tabId)) {
 			out.changes = typeof options.changes === "function" ? await options.changes() : options.changes;
+			effectOfReport(out.changes, kinds);
+		}
 		// A box froze the page: there is nothing to look at until it is answered.
 		else if (options.before && !openDialog(tabId) && !ctx.aborted()) {
 			// A navigation in flight counts: its pendingUrl is where the tab is going (#94).
@@ -212,12 +226,20 @@ async function settleAfter(
 				const tab = await chrome.tabs.get(id);
 				return tab.pendingUrl || tab.url || "";
 			};
-			const changes = await afterAction(options.before, ctx.session.tabIds, urlOf, (u) => ctx.isGuarded(u)).catch(
-				() => undefined,
-			);
+			const changes = await afterAction(
+				options.before,
+				ctx.session.tabIds,
+				urlOf,
+				(u) => ctx.isGuarded(u),
+				kinds,
+			).catch(() => undefined);
 			if (changes) out.changes = changes;
-		}
-		return out;
+			else kinds.add("unknown");
+		} else if (!openDialog(tabId)) kinds.add("unknown"); // no look was taken: nothing is known, not "nothing"
+		if (openDialog(tabId)) kinds.add("dialog");
+		if (settled?.waitingOn === "navigation") kinds.add("navigation");
+		const refound = takeRefound(tabId);
+		return { ...out, ...(refound ? { refound } : {}), ...effectFields(out.changes, kinds) };
 	} finally {
 		ctx.delivered();
 	}
@@ -258,6 +280,7 @@ function actionStart(ctx: HandlerContext, tabId: number): Promise<number> {
  * on its way to, a guarded host (#94) gets no look: the action's own check refuses it.
  */
 async function changesBefore(ctx: HandlerContext, tabId: number, params?: Params): Promise<Before | undefined> {
+	takeRefound(tabId); // a note an earlier, failed action left is not this one's
 	if (ctx.batch) return undefined;
 	const tab = await chrome.tabs.get(tabId).catch(() => undefined);
 	if (!tab || ctx.isGuarded(tab.pendingUrl || tab.url || "")) return undefined;
@@ -998,7 +1021,7 @@ export const handlers: Record<string, Handler> = {
 		// moved during the look can't misplace the click.
 		const before = await changesBefore(ctx, tabId, params);
 		const p = await pointFor(ctx, params, tabId, "click", before);
-		const button = str(params, "button");
+		const button = str(params, "mouseButton");
 		const since = await actionStart(ctx, tabId);
 		// Checked right before the input goes out and again before its last event: a call that ended (a timeout) sends none.
 		stopIfAborted(ctx);
@@ -1025,7 +1048,7 @@ export const handlers: Record<string, Handler> = {
 			ctx.inputDone?.();
 		}
 		// A dialog the click's page opens while it settles is still the click's doing.
-		const settled = await settleAfter(ctx, tabId, since, { clicked: p }, { before });
+		const settled = await settleAfter(ctx, tabId, since, { clicked: p }, { before, idle: true });
 		return { clicked: p, ...settled };
 	},
 
@@ -1177,7 +1200,7 @@ export const handlers: Record<string, Handler> = {
 		await fillElement(tabId, t, value, skipFor(ctx, tabId), before?.frame.hit);
 		// fill focuses its field: the pointer goes there once it holds the value.
 		cuePointer(tabId, "fill");
-		return { filled: t, ...(await settleAfter(ctx, tabId, since, { filled: t }, { before })) };
+		return { filled: t, ...(await settleAfter(ctx, tabId, since, { filled: t }, { before, idle: true })) };
 	},
 
 	evaluate: async (ctx, params) => {
@@ -1467,3 +1490,57 @@ export const handlers: Record<string, Handler> = {
 		return { ...(capture ? { capture } : {}), ...newestPage(entries, params, "url") };
 	},
 };
+
+const MOUSE_BUTTONS = new Set(["left", "right", "middle"]);
+
+/**
+ * Before a ref-taking action (D52): the ref in whatever spelling it came ("@e12", "[ref=e12]"), or, when it is not a
+ * ref at all, the one control named that. click's mouse button is `mouseButton`; `button` still works, and a `button`
+ * that is not a mouse button is the control's name ({"button":"Save"}), as weak models send it.
+ */
+async function refByName(
+	ctx: HandlerContext,
+	method: string,
+	params: Params,
+): Promise<{ params: Params; lookedUp?: string }> {
+	let p = params;
+	if (method === "click") {
+		const b = typeof p.button === "string" ? p.button.trim() : undefined;
+		if (b !== undefined && !MOUSE_BUTTONS.has(b.toLowerCase())) {
+			const { button: _named, ...rest } = p;
+			p = p.ref === undefined && p.selector === undefined && p.x === undefined ? { ...rest, ref: b } : rest;
+		} else if (b !== undefined && p.mouseButton === undefined) p = { ...p, mouseButton: b.toLowerCase() };
+	}
+	if (typeof p.ref !== "string") return { params: p };
+	const ref = cleanRef(p.ref);
+	if (REF_RE.test(ref) || !/\p{L}/u.test(ref)) return { params: ref === p.ref ? p : { ...p, ref } };
+	const tabId = await resolveTab(ctx, p, false);
+	const snap = await snapshot(tabId, { filter: "all", maxNodes: 600, maxTextChars: 0, skip: skipFor(ctx, tabId) });
+	const hits = matchByName(snap.nodes, ref);
+	const asked = JSON.stringify(ref.slice(0, 80));
+	if (hits.length === 1) return { params: { ...p, ref: hits[0].ref }, lookedUp: `${asked} is ${nodeLine(hits[0])}` };
+	if (!hits.length)
+		throw new BridgeError(
+			ERR.NOT_FOUND,
+			`${asked} is not a ref (refs look like e12) and no control on the page is named that. Nothing was done. Call find with a few words from its name, or read_page.`,
+		);
+	throw new BridgeError(
+		ERR.BAD_PARAMS,
+		`${asked} is not a ref (refs look like e12), and ${hits.length} controls answer to that name: ${hits
+			.slice(0, 8)
+			.map(nodeLine)
+			.join(
+				"; ",
+			)}${hits.length > 8 ? `; ${hits.length - 8} more` : ""}. Nothing was done. Use the ref of the one you mean.`,
+	);
+}
+
+// The actions that take a ref go through refByName first; a looked-up name says which control it was in the result.
+for (const method of ["click", "fill", "hover", "scroll", "type"]) {
+	const run = handlers[method];
+	handlers[method] = async (ctx, params) => {
+		const { params: p, lookedUp } = await refByName(ctx, method, params);
+		const out = await run(ctx, p);
+		return lookedUp && out && typeof out === "object" ? { lookedUp, ...(out as Record<string, unknown>) } : out;
+	};
+}

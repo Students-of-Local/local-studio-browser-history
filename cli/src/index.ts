@@ -349,11 +349,12 @@ async function main(): Promise<void> {
 			// --profile panel: the side panel's page tools, for measuring the panel's tool surface (eval/web-bench.mjs).
 			// --profile small: the core tools listed, the rest behind more_tools, for small models (cli/src/small-profile.ts).
 			// A mistyped profile must fail, not quietly serve the full tool list to a run that measures the panel's.
-			if (argv.some((a) => a === "--profile" || a.startsWith("--profile=")) && option("--profile") !== "panel" && option("--profile") !== "small")
-				throw new UsageError(`--profile takes panel or small. Usage: ${COMMAND_NAME} mcp [--session <name>] [--profile panel|small] [--name <name>]`);
+			// --profile full: every tool listed, even for a client that runs local models (D53).
+			if (argv.some((a) => a === "--profile" || a.startsWith("--profile=")) && !["panel", "small", "full"].includes(option("--profile") ?? ""))
+				throw new UsageError(`--profile takes panel, small or full. Usage: ${COMMAND_NAME} mcp [--session <name>] [--profile panel|small|full] [--name <name>]`);
 			if (option("--profile") === "panel") await runPanelProfile({ session: option("--session") });
 			// --name polycarp: the server keeps the name configs written for Polycarp expect.
-			else await runMcpServer({ session: option("--session"), profile: option("--profile") === "small" ? "small" : undefined, serverName: option("--name") || DEFAULT_MCP_NAME });
+			else await runMcpServer({ session: option("--session"), profile: option("--profile") === "small" || option("--profile") === "full" ? (option("--profile") as "small" | "full") : undefined, serverName: option("--name") || DEFAULT_MCP_NAME });
 			return;
 		case "threads": {
 			const rest = argv.slice(1).filter((a, i, all) => !a.startsWith("-") && !VALUE_FLAGS.has(all[i - 1] ?? ""));

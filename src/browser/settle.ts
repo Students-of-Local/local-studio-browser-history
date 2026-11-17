@@ -20,6 +20,12 @@ import { veilTag } from "./veil-shared.js";
 
 /** After an input tool: how long the page must stay quiet, and the most a call waits. */
 export const ACTION_SETTLE = { quietMs: 300, capMs: 2500, longMs: 2000 };
+/**
+ * After a click or fill the page showed no sign of reacting to: no DOM change, request, navigation or loader since the
+ * action began. Waiting out the whole quiet window then only adds its 300 ms to every such action (D50). A sign that
+ * comes within this time keeps the quiet window.
+ */
+export const IDLE_MS = 60;
 /** `wait {until:"settled"}` with no timeoutMs. */
 export const WAIT_SETTLE = { quietMs: 500, capMs: 10000, longMs: 5000 };
 
@@ -45,6 +51,12 @@ const lastEnd = new Map<number, number>();
 const loaders = new Map<number, Map<string, string>>();
 /** Each tab's main document (its loaderId): a reload of the same URL is a new one. */
 const mainDoc = new Map<number, string>();
+/**
+ * When a tab last opened another (a target=_blank link, window.open). The opening tab itself may not change at all, so
+ * an idle settle (idleMs) counts this as the page reacting, and the full quiet window gives the new tab time to join the
+ * session before the change report lists it.
+ */
+const lastOpened = new Map<number, number>();
 let installed = false;
 
 function install(): void {
@@ -92,7 +104,13 @@ function install(): void {
 		lastEnd.delete(tabId);
 		loaders.delete(tabId);
 		mainDoc.delete(tabId);
+		lastOpened.delete(tabId);
 	};
+	chrome.tabs.onCreated.addListener((tab) => {
+		if (tab.openerTabId !== undefined) lastOpened.set(tab.openerTabId, Date.now());
+	});
+	// target=_blank implies noopener, and then Chrome may not set openerTabId; this event still names the source tab.
+	chrome.webNavigation.onCreatedNavigationTarget.addListener((d) => lastOpened.set(d.sourceTabId, Date.now()));
 	chrome.debugger.onDetach.addListener((source) => {
 		if (source.tabId !== undefined) forget(source.tabId);
 	});
@@ -136,6 +154,18 @@ function inFlight(tabId: number, since: number, longMs: number, now: number): nu
 }
 
 /**
+ * What settleProbe leaves on the page: when it last changed, and whether a frame has drawn since (`owed`: when the
+ * first change after the last drawn frame came; `drawn` settles once the next frame has drawn). awaitDrawn in page.ts
+ * reads it.
+ */
+export interface SettleMark {
+	last: number;
+	doc: Document;
+	owed: number;
+	drawn: Promise<void> | null;
+}
+
+/**
  * Page side: leave a MutationObserver in the document once, and say how long ago the page last
  * changed, whether it is still parsing, and whether a loading marker is on screen. Self-contained.
  * On a guarded page (the approval address, #94) it touches nothing and says so: a navigation can
@@ -147,11 +177,11 @@ function settleProbe(
 	guarded: (url: string, hosts: readonly string[]) => boolean,
 ): { since: number; parsing: boolean; busy: string } | { guarded: true } {
 	if (guarded(location.href, hosts)) return { guarded: true };
-	const w = window as unknown as { __tabkyraSettle?: { last: number; doc: Document } };
+	const w = window as unknown as { __tabkyraSettle?: SettleMark };
 	const now = performance.now();
 	let s = w.__tabkyraSettle;
 	if (!s || s.doc !== document) {
-		s = { last: now, doc: document };
+		s = { last: now, doc: document, owed: 0, drawn: null };
 		w.__tabkyraSettle = s;
 		const mark = s;
 		const inVeil = (n: Node | null) => {
@@ -166,7 +196,20 @@ function settleProbe(
 			return nodes.length > 0 && nodes.every((n) => inVeil(n));
 		};
 		new MutationObserver((records) => {
-			if (records.some((r) => !veilOnly(r))) mark.last = performance.now();
+			if (!records.some((r) => !veilOnly(r))) return;
+			mark.last = performance.now();
+			// The page owes a frame until one draws: observers (IntersectionObserver) only look then.
+			if (mark.owed) return;
+			mark.owed = mark.last;
+			mark.drawn = new Promise((done) =>
+				requestAnimationFrame(() =>
+					setTimeout(() => {
+						mark.owed = 0;
+						mark.drawn = null;
+						done();
+					}, 0),
+				),
+			);
 		}).observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
 	}
 	// A loading marker a person would read as "not ready": aria-busy, or a skeleton, shimmer or
@@ -205,6 +248,8 @@ export interface SettleResult {
 	stopped?: boolean;
 	/** Stopped because the tab is on, or going to, a page no tool may touch (#94). */
 	guarded?: boolean;
+	/** Returned after `idleMs`: nothing on the page reacted to the action. */
+	idle?: boolean;
 }
 
 /**
@@ -226,6 +271,12 @@ export async function settle(
 		/** The hosts behind `skip`: the probe checks them itself before it touches the page. */
 		guardedHosts?: readonly string[];
 		watched?: boolean;
+		/**
+		 * Return after this many ms when nothing has reacted since `since`: no DOM change at or after it, no counted
+		 * request started or finished after it, no navigation, no loader, and every probe answered. Any of those
+		 * keeps the full quiet window.
+		 */
+		idleMs?: number;
 	} = {},
 ): Promise<SettleResult> {
 	const { quietMs = ACTION_SETTLE.quietMs, capMs = ACTION_SETTLE.capMs, longMs = ACTION_SETTLE.longMs } = options;
@@ -241,6 +292,8 @@ export async function settle(
 		const veil = (await within(veilTag(tabId), 300)) ?? "";
 		const code = `(${settleProbe.toString()})(${JSON.stringify(veil)}, ${JSON.stringify(options.guardedHosts ?? [])}, ${isGuardedUrl.toString()})`;
 		let lastActivity = start;
+		/** Something on the page answered the action (idleMs): never reset once set. */
+		let reacted = !options.idleMs;
 		/** Probes refused in a row. A page the extension may not script (a store page, a viewer) is judged by its requests alone. */
 		let refused = 0;
 		/** The document the refusals were counted on: a new one may be scriptable. */
@@ -266,6 +319,7 @@ export async function settle(
 			if (tab.pendingUrl) {
 				waitingOn = "navigation";
 				lastActivity = t0;
+				reacted = true;
 			} else if (refused < 2) {
 				// Never let one probe hold the loop, or run past the cap.
 				const budget = Math.max(0, Math.min(PROBE_MS, deadline - t0));
@@ -280,6 +334,9 @@ export async function settle(
 					return { settled: false, ms: Date.now() - start, stopped: true, guarded: true };
 				if (page === "refused") refused++;
 				else if (page !== undefined) refused = 0;
+				// A page that can't be looked at, or is too busy to answer, may be reacting: no shortcut.
+				if (page === undefined || page === "refused") reacted = true;
+				else if (!("guarded" in page) && (page.parsing || page.busy || t0 - page.since >= since)) reacted = true;
 				if (page === undefined) {
 					// No answer in time: the page's main thread is busy (a long task, hydration). Cut
 					// short by the cap instead, it says nothing new about the page.
@@ -298,11 +355,16 @@ export async function settle(
 			if (inFlight(tabId, since, longMs, now) > 0) {
 				waitingOn = "network";
 				lastActivity = now;
+				reacted = true;
 			} else lastActivity = Math.max(lastActivity, Math.min(now, lastEnd.get(tabId) ?? 0));
+			if ((lastEnd.get(tabId) ?? 0) >= since) reacted = true;
+			if ((lastOpened.get(tabId) ?? 0) >= since) reacted = true;
 			lastReason = waitingOn;
 			if (!waitingOn && now - lastActivity >= quietMs) return { settled: true, ms: now - start };
+			const idleLeft = reacted ? Number.POSITIVE_INFINITY : (options.idleMs ?? 0) - (now - start);
+			if (!waitingOn && idleLeft <= 0) return { settled: true, ms: now - start, idle: true };
 			if (now >= deadline) return { settled: false, ms: now - start, waitingOn: waitingOn ?? "dom" };
-			await new Promise((r) => setTimeout(r, Math.max(10, Math.min(100, deadline - now))));
+			await new Promise((r) => setTimeout(r, Math.max(10, Math.min(100, deadline - now, idleLeft))));
 		}
 	};
 	let timer: ReturnType<typeof setTimeout> | undefined;

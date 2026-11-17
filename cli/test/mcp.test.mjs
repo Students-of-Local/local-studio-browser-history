@@ -95,7 +95,9 @@ test("tools/list stays small: no schema dialect line, and a byte budget", async 
 	// sooner than a model turn can send handle_dialog. Nearly all schema; the descriptions are one line.
 	// type's paste flag adds 114 (33,552): pasting long text or into an editor that formats a paste, as a paste event and
 	// never the user's clipboard, without a tool of its own (a separate paste tool cost 659 more); type's text was cut first.
-	assert.ok(bytes <= 33552, `tools/list is ${bytes} bytes, over the 33,552 budget`);
+	// click's mouseButton, with button kept as its "Old name", adds 57 (33,609; D52): a weak model that sends a control's
+	// name as button is no longer refused as a bad mouse button. The alias's description was cut to two words first.
+	assert.ok(bytes <= 33609, `tools/list is ${bytes} bytes, over the 33,609 budget`);
 	// The loop line teaching `changes` (D43) adds 47 bytes; it saves a read_page after most actions.
 	// The password rule covering one the user gave, with its tabs_show handoff, adds 92 (evals/weak-model: Haiku typed
 	// the password a signup prompt supplied, and submitted, when the rule didn't say it covered that).

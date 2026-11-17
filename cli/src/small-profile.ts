@@ -4,6 +4,8 @@
  * one `more_tools` call that lists them or runs one by name. A model that needs run_js or the library still has them,
  * without about 8,000 tokens of definitions on every turn (evals/weak-model/README.md).
  */
+import type { Readable } from "node:stream";
+import { PassThrough } from "node:stream";
 import type { McpServer, RegisteredTool } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 
@@ -41,6 +43,61 @@ export const SMALL_CORE: ReadonlySet<string> = new Set([
 
 export const SMALL_INSTRUCTION =
 	'More tools (tabs, run_js, files, hover, drag, page_markdown, library, past chats, skills, the rest of computer use) are behind more_tools: more_tools {} lists them; more_tools {"name":"run_js","arguments":{"code":"document.title"}} runs one.';
+
+/**
+ * MCP clients that run a model on this machine, by the name they give in initialize (clientInfo.name). A local model is
+ * usually a small one, and small models did best with the small list: 4/10 tasks against 3/10 for the full list on an 8B
+ * model, with a quarter of the tokens (D53).
+ */
+export const LOCAL_MODEL_CLIENTS = /\b(lm ?studio|ollama|jan|msty|anything ?llm|open ?-?webui|cherry ?studio|oterm|mcphost|llama[ .-]?cpp|koboldcpp|local ?ai|gpt4all|5ire)\b/i;
+
+export type ProfileChoice = { profile: "small" | undefined; why: string };
+
+/**
+ * Which tool list a session gets (D53): `--profile small|full` wins, then POLYCARP_PROFILE=small|full, then a local model
+ * gets the small one (POLYCARP_LOCAL_MODEL=1, or a client that runs local models), and everyone else the full one.
+ */
+export function chooseProfile(o: { flag?: string; env?: string; localModel?: string; clientName?: string }): ProfileChoice {
+	if (o.flag === "small" || o.flag === "full") return { profile: o.flag === "small" ? "small" : undefined, why: `--profile ${o.flag}` };
+	if (o.env === "small" || o.env === "full") return { profile: o.env === "small" ? "small" : undefined, why: `POLYCARP_PROFILE=${o.env}` };
+	if (o.localModel && o.localModel !== "0") return { profile: "small", why: "POLYCARP_LOCAL_MODEL is set" };
+	if (o.clientName && LOCAL_MODEL_CLIENTS.test(o.clientName)) return { profile: "small", why: `${JSON.stringify(o.clientName)} runs local models` };
+	return { profile: undefined, why: "the default" };
+}
+
+/**
+ * The client's name from its first message (initialize), read before the server is built, and a stream that gives the
+ * transport every byte, that first line too. A first line that is not initialize, or no line at all, names no client.
+ */
+export function peekClientName(input: Readable): Promise<{ clientName?: string; stream: Readable }> {
+	return new Promise((resolve) => {
+		const chunks: Buffer[] = [];
+		const done = (ended: boolean) => {
+			input.off("data", onData);
+			input.off("end", onEnd);
+			input.pause();
+			const head = Buffer.concat(chunks);
+			let clientName: string | undefined;
+			try {
+				const first = JSON.parse(head.toString("utf8").split("\n")[0]) as { method?: string; params?: { clientInfo?: { name?: unknown } } };
+				if (first.method === "initialize" && typeof first.params?.clientInfo?.name === "string") clientName = first.params.clientInfo.name;
+			} catch {}
+			const stream = new PassThrough();
+			stream.write(head);
+			if (ended) stream.end();
+			else input.pipe(stream);
+			resolve({ clientName, stream });
+		};
+		const onData = (d: Buffer | string) => {
+			const b = typeof d === "string" ? Buffer.from(d) : d;
+			chunks.push(b);
+			if (b.includes(10)) done(false);
+		};
+		const onEnd = () => done(true);
+		input.on("data", onData);
+		input.on("end", onEnd);
+	});
+}
 
 type Handler = (...a: unknown[]) => unknown;
 type Content = { type: "text"; text: string };

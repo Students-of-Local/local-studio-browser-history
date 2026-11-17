@@ -99,10 +99,11 @@ test("polycarp mcp --profile panel serves that list over stdio", async () => {
 	}
 });
 
-test("a --profile other than panel is a usage error, not the full server", () => {
+// small and full are profiles too since D53 (cli/test/small-profile.test.mjs runs them); any other value is refused.
+test("a --profile other than panel, small or full is a usage error, not the full server", () => {
 	const home = mkdtempSync(join(tmpdir(), "polycarp-panel-profile-"));
 	try {
-		for (const args of [["--profile", "pannel"], ["--profile=full"], ["--profile"]]) {
+		for (const args of [["--profile", "pannel"], ["--profile=everything"], ["--profile"]]) {
 			const run = spawnSync(process.execPath, [cli, "mcp", ...args], {
 				env: { HOME: home, USERPROFILE: home, PATH: process.env.PATH ?? "", TABKYRA_SOCKET_DIR: join(home, "sock") },
 				input: "",

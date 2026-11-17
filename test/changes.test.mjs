@@ -877,3 +877,35 @@ test("PR 229 r1 first-F1: the old page's router replacing the very URL being rel
 	const r = await navigateTabDetailed(tabId, "https://app.example/inbox", { timeoutMs: 3000 });
 	assert.deepEqual(r, { url: "https://app.example/inbox", timedOut: false, committed: true });
 });
+
+test("D50: the effect field names what an action changed, and says nothing only when the look compared and saw nothing", async () => {
+	const { fake, beforeAction, afterAction, effectFields } = await load();
+	const tabId = fake.addTab({ url: "https://shop.example/", status: "complete" });
+	const run = async (first, second, url = "https://shop.example/") => {
+		let n = 0;
+		recordCommands((method, params) => (method === "Runtime.evaluate" && isLook(params) ? says(n++ ? second : first) : undefined));
+		const kinds = new Set();
+		const b = await beforeAction(tabId, [tabId], undefined, GUARDED);
+		const r = await afterAction(b, [tabId], async () => url, () => false, kinds);
+		return effectFields(r, kinds);
+	};
+	const same = look([node("e1", "Buy")]);
+	assert.deepEqual(await run(same, look([node("e1", "Buy")])), { effect: ["nothing"] });
+	assert.deepEqual(await run(same, look([node("e1", "Buy", { states: ["checked"] })])), { effect: ["value"] });
+	assert.deepEqual(await run(same, look([node("e1", "Buy"), node("e2", "Added")])), { effect: ["dom"] });
+	assert.deepEqual(await run(same, look([node("e1", "Buy")], { url: "https://shop.example/cart", doc: "d2" }), "https://shop.example/cart"), { effect: ["navigation"] });
+	// A look that failed is "unknown", never "nothing".
+	recordCommands((method) => (method === "Runtime.evaluate" ? Promise.reject(new Error("cannot be scripted")) : undefined));
+	const kinds = new Set();
+	const b = await beforeAction(tabId, [tabId], undefined, GUARDED);
+	const r = await afterAction(b, [tabId], async () => "https://shop.example/", () => false, kinds);
+	assert.deepEqual(effectFields(r, kinds), { effect: ["unknown"] });
+});
+
+test("D50: a tab the action opened is listed as newTabs, and unknown gives way to a kind that was seen", async () => {
+	const { effectFields } = await load();
+	const opened = [{ tabId: 7, url: "https://help.example/" }];
+	assert.deepEqual(effectFields({ tabsOpened: opened }, new Set(["newTab", "unknown"])), { newTabs: opened, effect: ["newTab"] });
+	assert.deepEqual(effectFields(undefined, new Set(["dom", "dialog", "value"])), { effect: ["dialog", "value", "dom"] });
+	assert.deepEqual(effectFields(undefined, new Set()), { effect: ["nothing"] });
+});

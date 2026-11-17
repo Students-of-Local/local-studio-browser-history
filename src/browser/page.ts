@@ -125,7 +125,12 @@ async function runForRef<T>(
 		return { value: await runInFrame<T>(tabId, hit.frame, code(hit.inner, true)), frame: hit.frame };
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
-		throw new Error(message.split(`Ref ${hit.inner} `).join(`Ref ${ref} `));
+		// Refs in the frame's own errors are the frame's (e12): the agent's carry the frame's tag (f1a2be12). That covers
+		// the ref the call named and any a refusal lists (resolveRef's candidates).
+		const tag = ref?.endsWith(hit.inner) ? ref.slice(0, ref.length - hit.inner.length) : "";
+		throw new Error(
+			tag ? message.replace(/\b(e\d+)\b/g, `${tag}$1`) : message.split(`Ref ${hit.inner} `).join(`Ref ${ref} `),
+		);
 	}
 }
 
@@ -419,6 +424,9 @@ function resolveRef(ref: string, live: (el: Element) => boolean, print: (el: Ele
 		__tabkyraTwins?: unknown;
 		__tabkyraRefStart?: unknown;
 		__tabkyraRefSeq?: unknown;
+		__tabkyraRefMeta?: unknown;
+		__tabkyraFindLike?: unknown;
+		__tabkyraRefound?: unknown;
 	};
 	const refs = w.__tabkyraRefs instanceof Map ? (w.__tabkyraRefs as Map<string, Element>) : undefined;
 	const prints = w.__tabkyraRefPrints instanceof Map ? (w.__tabkyraRefPrints as Map<string, string>) : undefined;
@@ -445,10 +453,74 @@ function resolveRef(ref: string, live: (el: Element) => boolean, print: (el: Ele
 		return own.slice(0, 200);
 	};
 	const el = refs?.get(ref);
+	// Found again by what the read showed (D51): the controls on the page now with the ref's role and name, split into
+	// those in a row with the same text and those elsewhere. Only one in the same row, for a ref never acted on and with
+	// no look-alike when it was read, takes the ref: a control in another row is another control (a weak model repeating
+	// "Remove" must never reach the next row), and two in the same row can't be told apart.
+	type RefMeta = { role: string; name: string; ctx: string; alike: boolean };
+	const meta = w.__tabkyraRefMeta instanceof Map ? (w.__tabkyraRefMeta as Map<string, RefMeta>).get(ref) : undefined;
+	const findLike =
+		typeof w.__tabkyraFindLike === "function"
+			? (w.__tabkyraFindLike as (role: string, name: string) => Element[])
+			: undefined;
+	const refOfMap = w.__tabkyraRefOf instanceof WeakMap ? (w.__tabkyraRefOf as WeakMap<Element, string>) : undefined;
+	const lookAlikes = (): { same: Element[]; other: Element[] } | undefined => {
+		if (!refs || !meta?.name || !findLike || acted.has(ref)) return undefined;
+		const hits = findLike(meta.role, meta.name).filter((x) => x !== el && live(x));
+		return { same: hits.filter((x) => ctx(x) === meta.ctx), other: hits.filter((x) => ctx(x) !== meta.ctx) };
+	};
+	const canTake = !!meta && !meta.alike && !twins.has(ref) && !acted.has(ref);
+	const take = (found: Element): Element => {
+		refs?.set(ref, found);
+		prints?.set(ref, print(found));
+		gone?.delete(ref);
+		if (refOfMap) {
+			if (el && refOfMap.get(el) === ref) refOfMap.delete(el);
+			if (!refOfMap.has(found)) refOfMap.set(found, ref);
+		}
+		w.__tabkyraRefound = `${meta?.role} "${meta?.name}": the page rebuilt it, and the same control in the same row took the ref`;
+		return found;
+	};
+	// A control a candidate list names needs a ref the agent can use: its own, or the next unused one.
+	const refFor = (x: Element): string => {
+		const had = refOfMap?.get(x);
+		if (had && refs?.get(had) === x) return had;
+		let seq = typeof w.__tabkyraRefSeq === "number" ? w.__tabkyraRefSeq : 0;
+		let r = "";
+		do r = `e${++seq}`;
+		while (refs?.has(r));
+		w.__tabkyraRefSeq = seq;
+		refs?.set(r, x);
+		prints?.set(r, print(x));
+		refOfMap?.set(x, r);
+		if (meta && w.__tabkyraRefMeta instanceof Map)
+			(w.__tabkyraRefMeta as Map<string, RefMeta>).set(r, { ...meta, ctx: ctx(x), alike: true });
+		return r;
+	};
+	const list = (xs: Element[]) =>
+		xs
+			.slice(0, 5)
+			.map((x) => `${refFor(x)} in "${ctx(x).slice(0, 60)}"`)
+			.join("; ") + (xs.length > 5 ? `; ${xs.length - 5} more` : "");
+	const candidates = (found: { same: Element[]; other: Element[] } | undefined): string => {
+		if (!found || !meta) return "";
+		const what = `${meta.role} "${meta.name.slice(0, 60)}"`;
+		if (found.same.length > 1)
+			return ` ${found.same.length} controls now match its role, name and row (${what}): ${list(found.same)}. Use one of those refs.`;
+		if (found.same.length === 1)
+			return ` One control now matches its role, name and row (${what}): ${list(found.same)}, but the read showed another like it, so nothing proves it is the same. Use that ref if it is.`;
+		if (found.other.length)
+			return ` In other rows, ${found.other.length === 1 ? "one control has" : `${found.other.length} controls have`} its role and name (${what}): ${list(found.other)}. Check the row before you use one.`;
+		return "";
+	};
 	if (el && live(el)) {
 		if (prints?.get(ref) === print(el)) return el;
-		// The same node, showing something else: never healed.
-		throw new Error(`Ref ${ref} now shows something else: the page reused it. Call read_page for fresh refs.`);
+		// The same node, showing something else: never healed onto it. The control it showed may be elsewhere now.
+		const found = lookAlikes();
+		if (found && canTake && found.same.length === 1) return take(found.same[0]);
+		throw new Error(
+			`Ref ${ref} now shows something else: the page reused it.${candidates(found)} Call read_page for fresh refs.`,
+		);
 	}
 	// The element left the page. Only the same control may take the ref back, and only when that is proven: the page put a
 	// control back under the same id attribute, it shows what the ref did, it sits in a row with the same text, and nothing
@@ -478,6 +550,8 @@ function resolveRef(ref: string, live: (el: Element) => boolean, print: (el: Ele
 			}
 		}
 	}
+	const found = lookAlikes();
+	if (found && canTake && found.same.length === 1) return take(found.same[0]);
 	if (acted.has(ref))
 		throw new Error(
 			`Ref ${ref} not found: the element it named is gone from the page, so the action may already have happened. Call read_page to see the page now, and use its refs.`,
@@ -490,7 +564,7 @@ function resolveRef(ref: string, live: (el: Element) => boolean, print: (el: Ele
 		el !== undefined || gone?.has(ref) || (start !== undefined && seq !== undefined && n > start && n <= seq);
 	if (given)
 		throw new Error(
-			`Ref ${ref} not found: the element it named left the page. Nothing was done. Call read_page for fresh refs.`,
+			`Ref ${ref} not found: the element it named left the page. Nothing was done.${candidates(found)} Call read_page for fresh refs.`,
 		);
 	throw new Error(
 		`Ref ${ref} not found: this page never gave it out (refs don't carry over from before the page loaded or changed). Nothing was done. Call read_page {"filter":"interactive"} for fresh refs.`,
@@ -554,6 +628,8 @@ export function pageSnapshot(
 		__tabkyraRanked?: unknown;
 		__tabkyraRefStart?: unknown;
 		__tabkyraTwins?: unknown;
+		__tabkyraRefMeta?: unknown;
+		__tabkyraFindLike?: unknown;
 	};
 	// Adopt earlier state only when it is what this function wrote.
 	const refs = w.__tabkyraRefs instanceof Map ? (w.__tabkyraRefs as Map<string, Element>) : new Map<string, Element>();
@@ -584,13 +660,29 @@ export function pageSnapshot(
 			? (w.__tabkyraGonePrints as Map<string, { id: string; print: string; ctx: string }>)
 			: new Map<string, { id: string; print: string; ctx: string }>();
 	w.__tabkyraGonePrints = gone;
+	// What each ref named when it was read: role, name, the row it sat in, and whether another listed control had all
+	// three (alike). resolveRef finds the control again by them when the page rebuilt it (D51). Kept for refs whose
+	// element left too, at most 3000.
+	type RefMeta = { role: string; name: string; ctx: string; alike: boolean };
+	const meta =
+		w.__tabkyraRefMeta instanceof Map ? (w.__tabkyraRefMeta as Map<string, RefMeta>) : new Map<string, RefMeta>();
+	w.__tabkyraRefMeta = meta;
+	// Text per element for this read: a row's text is asked for once however many controls it holds.
+	const textMemo = new Map<Element, string>();
+	const squashed = (x: Element) => {
+		let t = textMemo.get(x);
+		if (t === undefined) {
+			t = (x.textContent ?? "").replace(/\s+/g, " ").trim();
+			textMemo.set(x, t);
+		}
+		return t;
+	};
 	// The row a control sits in, as resolveRef reads it: the nearest ancestor that shows more than the control does.
 	const rowText = (x: Element) => {
-		const squash = (t: string | null) => (t ?? "").replace(/\s+/g, " ").trim();
-		const own = squash(x.textContent);
+		const own = squashed(x);
 		let up = x.parentElement;
 		for (let i = 0; up && i < 8; i++, up = up.parentElement) {
-			const t = squash(up.textContent);
+			const t = squashed(up);
 			if (t !== own) return t.slice(0, 200);
 		}
 		return own.slice(0, 200);
@@ -615,8 +707,11 @@ export function pageSnapshot(
 	// Where this document's numbering began, so a ref it never gave out is told apart from one whose element left.
 	if (typeof w.__tabkyraRefStart !== "number") w.__tabkyraRefStart = seq;
 	const interactiveSel =
-		"a[href],button,input,select,textarea,summary,[role=button],[role=link],[role=checkbox],[role=radio],[role=tab],[role=menuitem],[role=menuitemcheckbox],[role=menuitemradio],[role=option],[role=switch],[role=textbox],[role=searchbox],[role=combobox],[role=slider],[role=spinbutton],[role=treeitem],[contenteditable=true],[onclick],[tabindex]:not([tabindex='-1'])";
-	const headingSel = "h1,h2,h3,h4,h5,h6,label,[role=heading],[role=alert],[role=status],[role=dialog]";
+		"a[href],button,input,select,textarea,summary,[role=button],[role=link],[role=checkbox],[role=radio],[role=tab],[role=menuitem],[role=menuitemcheckbox],[role=menuitemradio],[role=option],[role=switch],[role=textbox],[role=searchbox],[role=combobox],[role=slider],[role=spinbutton],[role=treeitem],[contenteditable=true],[onclick],[tabindex]:not([tabindex='-1']),[draggable=true]";
+	// Table cells too, under "all": a cell is where a person double-clicks to edit or reads a figure, and with no
+	// ref there is no point to act on. Not under "interactive", so a large table never crowds out the controls.
+	const headingSel =
+		"h1,h2,h3,h4,h5,h6,label,[role=heading],[role=alert],[role=status],[role=dialog],td,th,[role=cell],[role=gridcell],[role=columnheader],[role=rowheader]";
 	const selector = filter === "interactive" ? interactiveSel : `${interactiveSel},${headingSel}`;
 	const tagOf = (el: Element) => el.tagName.toLowerCase();
 	// Elements from a frame belong to another realm, so `instanceof` against this window's
@@ -659,6 +754,9 @@ export function pageSnapshot(
 		if (tag === "label") return "label";
 		if (tag === "iframe" || tag === "frame") return "iframe";
 		if (el.getAttribute("contenteditable") === "true") return "textbox";
+		if (tag === "li") return "listitem";
+		if (tag === "td") return "cell";
+		if (tag === "th") return el.getAttribute("scope") === "row" ? "rowheader" : "columnheader";
 		return "generic";
 	};
 	const nameOf = (el: Element): string => {
@@ -927,6 +1025,7 @@ export function pageSnapshot(
 		w.__tabkyraRanked = { id, order: order.map((item) => new WeakRef(item.el)), counts } satisfies Kept;
 		ranked = { ...counts, offset: 0, snapshot: id };
 	}
+	const alikeGroups = new Map<string, Array<{ alike: boolean }>>();
 	for (const { el, at } of order) {
 		if (nodes.length >= maxNodes) break;
 		const b = box(el, at);
@@ -999,8 +1098,48 @@ export function pageSnapshot(
 		if (states.length && !node.states) node.states = states;
 		if (at.frame) node.frame = at.frame.slice(0, 120);
 		nodes.push(node);
+		const m = { role: node.role as string, name: node.name as string, ctx: rowText(el), alike: false };
+		meta.delete(ref);
+		meta.set(ref, m);
+		const key = `${m.role}\u0000${m.name}\u0000${m.ctx}`;
+		const group = alikeGroups.get(key);
+		if (group) group.push(m);
+		else alikeGroups.set(key, [m]);
 	}
 	w.__tabkyraRefSeq = seq;
+	for (const group of alikeGroups.values()) if (group.length > 1) for (const m of group) m.alike = true;
+	for (const old of meta.keys()) {
+		if (meta.size <= 3000) break;
+		meta.delete(old);
+	}
+	// Page side, for resolveRef: the visible controls (this read's kinds) with a role and name, in the document, its
+	// open shadow roots and same-origin frames, at most 50.
+	w.__tabkyraFindLike = (role: string, name: string): Element[] => {
+		const out: Element[] = [];
+		const sel = `${interactiveSel},${headingSel}`;
+		const walk = (root: Document | ShadowRoot, depth: number) => {
+			if (depth > 6 || out.length >= 50) return;
+			for (const el of Array.from(root.querySelectorAll(sel))) {
+				if (out.length >= 50) return;
+				if (roleOf(el) === role && nameOf(el).slice(0, 120) === name && isVisible(el)) out.push(el);
+			}
+			for (const el of Array.from(root.querySelectorAll("*"))) {
+				const sr = (el as Element & { shadowRoot?: ShadowRoot | null }).shadowRoot;
+				if (sr) walk(sr, depth + 1);
+				if (/^i?frame$/i.test(el.tagName)) {
+					let doc: Document | null = null;
+					try {
+						doc = (el as HTMLIFrameElement).contentDocument;
+					} catch {
+						doc = null;
+					}
+					if (doc?.documentElement) walk(doc, depth + 1);
+				}
+			}
+		};
+		walk(document, 0);
+		return out;
+	};
 	// Twins: the same look in a row with the same text. If the page later puts one back under the other's id, nothing
 	// proves which it is, so neither ref heals (resolveRef). Kept for the document, at most 500.
 	const twins = w.__tabkyraTwins instanceof Set ? (w.__tabkyraTwins as Set<string>) : new Set<string>();
@@ -1652,6 +1791,7 @@ export async function locate(
 	const aAct = act === "type" ? "typing" : `a ${act}`;
 	const theAct = act === "type" ? "the typing" : `the ${act}`;
 	const code = (r: string | undefined, inFrame: boolean) => `(async () => {
+		delete window.__tabkyraRefound;
 		let el = null;
 		let viaRef = false;
 		const ref = ${JSON.stringify(r ?? "")};
@@ -1668,11 +1808,16 @@ export async function locate(
 		// add each frame's offset so the point is in the tab's coordinates.
 		const frames = [];
 		for (let win = el.ownerDocument.defaultView; win && win !== window && win.frameElement; win = win.parent) frames.push(win.frameElement);
+		const box0 = el.getBoundingClientRect();
+		const frame0 = frames.map((fr) => fr.getBoundingClientRect());
 		for (const fr of frames.slice().reverse()) fr.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
 		el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
 		// Let the page react to the scroll (a header that slides in, a banner, content that moves)
 		// before testing what is on top. A tab in the background draws no frames; don't wait there.
-		if (document.visibilityState === "visible")
+		// Nothing moved, nothing scrolled: there is no scroll to react to (docs/verification/speed-trace.md).
+		const box1 = el.getBoundingClientRect();
+		const moved = box1.x !== box0.x || box1.y !== box0.y || frames.some((fr, i) => { const b = fr.getBoundingClientRect(); return b.x !== frame0[i].x || b.y !== frame0[i].y; });
+		if (moved && document.visibilityState === "visible")
 			await Promise.race([new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok))), new Promise((ok) => setTimeout(ok, 200))]);
 		// Innermost frame outward: each frame scales the point by its transform, then adds its own
 		// position, border and padding (the same mapping read_page uses).
@@ -1712,17 +1857,21 @@ export async function locate(
 			w *= kx;
 			h *= ky;
 		}
-		return { x, y, width: w, height: h };
+		const refound = window.__tabkyraRefound;
+		delete window.__tabkyraRefound;
+		return { x, y, width: w, height: h, refound };
 	})()`;
 	const framed = found ?? (target.ref ? await frameForRef(tabId, target.ref, rule) : undefined);
 	if (framed) await scrollFrameIntoView(tabId, framed.frame);
-	const { value: p, frame } = await runForRef<{ x: number; y: number; width: number; height: number }>(
-		tabId,
-		target.ref,
-		code,
-		rule,
-		framed,
-	);
+	const { value: got, frame } = await runForRef<{
+		x: number;
+		y: number;
+		width: number;
+		height: number;
+		refound?: string;
+	}>(tabId, target.ref, code, rule, framed);
+	const { refound, ...p } = got;
+	if (typeof refound === "string") refoundNotes.set(tabId, refound);
 	if (!frame) return p;
 	// The point in the frame, in the tab's viewport: it must be on screen and land in the frame.
 	// Measured again, once drawn: bringing the element into view can scroll the page around the frame too.
@@ -1765,6 +1914,7 @@ export async function fillElement(
 	found?: { frame: PageFrame; inner: string },
 ): Promise<void> {
 	const code = (r: string | undefined, inFrame: boolean) => `(async () => {
+		delete window.__tabkyraRefound;
 		let el = null;
 		let byRef = false;
 		const ref = ${JSON.stringify(r ?? "")};
@@ -1779,8 +1929,11 @@ export async function fillElement(
 		if (byRef) {
 			// Bring the field into view and let the page react, then make sure the ref still names
 			// it: a list that re-renders on scroll can hand the node to another row meanwhile.
+			const box0 = el.getBoundingClientRect();
 			el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
-			if (document.visibilityState === "visible")
+			const box1 = el.getBoundingClientRect();
+			// Nothing moved, nothing scrolled: there is no scroll to react to.
+			if ((box1.x !== box0.x || box1.y !== box0.y) && document.visibilityState === "visible")
 				await Promise.race([new Promise((ok) => requestAnimationFrame(() => requestAnimationFrame(ok))), new Promise((ok) => setTimeout(ok, 200))]);
 			let again = null;
 			try { again = (${resolveRef.toString()})(ref, ${refLive.toString()}, ${refPrint.toString()}); }
@@ -1817,12 +1970,12 @@ export async function fillElement(
 			el.value = opt.value;
 			el.dispatchEvent(new W.Event("input", { bubbles: true, composed: true }));
 			el.dispatchEvent(new W.Event("change", { bubbles: true }));
-			return true;
+			return window.__tabkyraRefound || true;
 		}
 		if (el instanceof W.HTMLInputElement && (el.type === "checkbox" || el.type === "radio")) {
 			const want = value === "true" || value === "checked" || value === "1";
 			if (el.checked !== want) el.click();
-			return true;
+			return window.__tabkyraRefound || true;
 		}
 		if (el instanceof W.HTMLInputElement || el instanceof W.HTMLTextAreaElement) {
 			const proto = el instanceof W.HTMLTextAreaElement ? W.HTMLTextAreaElement.prototype : W.HTMLInputElement.prototype;
@@ -1830,12 +1983,12 @@ export async function fillElement(
 			if (setter && setter.set) setter.set.call(el, value); else el.value = value;
 			el.dispatchEvent(new W.InputEvent("input", { bubbles: true, composed: true, inputType: "insertReplacementText", data: value }));
 			el.dispatchEvent(new W.Event("change", { bubbles: true }));
-			return true;
+			return window.__tabkyraRefound || true;
 		}
 		if (el.isContentEditable) {
 			el.textContent = value;
 			el.dispatchEvent(new W.InputEvent("input", { bubbles: true, composed: true }));
-			return true;
+			return window.__tabkyraRefound || true;
 		}
 		throw new Error("Element is not a form control: use click or type on it instead of fill.");
 	})()`;
@@ -1844,7 +1997,19 @@ export async function fillElement(
 	const framed =
 		found ?? (target.ref && splitFrameRef(target.ref) ? await frameForRef(tabId, target.ref, rule) : undefined);
 	if (framed) await locate(tabId, { ref: target.ref }, rule, "fill", framed);
-	await runForRef(tabId, target.ref, code, rule, framed);
+	const { value: done } = await runForRef<unknown>(tabId, target.ref, code, rule, framed);
+	if (typeof done === "string") refoundNotes.set(tabId, done);
+}
+
+/**
+ * The note an action's ref left when resolveRef found its control again (D51), per tab: set by locate and fillElement,
+ * read once into the action's result.
+ */
+const refoundNotes = new Map<number, string>();
+export function takeRefound(tabId: number): string | undefined {
+	const note = refoundNotes.get(tabId);
+	refoundNotes.delete(tabId);
+	return note;
 }
 
 /**
@@ -1978,6 +2143,25 @@ export async function pageHtml(
 	return runInPage<PageSlice>(tabId, code);
 }
 
+/**
+ * Page side: before a scroll, let a page that changed since it last drew draw once (at most capMs). Agent tabs are
+ * hidden, and a hidden tab may draw only about one frame a second (headless Chromium on Linux does, when asked).
+ * IntersectionObserver looks only when a frame draws, so a list that added rows and is scrolled again before any
+ * frame drew never sees its sentinel leave the window, sees no change when it comes back, and never loads more.
+ * settle.ts's observer marks the owed frame (SettleMark). A tab that owes one for over 2.5 s is not drawing at all;
+ * waiting would not help it. Where frames come at the screen's rate this waits one frame. Self-contained; returns
+ * the ms waited.
+ */
+export async function awaitDrawn(capMs: number): Promise<number> {
+	const s = (window as unknown as { __tabkyraSettle?: { doc: Document; owed: number; drawn: Promise<void> | null } })
+		.__tabkyraSettle;
+	if (!s || s.doc !== document || !s.owed || !s.drawn) return 0;
+	const t0 = performance.now();
+	if (t0 - s.owed > 2500) return 0;
+	await Promise.race([s.drawn, new Promise((r) => setTimeout(r, capMs))]);
+	return Math.round(performance.now() - t0);
+}
+
 /** Scroll the page or an element; returns the new scroll position. */
 export async function scrollPage(
 	tabId: number,
@@ -1996,6 +2180,7 @@ export async function scrollPage(
 }> {
 	const code = (r: string | undefined, inFrame: boolean) => `(async () => {
 		const o = ${JSON.stringify({ ...options, ref: r, ...(inFrame ? { selector: undefined } : {}) })};
+		await (${awaitDrawn.toString()})(1100);
 		let target = null;
 		// A ref that no longer resolves falls back to a selector given with it, as click and fill do.
 		if (o.ref) {

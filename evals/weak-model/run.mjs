@@ -143,7 +143,7 @@ function mcpConfig(session, kind, stub) {
 		mcpServers: {
 			polycarp: {
 				command: process.execPath,
-				args: [cli, "mcp", "--session", session, ...(profile ? ["--profile", profile] : [])],
+				args: [cli, "mcp", "--session", session, "--profile", profile || "full"],
 				env: { ...serverEnv, PATH: process.env.PATH ?? "", TABKYRA_CLIENT_NAME: "weak-model", POLYCARP_SPACES_BIN: spacesBin(kind, { allowComputer, wrapper: helper && wrapper, stub, none: join(scratch, "no-computer-helper") }) },
 			},
 		},

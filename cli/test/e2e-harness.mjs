@@ -14,6 +14,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { chromium } from "playwright-core";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -67,13 +68,14 @@ function listen(server) {
 }
 
 /**
- * Start everything. Returns the handle the callers use; `stop()` tears it all down.
+ * Start everything. Returns the handle the callers use; `stop()` tears it all down. `name` is the MCP client and
+ * session name; `onElicit`, when set, answers the server's elicitation requests.
  *
  * Pages are served from a path -> html map (`mount`). Two origins serve the same map, on two
  * ports, so a page can frame another origin: put `{{origin}}` (this origin) or `{{origin2}}`
  * (the other one) in html, each followed by a path.
  */
-export async function startHarness() {
+export async function startHarness({ name = "dom-bench", onElicit, chromiumArgs = [] } = {}) {
 	const home = mkdtempSync(join(tmpdir(), "tabkyra-e2e-home-"));
 	// Unix socket paths are capped near 104 bytes on macOS, so keep this one short.
 	const socketDir = mkdtempSync("/tmp/tke2e-");
@@ -88,8 +90,8 @@ export async function startHarness() {
 		XDG_CONFIG_HOME: join(home, ".config"),
 		TABKYRA_SOCKET_DIR: socketDir,
 		TABKYRA_AUTO_ALLOW: "1",
-		TABKYRA_CLIENT_NAME: "dom-bench",
-		TABKYRA_SESSION: "dom-bench",
+		TABKYRA_CLIENT_NAME: name,
+		TABKYRA_SESSION: name,
 	});
 
 	/** path -> html */
@@ -118,7 +120,10 @@ export async function startHarness() {
 		}
 		const body = store.get(path);
 		if (body === undefined) {
-			if (path !== "/favicon.ico") misses.push(path);
+			// Only the browser's own requests are the page's: Chromium sends Sec-Fetch-* on every one, navigations too. Other
+			// programs on the machine probe loopback ports (a local model finder asks every port for /v1/models), and their
+			// requests are not the case's.
+			if (path !== "/favicon.ico" && req.headers["sec-fetch-dest"] !== undefined) misses.push(path);
 			res.writeHead(404, { "content-type": "text/plain" });
 			res.end("not found");
 			return;
@@ -200,7 +205,9 @@ export async function startHarness() {
 		);
 		await cdp(version.webSocketDebuggerUrl, "Target.closeTarget", { targetId });
 
-		mcp = new Client({ name: "dom-bench", version: "0.0.0" });
+		// onElicit: the client answers the server's questions to the person (an upload, a site), as a person would.
+		mcp = new Client({ name, version: "0.0.0" }, onElicit ? { capabilities: { elicitation: {} } } : undefined);
+		if (onElicit) mcp.setRequestHandler(ElicitRequestSchema, onElicit);
 		await mcp.connect(new StdioClientTransport({ command: process.execPath, args: [cli, "mcp"], env: env(), stderr: "inherit" }));
 
 		/** Raw MCP call: the result with its text joined. Does not throw on a tool error. */
@@ -250,6 +257,9 @@ export async function startHarness() {
 			devtools,
 			home,
 			socketDir,
+			/** The built CLI and the environment its commands run with here (its HOME, socket folder). */
+			cli,
+			env,
 			mcp,
 			call,
 			tool,

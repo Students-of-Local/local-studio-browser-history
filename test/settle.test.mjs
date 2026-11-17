@@ -311,3 +311,31 @@ test("the veil coming or going is not the page changing", async () => {
 	assert.equal(r.settled, true, JSON.stringify(r));
 	assert.ok(r.ms < 470, `the veil held the wait: ${r.ms} ms`);
 });
+
+// D50: click and fill return after IDLE_MS when the page shows no reaction. A target=_blank link changes nothing in
+// its own tab, so the new tab it opens is the reaction: the full quiet window runs, and the tab joins the session
+// before the change report lists it.
+test("an idle settle returns early on a quiet page, and a tab opened from the page holds it for the quiet window", async () => {
+	const fake = installFakeChrome();
+	noEvents();
+	const { settle, IDLE_MS } = await import(`../src/browser/settle.ts?ctx=${Math.random()}`);
+	const tabId = fake.addTab({ url: "https://example.com/", status: "complete" });
+	// No mutation for 100 s: nothing in the page answered the click.
+	recordCommands((method) => (method === "Runtime.evaluate" ? probeSays({ since: 100_000, parsing: false, busy: false }) : undefined));
+	const quiet = await settle(tabId, { quietMs: 300, capMs: 2500, idleMs: IDLE_MS });
+	assert.equal(quiet.idle, true, JSON.stringify(quiet));
+	assert.ok(quiet.ms < 250, `took ${quiet.ms} ms`);
+
+	for (const [event, arg] of [
+		[chrome.webNavigation.onCreatedNavigationTarget, { sourceTabId: tabId, tabId: 900, url: "https://example.com/quiet" }],
+		[chrome.tabs.onCreated, { id: 901, openerTabId: tabId }],
+	]) {
+		setTimeout(() => {
+			for (const fn of event.listeners) fn(arg);
+		}, 20);
+		const opened = await settle(tabId, { quietMs: 300, capMs: 2500, idleMs: IDLE_MS });
+		assert.equal(opened.settled, true, JSON.stringify(opened));
+		assert.ok(!opened.idle, `a new tab was not a reaction: ${JSON.stringify(opened)}`);
+		assert.ok(opened.ms >= 280, `returned at ${opened.ms} ms, before the new tab could join the session`);
+	}
+});
