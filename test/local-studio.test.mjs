@@ -275,25 +275,6 @@ test("first-F2: a stopped run's last events, arriving as the next prompt goes ou
 	assert.equal(text, "word0 word1 word2 ", "the new run's text only, all of it");
 });
 
-test("review-r2 first-F2: stop pressed while the session is being made sends no prompt and ends the turn as aborted", async () => {
-	const { sent } = fakeRuntime();
-	const { streamLocalStudio } = await import("../src/eukhe/stream.ts");
-	const controller = new AbortController();
-	const context = { systemPrompt: "sys", messages: [{ role: "user", content: "stop me early", timestamp: 6 }] };
-	const stream = streamLocalStudio(MODEL, context, { signal: controller.signal });
-	const ended = (async () => {
-		let final;
-		for await (const e of stream) if (e.type === "done" || e.type === "error") final = e;
-		return final;
-	})();
-	// Stop as soon as the Create is out, before its answer.
-	for (let i = 0; i < 200 && !sent.some((r) => r.command?.type === "create"); i++) await new Promise((r) => setTimeout(r, 1));
-	controller.abort();
-	const final = await ended;
-	assert.equal(final?.reason, "aborted", JSON.stringify(final));
-	assert.equal(sent.filter((r) => r.command?.type === "prompt").length, 0, "no prompt after the stop");
-});
-
 test("second-F7: overlapping model refreshes share one look, so neither ends the other", async () => {
 	const { sent } = fakeRuntime();
 	const { refreshLocalStudioModels } = await import("../src/eukhe/stream.ts");

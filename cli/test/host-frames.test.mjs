@@ -1,6 +1,6 @@
 // The native host process as Chrome runs it. It answers only the pinned extension: started for another extension's
 // origin, it exits before it reads a frame or opens its socket, so no pairing code is needed. And a frame over Chrome's
-// 1 MB host-to-extension cap (a 3 MB answer from Local Studio) arrives in pieces the extension joins,
+// 1 MB host-to-extension cap (a 3 MB screenshot in a Local Studio tool result) arrives in pieces the extension joins,
 // instead of being refused.
 import extensionId from "../../src/bridge/extension-id.json" with { type: "json" };
 import assert from "node:assert/strict";
@@ -126,15 +126,14 @@ test("pieces of a 3 MB frame join back exactly, each under Chrome's cap", async 
 	assert.match(broken.push(pieces[2]).error ?? "", /expected piece 1/);
 });
 
-test("a 3 MB answer from Local Studio reaches the extension in pieces, not refused", { skip: !posix && "sockets", timeout: 30_000 }, async (t) => {
+test("a 3 MB screenshot result from Local Studio reaches the extension in pieces, not refused", { skip: !posix && "sockets", timeout: 30_000 }, async (t) => {
 	const { home, env } = sandbox(t);
-	// A page's whole text, said back in one piece: the panel gets each text delta whole. (Screenshots in tool results
-	// never reach the panel at all; the relay passes on only what it reads.)
-	const answer = "heron ".repeat(512 * 1024);
+	const image = Buffer.alloc(3 * 1024 * 1024, 1).toString("base64");
 	const daemon = await startFakeEukhe({
 		path: join(home, "eukhe", "daemon.sock"),
 		turn: async (turn) => {
-			await turn.delta(answer);
+			await turn.tool("screenshot", {}, async () => ({ content: [{ type: "image", data: image, mimeType: "image/png" }] }));
+			await turn.delta("Here it is.");
 		},
 	});
 	t.after(() => daemon.close());
@@ -150,7 +149,7 @@ test("a 3 MB answer from Local Studio reaches the extension in pieces, not refus
 		const session = (await answer(1)).result.activeSessionId;
 		send({ type: "eukhe", id: 2, conversation: "chat", op: "command", command: { type: "attach", activeSessionId: session } });
 		await answer(2);
-		send({ type: "eukhe", id: 3, conversation: "chat", op: "command", command: { type: "prompt", activeSessionId: session, message: "say it all" } });
+		send({ type: "eukhe", id: 3, conversation: "chat", op: "command", command: { type: "prompt", activeSessionId: session, message: "screenshot" } });
 		await answer(3);
 		// agent_end is small and comes last: everything before it was written.
 		await until(() => out.frames.some((f) => f.event?.event?.type === "agent_end"), 15_000, "the end of the turn");
@@ -170,9 +169,9 @@ test("a 3 MB answer from Local Studio reaches the extension in pieces, not refus
 		assert.equal(r.error, undefined);
 		if (r.message) whole.push(r.message);
 	}
-	const said = whole.find((m) => m.event?.event?.type === "message_update");
-	assert.ok(said, "the answer arrived");
-	assert.equal(said.event.event.assistantMessageEvent.delta, answer, "byte for byte");
+	const shot = whole.find((m) => m.event?.event?.type === "tool_execution_end");
+	assert.ok(shot, "the screenshot result arrived");
+	assert.equal(shot.event.event.result.content[0].data, image, "byte for byte");
 
 	// An extension from before pieces is not sent a frame it would choke on (Chrome would close the port).
 	const old = await run([]);

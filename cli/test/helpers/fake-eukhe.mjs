@@ -8,16 +8,12 @@
 // `turn(t)` runs for each prompt: t.delta(text) streams text, t.tool(name, args, run) streams one tool call around
 // `run()`, t.shell(command) asks the attached clients about a shell step, t.aborted says the turn was aborted, t.message
 // is the prompt. Without `turn`, a fixed turn streams two deltas, one tool call and a last delta.
-//
-// Each session has Eukhe's auto set (`shell.autoEffects`): every effect by default, as eukhe 452f1be ships it
-// (eukhe-core settings/cvar/table.rs), changed by a `cvar` command's `set shell.autoEffects <list>` line. t.write(path)
-// is a file tool's write as Eukhe gates it (eukhe-core durable/path_policy.rs): it runs unasked when the auto set holds
-// its effects, else it asks the attached clients and runs only on an approve. `writes` lists the writes that ran.
-// `cvar: false` makes a daemon that refuses every cvar command.
+// Each session has Eukhe's auto set (`shell.autoEffects`, every effect by default as in eukhe 452f1be), set by a `cvar`
+// line. t.write(path) is a file write as Eukhe gates it: unasked when the auto set holds its effects, else it asks and
+// runs only on an approve; `writes` lists those that ran. `cvar: false` refuses every cvar command.
 import { mkdirSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
-import { tmpdir } from "node:os";
-import { dirname, isAbsolute, join, relative } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 
 export const DEFAULT_MODELS = [
 	{ id: "gpt-5.5", name: "GPT-5.5", provider: "openai-codex", api: "openai-codex-responses", baseUrl: "https://chatgpt.com/backend-api", reasoning: true, input: ["text", "image"], contextWindow: 272000, maxTokens: 128000 },
@@ -26,7 +22,6 @@ export const DEFAULT_MODELS = [
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/** Eukhe's shell effects; the default auto set is all of them. */
 export const ALL_EFFECTS = ["read", "write", "exec", "net", "outside", "protected", "secret"];
 
 export async function startFakeEukhe({ path, turn, models = DEFAULT_MODELS, stepMs = 15, hello = true, cvar = true } = {}) {
@@ -92,11 +87,7 @@ export async function startFakeEukhe({ path, turn, models = DEFAULT_MODELS, step
 				if (session.aborted) return undefined;
 				const cwd = session.config?.cwd ?? process.cwd();
 				const full = isAbsolute(target) ? target : join(cwd, target);
-				const under = (root) => {
-					const rel = relative(root, full);
-					return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
-				};
-				const effects = ["write", ...(under(cwd) || under(tmpdir()) ? [] : ["outside"])];
+				const effects = ["write", ...(full.startsWith(`${cwd}/`) ? [] : ["outside"])];
 				return this.tool("write", { path: full, content: body }, async () => {
 					let asked = false;
 					if (!effects.every((e) => session.autoEffects.includes(e))) {

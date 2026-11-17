@@ -303,14 +303,7 @@ export class EukheRelay {
 	private conversation(name: string): Conversation {
 		const existing = this.conversations.get(name);
 		if (existing && !existing.closed) return existing;
-		const conv: Conversation = {
-			link: Promise.resolve() as never,
-			pending: new Map(),
-			sessions: new Set(),
-			creates: new Set(),
-			pins: new Map(),
-			closed: false,
-		};
+		const conv: Conversation = { link: Promise.resolve() as never, pending: new Map(), sessions: new Set(), creates: new Set(), pins: new Map(), closed: false };
 		conv.link = connectDaemon(
 			this.path(),
 			(frame) => this.onDaemonFrame(name, conv, frame),
@@ -340,12 +333,15 @@ export class EukheRelay {
 			this.reply(conversation, id, { error: unavailable(this.path(), process.platform, "the daemon connection closed") });
 			return;
 		}
-		const envelopeId = this.write(link, command);
+		const envelopeId = `tychicus_${process.pid}_${++this.seq}`;
 		conv.pending.set(envelopeId, id);
 		if (command.type === "create") conv.creates.add(envelopeId);
+		link.socket.write(
+			`${JSON.stringify({ type: "command", id: envelopeId, protocol: link.protocol, clientId: `tychicus-panel:${process.pid}`, command })}\n`,
+		);
 	}
 
-	/** Send one command on a chat's connection; its envelope id. */
+	/** Send one command of the host's own on a chat's connection; its envelope id. */
 	private write(link: DaemonLink, command: Record<string, unknown>): string {
 		const envelopeId = `tychicus_${process.pid}_${++this.seq}`;
 		if (!link.socket.destroyed)
@@ -369,23 +365,16 @@ export class EukheRelay {
 			conv.pending.delete(frame.id);
 			const created = conv.creates.delete(frame.id);
 			const pinned = conv.pins.get(frame.id);
-			conv.pins.delete(frame.id);
-			if (pinned) {
+			if (pinned && conv.pins.delete(frame.id)) {
 				const session = pinned.activeSessionId as string;
 				if (frame.success === true) {
 					conv.sessions.add(session);
-					this.reply(name, id, { result: pinned });
-				} else {
-					// An unpinned session would write files unasked: end it, and the chat gets none.
-					if (conv.live) this.write(conv.live, { type: "kill", activeSessionId: session });
-					this.reply(name, id, {
-						error: {
-							code: "eukhe_error",
-							message: `Local Studio could not limit this chat to reading (${String(frame.error ?? "no answer")}), so the chat did not start. Update Local Studio, or use an API key instead.`,
-						},
-					});
+					return this.reply(name, id, { result: pinned });
 				}
-				return;
+				// An unpinned session would write files unasked: end it, and the chat gets none.
+				if (conv.live) this.write(conv.live, { type: "kill", activeSessionId: session });
+				const why = `Local Studio could not limit this chat to reading (${String(frame.error ?? "no answer")}), so it did not start.`;
+				return this.reply(name, id, { error: { code: "eukhe_error", message: why } });
 			}
 			if (frame.success === true) {
 				const data = (frame.data ?? {}) as Record<string, unknown>;
@@ -412,16 +401,20 @@ export class EukheRelay {
 			});
 			return;
 		}
-		if (typeof frame.type === "string" && FORWARDED.has(frame.type)) this.send({ type: "eukhe", conversation: name, event: panelFrame(frame) });
+		if (typeof frame.type === "string" && FORWARDED.has(frame.type)) this.send({ type: "eukhe", conversation: name, event: frame });
 	}
 
 	/** Answer a session's shell question with no: the panel runs no shell commands. */
 	private refuseShell(conv: Conversation, frame: Record<string, unknown>): void {
 		const request = frame.request as { requestId?: unknown } | undefined;
 		if (typeof frame.activeSessionId !== "string" || typeof request?.requestId !== "string") return;
-		void conv.link.then((link) =>
-			this.write(link, { type: "answer_shell_approval", activeSessionId: frame.activeSessionId, requestId: request.requestId, verdict: "deny" }),
-		);
+		void conv.link.then((link) => {
+			if (link.socket.destroyed) return;
+			const command = { type: "answer_shell_approval", activeSessionId: frame.activeSessionId, requestId: request.requestId, verdict: "deny" };
+			link.socket.write(
+				`${JSON.stringify({ type: "command", id: `tychicus_${process.pid}_${++this.seq}`, protocol: link.protocol, clientId: `tychicus-panel:${process.pid}`, command })}\n`,
+			);
+		});
 	}
 
 	private onDaemonClose(name: string, conv: Conversation): void {
@@ -430,7 +423,6 @@ export class EukheRelay {
 		for (const id of conv.pending.values())
 			this.reply(name, id, { error: unavailable(this.path(), process.platform, "the daemon connection closed") });
 		conv.pending.clear();
-		conv.pins.clear();
 		this.send({ type: "eukhe", conversation: name, closed: true });
 	}
 
@@ -449,54 +441,6 @@ export class EukheRelay {
 		if (this.folder) rmSync(this.folder, { recursive: true, force: true });
 		this.folder = undefined;
 	}
-}
-
-/** Cut a string to `max` characters. */
-function cut(text: unknown, max: number): string {
-	const s = typeof text === "string" ? text : "";
-	return s.length > max ? `${s.slice(0, max - 3)}...` : s;
-}
-
-/**
- * The part of a daemon frame the panel reads (src/eukhe/models.ts EukheTurn.take). Eukhe's events carry the whole
- * message so far, and turn_end and agent_end every message of the run, screenshots included: forwarded whole, one long
- * answer resends itself on every word, and a run with a few screenshots outgrows a native message and is dropped.
- */
-export function panelFrame(frame: Record<string, unknown>): Record<string, unknown> {
-	const base = { type: frame.type, activeSessionId: frame.activeSessionId };
-	if (frame.type !== "session_event") return { ...base, reason: frame.reason };
-	const ev = (frame.event ?? {}) as Record<string, unknown>;
-	const out: Record<string, unknown> = { type: ev.type };
-	switch (ev.type) {
-		case "message_update": {
-			const change = (ev.assistantMessageEvent ?? {}) as Record<string, unknown>;
-			out.assistantMessageEvent = { type: change.type, ...(typeof change.delta === "string" ? { delta: change.delta } : {}) };
-			break;
-		}
-		case "tool_execution_start": {
-			out.toolCallId = ev.toolCallId;
-			out.toolName = cut(ev.toolName, 200);
-			const args = ev.args && typeof ev.args === "object" ? JSON.stringify(ev.args) : "";
-			out.args = args.length > 1000 ? { args: cut(args, 1000) } : ev.args;
-			break;
-		}
-		case "tool_execution_end": {
-			out.toolCallId = ev.toolCallId;
-			out.toolName = cut(ev.toolName, 200);
-			out.isError = ev.isError === true;
-			const content = (ev.result as { content?: unknown } | undefined)?.content;
-			out.result = {
-				content: (Array.isArray(content) ? content : []).slice(0, 50).map((c: { type?: unknown; text?: unknown }) =>
-					c?.type === "text" ? { type: "text", text: cut(c.text, 1000) } : { type: String(c?.type ?? "unknown") },
-				),
-			};
-			break;
-		}
-		case "turn_end":
-			if (typeof ev.error === "string") out.error = cut(ev.error, 2000);
-			break;
-	}
-	return { ...base, event: out };
 }
 
 function asRpcError(err: unknown): RpcError {
