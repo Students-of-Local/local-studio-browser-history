@@ -399,7 +399,7 @@ export function createMcpServer(options: McpServerOptions = {}): { server: McpSe
 		name: options.name ?? harnessName(),
 		session: choice.name,
 		auto: choice.auto,
-		// A name from --session or TABKYRA_SESSION; a remote session's id is not one.
+		// A name from --session or TYCHICUS_SESSION; a remote session's id is not one.
 		named: !options.session && choice.named === true,
 		project: "project" in choice ? choice.project : undefined,
 		onEvent: (event, data) => {

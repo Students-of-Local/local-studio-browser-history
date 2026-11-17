@@ -1,7 +1,8 @@
 /**
- * Which browser session a `tabkyra mcp` process drives. The rule, first match wins:
+ * Which browser session a `tychicus mcp` process drives. The rule, first match wins:
  *
- * 1. `tabkyra mcp --session <name>`, then TABKYRA_SESSION: a name the user chose. Every client
+ * 1. `tychicus mcp --session <name>`, then TYCHICUS_SESSION (POLYCARP_SESSION and TABKYRA_SESSION still read, in that
+ *    order, as envVar does): a name the user chose. Every client
  *    that gives it shares the session, across restarts of the harness.
  * 2. Otherwise the project: the git root of the working directory (or the directory itself),
  *    as "<folder>-<4 hex of its path>", so two folders with one name stay apart. Restarting the
@@ -20,6 +21,7 @@ import { realpathSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { basename, resolve } from "node:path";
+import { envVar } from "./env.ts";
 
 export interface SessionChoice {
 	/** The name sent in the hello; the session's id is "bridge-<harness>-<name>". */
@@ -59,7 +61,7 @@ export function chooseSession(
 	options: { flag?: string; env?: NodeJS.ProcessEnv; cwd?: string; home?: string; pid?: number } = {},
 ): SessionChoice {
 	const env = options.env ?? process.env;
-	const named = options.flag || env.TABKYRA_SESSION;
+	const named = options.flag || envVar("SESSION", env);
 	if (named) return { name: named, auto: false, named: true };
 	const root = projectRoot(options.cwd ?? process.cwd());
 	const real = (path: string) => {
