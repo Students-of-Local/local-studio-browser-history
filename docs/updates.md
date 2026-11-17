@@ -24,7 +24,7 @@ What "update" does depends on how Tychicus runs (the install mode):
 | Mode | When | Update now does | Roll back does |
 | --- | --- | --- | --- |
 | **Release** | the native host runs from `~/.local/share/tychicus/app` | downloads the newest signed GitHub release, verifies it ([checks](#what-an-update-checks-before-it-touches-a-file)) and unpacks it to `staged/`; once idle, swaps it in | swaps back to the release before it |
-| **Checkout** | the native host runs from a git checkout of Tychicus that is on main (a checkout of baney75/tychicus) | `git fetch`, `git pull --ff-only` on main, `./scripts/setup-siblings.sh`, builds the extension and the CLI into `.tabkyra-update/next/`; once idle, swaps them in | swaps back to the build before it (the git checkout stays where it is) |
+| **Checkout** | the native host runs from a git checkout of baney75/tychicus on main | `git fetch`, `git pull --ff-only` on main, `./scripts/setup-siblings.sh`, builds the extension and the CLI into `.tabkyra-update/next/`; once idle, swaps them in | swaps back to the build before it (the git checkout stays where it is) |
 | Unmanaged | anything else (an npm install, a copied folder) | refuses: run `tychicus update` in a terminal | |
 
 ## The side panel
