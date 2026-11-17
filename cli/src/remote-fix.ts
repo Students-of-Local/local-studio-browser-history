@@ -14,7 +14,7 @@ import { askYes, closeInput, interactiveTerminal } from "./remote-guide.ts";
 import { FUNNEL_PORT, lingerWarning, loadRemoteConfig, openFunnel, operatorWarning, probeLocal, proofLines, type RemoteConfig, saveRemoteConfig, serveWaitMs, tailscaleReady, waitForServe } from "./remote-setup.ts";
 import { CLOUDFLARED_DOWNLOAD_URL, EXIT_FAILED, EXIT_NEEDS_PERSON, EXIT_ON, printReport, type RemoteState, TAILSCALE_OPERATOR_FIX } from "./remote-state.ts";
 import { type ProofCheck, publicChecks } from "./remote-test.ts";
-import { releaseRoot } from "./release.ts";
+import { releaseRoot } from "./paths.ts";
 import { COMMAND_NAME } from "./self.ts";
 import { currentRelease, staleServices } from "./service-version.ts";
 import { installService, SERVE_SERVICE, type ServiceSpec, serviceFile, serviceLogHint, serviceRunning, sleep } from "./service.ts";

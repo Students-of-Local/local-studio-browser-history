@@ -17,9 +17,9 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { delimiter, dirname, join, relative, resolve, sep } from "node:path";
 import { browserDirs } from "./install.ts";
+import { releaseBase, releaseRoot } from "./paths.ts";
 import { eukheSettingsPath, localStudioPluginsDir, PLUGINS } from "./local-studio.ts";
 import { NATIVE_HOST_NAMES } from "../../src/bridge/protocol.ts";
 import { restartCommand, serviceName, staleLines, staleServices } from "./service-version.ts";
@@ -38,16 +38,7 @@ export function platformTag(platform: string = process.platform, arch: string = 
 	return `${platform === "win32" ? "win" : platform}-${arch}`;
 }
 
-/** The folder that holds the installed versions, the `release` pointer and the extension folder. */
-export function releaseBase(): string {
-	if (process.platform === "win32") return join(process.env.LOCALAPPDATA || join(homedir(), "AppData", "Local"), "Tychicus");
-	return join(process.env.XDG_DATA_HOME || join(homedir(), ".local", "share"), "tychicus");
-}
-
-/** The pointer to the current version's folder: the `tychicus` program, `extension/` and `plugins/`. */
-export function releaseRoot(): string {
-	return join(releaseBase(), "release");
-}
+export { releaseBase, releaseRoot } from "./paths.ts";
 
 /** Every unpacked version, one folder each, named <version>-<first 12 hex of the archive's SHA-256>. */
 export function versionsDir(base: string = releaseBase()): string {
