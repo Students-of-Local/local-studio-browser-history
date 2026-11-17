@@ -43,7 +43,7 @@ const doctor = (env) => {
 	}
 	return JSON.parse(out).checks;
 };
-const manifestFile = (dir) => join(dir, "NativeMessagingHosts", "com.polycarp.browser.json");
+const manifestFile = (dir) => join(dir, "NativeMessagingHosts", "com.tychicus.browser.json");
 
 test("doctor reports only browsers that are installed", { skip: !mac && "app detection is a Mac thing" }, () => {
 	const { env } = sandbox("installed");
@@ -58,7 +58,7 @@ test("a manifest naming the helper is right in compiled mode, and so is a standa
 	assert.equal(host.status, "ok", JSON.stringify(host));
 	assert.equal(JSON.parse(readFileSync(manifestFile(dirs[first]), "utf8")).path, process.execPath);
 	// A standalone Polycarp's manifest: the launcher script in ~/.config/tabkyra.
-	const launcher = join(home, ".config", "polycarp", "browser", "polycarp-host");
+	const launcher = join(home, ".config", "tychicus", "tychicus-host");
 	mkdirSync(dirname(launcher), { recursive: true });
 	writeFileSync(launcher, "#!/bin/sh\nexit 0\n");
 	chmodSync(launcher, 0o755);
@@ -75,7 +75,7 @@ test("a manifest naming the helper is right in compiled mode, and so is a standa
 
 test("install --browser writes one manifest and leaves a working launcher alone", () => {
 	const { home, dirs, env } = sandbox("one");
-	const config = join(home, ".config", "polycarp", "browser");
+	const config = join(home, ".config", "tychicus");
 	mkdirSync(config, { recursive: true });
 	const standalone = '#!/bin/sh\nexec "/bin/echo" "$@"\n';
 	for (const name of ["polycarp", "polycarp-host"]) {
@@ -91,7 +91,7 @@ test("install --browser writes one manifest and leaves a working launcher alone"
 test("without a working launcher, install --browser writes one", async () => {
 	const { home, env } = sandbox("nolauncher");
 	execFileSync(process.execPath, [index(), "install", "--browser", first], { env });
-	assert.match(readFileSync(join(home, ".config", "polycarp", "browser", "polycarp"), "utf8"), /exec "/);
+	assert.match(readFileSync(join(home, ".config", "tychicus", "tychicus"), "utf8"), /exec "/);
 });
 
 // ---- round 2: leftover manifests, launcher targets, setup's reach, quoted fixes ----
@@ -107,7 +107,7 @@ test("second-S1: a leftover manifest does not keep an uninstalled browser listed
 	const { dirs, env } = sandbox("leftover");
 	// Chrome's data folder holds the manifest an earlier install wrote; its app is gone.
 	mkdirSync(join(dirs.Chrome, "NativeMessagingHosts"), { recursive: true });
-	writeFileSync(manifestFile(dirs.Chrome), JSON.stringify({ name: "com.polycarp.browser", path: process.execPath }));
+	writeFileSync(manifestFile(dirs.Chrome), JSON.stringify({ name: "com.tychicus.browser", path: process.execPath }));
 	const hosts = doctor(env).filter((c) => c.id.startsWith("host:"));
 	assert.deepEqual(hosts.map((c) => c.id), [`host:${first}`], "Chrome is not listed: no app");
 });
@@ -127,7 +127,7 @@ test("first-F6/sol-F5: the repair command quotes a two-word browser name", { ski
 
 test("second-S4: install --browser repairs a broken host launcher even when the agent launcher works", () => {
 	const { home, dirs, env } = sandbox("hostbroken");
-	const config = join(home, ".config", "polycarp", "browser");
+	const config = join(home, ".config", "tychicus");
 	writeLauncherScript(join(config, "polycarp"), "/bin/echo"); // the agent launcher works
 	// In compiled mode the manifest names the helper, so the host launcher is the helper itself: always there. The case is
 	// the standalone one, where the host launcher is a script; build it with a vanished target.
@@ -143,7 +143,7 @@ test("second-S4: install --browser repairs a broken host launcher even when the 
 test("second-S6: a manifest naming a standalone launcher whose program is gone is wrong, in doctor and in status", () => {
 	const { home, dirs, env } = sandbox("gonetarget");
 	execFileSync(process.execPath, [index(), "install", "--browser", first], { env });
-	const launcher = join(home, ".config", "polycarp", "browser", "polycarp-host");
+	const launcher = join(home, ".config", "tychicus", "tychicus-host");
 	writeLauncherScript(launcher, join(home, "deleted-checkout", "cli.js"));
 	const manifest = JSON.parse(readFileSync(manifestFile(dirs[first]), "utf8"));
 	writeFileSync(manifestFile(dirs[first]), JSON.stringify({ ...manifest, path: launcher }));

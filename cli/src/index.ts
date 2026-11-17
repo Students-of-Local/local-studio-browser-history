@@ -5,12 +5,11 @@ import { claudeAllows, setClaudeAllows } from "./always-allow.ts";
 import { harnesses } from "./harness.ts";
 import { BridgeClient, BridgeRpcError, isConnectionError, listSockets, NOT_CONNECTED } from "./client.ts";
 import { runDoctor } from "./doctor.ts";
-import { migrateLegacyPaths } from "./migrate.ts";
 import { runNativeHost } from "./host.ts";
 import { browserDirs, browserRunning, cliLauncherPath, extensionInProfile, hostStatus, install, isInstalled } from "./install.ts";
 import { runMcpServer } from "./mcp.ts";
 import { runPanelProfile } from "./panel-profile.ts";
-import { COMMAND_NAME, COMPILED, DEFAULT_MCP_NAME } from "./self.ts";
+import { bundledExtensionDir, COMMAND_NAME, COMPILED, DEFAULT_MCP_NAME, RELEASE_BUILD } from "./self.ts";
 import { EXTENSION_FILES, extensionDir } from "./paths.ts";
 import { writePiExtension } from "./pi-extension.ts";
 import { parseSetupArgs, parseUpdateArgs } from "./parse-args.ts";
@@ -38,11 +37,13 @@ import { runSubmit } from "./skill-submit.ts";
 import { banner, c, confirm, sym } from "./ui.ts";
 import { runUpdate, UpdateError } from "./update.ts";
 import { detectMode, recoverCheckoutQuietly } from "./checkout.ts";
-import { migrateLegacyServices, recordServicePid } from "./service.ts";
+import { recordServicePid } from "./service.ts";
 import { type HostRunAction, refuseHostAction, runHostAction } from "./update-run.ts";
 import { BUILD } from "../../src/update/build.ts";
 import { argsProblem, COMMANDS, completionScript, EXIT_CODES, helpRows, REMOTE_GUIDE, VALUE_FLAGS, VISIBLE_COMMANDS } from "./commands.ts";
 import { VERSION } from "./version.ts";
+import { installLocalStudio, LocalStudioError, localStudioCommand } from "./local-studio.ts";
+import { installFromRelease, loadSteps } from "./release.ts";
 
 /** A path under the home folder as ~/..., for help text. */
 const tildePath = (path: string) => (path.startsWith(`${homedir()}/`) ? `~${path.slice(homedir().length)}` : path);
@@ -286,8 +287,6 @@ async function main(): Promise<void> {
 	// `host` is spawned by the browser with its origin as an argument; leave it alone.
 	// `polycarp browser link https://hub...` is `link enroll`.
 	if (command && command !== "host") checkArgs(command, command === "link" && /^https?:\/\//.test(argv[1] ?? "") ? ["enroll", ...argv.slice(1)] : argv.slice(1));
-	// The folders and names from before the rename move once, before anything reads config. Help, version and completions never touch it.
-	if (command && !["--version", "-v", "version", "--help", "-h", "help", "completion"].includes(command)) migrateLegacyPaths();
 	// Bad setup or update options are refused before anything below touches the checkout.
 	const setupArgs = command === "setup" ? parseSetupArgs(argv.slice(1)) : undefined;
 	if (typeof setupArgs === "string") throw new UsageError(`${setupArgs} Usage: ${COMMAND_NAME} setup [--yes] [--no-wait] [--timeout <seconds>] [--browser <name>]`);
@@ -305,7 +304,9 @@ async function main(): Promise<void> {
 	}
 	// Inside Polycarp the app updates the helper; a release folder here would repoint the host away from the bundle.
 	if (COMPILED && command === "update") {
-		const notice = "This helper is part of Polycarp, which updates it with every other part. Run `polycarp update`.";
+		const notice = RELEASE_BUILD
+			? `This is a Tychicus release. To update it, download the new release and run \`tychicus install --release <folder>\` (https://github.com/baney75/tychicus/releases).`
+			: "This helper is part of Polycarp, which updates it with every other part. Run `polycarp update`.";
 		// The side panel's request (`update --host`) reads progress steps, so the notice goes to it as one.
 		if (argv[1] === "--host") {
 			process.exitCode = refuseHostAction(HOST_UPDATE_ACTIONS[argv.slice(1).join(" ")] ?? "update", notice);
@@ -382,23 +383,46 @@ async function main(): Promise<void> {
 		}
 		case "install": {
 			const only = option("--browser");
+			const dryRun = flag("--dry-run");
 			if (only !== undefined) {
 				const known = browserDirs();
 				const match = known.find((b) => b.name === only);
 				if (!match) throw new UsageError(`Unknown browser "${only}". Use one of: ${known.map((b) => b.name).join(", ")}.`);
 				if (!existsSync(match.dir)) throw new UsageError(`${only} has no profile folder on this computer (${match.dir}). Open it once, then run this again.`);
 			}
-			for (const r of await migrateLegacyServices()) console.log(r.ok ? `${sym.ok} Moved the ${r.label} service to its new name` : `${sym.warn} ${r.message}`);
-			const result = install({ force: flag("--force"), browser: only });
+			const release = option("--release");
+			if (release !== undefined) {
+				process.exitCode = await installFromRelease(release, { dryRun, skipAttestation: flag("--skip-attestation"), passOn: argv.slice(1) });
+				return;
+			}
+			const result = install({ force: flag("--force"), browser: only, dryRun });
+			const verb = dryRun ? "Would write" : "Wrote";
 			console.log(`${sym.ok} Launcher ${c.dim(result.launcher)}`);
-			for (const f of result.written) console.log(`${sym.ok} Wrote ${c.dim(f)}`);
+			for (const f of result.written) console.log(`${sym.ok} ${verb} ${c.dim(f)}`);
 			for (const f of result.skipped) console.log(`${sym.ok} Current ${c.dim(f)}`);
 			if (result.written.length + result.skipped.length === 0) {
 				console.log(`${sym.fail} No Chromium browser profile found. Open your browser once, then run this again.`);
 				process.exitCode = 1;
 				return;
 			}
+			if (flag("--local-studio")) {
+				try {
+					const ls = installLocalStudio({ command: localStudioCommand(dryRun), dryRun });
+					for (const f of ls.written) console.log(`${sym.ok} ${verb} ${c.dim(f)}`);
+					for (const f of ls.current) console.log(`${sym.ok} Current ${c.dim(f)}`);
+					if (ls.backup) console.log(`${sym.ok} Backed up ${c.dim(ls.backup)}`);
+				} catch (err) {
+					if (!(err instanceof LocalStudioError)) throw err;
+					console.log(`${sym.fail} ${err.message}`);
+					process.exitCode = 1;
+					return;
+				}
+			}
+			if (dryRun) return;
 			if (result.written.length > 0) console.log(c.dim("If the extension was already loaded, reload it once on chrome://extensions."));
+			// A release's own copy prints how to load its extension; under --release the outer run does, after it.
+			const ext = bundledExtensionDir();
+			if (ext && existsSync(ext) && !process.env.TYCHICUS_RELEASE_PARENT) for (const line of loadSteps(ext)) console.log(line);
 			return;
 		}
 		case "allow": {

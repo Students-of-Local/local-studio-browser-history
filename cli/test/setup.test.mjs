@@ -23,7 +23,7 @@ const helium = () =>
 	process.platform === "darwin"
 		? join(home, "Library", "Application Support", "net.imput.helium")
 		: join(home, ".config", "net.imput.helium");
-const launcher = () => join(home, ".config", "polycarp", "browser", "polycarp");
+const launcher = () => join(home, ".config", "tychicus", "tychicus");
 
 /**
  * A fake `claude` or `codex`. `mcp get` answers with an entry running `configured` (with
@@ -125,8 +125,8 @@ test("setup --yes registers the host, wires harnesses to the launcher, then show
 	assert.ok(out.indexOf("Connect your coding agents") < out.indexOf("Load unpacked"), "agents are wired before the wait");
 
 	const calls = readFileSync(harnessLog, "utf8");
-	assert.ok(calls.includes(`claude mcp add --scope user polycarp -- ${launcher()} mcp`), calls);
-	assert.ok(calls.includes(`codex mcp add polycarp -- ${launcher()} mcp`), calls);
+	assert.ok(calls.includes(`claude mcp add --scope user tychicus -- ${launcher()} mcp`), calls);
+	assert.ok(calls.includes(`codex mcp add tychicus -- ${launcher()} mcp`), calls);
 	// The launcher pins node by absolute path, so GUI-started harnesses need no PATH.
 	assert.match(readFileSync(launcher(), "utf8"), new RegExp(`exec "/[^"]+node" "${cli.replaceAll("/", "\\/")}" "\\$@"`));
 
@@ -142,12 +142,12 @@ test("an entry pointing at a missing command is stale, and setup replaces it", (
 	const claude = checks.find((c) => c.id === "mcp:claude");
 	assert.equal(claude.status, "fail");
 	assert.match(claude.label, /missing command/);
-	assert.match(claude.fix, /^claude mcp remove --scope user polycarp && claude mcp add/);
+	assert.match(claude.fix, /^claude mcp remove --scope user tychicus && claude mcp add/);
 	assert.equal(checks.find((c) => c.id === "mcp:codex").status, "ok", "the launcher with args mcp is this CLI");
 
 	run(["setup", "--yes", "--no-wait"]);
 	const calls = readFileSync(harnessLog, "utf8");
-	assert.ok(calls.includes("claude mcp remove --scope user polycarp"), calls);
+	assert.ok(calls.includes("claude mcp remove --scope user tychicus"), calls);
 	assert.ok(!calls.includes("codex mcp add"), "a current entry is left alone");
 });
 
@@ -181,7 +181,7 @@ test("setup without --yes and without a terminal never edits a harness config", 
 	fakeHarness("claude");
 	run(["setup", "--no-wait"]);
 	const calls = readFileSync(harnessLog, "utf8");
-	assert.ok(calls.includes("claude mcp get polycarp"), calls);
+	assert.ok(calls.includes("claude mcp get tychicus"), calls);
 	assert.ok(!calls.includes("mcp add"), calls);
 });
 
@@ -224,64 +224,45 @@ test("second-S3: setup keeps a working launcher and writes links only for regist
 	mkdirSync(join(root, "apps", "Google Chrome.app"), { recursive: true });
 	// A working standalone launcher: the agent launcher and the host launcher both exec a file that exists.
 	const standalone = '#!/bin/sh\nexec "/bin/echo" "$@"\n';
-	for (const name of ["polycarp", "polycarp-host"]) {
-		writeFileSync(join(home, ".config", "polycarp", "browser", name), standalone);
-		chmodSync(join(home, ".config", "polycarp", "browser", name), 0o755);
+	for (const name of ["tychicus", "tychicus-host"]) {
+		writeFileSync(join(home, ".config", "tychicus", name), standalone);
+		chmodSync(join(home, ".config", "tychicus", name), 0o755);
 	}
-	const heliumManifest = join(helium(), "NativeMessagingHosts", "com.polycarp.browser.json");
+	const heliumManifest = join(helium(), "NativeMessagingHosts", "com.tychicus.browser.json");
 	const heliumBefore = readFileSync(heliumManifest, "utf8");
 	const { out } = run(["setup", "--yes", "--no-wait"]);
 	assert.match(out, /Helium\s+already registered/, out);
 	assert.doesNotMatch(out, /Chrome\s+(registered|already)/, "setup does not touch a browser nobody registered or chose");
-	assert.equal(existsSync(join(chromeDir, "NativeMessagingHosts", "com.polycarp.browser.json")), false, "no link for Chrome");
-	assert.equal(readFileSync(join(home, ".config", "polycarp", "browser", "polycarp"), "utf8"), standalone, "the working launcher is kept");
-	assert.equal(readFileSync(join(home, ".config", "polycarp", "browser", "polycarp-host"), "utf8"), standalone);
+	assert.equal(existsSync(join(chromeDir, "NativeMessagingHosts", "com.tychicus.browser.json")), false, "no link for Chrome");
+	assert.equal(readFileSync(join(home, ".config", "tychicus", "tychicus"), "utf8"), standalone, "the working launcher is kept");
+	assert.equal(readFileSync(join(home, ".config", "tychicus", "tychicus-host"), "utf8"), standalone);
 	assert.equal(readFileSync(heliumManifest, "utf8"), heliumBefore, "the registered browser's manifest is unchanged");
 	// Choosing it makes the link, and still leaves the working launcher alone.
 	const chosen = run(["setup", "--yes", "--no-wait", "--browser", "Chrome"]);
 	assert.match(chosen.out, /Chrome\s+registered/, chosen.out);
-	assert.equal(existsSync(join(chromeDir, "NativeMessagingHosts", "com.polycarp.browser.json")), true);
-	assert.equal(readFileSync(join(home, ".config", "polycarp", "browser", "polycarp-host"), "utf8"), standalone);
+	assert.equal(existsSync(join(chromeDir, "NativeMessagingHosts", "com.tychicus.browser.json")), true);
+	assert.equal(readFileSync(join(home, ".config", "tychicus", "tychicus-host"), "utf8"), standalone);
 	assert.equal(run(["setup", "--browser", "Netscape"]).code, 2, "an unknown browser is a usage error");
 });
 
-test("an entry under the old name moves to polycarp, and nothing else is touched", () => {
+test("a polycarp entry belongs to Polycarp: setup adds the tychicus entry and never reads, moves or removes it", () => {
 	writeFileSync(harnessLog, "");
 	const file = join(bin, "claude");
+	// Claude Code has Polycarp's own entry and no tychicus one.
 	writeFileSync(
 		file,
-		`#!/bin/sh\necho "claude $*" >> "${harnessLog}"\nif [ "$2" = "get" ] && [ "$3" = "polycarp" ]; then exit 1; fi\nif [ "$2" = "get" ]; then printf '  Scope: User config (available in all your projects)\\n  Command: /old/tabkyra\\n  Args: mcp\\n'; fi\nexit 0\n`,
+		`#!/bin/sh\necho "claude $*" >> "${harnessLog}"\nif [ "$2" = "get" ] && [ "$3" = "tychicus" ]; then exit 1; fi\nif [ "$2" = "get" ]; then printf '  Scope: User config (available in all your projects)\\n  Command: /opt/polycarp/polycarp\\n  Args: browser mcp\\n'; fi\nexit 0\n`,
 	);
 	chmodSync(file, 0o755);
 	fakeHarness("codex", launcher());
 	const claude = JSON.parse(run(["doctor", "--json"]).out).checks.find((c) => c.id === "mcp:claude");
-	assert.match(claude.label, /old name/);
-	assert.match(claude.fix, / setup$/, "setup moves the permission rules with the entry");
+	assert.match(claude.label, /not configured/);
 
 	run(["setup", "--yes", "--no-wait"]);
 	const calls = readFileSync(harnessLog, "utf8");
-	assert.ok(calls.includes("claude mcp remove --scope user tabkyra"), calls);
-	assert.ok(calls.includes("claude mcp add --scope user polycarp"), calls);
-	assert.ok(calls.indexOf("claude mcp add") < calls.indexOf("claude mcp remove"), "the new entry goes in first");
-	assert.ok(!calls.includes("codex mcp add"), "a current entry is left alone");
-});
-
-test("an old-name entry running someone's own wrapper is left alone by --yes", () => {
-	writeFileSync(harnessLog, "");
-	const wrapper = join(bin, "my-wrapper");
-	writeFileSync(wrapper, "#!/bin/sh\n");
-	chmodSync(wrapper, 0o755);
-	const file = join(bin, "claude");
-	writeFileSync(
-		file,
-		`#!/bin/sh\necho "claude $*" >> "${harnessLog}"\nif [ "$2" = "get" ] && [ "$3" = "polycarp" ]; then exit 1; fi\nif [ "$2" = "get" ]; then printf '  Scope: User config (available in all your projects)\\n  Command: ${wrapper}\\n  Args: --mine\\n'; fi\nexit 0\n`,
-	);
-	chmodSync(file, 0o755);
-	fakeHarness("codex", launcher());
-	run(["setup", "--yes", "--no-wait"]);
-	const calls = readFileSync(harnessLog, "utf8");
+	assert.ok(calls.includes(`claude mcp add --scope user tychicus -- ${launcher()} mcp`), calls);
 	assert.ok(!calls.includes("mcp remove"), calls);
-	assert.ok(!calls.includes("claude mcp add"), calls);
+	assert.ok(!/mcp \w+ (--scope user )?polycarp\b/.test(calls), `nothing touches the polycarp entry:\n${calls}`);
 });
 
 test("turning Claude Code's always-allow on takes a terminal, and its entry under the current name", () => {
@@ -290,49 +271,46 @@ test("turning Claude Code's always-allow on takes a terminal, and its entry unde
 	assert.notEqual(noTerminal.code, 0);
 	assert.match(noTerminal.out, /takes a person/);
 	const file = join(bin, "claude");
-	writeFileSync(file, `#!/bin/sh\nif [ "$2" = "get" ] && [ "$3" = "polycarp" ]; then exit 1; fi\nif [ "$2" = "get" ]; then printf '  Scope: User config (available in all your projects)\\n  Command: ${launcher()}\\n  Args: mcp\\n'; fi\nexit 0\n`);
+	writeFileSync(file, `#!/bin/sh\nif [ "$2" = "get" ] && [ "$3" = "tychicus" ]; then exit 1; fi\nif [ "$2" = "get" ]; then printf '  Scope: User config (available in all your projects)\\n  Command: ${launcher()}\\n  Args: mcp\\n'; fi\nexit 0\n`);
 	chmodSync(file, 0o755);
 	const oldName = run(["claude-allow", "on"]);
 	assert.notEqual(oldName.code, 0);
 	assert.match(oldName.out, /current name/);
 });
 
-test("rules under the old name move even when the entry was moved by hand, and doctor says so until they have", () => {
+test("setup leaves permission rules for Polycarp's and other servers alone", () => {
 	writeFileSync(harnessLog, "");
 	fakeHarness("claude", launcher());
 	const settings = join(home, ".claude", "settings.json");
 	mkdirSync(join(home, ".claude"), { recursive: true });
-	writeFileSync(settings, JSON.stringify({ permissions: { deny: ["mcp__tabkyra__run_js", "mcp__tabkyra-work__run_js"] } }));
+	const rules = { permissions: { deny: ["mcp__polycarp__run_js", "mcp__tabkyra__run_js", "mcp__tabkyra-work__run_js"] } };
+	writeFileSync(settings, JSON.stringify(rules));
 	try {
-		const before = JSON.parse(run(["doctor", "--json"]).out).checks.find((c) => c.id === "mcp:claude");
-		assert.equal(before.status, "warn", JSON.stringify(before));
-		assert.match(before.label, /1 permission rule/, "another server's rule doesn't count");
 		run(["setup", "--yes", "--no-wait"]);
-		assert.deepEqual(JSON.parse(readFileSync(settings, "utf8")).permissions.deny, ["mcp__polycarp__run_js", "mcp__tabkyra-work__run_js"]);
-		const after = JSON.parse(run(["doctor", "--json"]).out).checks.find((c) => c.id === "mcp:claude");
-		assert.equal(after.status, "ok");
+		assert.deepEqual(JSON.parse(readFileSync(settings, "utf8")), rules);
+		assert.equal(JSON.parse(run(["doctor", "--json"]).out).checks.find((c) => c.id === "mcp:claude").status, "ok");
 	} finally {
 		rmSync(settings, { force: true });
 	}
 });
 
-test("an entry that runs the old ~/.config/tabkyra/tabkyra launcher is rewritten to the new launcher", () => {
+test("an entry that runs a launcher that is gone is rewritten to the current launcher", () => {
 	writeFileSync(harnessLog, "");
 	const old = join(home, ".config", "tabkyra", "tabkyra");
 	fakeHarness("claude", old);
 	fakeHarness("codex", old);
 	const claude = JSON.parse(run(["doctor", "--json"]).out).checks.find((c) => c.id === "mcp:claude");
 	assert.equal(claude.status, "fail");
-	assert.match(claude.label, /old launcher path/);
+	assert.match(claude.label, /missing command/);
 
 	run(["setup", "--yes", "--no-wait"]);
 	const calls = readFileSync(harnessLog, "utf8");
 	for (const [tool, add] of [
-		["claude", `claude mcp add --scope user polycarp -- ${launcher()} mcp`],
-		["codex", `codex mcp add polycarp -- ${launcher()} mcp`],
+		["claude", `claude mcp add --scope user tychicus -- ${launcher()} mcp`],
+		["codex", `codex mcp add tychicus -- ${launcher()} mcp`],
 	]) {
 		assert.ok(calls.includes(add), `${tool} points at the new launcher:\n${calls}`);
 		assert.ok(calls.includes(`${tool} mcp remove`), `${tool}'s old entry is removed:\n${calls}`);
 	}
-	assert.ok(!calls.includes(`add polycarp -- ${old}`), "nothing is added that points at the old path");
+	assert.ok(!calls.includes(`add tychicus -- ${old}`), "nothing is added that points at the old path");
 });

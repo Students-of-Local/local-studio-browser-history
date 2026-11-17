@@ -7,6 +7,7 @@
 // Needs the extension built into dist-chrome without a version bump:
 //   TABKYRA_NO_BUMP=1 TABKYRA_OUT_DIR=$PWD/dist-chrome npm run build   (repo root)
 // and a Playwright Chromium (`npx playwright-core install chromium`).
+import extensionId from "../../src/bridge/extension-id.json" with { type: "json" };
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -22,7 +23,7 @@ import { lastToolResult, seedStubScript, stubModelServer } from "./helpers/stub-
 
 const here = dirname(fileURLToPath(import.meta.url));
 const extensionDir = join(here, "..", "..", "dist-chrome");
-const EXTENSION_ID = "kenehmggpggpiolepbjojeenmeapgfoc";
+const EXTENSION_ID = extensionId.id;
 const PANEL = `chrome-extension://${EXTENSION_ID}/sidepanel.html`;
 
 const { isSidePanelPort } = await loadTs(`export { isSidePanelPort } from "@src/../../src/connect/gate.ts";`);

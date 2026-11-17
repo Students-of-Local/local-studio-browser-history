@@ -52,9 +52,9 @@ import { basename, join } from "node:path";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 
-const SOCKET_OVERRIDE = process.env.POLYCARP_SOCKET_DIR || process.env.TABKYRA_SOCKET_DIR;
-// The socket folder, then the one a host started by a helper from before the rename made.
-const SOCKET_DIRS = SOCKET_OVERRIDE ? [SOCKET_OVERRIDE] : [\`/tmp/polycarp-bridge-\${userInfo().username}\`, \`/tmp/tabkyra-bridge-\${userInfo().username}\`];
+const SOCKET_OVERRIDE = process.env.TYCHICUS_SOCKET_DIR || process.env.POLYCARP_SOCKET_DIR || process.env.TABKYRA_SOCKET_DIR;
+// Tychicus's own socket folder (cli/src/paths.ts); Polycarp's are never searched.
+const SOCKET_DIRS = SOCKET_OVERRIDE ? [SOCKET_OVERRIDE] : [\`/tmp/tychicus-bridge-\${userInfo().username}\`];
 // One key per pi process: a reconnect (extension reload) must land on the same tabs.
 const SESSION_FALLBACK = \`p\${process.pid}-\${Date.now().toString(36)}\`;
 

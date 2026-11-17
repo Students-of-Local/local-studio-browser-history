@@ -18,6 +18,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import extensionId from "../src/bridge/extension-id.json" with { type: "json" };
 
 const here = dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -33,7 +34,7 @@ const floorPath = join(here, "settings-speed.floor.json");
 const { chromium } = createRequire(join(here, "../cli/package.json"))("playwright-core");
 
 const TABS = ["Providers", "Agents", "Skills", "Sites", "Privacy", "Appearance", "About"];
-const EXTENSION_ID = "kenehmggpggpiolepbjojeenmeapgfoc";
+const EXTENSION_ID = extensionId.id;
 const PANEL = `chrome-extension://${EXTENSION_ID}/sidepanel.html`;
 /** Over the floor by more than this fails --check. */
 const SLACK = 1.25;

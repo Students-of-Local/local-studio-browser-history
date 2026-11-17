@@ -153,14 +153,14 @@ export function protectedDirs(o: ProtectedDirsInput): string[] {
 	if (o.platform === "win32") {
 		const roaming = o.appData ?? l.join(home, "AppData", "Roaming");
 		const local = o.localAppData ?? l.join(home, "AppData", "Local");
-		for (const base of [roaming, local, l.join(home, ".config")]) under(base, ["polycarp", "tabkyra"]);
+		for (const base of [roaming, local, l.join(home, ".config")]) under(base, ["tychicus", "Tychicus", "polycarp", "tabkyra"]);
 		under(local, ["Google/Chrome", "Chromium", "BraveSoftware", "Microsoft/Edge", "Vivaldi", "Yandex", "Thorium", "imput/Helium", "Microsoft/Credentials", "Microsoft/Vault"]);
 		under(roaming, ["Mozilla", "Opera Software", "zen", "Microsoft/Credentials", "Microsoft/Protect", "Microsoft/Crypto"]);
 		return out;
 	}
 	const config = o.xdgConfig || l.join(home, ".config");
-	under(config, ["polycarp", "tabkyra"]);
-	under(home, [".config/polycarp", ".config/tabkyra", ".local/share/polycarp", ".local/share/tabkyra", ".cache/polycarp"]);
+	under(config, ["tychicus", "polycarp", "tabkyra"]);
+	under(home, [".config/tychicus", ".local/share/tychicus", ".cache/tychicus", ".config/polycarp", ".config/tabkyra", ".local/share/polycarp", ".local/share/tabkyra", ".cache/polycarp"]);
 	if (o.platform === "darwin") {
 		under(l.join(home, "Library", "Application Support"), [
 			"Polycarp",

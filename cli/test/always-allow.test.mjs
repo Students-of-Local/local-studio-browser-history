@@ -5,8 +5,8 @@ import { join } from "node:path";
 import test from "node:test";
 import { loadTs } from "./helpers/bundle-ts.mjs";
 
-const { claudeAllows, setClaudeAllows, moveClaudeRules, CLAUDE_RULE } = await loadTs(
-	`export { claudeAllows, setClaudeAllows, moveClaudeRules, CLAUDE_RULE } from "@src/always-allow.ts";`,
+const { claudeAllows, setClaudeAllows, CLAUDE_RULE } = await loadTs(
+	`export { claudeAllows, setClaudeAllows, CLAUDE_RULE } from "@src/always-allow.ts";`,
 );
 
 const home = () => {
@@ -15,8 +15,8 @@ const home = () => {
 	return dir;
 };
 
-test("the rule covers every Polycarp tool and nothing else", () => {
-	assert.equal(CLAUDE_RULE, "mcp__polycarp");
+test("the rule covers every Tychicus tool and nothing else", () => {
+	assert.equal(CLAUDE_RULE, "mcp__tychicus");
 });
 
 test("on and off change only the one rule", () => {
@@ -27,10 +27,10 @@ test("on and off change only the one rule", () => {
 	assert.equal(setClaudeAllows(true, dir), undefined);
 	assert.equal(claudeAllows(dir), true);
 	const on = JSON.parse(readFileSync(file, "utf8"));
-	assert.deepEqual(on.permissions, { allow: ["Bash(ls)", "mcp__polycarp"], deny: ["Read(x)"] });
+	assert.deepEqual(on.permissions, { allow: ["Bash(ls)", "mcp__tychicus"], deny: ["Read(x)"] });
 	assert.equal(on.model, "opus");
 	setClaudeAllows(true, dir);
-	assert.deepEqual(JSON.parse(readFileSync(file, "utf8")).permissions.allow, ["Bash(ls)", "mcp__polycarp"], "not added twice");
+	assert.deepEqual(JSON.parse(readFileSync(file, "utf8")).permissions.allow, ["Bash(ls)", "mcp__tychicus"], "not added twice");
 	setClaudeAllows(false, dir);
 	assert.deepEqual(JSON.parse(readFileSync(file, "utf8")).permissions.allow, ["Bash(ls)"]);
 });
@@ -50,20 +50,13 @@ test("a file it can't read is left alone", () => {
 	assert.equal(claudeAllows(dir), false);
 });
 
-test("a move takes the old name's rules with it, a deny above all, and reports what it can't move", () => {
+test("on and off never touch Polycarp's rules", () => {
 	const dir = home();
 	const file = join(dir, ".claude", "settings.json");
-	writeFileSync(
-		file,
-		JSON.stringify({
-			permissions: { allow: ["mcp__tabkyra", "Bash(ls)"], deny: ["mcp__tabkyra__run_js"] },
-			hooks: { PreToolUse: [{ matcher: "mcp__tabkyra__navigate" }] },
-		}),
-	);
-	assert.deepEqual(moveClaudeRules(dir), { rewritten: 2, elsewhere: true });
-	const after = JSON.parse(readFileSync(file, "utf8"));
-	assert.deepEqual(after.permissions, { allow: ["mcp__polycarp", "Bash(ls)"], deny: ["mcp__polycarp__run_js"] });
-	assert.equal(after.hooks.PreToolUse[0].matcher, "mcp__tabkyra__navigate", "a hook is reported, not rewritten");
+	writeFileSync(file, JSON.stringify({ permissions: { allow: ["mcp__polycarp", "mcp__polycarp__*"], deny: ["mcp__polycarp__run_js"] } }));
+	setClaudeAllows(true, dir);
+	setClaudeAllows(false, dir);
+	assert.deepEqual(JSON.parse(readFileSync(file, "utf8")).permissions, { allow: ["mcp__polycarp", "mcp__polycarp__*"], deny: ["mcp__polycarp__run_js"] });
 });
 
 test("the file keeps its permissions and stays where a symlink points", () => {
@@ -74,12 +67,12 @@ test("the file keeps its permissions and stays where a symlink points", () => {
 	assert.equal(setClaudeAllows(true, dir), undefined);
 	assert.ok(lstatSync(join(dir, ".claude", "settings.json")).isSymbolicLink(), "still a link");
 	assert.equal(statSync(real).mode & 0o777, 0o600);
-	assert.deepEqual(JSON.parse(readFileSync(real, "utf8")).permissions.allow, ["mcp__polycarp"]);
+	assert.deepEqual(JSON.parse(readFileSync(real, "utf8")).permissions.allow, ["mcp__tychicus"]);
 });
 
 test("off also removes the wildcard form of the rule", () => {
 	const dir = home();
-	writeFileSync(join(dir, ".claude", "settings.json"), JSON.stringify({ permissions: { allow: ["mcp__polycarp__*", "Bash(ls)"] } }));
+	writeFileSync(join(dir, ".claude", "settings.json"), JSON.stringify({ permissions: { allow: ["mcp__tychicus__*", "Bash(ls)"] } }));
 	setClaudeAllows(false, dir);
 	assert.deepEqual(JSON.parse(readFileSync(join(dir, ".claude", "settings.json"), "utf8")).permissions.allow, ["Bash(ls)"]);
 });

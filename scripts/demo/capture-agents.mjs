@@ -32,6 +32,7 @@ import { promisify } from "node:util";
 import { launchFixtureBrowser, sleep, until } from "../../cli/eval/fixture-browser.mjs";
 import { Client } from "../../cli/node_modules/@modelcontextprotocol/sdk/dist/esm/client/index.js";
 import { StdioClientTransport } from "../../cli/node_modules/@modelcontextprotocol/sdk/dist/esm/client/stdio.js";
+import extensionId from "../../src/bridge/extension-id.json" with { type: "json" };
 import { connectCdp } from "./panel-cdp.mjs";
 
 if (typeof WebSocket !== "function") {
@@ -40,7 +41,7 @@ if (typeof WebSocket !== "function") {
 
 const repo = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const cli = join(repo, "cli", "dist", "index.js");
-const EXTENSION_ID = "kenehmggpggpiolepbjojeenmeapgfoc";
+const EXTENSION_ID = extensionId.id;
 const target = join(repo, "media", "video", "public", "capture", "agents");
 const MODEL_URL = process.env.TABKYRA_DEMO_MODEL_URL ?? "http://127.0.0.1:11555/v1";
 const MODEL = process.env.TABKYRA_DEMO_MODEL ?? "qwen3-8b-nothink";

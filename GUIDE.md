@@ -480,7 +480,7 @@ Your browser is signed in as you, so the defaults are conservative.
   `polycarp-browser serve` is the one network listener, it's off until you run it, and it needs a
   token ([Remote MCP](#remote-mcp-and-tunnels)).
 - **Only this extension can make the browser start the host.** The host manifest's
-  `allowed_origins` names one fixed extension id, `kenehmggpggpiolepbjojeenmeapgfoc`,
+  `allowed_origins` names one fixed extension id, `igjafcggmahiboobmnhfkndodphjdnhg`,
   derived from the manifest `key` (the e2e test checks it).
 - **API keys only, no subscription sign-in.** The ChatGPT, GitHub Copilot and Gemini
   sign-ins this fork inherited worked by posing as Codex CLI, VS Code and Gemini CLI.

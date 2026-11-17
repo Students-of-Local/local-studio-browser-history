@@ -16,7 +16,7 @@ import { homedir } from "node:os";
 import { basename, extname, join } from "node:path";
 import { privateDir } from "./captures.ts";
 import { type FileFacts, MAX_UPLOAD_BYTES, protectedDirs } from "./file-rules.ts";
-import { configDir, legacyConfigDir, newConfigDir, readJsonFile, withFileLock, writeJsonPrivate } from "./files.ts";
+import { configDir, configHome, readJsonFile, withFileLock, writeJsonPrivate } from "./files.ts";
 
 /** The most one saved file may hold. The extension refuses a larger download before any byte moves. */
 export const MAX_SAVED_BYTES = 50 * 1024 * 1024;
@@ -385,7 +385,8 @@ export function privateDirsHere(): string[] {
 	const dirs = protectedDirs({
 		platform: process.platform,
 		home: homedir(),
-		configDirs: [configDir(), newConfigDir(), legacyConfigDir()],
+		// Polycarp's helper folders too: Tychicus never writes there, and never uploads from them.
+		configDirs: [configDir(), join(configHome(), "polycarp", "browser"), join(configHome(), "tabkyra")],
 		appData: process.env.APPDATA,
 		localAppData: process.env.LOCALAPPDATA,
 		xdgConfig: process.env.XDG_CONFIG_HOME,

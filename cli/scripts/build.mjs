@@ -18,12 +18,11 @@ mkdirSync(outDir, { recursive: true });
 
 await build({
 	absWorkingDir: root,
-	// polycarp: the `polycarp` command for an npm link or checkout (src/polycarp-shim.ts); the app ships its own.
 	// router-worker: the router alone, for `skill eval --router` (CI's judge runs a pull
 	// request's router this way, in a process of its own).
 	entryPoints: compiled
 		? { index: join(root, "src/index.ts") }
-		: { index: join(root, "src/index.ts"), "router-worker": join(root, "src/router-worker.ts"), polycarp: join(root, "src/polycarp-shim.ts") },
+		: { index: join(root, "src/index.ts"), "router-worker": join(root, "src/router-worker.ts") },
 	bundle: true,
 	platform: "node",
 	target: ["node20"],
@@ -34,11 +33,11 @@ await build({
 	// from a global link or npx without a node_modules next to dist.
 	packages: "bundle",
 	sourcemap: !compiled,
-	// keys/tabkyra-release.pub is bundled as text: the key that verifies releases ships inside the CLI.
-	loader: { ".pub": "text", ".md": "text" },
+	// keys/tabkyra-release.pub is bundled as text: the key that verifies releases ships inside the CLI. The Local Studio
+	// plugins (plugins/, cli/src/local-studio.ts) ship the same way, so every copy of the program can install them.
+	loader: { ".pub": "text", ".md": "text", ".toml": "text" },
 	define: { __TABKYRA_BUILD__: JSON.stringify(info), __POLYCARP_COMPILED__: JSON.stringify(compiled) },
 	logLevel: "info",
 });
 chmodSync(join(outDir, "index.js"), 0o755);
-if (!compiled) chmodSync(join(outDir, "polycarp.js"), 0o755);
 writeFileSync(join(outDir, "build-info.json"), `${JSON.stringify(info, null, "\t")}\n`);

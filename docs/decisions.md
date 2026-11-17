@@ -1837,3 +1837,37 @@ its full round stays full.
 
 **Proof.** `cli/test/small-profile.test.mjs` "D53:" connects as LM Studio, Ollama, Jan, Open WebUI and mcphost (small),
 as Claude Code, Codex, Cursor and opencode (full), and checks both overrides.
+
+## D54. Tychicus gets its own extension ID and host name, and installs from an attested release (Claude, 2026-11-17)
+
+**Problem.** Tychicus shipped Polycarp's manifest `key`, so both had extension ID `kenehmggpggpiolepbjojeenmeapgfoc` and
+both registered `com.polycarp.browser`. On a computer with both, whichever installed last owned the host manifest, and
+either extension could reach the other's helper. Installing took 163 s and 11 manual steps from source, most of it
+`setup-siblings.sh`, and there was no release to download.
+
+**Decision.**
+- A new manifest `key` (an RSA public key made for Tychicus; the private key was deleted unprinted, since Chrome needs
+  the private key only to pack a `.crx`, and a store listing signs with the store's own). ID
+  `igjafcggmahiboobmnhfkndodphjdnhg`, kept in `src/bridge/extension-id.json`, which `cli/src/install.ts` and the tests
+  import. The host is `com.tychicus.browser`; Polycarp's names are never written or asked for.
+- `.github/workflows/release.yml` builds one `tychicus` program per OS with the extension and plugins beside it, writes
+  `SHA256SUMS` and attests each artifact (sigstore build provenance, `actions/attest-build-provenance`).
+  `tychicus install --release <folder>` refuses the whole folder on one bad sum, an unlisted `tychicus-*` file, or a
+  failed `gh attestation verify --signer-workflow` when gh is on PATH, before it unpacks anything. It unpacks into one
+  fixed folder, so the host manifests and the unpacked extension keep their paths across upgrades.
+- The Local Studio plugins' version lives in `plugin.toml` and in each skill's frontmatter, stamped by
+  `scripts/plugin-version.mjs` from the manifest version. The skill lint allows only name, description and license,
+  and weakening it for every skill was the wrong trade, so the plugin test lints a copy with the one version line
+  removed.
+
+**Limits.** The check is as strong as the program that runs it: a tampered archive could carry a `tychicus` that skips
+it, so the README's first install trusts the download, and `gh attestation verify` by hand (or an upgrade run from an
+installed copy) closes that. Pull request builds carry no attestation, so CI checks attestations only by refusing an
+unattested build. The extension still loads unpacked (four clicks) until a Chrome Web Store listing; no minisign
+signature or macOS notarization yet. The helper's folders and socket (`~/.config/polycarp/browser`,
+`/tmp/polycarp-bridge-<user>`) are still Polycarp's, so `tychicus install` rewrites Polycarp's launchers on a computer
+that has both; moving them is its own change.
+
+**Proof.** `cli/test/release-install.test.mjs` (a changed archive or extension zip, an unlisted archive, no SHA256SUMS, gh refusing and
+verifying, idempotence, the pinned ID), `test/native-host-name.test.mjs`, `cli/test/local-studio-plugins.test.mjs`,
+`scripts/validate-local-studio-plugins.sh`, and CI's `clean-install` (`cli/test/clean-install.mjs`).

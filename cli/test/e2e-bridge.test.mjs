@@ -5,6 +5,7 @@
 // Needs `npm run build` at the repo root (dist-chrome) and a Playwright Chromium
 // (`npx playwright-core install chromium`). Uses its own HOME, profile and socket
 // directory, so it never touches an installed browser or a running bridge.
+import extensionId from "../../src/bridge/extension-id.json" with { type: "json" };
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
@@ -24,7 +25,7 @@ const cli = join(here, "..", "dist", "index.js");
 const extensionDir = join(here, "..", "..", "dist-chrome");
 
 // From the `key` in static/manifest.chrome.json; cli/test/install.test.mjs checks the derivation.
-const EXTENSION_ID = "kenehmggpggpiolepbjojeenmeapgfoc";
+const EXTENSION_ID = extensionId.id;
 
 const PAGE = `<!doctype html><title>Polycarp e2e</title>
 <label for="name">Name</label> <input id="name" placeholder="Your name">
@@ -1083,7 +1084,7 @@ test("a side panel chat is readable live through the CLI and MCP, and as files; 
 	await store(chat("e2e-flights", "Flights to Lisbon"));
 	await store(chat("e2e-private", "Private medical question", { tabkyraPrivate: true }));
 	// The mirror writes after the debounce; the file is under the test's HOME.
-	const root = join(home, ".local", "share", "polycarp", "browser", "threads");
+	const root = join(home, ".local", "share", "tychicus", "threads");
 	// One folder per browser profile, named by its browser id.
 	const files = await until(() => (existsSync(root) ? readdirSync(root).map((n) => join(root, n)).find((d) => existsSync(join(d, "e2e-flights.md"))) : undefined), 15_000, "the mirrored file");
 	const md = readFileSync(join(files, "e2e-flights.md"), "utf8");

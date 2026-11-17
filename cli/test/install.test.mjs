@@ -44,19 +44,17 @@ function extensionIdFromKey() {
 	return [...hex].map((c) => String.fromCharCode(97 + Number.parseInt(c, 16))).join("");
 }
 
-test("install registers the host for Helium and Chrome under the new name and the old one, skips absent browsers", () => {
+test("install registers com.tychicus.browser for Helium and Chrome, leaves Polycarp's names alone, skips absent browsers", () => {
 	for (const dir of Object.values(browsers)) mkdirSync(dir, { recursive: true });
 	run("install");
 	const id = extensionIdFromKey();
 	for (const dir of Object.values(browsers)) {
-		// The old name stays registered so an extension built before the rename still connects.
-		for (const name of ["com.polycarp.browser", "ai.tabkyra.bridge"]) {
-			const file = join(dir, "NativeMessagingHosts", `${name}.json`);
-			const host = JSON.parse(readFileSync(file, "utf8"));
-			assert.equal(host.name, name);
-			assert.deepEqual(host.allowed_origins, [`chrome-extension://${id}/`]);
-			assert.equal(host.path, join(home, ".config", "polycarp", "browser", "polycarp-host"));
-		}
+		const host = JSON.parse(readFileSync(join(dir, "NativeMessagingHosts", "com.tychicus.browser.json"), "utf8"));
+		assert.equal(host.name, "com.tychicus.browser");
+		assert.deepEqual(host.allowed_origins, [`chrome-extension://${id}/`]);
+		assert.equal(host.path, join(home, ".config", "tychicus", "tychicus-host"));
+		// Polycarp's helper owns these names; Tychicus never writes them.
+		for (const name of ["com.polycarp.browser", "ai.tabkyra.bridge"]) assert.equal(existsSync(join(dir, "NativeMessagingHosts", `${name}.json`)), false, name);
 	}
 	assert.equal(existsSync(absent), false);
 });

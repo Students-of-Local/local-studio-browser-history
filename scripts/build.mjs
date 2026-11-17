@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build, context } from "esbuild";
 import { buildInfo } from "./build-info.mjs";
+import { stampPluginVersions } from "./plugin-version.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -407,6 +408,9 @@ const bumpVersion = () => {
 	} catch {
 		// non-fatal
 	}
+
+	// The Local Studio plugins carry the release version too (scripts/plugin-version.mjs).
+	stampPluginVersions(next);
 
 	console.log(`Version: ${current} -> ${next}`);
 	return next;

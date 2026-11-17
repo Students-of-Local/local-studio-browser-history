@@ -49,30 +49,29 @@ when "Tabkyra" appears in a user-visible string, and when a renamed identifier b
 
 Renamed, with a fallback for installs made before the rename. The fallbacks stay until no supported helper, extension or hub
 build predates the rename; then remove them in one change and lower the counts in `RENAMED_ALLOWED` (product-name test):
-- the native host is `com.polycarp.browser` (`NATIVE_HOST_NAME`). `install` also writes `ai.tabkyra.bridge`
-  (`LEGACY_NATIVE_HOST_NAME`), so an older extension connects; the extension asks for the new name, then the old one, and keeps
-  the one that answered. `doctor` and `status` check the new one. Polycarp.app records, parks and restores both
-  (`BrowserPrevious.hostNames`).
-- the socket folder is `/tmp/polycarp-bridge-<user>`; clients (`listSockets`, the generated pi extension) also look in
-  `/tmp/tabkyra-bridge-<user>`, where a host started by an older helper is. `POLYCARP_SOCKET_DIR` replaces both.
+- the native host is `com.tychicus.browser` (`NATIVE_HOST_NAME`), Tychicus's own. Polycarp's names (`com.polycarp.browser`,
+  `ai.tabkyra.bridge`) belong to Polycarp's helper: Tychicus never writes or asks for them (`test/native-host-name.test.mjs`).
+- the socket folder is `/tmp/tychicus-bridge-<user>`, Tychicus's own. Hosts listen and clients look only there, never in
+  Polycarp's `polycarp-bridge` or `tabkyra-bridge` (`cli/test/legacy-socket.test.mjs`). `TYCHICUS_SOCKET_DIR` replaces it.
 - the hub headers are `x-polycarp-hub-scopes` and `x-polycarp-hub-caller`. A hub sends them under the old `x-tabkyra-hub-*`
   names too, because an older device reads only those and without a scopes header gives the caller its link token's whole cap;
   a device reads either, the new one first.
 - `User-Agent` is `polycarp-browser/<version>` (`USER_AGENT` in `cli/src/version.ts`).
-- the npm package installs only `polycarp-browser` (the `tabkyra` and `sitegeist` bin aliases are gone). `polycarp browser`
-  runs the helper as `polycarp-browser`, which is what `ps` shows, and still finds a `tabkyra` on PATH or in its older spots.
-  `COMMAND_NAME` says `tabkyra` only for an npm link made before the rename. Polycarp.app's installer still links
-  `~/.local/bin/tabkyra` (`spaces/scripts/install-app.sh`), and shell completion still covers that name.
+- the npm package installs only `tychicus`. `polycarp` and `polycarp-browser` are Polycarp's commands; Tychicus never puts
+  them on PATH (`cli/test/polycarp-coexist.test.mjs`).
 
 These stay as they are on purpose, because agents, hooks or stored data depend on them, and no person reads them:
-- every MCP tool name. The server itself is `polycarp`, so Claude Code's qualified names are `mcp__polycarp__*`. `harness.ts` moves an entry under the old name `tabkyra` when it runs this helper, and `moveClaudeRules` moves the permission rules that named it. An entry that runs `~/.config/tabkyra/tabkyra mcp`, or a `tabkyra` that no longer resolves, is stale and `setup` rewrites it
-- the manifest `key` (it keeps the extension id)
-- the helper's folders are `~/.config/polycarp/browser`, `~/.local/share/polycarp/browser` and `~/.cache/polycarp`
-  (`~/.config/polycarp` itself is the app's). `cli/src/migrate.ts` moves the old `tabkyra` ones once and leaves a symlink
-  at the old config and data paths; `migrateLegacyServices` in `service.ts` moves `com.tabkyra.*` services to
-  `com.polycarp.*`. Read variables through `envVar("NAME")` (`cli/src/env.ts`): `POLYCARP_NAME` wins, `TABKYRA_NAME` is the
-  fallback. The helper's config folder is `POLYCARP_BROWSER_CONFIG_DIR` (or `TABKYRA_CONFIG_DIR`), never `POLYCARP_CONFIG_DIR`,
-  which is the app's. Tests and fixtures set the first one.
+- every MCP tool name. The agent entry `setup` writes is `tychicus` (`MCP_NAME`), so Claude Code's qualified names are `mcp__tychicus__*`. A `polycarp` or `tabkyra` entry, and the permission rules that name it, are Polycarp's: never read, moved or removed
+- the manifest `key`: it fixes the extension id, `igjafcggmahiboobmnhfkndodphjdnhg`, which `src/bridge/extension-id.json`
+  holds for the CLI and every test (`cli/test/release-install.test.mjs` checks the key gives it). Never change the key: every
+  installed host manifest allows only this id
+- the helper's folders are `~/.config/tychicus`, `~/.local/share/tychicus` and `~/.cache/tychicus`, its launchers
+  `tychicus` and `tychicus-host`, its services `com.tychicus.*`. Nothing writes under Polycarp's folders
+  (`~/.config/polycarp`, `~/.local/share/polycarp`, `~/.cache/polycarp`) or the `tabkyra` ones Polycarp moves itself; there
+  is no migration. Read variables through `envVar("NAME")` (`cli/src/env.ts`): `TYCHICUS_NAME` wins, then the inherited
+  `POLYCARP_NAME` and `TABKYRA_NAME`. The config folder override is `TYCHICUS_CONFIG_DIR` (the inherited
+  `POLYCARP_BROWSER_CONFIG_DIR` and `TABKYRA_CONFIG_DIR` still work, and test fixtures set them), never `POLYCARP_CONFIG_DIR`,
+  which is the Polycarp app's.
 - the extension's stored data: storage keys, database names and the `TabkyraAppStorage` class
 - the name OpenAI lists for a ChatGPT sign-in made before the rename: its saved client stays registered as "Tabkyra", so the unconfirmed-revoke note names it
 - the tab group title "Tabkyra · ..." that earlier versions made, which is still recognized and tidied; new groups say "Polycarp · ..."
@@ -163,7 +162,18 @@ When the user asks to do a release:
 2. Ensure `CHANGELOG.md` has entries under `## [Unreleased]`
 3. Run `./release.sh <major|minor|patch>`
 
-The script bumps the version in `static/manifest.chrome.json`, finalizes the changelog, commits, tags, and pushes. GitHub Actions builds and publishes the release. Releases are signed with minisign; the one-time key setup is in `docs/updates.md`.
+The script bumps the version in `static/manifest.chrome.json` and in `plugins/` (`scripts/plugin-version.mjs`), finalizes the changelog, commits, tags, and pushes. The tag starts `.github/workflows/release.yml`, which builds the `tychicus` program per OS (`scripts/package-release.mjs`), the extension zip and `SHA256SUMS`, attests each artifact and uploads them to the GitHub release; `tychicus install --release` checks both. minisign signing is not wired into it yet (the one-time key setup is in `docs/updates.md`).
+
+## Local Studio plugins
+`plugins/tychicus-browser` and `plugins/tychicus-computer` are Local Studio v0 plugins: `plugin.toml` with
+`capabilities = []` (any capability fails Local Studio's loader), a skill, and a slash command. Their tools come from the
+`tychicus` entry `install --local-studio` writes to Eukhe's `mcpServers`. A new file in a plugin must be added to `PLUGINS`
+in `cli/src/local-studio.ts`, which embeds them. The skills carry `version:` in frontmatter for Local Studio; the skill lint
+allows only name, description and license, so `cli/test/local-studio-plugins.test.mjs` lints a copy without that line.
+Run `scripts/validate-local-studio-plugins.sh` after changing a `plugin.toml`: it compiles Local Studio's own loader
+(`core/src/plugins.rs`) from a checkout (`LOCAL_STUDIO_CHECKOUT`, default `~/Projects/local-studio`) and loads both.
+Tests that run `install` must give it a throwaway HOME and unset `XDG_CONFIG_HOME` and `XDG_DATA_HOME`: with those set,
+it writes the real launchers and host manifests whatever HOME says.
 
 ## Updating the Website
 When the user asks to update the website, build it with `cd site && ./run.sh build`. No

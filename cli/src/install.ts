@@ -8,15 +8,18 @@ import { execFileSync } from "node:child_process";
 import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readlinkSync, readSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { homedir, hostname } from "node:os";
 import { delimiter, dirname, isAbsolute, join } from "node:path";
+import extensionId from "../../src/bridge/extension-id.json" with { type: "json" };
 import { NATIVE_HOST_NAME, NATIVE_HOST_NAMES } from "../../src/bridge/protocol.ts";
 import { COMPILED, selfExec, selfPrefix } from "./self.ts";
 import { VERSION } from "./version.ts";
 import { envVar } from "./env.ts";
-import { CLI_LAUNCHER_NAME, cacheDir, configDir, HOST_LAUNCHER_NAME, LEGACY_CLI_LAUNCHER_NAME, LEGACY_HOST_LAUNCHER_NAME, legacyConfigDir } from "./files.ts";
-import { migrateLegacyPaths } from "./migrate.ts";
+import { CLI_LAUNCHER_NAME, cacheDir, configDir, HOST_LAUNCHER_NAME } from "./files.ts";
 
-/** Stable id from the `key` in static/manifest.chrome.json: unpacked and bundled copies. */
-export const EXTENSION_ID = "kenehmggpggpiolepbjojeenmeapgfoc";
+/**
+ * Stable id from the `key` in static/manifest.chrome.json: unpacked and bundled copies. The one place it is written is
+ * src/bridge/extension-id.json, which the tests read too (cli/test/release-install.test.mjs checks it against the key).
+ */
+export const EXTENSION_ID: string = extensionId.id;
 
 /** The id Google assigned the Chrome Web Store listing. Empty until the first upload. */
 export const STORE_EXTENSION_ID: string = "";
@@ -150,7 +153,7 @@ export function registeredBrowserNames(): string[] {
 		.map(({ name }) => name);
 }
 
-export { CLI_LAUNCHER_NAME, HOST_LAUNCHER_NAME, LEGACY_CLI_LAUNCHER_NAME, LEGACY_HOST_LAUNCHER_NAME };
+export { CLI_LAUNCHER_NAME, HOST_LAUNCHER_NAME };
 
 export function launcherPath(): string {
 	return join(configDir(), HOST_LAUNCHER_NAME);
@@ -162,11 +165,6 @@ export function launcherPath(): string {
  */
 export function cliLauncherPath(): string {
 	return join(configDir(), CLI_LAUNCHER_NAME);
-}
-
-/** Where the agent launcher used to live: the old config folder, plus the old launcher name. Agent entries written then point here. */
-export function legacyCliLauncherPaths(): string[] {
-	return [...new Set([join(legacyConfigDir(), LEGACY_CLI_LAUNCHER_NAME), join(homedir(), ".config", "tabkyra", LEGACY_CLI_LAUNCHER_NAME)])];
 }
 
 /** Node by its PATH name when that is this same binary (survives upgrades), else execPath. */
@@ -261,12 +259,12 @@ function writeLauncher(): string {
 	return hostTarget();
 }
 
-/** The manifest for one host name: the current one unless asked (install also writes the old name, NATIVE_HOST_NAMES). */
+/** The manifest for one host name: the current one unless asked. */
 export function manifestFor(launcher: string, host: string = NATIVE_HOST_NAME): string {
 	return `${JSON.stringify(
 		{
 			name: host,
-			description: "Polycarp browser bridge",
+			description: "Tychicus browser bridge",
 			path: launcher,
 			type: "stdio",
 			allowed_origins: extensionOrigins(),
@@ -290,23 +288,28 @@ export interface InstallOptions {
 	browsers?: readonly string[];
 	/** False rewrites the launchers even when they work. */
 	keepLaunchers?: boolean;
+	/** List what would be written in `written`, and write nothing. */
+	dryRun?: boolean;
 }
 
 export function install(options: InstallOptions = {}): InstallResult {
-	migrateLegacyPaths();
 	const only = options.browsers ?? (options.browser !== undefined ? [options.browser] : undefined);
 	// A chosen set of browsers: working launchers (a standalone Polycarp's, say) stay as they are, so nothing else is repointed.
 	const keepLaunchers = options.keepLaunchers !== false && only !== undefined && launchersWork();
-	const launcher = keepLaunchers ? hostTarget() : writeLauncher();
+	const launcher = keepLaunchers || options.dryRun ? hostTarget() : writeLauncher();
 	const written: string[] = [];
 	const skipped: string[] = [];
 
 	if (process.platform === "win32") {
 		for (const host of NATIVE_HOST_NAMES) {
 			const file = join(configDir(), `${host}.json`);
-			writeFileSync(file, manifestFor(launcher, host));
+			if (!options.dryRun) writeFileSync(file, manifestFor(launcher, host));
 			for (const hive of ["Google\\Chrome", "BraveSoftware\\Brave-Browser", "Microsoft\\Edge", "Chromium"]) {
 				const key = `HKCU\\Software\\${hive}\\NativeMessagingHosts\\${host}`;
+				if (options.dryRun) {
+					written.push(key);
+					continue;
+				}
 				try {
 					execFileSync("reg", ["add", key, "/ve", "/t", "REG_SZ", "/d", file, "/f"], { stdio: "ignore" });
 					written.push(key);
@@ -322,12 +325,15 @@ export function install(options: InstallOptions = {}): InstallResult {
 		if (!existsSync(dir)) continue;
 		if (only !== undefined && !only.includes(name)) continue;
 		const hostsDir = join(dir, "NativeMessagingHosts");
-		// The old name too, so an extension built before the rename still finds the helper.
 		for (const host of NATIVE_HOST_NAMES) {
 			const file = join(hostsDir, `${host}.json`);
 			const manifest = manifestFor(launcher, host);
 			if (!options.force && existsSync(file) && readFileSync(file, "utf8") === manifest) {
 				skipped.push(file);
+				continue;
+			}
+			if (options.dryRun) {
+				written.push(file);
 				continue;
 			}
 			mkdirSync(hostsDir, { recursive: true });
