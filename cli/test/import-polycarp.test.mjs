@@ -418,3 +418,17 @@ test("review-r1 first-F5: with no cloudflared anywhere, nothing is stopped and t
 	assert.ok(!m.calls.some((c) => c.includes("bootout")), m.calls.join("\n"));
 	assert.deepEqual(snapshot(F.base), before);
 });
+
+test("review-r1 first-F1: --force is refused while a Tychicus service is installed, so a failed move can't remove it", async () => {
+	fixture();
+	mkdirSync(F.target, { recursive: true });
+	writeFileSync(join(F.target, "remote.json"), "{}\n", { mode: 0o600 });
+	writeFileSync(join(F.agents, "com.tychicus.serve.plist"), plist("com.tychicus.serve", ["/x/tychicus", "serve"], {}));
+	const before = snapshot(F.base);
+	const m = useManager("darwin", ["com.polycarp.serve", "com.polycarp.cloudflared", "com.tychicus.serve"]);
+	const { said, say } = lines();
+	assert.equal(await importPolycarp({ say, force: true, probe: probeFor(m), ...fast }), 1);
+	assert.match(said.join("\n"), /already runs com\.tychicus\.serve.*remote off first/);
+	assert.deepEqual(snapshot(F.base), before);
+	assert.ok(!m.calls.some((c) => c.includes("bootout")), m.calls.join("\n"));
+});

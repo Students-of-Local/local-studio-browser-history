@@ -560,6 +560,15 @@ export async function importPolycarp(o: ImportOptions = {}): Promise<number> {
 		);
 		return 1;
 	}
+	// A failed move removes the Tychicus services it installed. One already installed would be lost with it, so --force waits for remote off.
+	const installed = plan.swaps.flatMap((sw) => {
+		const file = serviceFile(sw.spec);
+		return file && existsSync(file) ? [sw.spec.label] : [];
+	});
+	if (installed.length) {
+		say(`Tychicus already runs ${installed.join(", ")}, which a failed move would remove. Run ${COMMAND_NAME} remote off first (it keeps nothing of Polycarp's), then this again. Nothing was changed.`);
+		return 1;
+	}
 	if (o.dryRun) {
 		say("Dry run: nothing is changed.");
 		describe(plan, say);
