@@ -84,19 +84,22 @@ const stringList = (value: unknown, field: string): string[] | undefined => {
 	return value as string[];
 };
 
-/** remote.json, or undefined when it doesn't exist. A file that exists but is wrong throws, so serve never silently drops it. */
-export function loadRemoteConfig(): RemoteConfig | undefined {
-	if (!existsSync(remoteFile())) return undefined;
+/**
+ * remote.json (or `file`, another config folder's, such as the one a service was set up with), or undefined when it doesn't
+ * exist. A file that exists but is wrong throws, so serve never silently drops it.
+ */
+export function loadRemoteConfig(file: string = remoteFile()): RemoteConfig | undefined {
+	if (!existsSync(file)) return undefined;
 	let raw: Record<string, unknown>;
 	try {
-		raw = JSON.parse(readFileSync(remoteFile(), "utf8")) as Record<string, unknown>;
+		raw = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
 	} catch {
-		throw new Error(`${remoteFile()} isn't valid JSON. Run ${COMMAND_NAME} remote off to remove it, then ${COMMAND_NAME} remote setup again.`);
+		throw new Error(`${file} isn't valid JSON. Run ${COMMAND_NAME} remote off to remove it, then ${COMMAND_NAME} remote setup again.`);
 	}
-	if (!raw || typeof raw !== "object") throw new Error(`${remoteFile()} isn't a Tychicus remote file.`);
-	if (typeof raw.publicUrl !== "string" || !raw.publicUrl) throw new Error(`${remoteFile()}: publicUrl is missing.`);
-	if (typeof raw.port !== "number" || !Number.isInteger(raw.port) || raw.port < 0 || raw.port > 65535) throw new Error(`${remoteFile()}: port must be a port number.`);
-	if (raw.route !== "funnel" && raw.route !== "custom" && raw.route !== "cloudflare") throw new Error(`${remoteFile()}: route must be funnel, custom or cloudflare.`);
+	if (!raw || typeof raw !== "object") throw new Error(`${file} isn't a Tychicus remote file.`);
+	if (typeof raw.publicUrl !== "string" || !raw.publicUrl) throw new Error(`${file}: publicUrl is missing.`);
+	if (typeof raw.port !== "number" || !Number.isInteger(raw.port) || raw.port < 0 || raw.port > 65535) throw new Error(`${file}: port must be a port number.`);
+	if (raw.route !== "funnel" && raw.route !== "custom" && raw.route !== "cloudflare") throw new Error(`${file}: route must be funnel, custom or cloudflare.`);
 	const redirectHosts = stringList(raw.redirectHosts, "redirectHosts");
 	const allowHosts = stringList(raw.allowHosts, "allowHosts");
 	return { publicUrl: raw.publicUrl, port: raw.port, route: raw.route, ...(redirectHosts ? { redirectHosts } : {}), ...(allowHosts ? { allowHosts } : {}) };

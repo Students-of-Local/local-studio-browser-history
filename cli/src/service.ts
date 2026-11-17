@@ -4,12 +4,13 @@
  */
 
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve, win32 } from "node:path";
 import { launcherBinary } from "./harness.ts";
 import { cliLauncherPath, ensureLauncherIsSelf } from "./install.ts";
 import { configDir, configDirOverride } from "./files.ts";
+import { releaseRoot } from "./paths.ts";
 import { COMMAND_NAME } from "./self.ts";
 import { envVar } from "./env.ts";
 import { tasklistCall, tasklistImage } from "./tool-paths.ts";
@@ -124,7 +125,7 @@ export function serviceEnvironment(inherited: { config?: string; socket?: string
 const unxml = (text: string) => text.replace(/&#(\d+);/g, (_m, n: string) => String.fromCharCode(Number(n)));
 
 /** The folders an installed service had saved in its plist or unit (either variable name), or nothing. Never throws. */
-function savedFolders(spec: ServiceSpec): { config?: string; socket?: string } {
+export function savedFolders(spec: ServiceSpec): { config?: string; socket?: string } {
 	const file = serviceFile(spec);
 	const found = new Map<string, string>();
 	try {
@@ -409,8 +410,16 @@ export function recordServicePid(
 	delete env[PID_FILE_VAR];
 	const pid = o.pid ?? process.pid;
 	try {
-		// performance.timeOrigin is when this process started, in ms since 1970 (nodejs.org/api/perf_hooks.html).
-		writeFileSync(file, `${pid}\n${win32.basename(o.execPath ?? process.execPath)}\n${Math.round(o.startMs ?? performance.timeOrigin)}\n`);
+		// performance.timeOrigin is when this process started, in ms since 1970 (nodejs.org/api/perf_hooks.html). The fourth line is
+		// the program's real path, resolved now: a program started through the `release` junction keeps the version it started with.
+		const execPath = o.execPath ?? process.execPath;
+		let program = execPath;
+		try {
+			program = realpathSync(execPath);
+		} catch {
+			/* the path as given */
+		}
+		writeFileSync(file, `${pid}\n${win32.basename(execPath)}\n${Math.round(o.startMs ?? performance.timeOrigin)}\n${program}\n`);
 	} catch {
 		return;
 	}
@@ -773,6 +782,75 @@ async function installFresh(spec: ServiceSpec, exec: Runner, saved: { config?: s
 	return { ok: false, message: `No service manager is set up for ${platform()}. Keep it running yourself: ${binary} ${spec.args.join(" ")}` };
 }
 
+/**
+ * The program an installed service's file starts: the launcher it was set up with, or a program it names directly. Undefined
+ * when there is no file or it can't be read. Never throws.
+ */
+export function serviceProgram(spec: ServiceSpec): string | undefined {
+	const file = serviceFile(spec);
+	const text = file ? readIfFile(file) : undefined;
+	if (!file || text === undefined) return undefined;
+	let program: string | undefined;
+	if (platform() === "darwin") {
+		const m = /<key>ProgramArguments<\/key>\s*<array>\s*<string>([^<]*)<\/string>/.exec(text);
+		program = m ? unxml(m[1]) : undefined;
+	} else if (platform() === "linux") {
+		const line = /^ExecStart=(.*)$/m.exec(text)?.[1]?.trim();
+		const quoted = line ? /^"((?:[^"\\]|\\.)*)"/.exec(line) : undefined;
+		const raw = quoted ? quoted[1].replace(/\\(["\\])/g, "$1") : line?.split(/\s+/)[0];
+		program = raw?.replace(/\$\$/g, "$").replace(/%%/g, "%");
+	} else if (platform() === "win32") {
+		// The script calls the launcher in the config folder above its own (windowsScriptText).
+		const name = /call "%POLYCARP_HOME%\\([^"\\]+)"/.exec(text)?.[1];
+		program = name ? join(dirname(dirname(file)), name) : undefined;
+	}
+	return program && (isAbsolute(program) || win32.isAbsolute(program)) ? program : undefined;
+}
+
+const realDir = (path: string): string | undefined => {
+	try {
+		return realpathSync(path);
+	} catch {
+		return undefined;
+	}
+};
+
+/**
+ * Restart an installed service on this program, keeping its file. A service whose file starts a launcher (the way setup makes
+ * them) or the `release` pointer only needs its process restarted: the launcher is pointed at this program first, in whatever
+ * config folder it is, and the plist, unit or task keeps the folders it was set up with. Only a file that names a version
+ * folder's program directly is written again, with the folders it had saved. Blocks while the service manager runs.
+ */
+export async function restartService(spec: ServiceSpec): Promise<InstallResult> {
+	const exec: Runner = seam.exec ?? run;
+	const program = serviceProgram(spec);
+	if (!program || basename(dirname(dirname(program))) === "versions") {
+		ensureLauncherIsSelf();
+		return installFresh(spec, exec, savedFolders(spec));
+	}
+	const viaPointer = realDir(dirname(program)) !== undefined && realDir(dirname(program)) === realDir(releaseRoot());
+	// Only a launcher script Tychicus wrote is rewritten: never a program (or a link to one) the person put there.
+	if (!viaPointer && /^(#!\/bin\/sh|@echo off)/.test(readIfFile(program) ?? "")) ensureLauncherIsSelf(program);
+	const file = serviceFile(spec);
+	if (platform() === "darwin") {
+		const r = await exec("launchctl", ["kickstart", "-k", launchdTarget(spec)]);
+		return { ok: r.code === 0, file, message: r.code === 0 ? `Restarted ${spec.label}.` : `launchctl kickstart -k ${launchdTarget(spec)} failed: ${r.out}` };
+	}
+	if (platform() === "linux") {
+		const r = await exec("systemctl", ["--user", "restart", spec.unit]);
+		return { ok: r.code === 0, file, message: r.code === 0 ? `Restarted ${spec.unit}.` : `systemctl --user restart ${spec.unit} failed: ${r.out}` };
+	}
+	if (platform() === "win32") {
+		// /End exits 0 only when it ended a running task; the program is confirmed gone before the task starts it again.
+		const ended = await exec(schtasksPath(), ["/End", "/TN", spec.label]);
+		const stuck = await stopWindows(spec, ended.code === 0, exec);
+		if (stuck) return { ok: false, file, message: stuck };
+		const r = await exec(schtasksPath(), ["/Run", "/TN", spec.label]);
+		return { ok: r.code === 0, file, message: r.code === 0 ? `Restarted ${spec.label}.` : `schtasks /Run /TN ${spec.label} failed: ${r.out}` };
+	}
+	return { ok: false, message: `No service manager is set up for ${platform()}.` };
+}
+
 /** Stop and remove the user service. A failed stop keeps the service file so `remote off` can be run again. */
 export function removeService(spec: ServiceSpec = SERVE_SERVICE): { ok: boolean; notes: string[]; failure?: string } {
 	const result = removeOne(spec);
@@ -832,5 +910,62 @@ export function serviceRunning(spec: ServiceSpec): boolean | undefined {
 		return r.code === 0 && /\bstate = running\b/.test(r.out);
 	}
 	if (platform() === "linux") return exec("systemctl", ["--user", "is-active", spec.unit]).out.trim() === "active";
+	return undefined;
+}
+
+/**
+ * Read-only: the pid of the service's main process, or undefined when none runs or it can't be told. launchd's `pid = N`,
+ * systemd's MainPID (the launcher execs the program, so that is the program itself), or on Windows the pid its program
+ * recorded (recordServicePid).
+ */
+export function servicePid(spec: ServiceSpec): number | undefined {
+	const exec: SyncRunner = seam.exec ?? ((cmd, args) => run(cmd, args, 10_000));
+	let text: string | undefined;
+	if (platform() === "darwin") {
+		const r = exec("launchctl", ["print", launchdTarget(spec)]);
+		text = r.code === 0 ? /^\s*pid = (\d+)\s*$/m.exec(r.out)?.[1] : undefined;
+	} else if (platform() === "linux") {
+		const r = exec("systemctl", ["--user", "show", "-p", "MainPID", "--value", spec.unit]);
+		text = r.code === 0 ? r.out.trim() : undefined;
+	} else if (platform() === "win32") text = (readIfFile(windowsPidPath(spec)) ?? "").split(/\r?\n/)[0]?.trim();
+	const pid = Number(text);
+	return Number.isInteger(pid) && pid > 0 ? pid : undefined;
+}
+
+/**
+ * Read-only: the path of the program a process runs, or undefined when it can't be told. The path must be the one resolved when
+ * the process started: a program started through the `release` pointer runs the version the pointer named then, and resolving
+ * the pointer now would name the newest one. Linux reads /proc/<pid>/exe (resolved at exec). macOS asks lsof for the program's
+ * vnode path (also resolved at exec), else ps, which can name the pointer. Windows reads the real path the program recorded
+ * (recordServicePid), else asks Get-Process, which can name the junction.
+ */
+export function processProgram(pid: number, spec?: ServiceSpec): string | undefined {
+	const exec: SyncRunner = seam.exec ?? ((cmd, args) => run(cmd, args, 10_000));
+	if (platform() === "linux") {
+		try {
+			return readlinkSync(`/proc/${pid}/exe`).replace(/ \(deleted\)$/, "");
+		} catch {
+			return undefined;
+		}
+	}
+	if (platform() === "darwin") {
+		// -d txt: the program's own text file comes first, then the libraries it loaded.
+		const open = exec("/usr/sbin/lsof", ["-a", "-p", String(pid), "-d", "txt", "-Fn"]);
+		const real = open.code === 0 ? /^n(\/.*)$/m.exec(open.out)?.[1] : undefined;
+		if (real) return real;
+		const r = exec("/bin/ps", ["-o", "comm=", "-p", String(pid)]);
+		const path = r.out.trim();
+		return r.code === 0 && isAbsolute(path) ? path : undefined;
+	}
+	if (platform() === "win32") {
+		const record = spec ? (readIfFile(windowsPidPath(spec)) ?? "").split(/\r?\n/).map((line) => line.trim()) : [];
+		if (record[0] === String(pid) && record[3] && win32.isAbsolute(record[3])) return record[3];
+		const r = exec(powershellPath(), ["-NoProfile", "-NonInteractive", "-Command", `(Get-Process -Id ${pid} -ErrorAction Stop).Path`]);
+		const path = r.out.trim();
+		if (r.code !== 0 || !win32.isAbsolute(path)) return undefined;
+		// A pid Windows has since given another program is not the service's.
+		const image = spec ? (readIfFile(windowsPidPath(spec)) ?? "").split(/\r?\n/)[1]?.trim() : undefined;
+		return image && win32.basename(path).toLowerCase() !== image.toLowerCase() ? undefined : path;
+	}
 	return undefined;
 }

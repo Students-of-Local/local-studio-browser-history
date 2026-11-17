@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, test } from "node:test";
@@ -44,13 +45,13 @@ function run(home, args, extra = {}) {
  * A release folder as a user downloads it: the platform archive (a stand-in `tychicus` that records how it was run,
  * the extension and the plugins) and SHA256SUMS.
  */
-function makeRelease(version = "9.9.9") {
+function makeRelease(version = "9.9.9", program = `#!/bin/sh\necho "$@" > "$(dirname "$0")/ran-with"\n`) {
 	const dir = join(scratch, `release-${++n}`);
 	const top = `tychicus-${version}-${tag}`;
 	const stage = join(dir, "stage", top);
 	mkdirSync(join(stage, "extension"), { recursive: true });
 	writeFileSync(join(stage, "extension", "manifest.json"), JSON.stringify({ name: "Tychicus", version }));
-	writeFileSync(join(stage, "tychicus"), `#!/bin/sh\necho "$@" > "$(dirname "$0")/ran-with"\n`);
+	writeFileSync(join(stage, "tychicus"), program);
 	chmodSync(join(stage, "tychicus"), 0o755);
 	const archive = `${top}.tar.gz`;
 	const tar = spawnSync("tar", ["-czf", join(dir, archive), "-C", join(dir, "stage"), top]);
@@ -307,5 +308,120 @@ test("an upgrade while the installed copy runs keeps that copy's files, switches
 		assert.equal(existsSync(runningFrom), false, "the stopped old version was not removed");
 	} finally {
 		sleeper.kill("SIGKILL");
+	}
+});
+
+/**
+ * Issue 23: a service started before `install --release` keeps running the old version. A stub systemctl stands in for the
+ * service manager: its serve service is a real process (the release's `sleeper`) whose pid it reports as MainPID, so the
+ * install reads /proc/<pid>/exe as it would for the real serve. `restart` starts it again through the `release` pointer, as
+ * the real unit does through the launcher. `failRestart` makes `restart` fail.
+ */
+function serviceStub(home, { failRestart = false } = {}) {
+	const bin = join(home, "bin");
+	const state = join(home, "serve.pid");
+	mkdirSync(bin, { recursive: true });
+	const unit = join(home, ".config", "systemd", "user", "tychicus-serve.service");
+	mkdirSync(dirname(unit), { recursive: true });
+	writeFileSync(unit, "left by remote setup\n");
+	const start = `"${releaseRoot(home)}/sleeper" 600 >/dev/null 2>&1 </dev/null & echo $! > "${state}"`;
+	const stop = `if [ -f "${state}" ]; then read p < "${state}"; kill $p 2>/dev/null; /bin/rm -f "${state}"; fi`;
+	writeFileSync(
+		join(bin, "systemctl"),
+		`#!/bin/sh\necho "systemctl $*" >> "${home}/calls.log"\nlast=$(eval echo \\$$#)\n[ "$last" = tychicus-serve.service ] || { echo 0; exit 0; }\ncase "$2" in\nshow) if [ -f "${state}" ]; then cat "${state}"; else echo 0; fi ;;\nis-active) if [ -f "${state}" ]; then echo active; else echo inactive; exit 3; fi ;;\nrestart) ${failRestart ? 'echo "Job for tychicus-serve.service failed."; exit 1' : `${stop}; ${start}`} ;;\nesac\n`,
+	);
+	chmodSync(join(bin, "systemctl"), 0o755);
+	const pid = () => (existsSync(state) ? Number(readFileSync(state, "utf8").trim()) : undefined);
+	return {
+		env: { PATH: `${bin}:${process.env.PATH}`, TYCHICUS_SERVE_WAIT_MS: "5000" },
+		start: () => spawnSync("/bin/sh", ["-c", start]),
+		pid,
+		exe: () => readlinkSync(`/proc/${pid()}/exe`),
+		calls: () => (existsSync(join(home, "calls.log")) ? readFileSync(join(home, "calls.log"), "utf8") : ""),
+		stop: () => spawnSync("/bin/sh", ["-c", stop]),
+	};
+}
+
+/** The new release's program runs this CLI for `install --restart-services`, the step under test; anything else is recorded. */
+const restartingProgram = `#!/bin/sh\nif [ "$1" = install ] && [ "$2" = --restart-services ]; then exec "${process.execPath}" "${cli}" "$@"; fi\necho "$@" > "$(dirname "$0")/ran-with"\n`;
+
+const linuxOnly = { skip: process.platform !== "linux" };
+
+test("install --release --no-restart names the service still on the old version and the command that restarts it", linuxOnly, () => {
+	const home = freshHome();
+	const svc = serviceStub(home);
+	assert.equal(run(home, ["install", "--release", withSleeper(makeRelease("9.9.8")).dir], svc.env).status, 0);
+	svc.start();
+	try {
+		const r = run(home, ["install", "--release", withSleeper(makeRelease("9.9.9")).dir, "--no-restart"], svc.env);
+		assert.equal(r.status, 0, r.out);
+		assert.match(r.out, /tychicus-serve\.service still runs 9\.9\.8 \(pid \d+\); release is 9\.9\.9\. Restart it: \S+\/release\/tychicus install --restart-services/);
+		assert.doesNotMatch(svc.calls(), /restart/, "--no-restart restarted the service");
+		assert.match(svc.exe(), /versions\/9\.9\.8-[0-9a-f]{12}\/sleeper$/);
+	} finally {
+		svc.stop();
+	}
+});
+
+test("install --release restarts the service still on the old version and reads back that it runs the new one", linuxOnly, () => {
+	const home = freshHome();
+	const svc = serviceStub(home);
+	assert.equal(run(home, ["install", "--release", withSleeper(makeRelease("9.9.8")).dir], svc.env).status, 0);
+	svc.start();
+	try {
+		const before = svc.pid();
+		const r = run(home, ["install", "--release", withSleeper(makeRelease("9.9.9", restartingProgram)).dir], svc.env);
+		assert.equal(r.status, 0, r.out);
+		assert.match(r.out, /Restarted tychicus-serve\.service: 9\.9\.8 -> 9\.9\.9/);
+		assert.notEqual(svc.pid(), before);
+		assert.match(svc.exe(), /versions\/9\.9\.9-[0-9a-f]{12}\/sleeper$/, "the service doesn't run the new version");
+		assert.match(svc.calls(), /systemctl --user restart tychicus-serve\.service/);
+		// Once nothing runs from it, the old version is removed.
+		assert.match(r.out, /Removed 1 older version/);
+	} finally {
+		svc.stop();
+	}
+});
+
+test("a restart whose serve doesn't answer points at remote status and remote fix, not at restarting again", linuxOnly, async () => {
+	const home = freshHome();
+	const svc = serviceStub(home);
+	assert.equal(run(home, ["install", "--release", withSleeper(makeRelease("9.9.8")).dir], svc.env).status, 0);
+	// remote.json names a port nothing answers on.
+	const port = await new Promise((done) => {
+		const server = createServer();
+		server.listen(0, "127.0.0.1", () => {
+			const { port } = server.address();
+			server.close(() => done(port));
+		});
+	});
+	mkdirSync(join(home, ".config", "tychicus"), { recursive: true });
+	writeFileSync(join(home, ".config", "tychicus", "remote.json"), JSON.stringify({ publicUrl: "https://serve.example.com", port, route: "custom" }));
+	svc.start();
+	try {
+		const r = run(home, ["install", "--release", withSleeper(makeRelease("9.9.9", restartingProgram)).dir], { ...svc.env, TYCHICUS_SERVE_WAIT_MS: "1500" });
+		assert.notEqual(r.status, 0, r.out);
+		assert.match(r.out, /The services were restarted on 9\.9\.9, but tychicus serve doesn't answer\. Run: tychicus remote status, then tychicus remote fix/);
+		assert.doesNotMatch(r.out, /weren't all restarted/);
+		assert.match(svc.exe(), /versions\/9\.9\.9-[0-9a-f]{12}\/sleeper$/);
+	} finally {
+		svc.stop();
+	}
+});
+
+test("a failed restart prints the command that restarts it and exits non-zero", linuxOnly, () => {
+	const home = freshHome();
+	const svc = serviceStub(home, { failRestart: true });
+	assert.equal(run(home, ["install", "--release", withSleeper(makeRelease("9.9.8")).dir], svc.env).status, 0);
+	svc.start();
+	try {
+		const r = run(home, ["install", "--release", withSleeper(makeRelease("9.9.9", restartingProgram)).dir], svc.env);
+		assert.notEqual(r.status, 0, r.out);
+		assert.match(r.out, /Job for tychicus-serve\.service failed/);
+		assert.match(r.out, /Run: \S+\/release\/tychicus install --restart-services/);
+		// The pointer still moved: the new version is installed; only the service is behind.
+		assert.match(readlinkSync(releaseRoot(home)), /9\.9\.9/);
+	} finally {
+		svc.stop();
 	}
 });

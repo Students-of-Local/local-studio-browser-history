@@ -16,12 +16,14 @@
 
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, renameSync, rmdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { delimiter, dirname, join, relative, resolve, sep } from "node:path";
+import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { basename, delimiter, dirname, join, relative, resolve, sep } from "node:path";
 import { browserDirs } from "./install.ts";
+import { releaseBase, releaseRoot } from "./paths.ts";
 import { eukheSettingsPath, localStudioPluginsDir, PLUGINS } from "./local-studio.ts";
 import { NATIVE_HOST_NAMES } from "../../src/bridge/protocol.ts";
+import { COMMAND_NAME } from "./self.ts";
+import { restartCommand, serviceName, staleLines, staleServices, versionName } from "./service-version.ts";
 import { c, sym } from "./ui.ts";
 
 /** Where the releases are built and attested. */
@@ -37,16 +39,7 @@ export function platformTag(platform: string = process.platform, arch: string = 
 	return `${platform === "win32" ? "win" : platform}-${arch}`;
 }
 
-/** The folder that holds the installed versions, the `release` pointer and the extension folder. */
-export function releaseBase(): string {
-	if (process.platform === "win32") return join(process.env.LOCALAPPDATA || join(homedir(), "AppData", "Local"), "Tychicus");
-	return join(process.env.XDG_DATA_HOME || join(homedir(), ".local", "share"), "tychicus");
-}
-
-/** The pointer to the current version's folder: the `tychicus` program, `extension/` and `plugins/`. */
-export function releaseRoot(): string {
-	return join(releaseBase(), "release");
-}
+export { releaseBase, releaseRoot } from "./paths.ts";
 
 /** Every unpacked version, one folder each, named <version>-<first 12 hex of the archive's SHA-256>. */
 export function versionsDir(base: string = releaseBase()): string {
@@ -374,7 +367,7 @@ const PASSED_ON = new Set(["--force", "--local-studio", "--browser"]);
  * Check, unpack and register a downloaded release. Returns the exit code. A dry run checks the release, then lists
  * what an install would write; it unpacks and writes nothing.
  */
-export async function installFromRelease(dir: string, options: { dryRun?: boolean; skipAttestation?: boolean; passOn?: string[] }): Promise<number> {
+export async function installFromRelease(dir: string, options: { dryRun?: boolean; skipAttestation?: boolean; noRestart?: boolean; passOn?: string[] }): Promise<number> {
 	let check: ReleaseCheck;
 	try {
 		check = verifyRelease(dir, { skipAttestation: options.skipAttestation, log: (line) => console.log(`${sym.ok} ${line}`) });
@@ -407,6 +400,8 @@ export async function installFromRelease(dir: string, options: { dryRun?: boolea
 			console.log(`  ${eukheSettingsPath()} (mcpServers.tychicus)`);
 		}
 		console.log(`${sym.ok} Then would point ${c.dim(`${root} -> ${target}`)}, copy its extension to ${c.dim(releaseExtensionDir(base))} and remove older versions no program runs from`);
+		const stale = staleServices(versionPath(target), { root, before: real(root) }).map((s) => `${serviceName(s.spec)} (${s.running})`);
+		if (stale.length) console.log(`${sym.ok} Then would ${options.noRestart ? "name" : "restart"} the services on another version: ${stale.join(", ")}`);
 		return 0;
 	}
 	const already = releaseCurrent(check.sha256, target);
@@ -425,6 +420,8 @@ export async function installFromRelease(dir: string, options: { dryRun?: boolea
 		return 1;
 	}
 	let extension: string;
+	// What the pointer names before it moves: a service ps names by the pointer's path runs that version.
+	const before = real(root);
 	try {
 		switchPointer(target, base);
 		extension = refreshExtension(target, base);
@@ -433,8 +430,56 @@ export async function installFromRelease(dir: string, options: { dryRun?: boolea
 		return 1;
 	}
 	console.log(`${sym.ok} ${c.dim(`${root} -> ${target}`)}`);
+	const restarted = restartServices(target, root, before, options.noRestart === true);
 	const removed = pruneVersions(target, base);
 	if (removed.length) console.log(`${sym.ok} Removed ${removed.length} older version${removed.length === 1 ? "" : "s"} no program runs from`);
 	for (const line of loadSteps(extension)) console.log(line);
-	return 0;
+	return restarted;
+}
+
+const real = (path: string): string | undefined => {
+	try {
+		return realpathSync(path);
+	} catch {
+		return undefined;
+	}
+};
+
+/** A version folder's path with the versions folder resolved, as staleServices names them; the folder itself may not exist yet. */
+const versionPath = (folder: string) => join(real(dirname(folder)) ?? dirname(folder), basename(folder));
+
+/**
+ * After the pointer moved: a service keeps the program it was started with, so each Tychicus service still on an older
+ * version is restarted by the new version's own program (its install points the services' launcher at itself; this process
+ * may be the old one), or with `noRestart` named with the command that restarts it. `before` is the version folder the
+ * pointer named before it moved. Returns the exit code.
+ */
+function restartServices(target: string, root: string, before: string | undefined, noRestart: boolean): number {
+	const current = versionPath(target);
+	const stale = staleServices(current, { root, before });
+	if (!stale.length) return 0;
+	const program = releaseProgram(root);
+	if (noRestart) {
+		for (const line of staleLines(stale, program)) console.log(`${sym.warn} ${line}`);
+		return 0;
+	}
+	const r = spawnSync(releaseProgram(target), ["install", "--restart-services"], {
+		stdio: "inherit",
+		env: { ...process.env, TYCHICUS_RELEASE_PARENT: "1", ...(before ? { TYCHICUS_RELEASE_BEFORE: before } : {}) },
+	});
+	// Read back here too: a version from before --restart-services would take it for a plain install and exit 0. A process
+	// that is still the one found stale runs what the pointer named before; one started since runs what it names now.
+	const oldPids = new Set(stale.map((s) => s.pid));
+	const left = new Map(staleServices(current, { root, before: current }).map((s) => [s.spec.label, s]));
+	for (const s of staleServices(current, { root, before })) if (oldPids.has(s.pid)) left.set(s.spec.label, s);
+	if (r.status === 0 && !left.size) return 0;
+	// Every service runs the release, but the restart said one failed: serve came back on it and doesn't answer. Running the
+	// restart again would find nothing to restart, so this points at what checks and repairs the route.
+	if (!left.size && r.status !== null && r.status !== 0) {
+		console.log(`${sym.fail} The services were restarted on ${versionName(current)}, but ${COMMAND_NAME} serve doesn't answer. Run: ${COMMAND_NAME} remote status, then ${COMMAND_NAME} remote fix`);
+		return 1;
+	}
+	for (const line of staleLines([...left.values()], program)) console.log(`${sym.fail} ${line}`);
+	console.log(`${sym.fail} The services on an older version weren't all restarted (${r.status === 0 ? "still running the old version" : (r.status ?? r.signal ?? r.error?.message)}). Run: ${restartCommand(program)}`);
+	return 1;
 }
