@@ -67,8 +67,8 @@ These stay as they are on purpose, because agents, hooks or stored data depend o
   installed host manifest allows only this id
 - the helper's folders are `~/.config/tychicus`, `~/.local/share/tychicus` and `~/.cache/tychicus`, its launchers
   `tychicus` and `tychicus-host`, its services `com.tychicus.*`. Nothing writes under Polycarp's folders
-  (`~/.config/polycarp`, `~/.local/share/polycarp`, `~/.cache/polycarp`) or the `tabkyra` ones Polycarp moves itself; there
-  is no migration. Read variables through `envVar("NAME")` (`cli/src/env.ts`): `TYCHICUS_NAME` wins, then the inherited
+  (`~/.config/polycarp`, `~/.local/share/polycarp`, `~/.cache/polycarp`) or the `tabkyra` ones Polycarp moves itself; the
+  only migration is `remote import-polycarp` (`cli/src/import-polycarp.ts`), which reads them and copies the remote connector's files. Read variables through `envVar("NAME")` (`cli/src/env.ts`): `TYCHICUS_NAME` wins, then the inherited
   `POLYCARP_NAME` and `TABKYRA_NAME`. The config folder override is `TYCHICUS_CONFIG_DIR` (the inherited
   `POLYCARP_BROWSER_CONFIG_DIR` and `TABKYRA_CONFIG_DIR` still work, and test fixtures set them), never `POLYCARP_CONFIG_DIR`,
   which is the Polycarp app's.
