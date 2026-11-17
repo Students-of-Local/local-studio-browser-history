@@ -1,6 +1,7 @@
 // `polycarp browser update` end to end against a fake GitHub release server on 127.0.0.1, with a
 // throwaway signing key: install, update, refuse tampered or mis-signed releases, roll back,
 // recover an interrupted swap, and the native host's "update available" message.
+import extensionId from "../../src/bridge/extension-id.json" with { type: "json" };
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -14,6 +15,7 @@ import { parsePublicKey, verifyMinisign } from "../src/minisign.ts";
 import { fitNotes, MORE_LINE, releaseSummary } from "../src/release-notes.ts";
 import { createZip } from "../../scripts/release/zip.mjs";
 import { signMinisign, throwawayKey } from "./helpers/minisign-sign.mjs";
+const EXTENSION_ID = extensionId.id;
 
 const here = dirname(fileURLToPath(import.meta.url));
 const cli = join(here, "..", "dist", "index.js");
@@ -221,7 +223,7 @@ test("update --yes installs the signed release and registers the host from it", 
 	assert.equal(appVersion(), "9.1.1");
 	const launcher = readFileSync(join(home, ".config", "polycarp", "browser", "polycarp-host"), "utf8");
 	assert.ok(launcher.includes(appCli()), `launcher points at the release: ${launcher}`);
-	const hostManifest = JSON.parse(readFileSync(join(chromeDir, "NativeMessagingHosts", "com.polycarp.browser.json"), "utf8"));
+	const hostManifest = JSON.parse(readFileSync(join(chromeDir, "NativeMessagingHosts", "com.tychicus.browser.json"), "utf8"));
 	assert.equal(hostManifest.path, join(home, ".config", "polycarp", "browser", "polycarp-host"));
 });
 
@@ -391,7 +393,7 @@ test("the native host tells the extension an update is available", async () => {
 		JSON.stringify({ checkedAt: Date.now(), channel: "stable", current: appVersion(), latest: "9.4.0", available: true }),
 	);
 	// The host reads the installed version of the copy it runs from: the release in app/.
-	const host = spawn(process.execPath, [appCli(), "host", "chrome-extension://kenehmggpggpiolepbjojeenmeapgfoc/"], { env: env() });
+	const host = spawn(process.execPath, [appCli(), "host", `chrome-extension://${EXTENSION_ID}/`], { env: env() });
 	const hello = Buffer.from(JSON.stringify({ type: "hello", version: "9.3.0", protocol: 1, methods: [] }));
 	const frame = Buffer.alloc(4 + hello.length);
 	frame.writeUInt32LE(hello.length, 0);

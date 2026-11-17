@@ -23,6 +23,7 @@ import { Client } from "../../cli/node_modules/@modelcontextprotocol/sdk/dist/es
 import { StdioClientTransport } from "../../cli/node_modules/@modelcontextprotocol/sdk/dist/esm/client/stdio.js";
 import { ElicitRequestSchema } from "../../cli/node_modules/@modelcontextprotocol/sdk/dist/esm/types.js";
 import { chromium } from "../../cli/node_modules/playwright-core/index.mjs";
+import extensionId from "../../src/bridge/extension-id.json" with { type: "json" };
 import { connectCdp, findButton, findText, findTextIn, surface } from "./panel-cdp.mjs";
 
 if (typeof WebSocket !== "function") {
@@ -41,7 +42,7 @@ let out;
 let interrupted = false;
 let stopBrowser = () => {};
 const temps = new Set();
-const EXTENSION_ID = "kenehmggpggpiolepbjojeenmeapgfoc";
+const EXTENSION_ID = extensionId.id;
 const NEW_SITE = "https://www.gutenberg.org/ebooks/2701";
 
 for (const [path, fix] of [

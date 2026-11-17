@@ -5,6 +5,7 @@
 // Needs `npm run build` at the repo root (dist-chrome) and a Playwright Chromium
 // (`npx playwright-core install chromium`). Uses its own HOME, profile and socket
 // directory, so it never touches an installed browser or a running bridge.
+import extensionId from "../../src/bridge/extension-id.json" with { type: "json" };
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
@@ -24,7 +25,7 @@ const cli = join(here, "..", "dist", "index.js");
 const extensionDir = join(here, "..", "..", "dist-chrome");
 
 // From the `key` in static/manifest.chrome.json; cli/test/install.test.mjs checks the derivation.
-const EXTENSION_ID = "kenehmggpggpiolepbjojeenmeapgfoc";
+const EXTENSION_ID = extensionId.id;
 
 const PAGE = `<!doctype html><title>Polycarp e2e</title>
 <label for="name">Name</label> <input id="name" placeholder="Your name">

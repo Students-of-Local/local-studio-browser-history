@@ -14,6 +14,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { chromium } from "playwright-core";
 import { seedStubModel, stubModel } from "../test/helpers/stub-model.mjs";
+import extensionId from "../../src/bridge/extension-id.json" with { type: "json" };
+const EXTENSION_ID = extensionId.id;
 
 const arg = (name) => {
 	const i = process.argv.indexOf(name);
@@ -25,7 +27,7 @@ if (!extension || !out) {
 	console.error("usage: node cli/eval/panel-prompt-size.mjs --extension <built extension dir> --out <file.json>");
 	process.exit(1);
 }
-const PANEL = "chrome-extension://kenehmggpggpiolepbjojeenmeapgfoc/sidepanel.html";
+const PANEL = `chrome-extension://${EXTENSION_ID}/sidepanel.html`;
 
 const profile = mkdtempSync(join(tmpdir(), "polycarp-prompt-size-"));
 const context = await chromium.launchPersistentContext(profile, {

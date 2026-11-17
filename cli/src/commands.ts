@@ -86,12 +86,13 @@ export const VALUE_HINTS: Record<string, string> = {
 	"--browser": "<name>",
 	"--add": "<scope>",
 	"--remove": "<scope>",
+	"--release": "<folder>",
 };
 
 export const VALUE_FLAGS = new Set(Object.keys(VALUE_HINTS));
 
 /** Value options whose value is a path: completions offer file names after them. */
-const PATH_VALUES = new Set(["--cases", "--base", "--router", "--out", "--file"]);
+const PATH_VALUES = new Set(["--cases", "--base", "--router", "--out", "--file", "--release"]);
 
 export const COMMANDS: CommandSpec[] = [
 	{ name: "setup", selfParsed: true, what: "Build, register, load, connect and add to your agents", group: "Get started", flags: SETUP_FLAGS },
@@ -295,7 +296,12 @@ export const COMMANDS: CommandSpec[] = [
 		group: "Troubleshoot",
 		flags: UPDATE_FLAGS,
 	},
-	{ name: "install", what: "Re-register the native host with every browser, or with --browser <name> only that one", group: "Troubleshoot", flags: ["--force", "--browser"] },
+	{
+		name: "install",
+		what: "Register the native host with every browser (--browser <name>: one); --release <folder> checks and installs a downloaded release; --local-studio adds the Local Studio plugins; --dry-run lists what it would write",
+		group: "Troubleshoot",
+		flags: ["--force", "--browser", "--dry-run", "--local-studio", "--release", "--skip-attestation"],
+	},
 	{ name: "reload", what: "Reload the extension after rebuilding dist-chrome", group: "Troubleshoot", flags: ["--if-idle"] },
 	{ name: "debug", what: "Bridge state, request timings and a benchmark (JSON)", group: "Troubleshoot" },
 	{ name: "completion", positional: 1, args: "zsh|bash|fish", what: `Completions for ${COMMAND_NAME}: eval "$(${COMMAND_NAME} completion zsh)"`, group: "Troubleshoot", values: ["zsh", "bash", "fish"] }, // product-name allowlist: the alias is still completed

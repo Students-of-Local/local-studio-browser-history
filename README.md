@@ -24,6 +24,36 @@ change. Tychicus does not decide this for you. Read your provider's terms and de
 connect a subscription; API keys under a developer agreement are the safer route where terms
 are unclear.
 
+## Install from a release
+
+You need a Chromium 141+ browser (Helium, Chrome, Brave, Edge or Chromium). Nothing else: the
+`tychicus` program in each release carries its own runtime.
+
+1. From the [latest release](https://github.com/baney75/tychicus/releases/latest), download
+   `SHA256SUMS` and the archive for your computer (`tychicus-<version>-linux-x64.tar.gz`,
+   `-darwin-arm64.tar.gz` or `-win-x64.zip`) into one empty folder.
+2. In that folder, unpack it and run its installer:
+
+   ```bash
+   tar -xzf tychicus-*.tar.gz && ./tychicus-*/tychicus install --release .
+   ```
+
+   On Windows, in PowerShell: `tar -xf tychicus-<version>-win-x64.zip` and then
+   `.\tychicus-<version>-win-x64\tychicus.exe install --release .`
+   The installer checks every file against `SHA256SUMS`, and against its build attestation when
+   the [GitHub CLI](https://cli.github.com) is installed, and refuses the whole install on any
+   mismatch. It copies the program and the extension to one fixed folder and registers the native
+   host with each Chromium browser it finds. Add `--local-studio` to also install the Local Studio
+   plugins and their Eukhe tool server; `--dry-run` lists what it would write.
+3. Load the extension: open `chrome://extensions`, turn on Developer mode, choose **Load
+   unpacked** and pick the folder the installer printed. Its ID is fixed by the manifest key, so
+   the host registration already allows it.
+
+Then point your agent at it, for example
+`claude mcp add --scope user tychicus -- ~/.local/share/tychicus/release/tychicus mcp`.
+CI's `clean-install` job runs these steps from an empty home folder on every pull request and
+fails if they take more than three steps or 60 seconds, or if a changed file is accepted.
+
 ## Build and load the extension
 
 You need Node 22 or newer, git, and a Chromium 141+ browser (Helium, Chrome, Brave or Chromium).
@@ -43,8 +73,9 @@ tychicus setup                     # or: tychicus doctor
 claude mcp add --scope user tychicus -- tychicus mcp
 ```
 
-The extension ID comes from the manifest key, so it is the same ID Polycarp had, and existing
-native host registrations keep working.
+The extension ID (`igjafcggmahiboobmnhfkndodphjdnhg`) comes from the manifest key and
+differs from Polycarp's, and the native host is `com.tychicus.browser`, so Tychicus and Polycarp
+can be installed side by side without either one answering for the other.
 
 ### Old names still work
 
@@ -54,7 +85,7 @@ native host registrations keep working.
 | MCP server named `polycarp` | `tychicus mcp` reports `tychicus`; `tychicus mcp --name polycarp` keeps the old name, and `polycarp-browser mcp` still reports `polycarp` |
 | `polycarp browser <command>` | still forwarded by the `polycarp` shim |
 
-Stored data, the native host name and the extension ID did not change.
+Stored data did not change. The native host name and the extension ID did (see above).
 
 ## Checks
 

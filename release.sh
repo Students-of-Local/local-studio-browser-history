@@ -39,6 +39,9 @@ manifest.version = '$NEW_VERSION';
 fs.writeFileSync('$MANIFEST', JSON.stringify(manifest, null, '\t') + '\n');
 "
 
+# The Local Studio plugins carry the same version (cli/test/local-studio-plugins.test.mjs checks it)
+node scripts/plugin-version.mjs "$NEW_VERSION"
+
 # Update CHANGELOG: replace [Unreleased] with version, add new [Unreleased]
 node -e "
 const fs = require('fs');
@@ -52,7 +55,7 @@ echo "Running checks..."
 ./check.sh
 
 # Commit, tag, push
-git add "$MANIFEST" CHANGELOG.md
+git add "$MANIFEST" CHANGELOG.md plugins/*/plugin.toml plugins/*/skills/*/SKILL.md
 git commit -m "Release v$NEW_VERSION"
 git tag "$TAG"
 git push origin main

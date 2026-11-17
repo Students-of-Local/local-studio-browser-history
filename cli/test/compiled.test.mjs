@@ -1,6 +1,7 @@
 // The single-executable build (scripts/compile.mjs) run against a throwaway HOME. The first group builds the compiled-mode
 // bundle and runs it under Node, so the compiled code paths are tested wherever Node is; the second compiles the real
 // executable and is skipped when Bun is missing. Nothing here touches the real HOME, sockets or browsers.
+import extensionId from "../../src/bridge/extension-id.json" with { type: "json" };
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -8,6 +9,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
+const EXTENSION_ID = extensionId.id;
 
 const cliRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const work = mkdtempSync(join(tmpdir(), "tabkyra-compiled-"));
@@ -37,9 +39,9 @@ test("compiled-mode install points the browser at the helper itself and the agen
 	mkdirSync(chrome, { recursive: true });
 	const out = execFileSync(process.execPath, [join(bundleDir, "index.js"), "install"], { env, encoding: "utf8" });
 	assert.match(out, /Wrote/);
-	const manifest = JSON.parse(readFileSync(join(chrome, "NativeMessagingHosts", "com.polycarp.browser.json"), "utf8"));
+	const manifest = JSON.parse(readFileSync(join(chrome, "NativeMessagingHosts", "com.tychicus.browser.json"), "utf8"));
 	assert.equal(manifest.path, process.execPath, "the manifest names the helper, not a script");
-	assert.deepEqual(manifest.allowed_origins, ["chrome-extension://kenehmggpggpiolepbjojeenmeapgfoc/"]);
+	assert.deepEqual(manifest.allowed_origins, [`chrome-extension://${EXTENSION_ID}/`]);
 	for (const name of ["polycarp", "polycarp-host"]) {
 		const text = readFileSync(join(home, ".config", "polycarp", "browser", name), "utf8");
 		assert.equal(text.includes("node-compile-cache"), false);
@@ -126,7 +128,7 @@ test("the real executable builds, reports a version and lists the same tools", {
 test("the real executable treats a chrome-extension argument as the native host", { skip: !haveBun && "bun is not installed" }, () => {
 	const { env } = sandbox("host");
 	// Native messaging: 4-byte length, then JSON. End of input ends the host without a browser attached.
-	const r = spawnSync(exe, ["chrome-extension://kenehmggpggpiolepbjojeenmeapgfoc/"], { env, input: Buffer.alloc(0), timeout: 15000 });
+	const r = spawnSync(exe, [`chrome-extension://${EXTENSION_ID}/`], { env, input: Buffer.alloc(0), timeout: 15000 });
 	assert.notEqual(r.signal, "SIGTERM", "the host ended on its own when input closed");
 	assert.doesNotMatch(String(r.stderr), /Unknown command|Usage/);
 });

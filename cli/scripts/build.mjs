@@ -34,8 +34,9 @@ await build({
 	// from a global link or npx without a node_modules next to dist.
 	packages: "bundle",
 	sourcemap: !compiled,
-	// keys/tabkyra-release.pub is bundled as text: the key that verifies releases ships inside the CLI.
-	loader: { ".pub": "text", ".md": "text" },
+	// keys/tabkyra-release.pub is bundled as text: the key that verifies releases ships inside the CLI. The Local Studio
+	// plugins (plugins/, cli/src/local-studio.ts) ship the same way, so every copy of the program can install them.
+	loader: { ".pub": "text", ".md": "text", ".toml": "text" },
 	define: { __TABKYRA_BUILD__: JSON.stringify(info), __POLYCARP_COMPILED__: JSON.stringify(compiled) },
 	logLevel: "info",
 });

@@ -6,6 +6,7 @@
 // Covers: mode detection, a fast-forward update, refusals (local changes, another branch, a
 // diverged main), a failed build leaving the old build, rollback, the no-parameters rule of the
 // host's update action, the settings actions and the version-mismatch report.
+import extensionId from "../../src/bridge/extension-id.json" with { type: "json" };
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -14,6 +15,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, test } from "node:test";
 import { fileURLToPath } from "node:url";
+const EXTENSION_ID = extensionId.id;
 
 const here = dirname(fileURLToPath(import.meta.url));
 const realCli = join(here, "..", "dist", "index.js");
@@ -356,7 +358,7 @@ function frame(message) {
 }
 
 function startHost(cli) {
-	const host = spawn(process.execPath, [cli, "host", "chrome-extension://kenehmggpggpiolepbjojeenmeapgfoc/"], { env: env(), stdio: ["pipe", "pipe", "pipe"] });
+	const host = spawn(process.execPath, [cli, "host", `chrome-extension://${EXTENSION_ID}/`], { env: env(), stdio: ["pipe", "pipe", "pipe"] });
 	const messages = [];
 	let buf = Buffer.alloc(0);
 	host.stdout.on("data", (chunk) => {

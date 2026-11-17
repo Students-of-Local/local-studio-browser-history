@@ -13,11 +13,12 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
+import extensionId from "../../src/bridge/extension-id.json" with { type: "json" };
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const repo = join(here, "..", "..");
 export const cli = join(repo, "cli", "dist", "index.js");
-export const EXTENSION_ID = "kenehmggpggpiolepbjojeenmeapgfoc";
+export const EXTENSION_ID = extensionId.id;
 
 /** Variables that pick a harness session; the evals clear them so an outer harness can't. */
 export const HARNESS_SESSION_VARS = ["TABKYRA_SESSION", "TABKYRA_CLIENT_NAME", "CLAUDE_SESSION_ID", "CODEX_THREAD_ID", "OMP_SESSION_ID", "PI_SESSION_ID"];

@@ -1,7 +1,8 @@
 // Compiles the CLI into one executable with no Node needed on the machine: the esbuild bundle (build.mjs, in
 // compiled mode) goes through `bun build --compile --bytecode`. Bun beat Node's single-executable applications
 // on cold start, size and cross-building (spaces/spec/browser-binary.md has the measurements).
-//   node scripts/compile.mjs --arch arm64|x64 --out <file> [--work <dir>]
+//   node scripts/compile.mjs --arch arm64|x64 --out <file> [--os linux|darwin|windows] [--work <dir>]
+// --os cross-builds for another system (the release builds all three on one Linux runner); the default is this one.
 import { spawnSync } from "node:child_process";
 import { chmodSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -28,8 +29,12 @@ const run = (cmd, args, env = {}) => {
 	}
 };
 run(process.execPath, ["scripts/build.mjs"], { TABKYRA_CLI_COMPILED: "1", TABKYRA_CLI_OUT_DIR: work });
-// This machine's system: the Mac app's build, and a real executable to run wherever the tests run.
-const os = process.platform === "win32" ? "windows" : process.platform;
+// This machine's system unless --os names another: the Mac app's build, and a real executable to run wherever the tests run.
+const os = arg("--os", process.platform === "win32" ? "windows" : process.platform);
+if (!["linux", "darwin", "windows"].includes(os)) {
+	console.error("compile: --os takes linux, darwin or windows");
+	process.exit(2);
+}
 run("bun", ["build", "--compile", "--bytecode", `--target=bun-${os}-${arch === "x64" ? "x64-baseline" : arch}`, join(work, "index.js"), "--outfile", out]);
 // The x86_64 build is the baseline one: it runs on every Intel Mac and under Rosetta (which has no AVX).
 chmodSync(out, 0o755);

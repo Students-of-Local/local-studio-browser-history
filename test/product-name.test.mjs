@@ -4,6 +4,7 @@
 // an identifier, which this scan leaves alone. The renamed identifiers (native host, socket folder, hub headers, User-Agent,
 // npm command) are guarded below so the old ones come back only as the named fallbacks.
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import test from "node:test";
@@ -86,9 +87,13 @@ test("the manifest and every locale file name the product Tychicus", () => {
 });
 
 test("the extension id still comes from the unchanged manifest key", () => {
+	// Every installed host manifest allows only this id (D54), so a changed key cuts off every install. The id is pinned
+	// here on purpose, apart from src/bridge/extension-id.json, so changing the key and the constant together still fails.
 	const m = JSON.parse(readFileSync(join(root, "static/manifest.chrome.json"), "utf8"));
-	assert.match(m.key, /^MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2kC2\+fqshozr\+m\/uopS9WXvavWghH5\/l2yJbwV0sZZUpq0OOMfnVkGZLJtN7y\/n0ifjKi4NENTCFou2e7CfX8D2j\+0GSYuYFC/);
-	assert.match(m.key, /8wIDAQAB$/);
+	const hex = createHash("sha256").update(Buffer.from(m.key, "base64")).digest("hex").slice(0, 32);
+	const id = [...hex].map((c) => String.fromCharCode(97 + Number.parseInt(c, 16))).join("");
+	assert.equal(id, "igjafcggmahiboobmnhfkndodphjdnhg");
+	assert.equal(JSON.parse(readFileSync(join(root, "src/bridge/extension-id.json"), "utf8")).id, id);
 });
 
 test("the extension's stored data keeps its names", () => {
@@ -107,7 +112,6 @@ test("the extension's stored data keeps its names", () => {
 // made before the rename (AGENTS.md says how long they stay). Comments are not counted. A new use fails here.
 const RENAMED = /ai\.tabkyra\.bridge|tabkyra-bridge|x-tabkyra-hub|tabkyra-cli/;
 const RENAMED_ALLOWED = new Map([
-	["src/bridge/protocol.ts", 1], // LEGACY_NATIVE_HOST_NAME
 	["src/bridge/native.ts", 1], // the keepalive alarm's name, which no one sees
 	["cli/src/paths.ts", 2], // the old socket folder and pipe, searched after the new ones
 	["cli/src/pi-extension.ts", 1], // the same, in the generated pi extension

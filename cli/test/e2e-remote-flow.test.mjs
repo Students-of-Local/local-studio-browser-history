@@ -7,6 +7,7 @@
 // Needs the extension built into dist-chrome without a version bump, as e2e-panel.test.mjs does:
 //   TABKYRA_NO_BUMP=1 TABKYRA_OUT_DIR=$PWD/dist-chrome npm run build   (repo root)
 // Set TABKYRA_SHOTS_DIR to keep a screenshot of every screen.
+import extensionId from "../../src/bridge/extension-id.json" with { type: "json" };
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -14,10 +15,11 @@ import { dirname, join } from "node:path";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
+const EXTENSION_ID = extensionId.id;
 
 const here = dirname(fileURLToPath(import.meta.url));
 const extensionDir = join(here, "..", "..", "dist-chrome");
-const PANEL = "chrome-extension://kenehmggpggpiolepbjojeenmeapgfoc/sidepanel.html";
+const PANEL = `chrome-extension://${EXTENSION_ID}/sidepanel.html`;
 const SHOTS = process.env.TABKYRA_SHOTS_DIR;
 const CODE = "TK-7QF3-K2MD";
 

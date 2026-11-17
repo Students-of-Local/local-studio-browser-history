@@ -13,6 +13,12 @@ declare const __POLYCARP_COMPILED__: boolean | undefined;
 /** True in the single-executable build. */
 export const COMPILED: boolean = typeof __POLYCARP_COMPILED__ !== "undefined" && __POLYCARP_COMPILED__ === true;
 
+/**
+ * A Tychicus release's executable (`tychicus`, from scripts/package-release.mjs) rather than the helper inside the
+ * Polycarp app (`polycarp-browser`): it calls itself `tychicus`, and `tychicus install --release` updates it.
+ */
+export const RELEASE_BUILD: boolean = COMPILED && /^tychicus(\.exe)?$/i.test(basename(process.execPath));
+
 /** The file a launcher or manifest must run: the helper itself when compiled, else Node. */
 export function selfExec(): string {
 	return process.execPath;
@@ -36,7 +42,9 @@ const INVOKED = basename(process.argv[1] ?? "").replace(/\.(?:js|cmd|exe)$/, "")
  * `polycarp browser` inside the Polycarp app. A plain `node dist/index.js` keeps the old name until the fleet moves over.
  */
 export const COMMAND_NAME: string = COMPILED
-	? "polycarp browser"
+	? RELEASE_BUILD
+		? "tychicus"
+		: "polycarp browser"
 	: INVOKED === "tychicus" || INVOKED === "polycarp-browser"
 		? INVOKED
 		: linkedAs("tychicus")

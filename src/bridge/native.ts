@@ -126,7 +126,7 @@ interface ClientState {
 
 let port: chrome.runtime.Port | undefined;
 let reconnectDelay = RECONNECT_MIN_MS;
-/** Which of NATIVE_HOST_NAMES the next connect tries: the current name, then the one a helper from before the rename registered. */
+/** Which of NATIVE_HOST_NAMES the next connect tries. */
 let hostNameIndex = 0;
 let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 const clients = new Map<string, ClientState>();
