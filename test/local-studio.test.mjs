@@ -117,37 +117,61 @@ test("a failed turn and a closed session end the stream with an error", () => {
  * until it is aborted.
  */
 let runtime;
-/** One fake for the whole file: the panel's client keeps the port it first opened. */
-function fakeRuntime() {
+/**
+ * One fake for the whole file: the panel's client keeps the port it first opened. It answers like the host relay: a
+ * prompt on a session it does not know (the daemon connection ended) is refused. `words` ends a turn by itself after that
+ * many deltas; `leftovers` sends a stopped run's last events just as the next prompt arrives.
+ */
+function fakeRuntime({ words = 200, leftovers = false } = {}) {
 	if (runtime) {
 		runtime.sent.length = 0;
+		Object.assign(runtime.options, { words, leftovers });
 		return runtime;
 	}
 	const sent = [];
+	const options = { words, leftovers };
 	const messageListeners = [];
 	const reply = (r) => setTimeout(() => messageListeners.forEach((l) => l(r)), 1);
 	const aborted = new Set();
+	const known = new Set();
 	let sessions = 0;
 	const port = {
 		postMessage(req) {
 			sent.push(req);
 			const c = req.command ?? {};
-			if (req.op === "probe") return reply({ id: req.id, conversation: req.conversation, result: { reachable: true } });
-			if (c.type === "create") return reply({ id: req.id, conversation: req.conversation, result: { activeSessionId: `s${++sessions}` } });
-			if (c.type === "attach") return reply({ id: req.id, conversation: req.conversation, result: {} });
-			if (c.type === "get_available_models") return reply({ id: req.id, conversation: req.conversation, result: { models: MODELS } });
-			if (c.type === "kill" || req.op === "close") return req.id && reply({ id: req.id, conversation: req.conversation, result: {} });
+			const answer = (result) => reply({ id: req.id, conversation: req.conversation, result });
+			const on = (e) => reply({ conversation: req.conversation, event: event(e) });
+			if (req.op === "probe") return answer({ reachable: true });
+			if (c.type === "create") {
+				const id = `s${++sessions}`;
+				known.add(id);
+				return answer({ activeSessionId: id });
+			}
+			if (c.type === "attach") return answer({});
+			if (c.type === "get_available_models") return answer({ models: MODELS });
+			if (c.type === "kill" || req.op === "close") return req.id && answer({});
 			if (c.type === "abort") {
 				aborted.add(req.conversation);
-				reply({ id: req.id, conversation: req.conversation, result: {} });
-				return reply({ conversation: req.conversation, event: event({ type: "agent_end" }) });
+				answer({});
+				return on({ type: "agent_end" });
 			}
 			if (c.type === "prompt") {
+				if (!known.has(c.activeSessionId))
+					return reply({ id: req.id, conversation: req.conversation, error: { code: "permission_denied", message: "That Eukhe session was not opened by this chat." } });
+				if (options.leftovers) {
+					on({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "LEFTOVER " } });
+					on({ type: "agent_end" });
+				}
 				aborted.delete(req.conversation);
-				reply({ id: req.id, conversation: req.conversation, result: { accepted: true } });
+				answer({ accepted: true });
+				on({ type: "agent_start" });
 				let n = 0;
 				const tick = setInterval(() => {
-					if (aborted.has(req.conversation) || n > 200) return clearInterval(tick);
+					if (aborted.has(req.conversation)) return clearInterval(tick);
+					if (n >= options.words) {
+						clearInterval(tick);
+						return on({ type: "agent_end" });
+					}
 					reply({ conversation: req.conversation, event: textDelta(`word${n++} `) });
 				}, 5);
 			}
@@ -156,7 +180,9 @@ function fakeRuntime() {
 		onDisconnect: { addListener: () => {} },
 	};
 	globalThis.chrome = { runtime: { connect: () => port } };
-	runtime = { sent };
+	/** The daemon connection ended: every session it had is gone. */
+	const restart = () => known.clear();
+	runtime = { sent, options, restart };
 	return runtime;
 }
 
@@ -207,6 +233,60 @@ test("each chat gets its own session, and a local model's session asks for the s
 	assert.deepEqual(byProvider.llamacpp.env, { TYCHICUS_PROFILE: "small" });
 	assert.equal(byProvider["openai-codex"].env, undefined);
 	assert.ok(sent.some((r) => r.command?.type === "kill"), "the session used only to list models was ended");
+});
+
+/** Run one turn to its end; returns the final event and the text it streamed. */
+async function runTurn(streamLocalStudio, model, context) {
+	let final;
+	let text = "";
+	for await (const e of streamLocalStudio(model, context, {})) {
+		if (e.type === "text_delta") text += e.delta;
+		if (e.type === "done" || e.type === "error") final = e;
+	}
+	return { final, text };
+}
+
+test("first-F1: after Local Studio restarts, the next turn in the same chat runs in a new session with the earlier turns", async () => {
+	const { sent, restart } = fakeRuntime({ words: 2 });
+	const { streamLocalStudio } = await import("../src/eukhe/stream.ts");
+	const first = { role: "user", content: "what is on this page", timestamp: 3 };
+	const one = await runTurn(streamLocalStudio, MODEL, { systemPrompt: "sys", messages: [first] });
+	assert.equal(one.final.type, "done");
+	restart();
+	const reply = { role: "assistant", content: [{ type: "text", text: one.text }] };
+	const two = await runTurn(streamLocalStudio, MODEL, {
+		systemPrompt: "sys",
+		messages: [first, reply, { role: "user", content: "and now?", timestamp: 4 }],
+	});
+	assert.equal(two.final.type, "done", two.final.error?.errorMessage);
+	assert.equal(two.text, "word0 word1 ");
+	const creates = sent.filter((r) => r.command?.type === "create");
+	assert.equal(creates.length, 2, "a new session for the same chat");
+	const prompts = sent.filter((r) => r.command?.type === "prompt");
+	assert.notEqual(prompts.at(-1).command.activeSessionId, prompts[0].command.activeSessionId, "the dead session is not reused");
+	assert.match(prompts.at(-1).command.message, /^Earlier in this chat:[\s\S]*User: what is on this page[\s\S]*Now:\n\nand now\?$/);
+});
+
+test("first-F2: a stopped run's last events, arriving as the next prompt goes out, do not end the new turn", async () => {
+	fakeRuntime({ words: 3, leftovers: true });
+	const { streamLocalStudio } = await import("../src/eukhe/stream.ts");
+	const { final, text } = await runTurn(streamLocalStudio, MODEL, { systemPrompt: "sys", messages: [{ role: "user", content: "next", timestamp: 5 }] });
+	assert.equal(final.type, "done");
+	assert.equal(text, "word0 word1 word2 ", "the new run's text only, all of it");
+});
+
+test("second-F7: overlapping model refreshes share one look, so neither ends the other", async () => {
+	const { sent } = fakeRuntime();
+	const { refreshLocalStudioModels } = await import("../src/eukhe/stream.ts");
+	const [a, b] = await Promise.all([refreshLocalStudioModels(), refreshLocalStudioModels()]);
+	assert.equal(a.length, MODELS.length);
+	assert.equal(b, a);
+	assert.equal(sent.filter((r) => r.command?.type === "get_available_models").length, 1);
+});
+
+test("second-F6: Local Studio models take text only, since a turn sends Eukhe text", () => {
+	const withImages = MODELS.map((m) => ({ ...m, input: ["text", "image"] }));
+	assert.ok(panelModels(withImages).every((m) => m.input.length === 1 && m.input[0] === "text"));
 });
 
 test("the Local Studio code holds no key and stores nothing", () => {

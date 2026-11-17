@@ -17,9 +17,10 @@
  * command, whatever the model or a page says.
  */
 
+import { lstatSync, type Stats } from "node:fs";
 import { createConnection, type Socket } from "node:net";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { ExtEukhe, HostEukhe, RpcError } from "../../src/bridge/protocol.ts";
 import { ERR } from "../../src/bridge/protocol.ts";
 
@@ -79,6 +80,31 @@ interface DaemonLink {
 }
 
 /**
+ * Why the daemon socket can't be trusted, or undefined. Eukhe checks its client's uid; this side checks the server's:
+ * the socket's folder must be a real folder of this user's that no one else can write to, and the socket this user's.
+ * Otherwise another user on the machine could make the folder first (it sits in /tmp when TMPDIR is unset) and receive
+ * the panel's chats. Not on Windows, which has no Local Studio chats yet.
+ */
+export function untrustedSocket(path: string): string | undefined {
+	if (process.platform === "win32" || typeof process.getuid !== "function") return undefined;
+	const uid = process.getuid();
+	let dir: Stats;
+	try {
+		dir = lstatSync(dirname(path));
+	} catch {
+		return undefined; // No folder: the connect says "no socket".
+	}
+	if (!dir.isDirectory() || dir.uid !== uid || (dir.mode & 0o022) !== 0)
+		return `its folder ${dirname(path)} is not a private folder of this user's`;
+	try {
+		if (lstatSync(path).uid !== uid) return "the socket belongs to another user";
+	} catch {
+		/* No socket: the connect says so. */
+	}
+	return undefined;
+}
+
+/**
  * Open the daemon socket and wait for its hello. Rejects with an RpcError (eukhe_unavailable) when nothing listens, the
  * peer does not greet within `helloMs`, or it greets as something other than the Eukhe daemon.
  */
@@ -89,6 +115,11 @@ export function connectDaemon(
 	helloMs: number = EUKHE_HELLO_MS,
 ): Promise<DaemonLink> {
 	return new Promise((resolve, reject) => {
+		const untrusted = untrustedSocket(path);
+		if (untrusted) {
+			reject(unavailable(path, process.platform, untrusted));
+			return;
+		}
 		let greeted = false;
 		let buffer = "";
 		const socket = createConnection(path);
@@ -139,6 +170,26 @@ export function connectDaemon(
 			}
 		});
 	});
+}
+
+/**
+ * The create command a panel chat may send, built from an allowlist: the provider and model, whether to keep a session
+ * file, and the small tool profile hint. The session lives only as long as the panel's connection (client_owned) and
+ * works in the home folder, as Local Studio's own sessions do; neither can be changed from the extension.
+ */
+export function panelCreate(raw: Record<string, unknown>): Record<string, unknown> {
+	const asked = raw.config && typeof raw.config === "object" && !Array.isArray(raw.config) ? (raw.config as Record<string, unknown>) : {};
+	const config: Record<string, unknown> = {};
+	for (const key of ["provider", "model"] as const) if (typeof asked[key] === "string" && asked[key]) config[key] = asked[key];
+	config.cwd = homedir();
+	const env = raw.env as Record<string, unknown> | undefined;
+	return {
+		type: "create",
+		lifecycle: "client_owned",
+		config,
+		...(typeof raw.noSession === "boolean" ? { noSession: raw.noSession } : {}),
+		...(env?.TYCHICUS_PROFILE === "small" ? { env: { TYCHICUS_PROFILE: "small" } } : {}),
+	};
 }
 
 interface Conversation {
@@ -219,14 +270,7 @@ export class EukheRelay {
 		if (typeof type !== "string" || !EUKHE_COMMANDS.has(type))
 			return { error: { code: ERR.PERMISSION_DENIED, message: `The side panel may not send ${JSON.stringify(type)} to Eukhe.` } };
 		delete command.id;
-		if (type === "create") {
-			// A panel session lives only as long as the panel's connection.
-			command.lifecycle = "client_owned";
-			// Eukhe needs a working folder for a session; the panel has none of its own, so the home folder, as Local Studio's.
-			const config = command.config && typeof command.config === "object" && !Array.isArray(command.config) ? (command.config as Record<string, unknown>) : {};
-			command.config = { cwd: homedir(), ...config };
-			return { command };
-		}
+		if (type === "create") return { command: panelCreate(command) };
 		const session = command.activeSessionId;
 		const own = this.conversations.get(conversation)?.sessions;
 		if (typeof session !== "string" || !own?.has(session))

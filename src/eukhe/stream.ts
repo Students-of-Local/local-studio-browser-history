@@ -67,7 +67,16 @@ export async function probeLocalStudio(): Promise<boolean> {
  * The models Local Studio can run now (local ones first, then the signed-in subscriptions), registered under the "Local
  * Studio" provider for the model picker. Listing needs a session, so a throwaway one is made and ended.
  */
-export async function refreshLocalStudioModels(): Promise<Model<Api>[]> {
+export function refreshLocalStudioModels(): Promise<Model<Api>[]> {
+	// One look at a time: two would share the host's "models" conversation, and the first to close it would end the other.
+	refreshing ??= listModels().finally(() => {
+		refreshing = undefined;
+	});
+	return refreshing;
+}
+let refreshing: Promise<Model<Api>[]> | undefined;
+
+async function listModels(): Promise<Model<Api>[]> {
 	if (!(await probeLocalStudio())) {
 		lastModels = [];
 		resetProviderModels(LOCAL_STUDIO_PROVIDER);
@@ -179,14 +188,31 @@ export function streamLocalStudio(
 		let stop: (() => void) | undefined;
 		try {
 			const conversation = await conversationKey(context);
+			// This turn's run starts at the first agent_start after its prompt went out. Events before that are an earlier
+			// run's: one stopped here that was still winding down when this message was sent.
+			let prompted = false;
+			let started = false;
 			// Listen first: the daemon streams the turn as soon as the prompt is accepted.
 			const ended = new Promise<void>((resolve) => {
 				stop = onEukheFrames(conversation, (frame) => {
+					// The session is gone (Local Studio restarted, the host was respawned): the next turn makes a new one.
+					if (frame.type === "session_closed") sessions.delete(conversation);
+					if (frame.type === "session_event") {
+						if (!prompted) return;
+						if (!started) {
+							if ((frame.event as { type?: string } | undefined)?.type !== "agent_start") return;
+							started = true;
+						}
+					}
 					turn.take(frame);
 					if (turn.ended) resolve();
 				});
 			});
-			const { session, fresh } = await chatSession(conversation, model.id);
+			if (options?.signal?.aborted) {
+				turn.finish(true);
+				return;
+			}
+			let session = (await chatSession(conversation, model.id)).session;
 			if (turn.ended) return;
 			const abort = () => {
 				turn.aborting = true;
@@ -195,17 +221,28 @@ export function streamLocalStudio(
 				);
 				setTimeout(() => turn.finish(true), ABORT_WAIT_MS);
 			};
-			if (options?.signal?.aborted) {
-				turn.finish(true);
-				return;
-			}
 			options?.signal?.addEventListener("abort", abort, { once: true });
 			stream.push({ type: "start", partial: turn.output });
-			await eukheRequest("command", conversation, {
-				type: "prompt",
-				activeSessionId: session.id,
-				message: turnPrompt(context, fresh),
-			});
+			const prompt = async (retry: boolean): Promise<void> => {
+				const { session: current, fresh } = await chatSession(conversation, model.id);
+				session = current;
+				prompted = true;
+				try {
+					await eukheRequest("command", conversation, {
+						type: "prompt",
+						activeSessionId: current.id,
+						message: turnPrompt(context, fresh),
+					});
+				} catch (err) {
+					// A session from an earlier turn may be gone with its daemon connection: once, start over in a new one,
+					// which gets the chat's earlier turns.
+					if (fresh || !retry || turn.ended) throw err;
+					sessions.delete(conversation);
+					prompted = false;
+					await prompt(false);
+				}
+			};
+			await prompt(true);
 			await ended;
 			options?.signal?.removeEventListener("abort", abort);
 			if (options?.signal?.aborted && turn.output.stopReason !== "aborted") turn.output.stopReason = "aborted";

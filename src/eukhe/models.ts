@@ -112,7 +112,8 @@ export function panelModels(models: readonly EukheModel[]): Model<Api>[] {
 			provider: LOCAL_STUDIO_PROVIDER,
 			baseUrl: m.baseUrl || "http://127.0.0.1",
 			reasoning: Boolean(m.reasoning),
-			input: m.input?.includes("image") ? ["text", "image"] : ["text"],
+			// Text only: a turn sends Eukhe text (turnPrompt), so the composer must not take an image it would drop.
+			input: ["text"],
 			cost: NO_COST,
 			contextWindow: m.contextWindow || 32768,
 			maxTokens: m.maxTokens || 8192,
