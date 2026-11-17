@@ -617,3 +617,20 @@ test("sol-F3 (round 2): when agent-aliases.json can't be written, the moved alia
 		assert.equal(m.liveAlias("claude"), undefined);
 	});
 });
+
+test("sol-F2 (round 2): setup --agents --finish --dry-run writes nothing, even for an alias whose file is gone", () => {
+	inHome("finish-dry", (home) => {
+		const record = recordAlias(home, ["cursor", join(home, ".cursor", "mcp.json"), "polycarp"]);
+		const text = readFileSync(record, "utf8");
+		const env = { HOME: home, PATH: join(home, "no-bin"), TYCHICUS_CONFIG_DIR: process.env.TYCHICUS_CONFIG_DIR, TABKYRA_NO_UPDATE_CHECK: "1", NO_COLOR: "1" };
+		const run = (...args) => spawnSync(process.execPath, [cli, "setup", "--agents", "--finish", ...args], { encoding: "utf8", env, input: "", timeout: 60000 });
+		const dry = run("--dry-run");
+		assert.equal(dry.status, 0, dry.stdout + dry.stderr);
+		assert.equal(existsSync(record) && readFileSync(record, "utf8"), text, "the dry run leaves agent-aliases.json byte for byte");
+		assert.match(dry.stdout, /Dry run: nothing was written/);
+		// The real run takes the gone file's alias off the list.
+		const real = run("--yes");
+		assert.equal(real.status, 0, real.stdout + real.stderr);
+		assert.equal(existsSync(record), false);
+	});
+});

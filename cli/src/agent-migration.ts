@@ -674,7 +674,10 @@ function planFinishText(plan: FilePlan, text: string): void {
 /** Read the file into the plan and fill it in, or refuse it when it can't be read. */
 function planFile(plan: FilePlan): FilePlan {
 	if (!existsSync(plan.file)) {
-		if (plan.kind === "finish") plan.forget = [...plan.aliases];
+		if (plan.kind === "finish" && plan.aliases.length > 0) {
+			plan.forget = [...plan.aliases];
+			plan.notes.push(`the file is gone, so ${plan.aliases.map((a) => `"${a}"`).join(", ")} ${plan.aliases.length === 1 ? "leaves" : "leave"} the list of aliases.`);
+		}
 		return plan;
 	}
 	let text: string;

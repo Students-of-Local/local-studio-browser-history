@@ -244,7 +244,7 @@ async function runAgentPlans(kind: "move" | "finish", options: Pick<SetupOptions
 	const shown = plans.filter((p) => p.status === "change" || p.status === "refused" || p.leftAlone.length + p.projects.length + p.notes.length > 0);
 	if (shown.length === 0) {
 		console.log(`  ${sym.ok} ${kind === "move" ? "No agent runs Polycarp's browser MCP server; nothing to move." : "No temporary aliases are left; nothing to finish."}`);
-		if (kind === "finish") applyAndWarn(plans);
+		if (kind === "finish" && !options.dryRun) applyAndWarn(plans);
 		return true;
 	}
 	for (const plan of shown) printPlan(plan, binary);
