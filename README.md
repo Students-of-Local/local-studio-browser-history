@@ -8,13 +8,40 @@ and an MCP server. Claude Code, Codex, pi or any MCP client drives your real bro
 in background tabs of its own, while you keep working. The computer-use tools reach desktop apps
 through a platform driver.
 
-Tychicus is becoming a Local Studio plugin. In that design the extension talks to the Eukhe
-daemon over Chrome native messaging, and the daemon runs agents on the subscriptions you already
-have (Claude, ChatGPT and others) without the extension holding any API key. That work has not
-landed yet; today the extension and CLI work as they did in Polycarp.
+Tychicus is becoming a Local Studio plugin. The side panel already chats through Local Studio's
+Eukhe daemon when it runs, on your local models and the subscriptions you signed in to there,
+without the extension holding any API key (see below). The rest of the CLI and the outside-agent
+tools work as they did in Polycarp.
 
 The name is Tychicus, Paul's courier in the New Testament (Ephesians 6:21-22, Colossians 4:7-8):
 the one who carries messages and does the errands.
+
+## How the panel reaches models
+
+When Local Studio runs, the side panel's default provider is **Local Studio**, and the first run
+asks for no key. The panel sends each chat to the `tychicus` native host over Chrome native
+messaging; the host passes it to Local Studio's Eukhe daemon on its local socket, and each panel
+chat becomes a Eukhe session of its own. The daemon runs the model and streams the answer and its
+tool steps back to the panel. Stop sends Abort to that session.
+
+- **No keys in the extension.** The extension never sees a key or a sign-in token. Local models
+  need none; subscriptions are signed in inside Local Studio, with `eukhe` and its `/login`
+  command (ChatGPT, Claude, Copilot and others). The model picker lists local models first, then
+  the signed-in subscriptions, each labeled.
+- **The browser tools come back through the plugin.** `tychicus install --local-studio` gives
+  Eukhe the `tychicus` tool server, so the session reads and acts on your tabs with the small tool
+  list.
+- **A page can't make a panel chat change your files.** Each panel session works in an empty
+  private folder, and only reads there run unasked (Eukhe's `shell.autoEffects`, for that session
+  alone); the panel says no to every command and write. If Local Studio won't take the limit, the
+  chat does not start.
+- **Only this extension.** The host answers only the pinned Tychicus extension ID and exits for
+  any other caller before it reads a message.
+- **When Local Studio is not running**, a chat on it says so and how to fix it (start Local
+  Studio, or run `eukhe` in a terminal) within a few seconds, instead of waiting. Local Studio
+  chats are not on Windows yet.
+- **API keys are still there.** On the first run, "Use an API key instead" opens the provider
+  keys, and every key provider stays in the model picker.
 
 ## Provider terms
 
