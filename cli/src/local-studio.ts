@@ -12,7 +12,7 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameS
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { cliLauncherPath, ensureLauncherIsSelf } from "./install.ts";
-import { COMPILED, selfExec } from "./self.ts";
+import { COMPILED, selfExec, stableReleaseProgram } from "./self.ts";
 import browserPrompt from "../../plugins/tychicus-browser/prompts/page-text.md";
 import browserToml from "../../plugins/tychicus-browser/plugin.toml";
 import browserSkill from "../../plugins/tychicus-browser/skills/tychicus-browser/SKILL.md";
@@ -57,11 +57,12 @@ export function mcpEntry(command: string): { type: "stdio"; command: string; arg
 }
 
 /**
- * What Eukhe runs: a release's program itself, else the agent launcher, which pins Node by path so a GUI-started
- * daemon needs no node on PATH. A dry run writes no launcher.
+ * What Eukhe runs: a release's program through the `release` pointer, so the entry outlives the version folder it
+ * was written from, else the agent launcher, which pins Node by path so a GUI-started daemon needs no node on PATH.
+ * A dry run writes no launcher.
  */
 export function localStudioCommand(dryRun = false): string {
-	if (COMPILED) return selfExec();
+	if (COMPILED) return stableReleaseProgram(selfExec());
 	if (!dryRun) ensureLauncherIsSelf();
 	return cliLauncherPath();
 }

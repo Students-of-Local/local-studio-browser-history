@@ -310,12 +310,14 @@ jobs:
           node --import tsx --test test/*.test.mjs
           (cd cli && npx tsc --noEmit && npm test)
 
-      - name: The tychicus command and its old alias answer
+      - name: The tychicus command answers and no polycarp-browser command is installed
         working-directory: cli
         run: |
           npm link
           tychicus --help > /dev/null
-          polycarp-browser --help > /dev/null
+          if command -v polycarp-browser && [ "$(readlink -f "$(command -v polycarp-browser)")" = "$(readlink -f "$(command -v tychicus)")" ]; then
+            echo "npm link installed polycarp-browser as Tychicus" >&2; exit 1
+          fi
 
   # The CLI's Windows code paths: the native host registry keys, the Windows service, paths and the hub.
   cli-windows:

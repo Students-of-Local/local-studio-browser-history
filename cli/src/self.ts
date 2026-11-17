@@ -19,6 +19,18 @@ export const COMPILED: boolean = typeof __POLYCARP_COMPILED__ !== "undefined" &&
  */
 export const RELEASE_BUILD: boolean = COMPILED && /^tychicus(\.exe)?$/i.test(basename(process.execPath));
 
+/**
+ * The path a long-lived entry (Eukhe's mcpServers) should name for `program`. A release runs from
+ * <base>/versions/<version>-<sha>/, and a later `install --release` removes that folder once nothing runs from it, so
+ * a program there is named through <base>/release, the pointer every install moves to the newest version. Any other
+ * path is returned as is.
+ */
+export function stableReleaseProgram(program: string): string {
+	const versions = dirname(dirname(program));
+	if (basename(versions) !== "versions") return program;
+	return join(dirname(versions), "release", basename(program));
+}
+
 /** The file a launcher or manifest must run: the helper itself when compiled, else Node. */
 export function selfExec(): string {
 	return process.execPath;

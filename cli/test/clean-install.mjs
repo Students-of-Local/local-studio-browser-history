@@ -141,7 +141,7 @@ try {
 	log(`step 2 (${command}): exit ${step2.status}, ${Date.now() - started} ms`);
 	assert.equal(step2.status, 0, `${step2.stdout}${step2.stderr}`);
 	const root = installed(u.home);
-	const extension = join(root, "extension");
+	const extension = join(dirname(root), "extension"); // the fixed folder next to release/, which outlives each version
 	assert.ok(step2.stdout.includes(extension), `the installer did not print the folder to load (${extension}):\n${step2.stdout}`);
 	const manifest = JSON.parse(readFileSync(hostManifest(u.home), "utf8"));
 	assert.deepEqual(manifest.allowed_origins, [`chrome-extension://${extensionId.id}/`]);
