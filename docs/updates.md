@@ -5,20 +5,26 @@ Tychicus updates from the side panel. The native host checks once a day; the pan
 itself once no agent is running. Settings > About (Updates) shows what runs and offers Check now,
 Update now and Roll back. `tychicus update` does the release install from a terminal.
 
-**Inside Tychicus, use `polycarp update`.** It updates the helper and the extension together with the app, the
-commands and the skill, from a clean copy of `origin/main`, and `polycarp version` shows whether they match
-([Updating](../../README.md#updating) in the main README). This page describes the browser part's own updater, which
-the standalone browser uses. The helper inside Polycarp.app has no updater of its own (`tychicus update` there
-says to run `polycarp update`). On Linux `polycarp update` copies the helper and the extension out of its clean copy
-to `~/.local/share/tychicus/source`, which is not a git checkout, so the side panel's Update now refuses there
-(the Unmanaged row below) and `polycarp update` is the way. On Windows `polycarp update` is not supported yet.
+**A release install.** `tychicus install --release .`, run in a downloaded release folder (what the setup prompt
+does), unpacks each version into a folder of its own under `~/.local/share/tychicus/versions/`
+(`%LOCALAPPDATA%\Tychicus\versions\` on Windows), named `<version>-<first 12 hex of the archive's SHA-256>`. The
+`release` pointer beside it (a symlink, a junction on Windows) names the current one, and
+`~/.local/share/tychicus/release/tychicus` is the program. The extension is copied to one fixed folder,
+`~/.local/share/tychicus/extension`, so the browser keeps loading it from the same place. To upgrade, download the
+newer release and run its `tychicus install --release .` the same way: the pointer moves only after the new version
+registers itself, and an old version is removed once no program runs from it. The side panel's Update now doesn't
+upgrade a release install yet: the updater below still reads the archived Tabkyra releases (issue #13).
+
+**Beside the Polycarp app.** Polycarp keeps its own copy of the helper and the extension and updates them with
+`polycarp update`, with the rest of Polycarp. On Linux it copies them to `~/.local/share/polycarp/browser/source`.
+That copy is Polycarp's, not Tychicus's, and nothing here changes it.
 
 What "update" does depends on how Tychicus runs (the install mode):
 
 | Mode | When | Update now does | Roll back does |
 | --- | --- | --- | --- |
 | **Release** | the native host runs from `~/.local/share/tychicus/app` | downloads the newest signed GitHub release, verifies it ([checks](#what-an-update-checks-before-it-touches-a-file)) and unpacks it to `staged/`; once idle, swaps it in | swaps back to the release before it |
-| **Checkout** | the native host runs from a git checkout of Tychicus that is on main (a standalone browser checkout; a full Tychicus install uses `polycarp update` instead) | `git fetch`, `git pull --ff-only` on main, `./scripts/setup-siblings.sh`, builds the extension and the CLI into `.tabkyra-update/next/`; once idle, swaps them in | swaps back to the build before it (the git checkout stays where it is) |
+| **Checkout** | the native host runs from a git checkout of Tychicus that is on main (a checkout of baney75/tychicus) | `git fetch`, `git pull --ff-only` on main, `./scripts/setup-siblings.sh`, builds the extension and the CLI into `.tabkyra-update/next/`; once idle, swaps them in | swaps back to the build before it (the git checkout stays where it is) |
 | Unmanaged | anything else (an npm install, a copied folder) | refuses: run `tychicus update` in a terminal | |
 
 ## The side panel
@@ -91,9 +97,8 @@ What "update" does depends on how Tychicus runs (the install mode):
 
 ### Checkout mode
 
-This mode updates the browser part alone, in the checkout it runs from. It does not touch the app, the `polycarp`
-command or the spaces command, so in a full Polycarp install the parts would stop matching: there, run
-`polycarp update`, which never builds in your working checkout.
+This mode updates a checkout of baney75/tychicus in place: the one the native host runs from. A copy of the helper
+inside the Polycarp app is not a checkout and is left to `polycarp update`.
 
 The checkout is the folder the native host runs from (its `cli/dist/index.js`). The host
 compares the `build-info.json` the browser serves from the extension folder with the one in
@@ -114,7 +119,7 @@ so `cli/dist/index.js`, which the native host's launcher runs, is never missing.
 and Roll back write a journal (`.tabkyra-update/journal.json`) and keep every source whole
 until they commit, so a crash at any point is finished or undone by the next updater, the
 next native host start, or `tychicus doctor`, `status`, `setup` or `update` in a terminal (`status --json`
-only reads, on every system: it is what `polycarp version` asks, so it repairs nothing). The builds they replace go to `.tabkyra-update/previous/` for Roll
+only reads, on every system, so it repairs nothing). The builds they replace go to `.tabkyra-update/previous/` for Roll
 back. If `npm install` in `setup-siblings.sh` rewrote a `package-lock.json`, the updater puts
 it back as committed (any other changed tracked file stops the update), so the next update
 isn't refused for local changes. `setup-siblings.sh` fetches a pinned sibling revision the
