@@ -513,25 +513,18 @@ window in front. Protocol and design notes are in
 
 ## Updating
 
-Inside the Polycarp app, one command updates the helper and the extension with every other part:
+A release install upgrades the way it installed: download the newer release from
+[the releases page](https://github.com/baney75/tychicus/releases) and run its `tychicus install --release .`
+in that folder. Each version gets its own folder under `~/.local/share/tychicus/versions/`, the `release` pointer moves
+to the new one only after it registers itself, and the browser keeps loading the extension from
+`~/.local/share/tychicus/extension`. An old version is removed once nothing runs from it.
 
-```bash
-polycarp update
-```
+`tychicus update` and the side panel's Update now still read the archived Tabkyra releases (issue #13), so they don't
+upgrade a release install yet. In a checkout of baney75/tychicus, `tychicus update` pulls main and rebuilds. Details
+are in [docs/updates.md](docs/updates.md).
 
-It builds from a clean copy of `origin/main`, never from the checkout you work in, and reloads the extension when no
-agent is working. On a Mac the helper and the extension are inside Polycarp.app. On Linux they are copied to
-`~/.local/share/tychicus/source` (load the extension from its `dist-chrome` folder), and
-`~/.local/bin/polycarp-browser` points there, so nothing runs from the cache. On Windows `polycarp update` is not
-supported yet. [Updating](../README.md#updating) in the main README has the details, and `polycarp version` shows
-whether the helper and each browser's extension match the rest. A browser that is connected but does not answer in
-time is listed as "no answer in time", not as a mismatch.
-
-`tychicus update` is the standalone browser's own updater. It installs signed GitHub releases: it verifies a
-minisign signature and a checksum, swaps the release in, keeps the previous one for
-`tychicus update --rollback`, and changes nothing if any check fails. No signed release has been published
-yet, so for now it has nothing to install. The helper inside Polycarp.app has nothing of its own to update and says
-to run `polycarp update`. Details are in [docs/updates.md](docs/updates.md).
+The Polycarp app keeps its own copy of the helper and the extension and updates them with `polycarp update`. On Linux
+that copy is in `~/.local/share/polycarp/browser/source`; it is Polycarp's, and nothing here changes it.
 
 ## Documentation
 
