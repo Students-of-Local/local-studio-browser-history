@@ -121,7 +121,8 @@ function palette(raw: unknown): Palette | undefined {
 /** The result of reading theme.json: the theme, or the one-line reason it was refused. */
 export type PolycarpResult = { theme: PolycarpTheme } | { reason: string };
 
-const REFUSED_SHAPE = "it is not a valid theme.json for Polycarp (schema, name, mode, colors, shape, type or motion)";
+const REFUSED_SHAPE =
+	"it is not a valid theme.json for the Polycarp app (schema, name, mode, colors, shape, type or motion)";
 const TEXT_MIN = 4.5;
 const SHAPE_MIN = 3;
 

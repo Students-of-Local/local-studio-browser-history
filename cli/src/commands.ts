@@ -109,7 +109,7 @@ export const COMMANDS: CommandSpec[] = [
 			{ name: "status", what: "Is the SDK installed?" },
 		],
 	},
-	{ name: "pi-extension", positional: 1, paths: true, args: "[dir]", what: "Write a pi extension to ~/.pi/agent/extensions/polycarp.ts", group: "Agents" },
+	{ name: "pi-extension", positional: 1, paths: true, args: "[dir]", what: "Write a pi extension to ~/.pi/agent/extensions/tychicus.ts", group: "Agents" },
 	{
 		name: "skill",
 		selfParsed: true,
@@ -288,7 +288,7 @@ export const COMMANDS: CommandSpec[] = [
 	{ name: "ask", what: "Agents ask before opening a site not yet allowed (default)", group: "Sites" },
 	{ name: "allow-all", what: "Agents may open any site without asking", group: "Sites" },
 	{ name: "yolo", what: "Old name of allow-all", group: "Sites", hidden: true },
-	{ name: "claude-allow", positional: 1, args: "on|off|status", what: "Claude Code uses Polycarp's tools without asking", group: "Sites" },
+	{ name: "claude-allow", positional: 1, args: "on|off|status", what: "Claude Code uses Tychicus's tools without asking", group: "Sites" },
 	{ name: "doctor", what: "Check everything; one fix per problem", group: "Troubleshoot", flags: ["--json"] },
 	{
 		name: "update",
@@ -409,9 +409,9 @@ export function completionScript(shell: string): string | undefined {
 	const pathFlags = [...PATH_VALUES].map(sh).join(" ");
 	if (shell === "zsh") {
 		const lines = [
-			"#compdef polycarp-browser tabkyra",
-			`# completion for ${COMMAND_NAME} and the tabkyra alias (zsh). Load it with: eval "$(${COMMAND_NAME} completion zsh)"`, // product-name allowlist: the alias is still completed
-			"_tabkyra() {",
+			"#compdef tychicus",
+			`# completion for tychicus (zsh). Load it with: eval "$(${COMMAND_NAME} completion zsh)"`,
+			"_tychicus() {",
 			"  local -a commands subs flags",
 			"  local paths=0",
 			"  commands=(",
@@ -454,14 +454,14 @@ export function completionScript(shell: string): string | undefined {
 			"# compdef exists once compinit has run. If the zshrc runs it later (oh-my-zsh, zinit,",
 			"# prezto), register at the first prompt instead of running compinit a second time.",
 			"if (( $+functions[compdef] )); then",
-			"  compdef _tabkyra polycarp-browser tabkyra",
+			"  compdef _tychicus tychicus",
 			"else",
 			"  autoload -Uz add-zsh-hook",
-			"  _tabkyra_register() {",
-			"    (( $+functions[compdef] )) && compdef _tabkyra polycarp-browser tabkyra",
-			"    add-zsh-hook -d precmd _tabkyra_register",
+			"  _tychicus_register() {",
+			"    (( $+functions[compdef] )) && compdef _tychicus tychicus",
+			"    add-zsh-hook -d precmd _tychicus_register",
 			"  }",
-			"  add-zsh-hook precmd _tabkyra_register",
+			"  add-zsh-hook precmd _tychicus_register",
 			"fi",
 			"",
 		);
@@ -476,8 +476,8 @@ export function completionScript(shell: string): string | undefined {
 				return `    ${sh(f)}) ${values ? `COMPREPLY=( $(compgen -W "${values}" -- "$cur") ); ` : ""}compopt +o default 2>/dev/null; return ;;`;
 			});
 		const lines = [
-			`# completion for ${COMMAND_NAME} and the tabkyra alias (bash). Load it with: eval "$(${COMMAND_NAME} completion bash)"`, // product-name allowlist: the alias is still completed
-			"_tabkyra() {",
+			`# completion for tychicus (bash). Load it with: eval "$(${COMMAND_NAME} completion bash)"`,
+			"_tychicus() {",
 			'  local cur="${COMP_WORDS[COMP_CWORD]}" prev="${COMP_WORDS[COMP_CWORD-1]}" paths=0',
 			"  COMPREPLY=()",
 			'  if [ "$COMP_CWORD" -eq 1 ]; then',
@@ -516,34 +516,32 @@ export function completionScript(shell: string): string | undefined {
 			"  # File names only where the command takes a path (compopt needs bash 4; older bash keeps them).",
 			'  [ "$paths" = 1 ] || compopt +o default 2>/dev/null',
 			"}",
-			"complete -o bashdefault -o default -F _tabkyra polycarp-browser tabkyra",
+			"complete -o bashdefault -o default -F _tychicus tychicus",
 			"",
 		);
 		return lines.join("\n");
 	}
 	if (shell === "fish") {
-		const lines = [`# completion for ${COMMAND_NAME} and the tabkyra alias (fish). Load it with: ${COMMAND_NAME} completion fish | source`]; // product-name allowlist: the alias is still completed
-		for (const c of cmds) lines.push(`complete -c tabkyra -n __fish_use_subcommand -f -a ${sh(c.name)} -d '${desc(c.summary ?? c.what)}'`);
+		const lines = [`# completion for tychicus (fish). Load it with: ${COMMAND_NAME} completion fish | source`];
+		for (const c of cmds) lines.push(`complete -c tychicus -n __fish_use_subcommand -f -a ${sh(c.name)} -d '${desc(c.summary ?? c.what)}'`);
 		for (const c of cmds) {
 			const subs = c.subcommands ?? [];
 			const names = subs.map((s) => sh(s.name)).join(" ");
 			for (const s of subs) {
-				lines.push(`complete -c tabkyra -n '__fish_seen_subcommand_from ${sh(c.name)}; and not __fish_seen_subcommand_from ${names}' -f -a ${sh(s.name)} -d '${desc(s.what)}'`);
+				lines.push(`complete -c tychicus -n '__fish_seen_subcommand_from ${sh(c.name)}; and not __fish_seen_subcommand_from ${names}' -f -a ${sh(s.name)} -d '${desc(s.what)}'`);
 				for (const f of s.flags ?? [])
 					lines.push(
-						`complete -c tabkyra -n '__fish_seen_subcommand_from ${sh(c.name)}; and __fish_seen_subcommand_from ${sh(s.name)}' -l ${sh(f.replace(/^--/, ""))}${VALUE_FLAGS.has(f) ? (PATH_VALUES.has(f) ? " -r -F" : " -r") : ""}`,
+						`complete -c tychicus -n '__fish_seen_subcommand_from ${sh(c.name)}; and __fish_seen_subcommand_from ${sh(s.name)}' -l ${sh(f.replace(/^--/, ""))}${VALUE_FLAGS.has(f) ? (PATH_VALUES.has(f) ? " -r -F" : " -r") : ""}`,
 					);
 			}
 			for (const s of subs)
-				if (!s.paths) lines.push(`complete -c tabkyra -n '__fish_seen_subcommand_from ${sh(c.name)}; and __fish_seen_subcommand_from ${sh(s.name)}' -f`);
+				if (!s.paths) lines.push(`complete -c tychicus -n '__fish_seen_subcommand_from ${sh(c.name)}; and __fish_seen_subcommand_from ${sh(s.name)}' -f`);
 			// No file names where a command takes none.
-			if (!subs.length && !c.paths) lines.push(`complete -c tabkyra -n '__fish_seen_subcommand_from ${sh(c.name)}' -f`);
-			for (const v of c.values ?? []) lines.push(`complete -c tabkyra -n '__fish_seen_subcommand_from ${sh(c.name)}' -f -a ${sh(v)}`);
+			if (!subs.length && !c.paths) lines.push(`complete -c tychicus -n '__fish_seen_subcommand_from ${sh(c.name)}' -f`);
+			for (const v of c.values ?? []) lines.push(`complete -c tychicus -n '__fish_seen_subcommand_from ${sh(c.name)}' -f -a ${sh(v)}`);
 			for (const f of c.flags ?? [])
-				lines.push(`complete -c tabkyra -n '__fish_seen_subcommand_from ${sh(c.name)}' -l ${sh(f.replace(/^--/, ""))}${VALUE_FLAGS.has(f) ? " -r" : ""}`);
+				lines.push(`complete -c tychicus -n '__fish_seen_subcommand_from ${sh(c.name)}' -l ${sh(f.replace(/^--/, ""))}${VALUE_FLAGS.has(f) ? " -r" : ""}`);
 		}
-		// The same rules for the name a person types now; the alias above stays completed.
-		lines.push(...lines.slice(1).map((l) => l.replace("complete -c tabkyra ", "complete -c polycarp-browser ")));
 		lines.push("");
 		return lines.join("\n");
 	}

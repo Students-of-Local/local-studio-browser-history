@@ -44,7 +44,7 @@ export const REQUEST_TIMEOUT_MS = 20_000;
 export const JOIN_TIMEOUT_MS = 30_000;
 /** setupTunnel waits on the person's Cloudflare sign-in (5 minutes) and then DNS (about 1 minute). */
 export const SETUP_TIMEOUT_MS = 7 * 60_000;
-export const noReplyMessage = (): string => `Polycarp's helper didn't answer. Update it: ${hostCommandText("update")}`;
+export const noReplyMessage = (): string => `Tychicus's helper didn't answer. Update it: ${hostCommandText("update")}`;
 
 let port: chrome.runtime.Port | undefined;
 let seq = 0;
@@ -74,7 +74,7 @@ function connect(): chrome.runtime.Port {
 		if (port === next) port = undefined;
 		for (const w of waiters.values()) {
 			clearTimeout(w.timer);
-			w.reject(new ConnectRequestError("no_host", "Lost the connection to Polycarp's background worker."));
+			w.reject(new ConnectRequestError("no_host", "Lost the connection to Tychicus's background worker."));
 		}
 		waiters.clear();
 	});
@@ -82,7 +82,7 @@ function connect(): chrome.runtime.Port {
 	return next;
 }
 
-export const NO_GESTURE_MESSAGE = "Click the button in the Polycarp side panel to do that.";
+export const NO_GESTURE_MESSAGE = "Click the button in the Tychicus side panel to do that.";
 
 /**
  * A one-use token minted only while the browser counts the click as live (about five seconds). It
@@ -150,7 +150,7 @@ export const connectJoinHub = (
 export const connectSetupTunnel = (host: string, onProgress: (progress: Record<string, unknown>) => void) =>
 	request<TunnelResult>("setupTunnel", { host }, onProgress);
 /**
- * "Use Polycarp from Claude, ChatGPT and Grok" (remote-flow.ts). Each takes no parameters: the host decides every command
+ * "Use Tychicus from Claude, ChatGPT and Grok" (remote-flow.ts). Each takes no parameters: the host decides every command
  * line itself, so nothing the page holds reaches one. Long ones send a keep-alive frame every 10 seconds, which rearms the wait.
  */
 export const connectRemoteState = () => request<RemoteAnswer>("remoteState");

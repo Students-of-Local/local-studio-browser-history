@@ -91,7 +91,7 @@ export interface TunnelTimings {
  */
 export async function setupTunnel(host: string, progress: (p: TunnelProgress) => void, hooks: TunnelHooks = realTunnelHooks, timings: TunnelTimings = {}): Promise<{ publicUrl: string; checks?: SetupReport["checks"]; problem?: SetupReport }> {
 	const name = normalizeCloudflareHost(host);
-	if (!name) throw new TunnelError("cloudflared", `${host} isn't a name a tunnel can have. Use one like polycarp.yourdomain.com.`);
+	if (!name) throw new TunnelError("cloudflared", `${host} isn't a name a tunnel can have. Use one like tychicus.yourdomain.com.`);
 	const publicUrl = `https://${name}`;
 	/** `refused` names an answer that stops the setup without an error: the step shows failed with those words. */
 	const run = async <T>(step: TunnelStep, work: () => Promise<T>, refused?: (out: T) => string | undefined): Promise<T> => {

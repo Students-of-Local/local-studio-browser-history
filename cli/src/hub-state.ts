@@ -30,7 +30,7 @@ export function loadHubConfig(): HubConfig | undefined {
 	} catch {
 		throw new Error(`${hubFile()} isn't valid JSON. Run ${COMMAND_NAME} hub off to remove it, then ${COMMAND_NAME} hub setup again.`);
 	}
-	if (!raw || typeof raw !== "object") throw new Error(`${hubFile()} isn't a Polycarp hub file.`);
+	if (!raw || typeof raw !== "object") throw new Error(`${hubFile()} isn't a Tychicus hub file.`);
 	if (typeof raw.publicUrl !== "string" || !raw.publicUrl) throw new Error(`${hubFile()}: publicUrl is missing.`);
 	if (typeof raw.port !== "number" || !Number.isInteger(raw.port) || raw.port < 0 || raw.port > 65535) throw new Error(`${hubFile()}: port must be a port number.`);
 	return { publicUrl: raw.publicUrl, port: raw.port };

@@ -57,8 +57,9 @@ export function bundledExtensionDir(): string | undefined {
 const INVOKED = basename(process.argv[1] ?? "").replace(/\.(?:js|cmd|exe)$/, "");
 
 /**
- * The command a person types for this program: `tychicus`, or the alias it was started as (`polycarp-browser`),
- * `polycarp browser` inside the Polycarp app. A plain `node dist/index.js` keeps the old name until the fleet moves over.
+ * The command a person types for this program: `tychicus`, or the old alias it was started as (`polycarp-browser`, from a
+ * checkout linked before the rename), and `polycarp browser` when this code is built into the Polycarp app's helper. A
+ * plain `node dist/index.js` says `tychicus`, the name `npm link` and a release give it.
  */
 export const COMMAND_NAME: string = COMPILED
 	? RELEASE_BUILD
@@ -70,11 +71,11 @@ export const COMMAND_NAME: string = COMPILED
 			? "tychicus"
 			: !linkedAs("polycarp-browser") && linkedAs("tabkyra")
 				? "tabkyra"
-				: "polycarp-browser";
+				: "tychicus";
 
 /**
  * The MCP server's name when `mcp --name` is not given: `tychicus`, and `polycarp` under an old command name, so
- * configs written for Polycarp keep seeing the server they know.
+ * configs written before the rename keep seeing the server they know.
  */
 export const DEFAULT_MCP_NAME: string = COMMAND_NAME === "tychicus" ? "tychicus" : "polycarp";
 

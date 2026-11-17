@@ -252,9 +252,9 @@ export function restHint(toolName: string | undefined, kept = ""): string {
 		case "user":
 			return "Ask the person for the part that matters, or to attach long text as a file.";
 		case "note":
-			return "This was Polycarp's note on the page; read_page or get_page_text reads the page again.";
+			return "This was Tychicus's note on the page; read_page or get_page_text reads the page again.";
 		case "notes":
-			return "Polycarp's working notes were cut here to fit.";
+			return "Tychicus's working notes were cut here to fit.";
 		case "said":
 			return "The person's earlier messages were cut here to fit; ask the person if you need what they said.";
 		default:
@@ -274,7 +274,7 @@ export function capText(
 ): string {
 	if (text.length <= maxChars) return text;
 	const say = (kept: string) =>
-		`\n\n[Polycarp cut this here to fit the model's context: ${fmt(text.length - kept.length)} of ${fmt(text.length)} characters after this point were not sent. ${typeof hint === "function" ? hint(kept) : hint}]`;
+		`\n\n[Tychicus cut this here to fit the model's context: ${fmt(text.length - kept.length)} of ${fmt(text.length)} characters after this point were not sent. ${typeof hint === "function" ? hint(kept) : hint}]`;
 	// The note's own length depends on what is kept, so measure it at its widest first.
 	const room = Math.max(0, maxChars - say(text.slice(0, maxChars)).length);
 	// Never between the two halves of a surrogate pair: a lone half is invalid Unicode some providers refuse.
@@ -390,7 +390,7 @@ function capParts(m: Message, kind: Kind, maxTokens: number): Message {
 	if (dropped)
 		out.push({
 			type: "text",
-			text: `[Polycarp left out ${dropped} more of the ${total} text parts here (${fmt(droppedChars)} characters) to fit the model's context. ${restHint(hintFor)}]`,
+			text: `[Tychicus left out ${dropped} more of the ${total} text parts here (${fmt(droppedChars)} characters) to fit the model's context. ${restHint(hintFor)}]`,
 		});
 	return { ...m, content: out } as Message;
 }
@@ -403,7 +403,7 @@ function withoutImages(m: Message): Message {
 		...m,
 		content: (content as Array<{ type: string }>).map((p) =>
 			p.type === "image"
-				? { type: "text" as const, text: "[Polycarp left out an image here to fit the model's context.]" }
+				? { type: "text" as const, text: "[Tychicus left out an image here to fit the model's context.]" }
 				: p,
 		),
 	} as Message;
@@ -429,7 +429,7 @@ function capAssistant(m: Message, maxTokens: number): Message {
 			return {
 				...p,
 				arguments: {
-					left_out: `Polycarp left out these arguments (${fmt(json.length)} characters) to fit the model's context.`,
+					left_out: `Tychicus left out these arguments (${fmt(json.length)} characters) to fit the model's context.`,
 				},
 			};
 		});
@@ -580,8 +580,8 @@ export function fitContext(context: Context, budget: Budget): Fitted {
 	};
 	const dropNote = (n: number) =>
 		head()
-			? `[Polycarp left out the ${n} messages after its notes on the earlier part of this chat, to fit the model's context.]`
-			: `[Polycarp left out the ${n} earliest messages of this chat to fit the model's context.]`;
+			? `[Tychicus left out the ${n} messages after its notes on the earlier part of this chat, to fit the model's context.]`
+			: `[Tychicus left out the ${n} earliest messages of this chat to fit the model's context.]`;
 	// The note saying so goes on the latest message, so its room is kept once anything is dropped.
 	const noteRoom = estimateTextTokens(dropNote(9_999_999)) + 8;
 	const overWithNote = () => total + (droppedEarlier ? noteRoom : 0) > budget.inputTokens;
@@ -693,17 +693,17 @@ export function isSizeRefusal(
 /** What the person reads when a size refusal survived the retry. */
 export function sizeRefusalMessage(info: { estimate: number; provider: string; detail?: string }): string {
 	const detail = info.detail ? ` (${info.provider} said: ${info.detail})` : "";
-	return `This chat is too long for the model${detail}. Polycarp cut older tool results to about ${fmt(info.estimate)} tokens and tried again, and it was still refused. Start a new chat, or pick a model with a larger context window, and ask for a smaller part (a page range or a search) of what you need.`;
+	return `This chat is too long for the model${detail}. Tychicus cut older tool results to about ${fmt(info.estimate)} tokens and tried again, and it was still refused. Start a new chat, or pick a model with a larger context window, and ask for a smaller part (a page range or a search) of what you need.`;
 }
 
 /** What the person reads when a bare 400 came back twice and nothing says it was about length. */
 export function unclearRefusalMessage(info: { estimate: number; first: string }): string {
-	return `The provider refused this request (${info.first.trim()}), and refused it again when Polycarp sent a shorter one of about ${fmt(info.estimate)} tokens, without saying why. It may not be the chat's length. Try again, or another model; if it keeps happening, start a new chat.`;
+	return `The provider refused this request (${info.first.trim()}), and refused it again when Tychicus sent a shorter one of about ${fmt(info.estimate)} tokens, without saying why. It may not be the chat's length. Try again, or another model; if it keeps happening, start a new chat.`;
 }
 
 /** What the person reads when the model's window can't hold Polycarp's instructions and tools at all. */
 export function windowTooSmallMessage(info: { fixed: number; windowSize: number; needed: number }): string {
-	return `This model's context window (${fmt(info.windowSize)} tokens) is too small for Polycarp's tools: its instructions and tools alone take about ${fmt(info.fixed)} tokens, and nothing was sent. Pick a model with a window of at least ${fmt(Math.ceil(info.needed / 1024) * 1024)} tokens.`;
+	return `This model's context window (${fmt(info.windowSize)} tokens) is too small for Tychicus's tools: its instructions and tools alone take about ${fmt(info.fixed)} tokens, and nothing was sent. Pick a model with a window of at least ${fmt(Math.ceil(info.needed / 1024) * 1024)} tokens.`;
 }
 
 /** What the person reads when even the latest message and its turn, cut to their least, don't fit. */

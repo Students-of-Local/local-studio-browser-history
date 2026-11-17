@@ -68,10 +68,11 @@ const tunnelNameFile = () => join(configDir(), "cloudflare-tunnel-name");
 export function cloudflareTunnelName(machine = hostname()): string {
 	if (existsSync(tunnelNameFile())) {
 		const saved = readFileSync(tunnelNameFile(), "utf8").trim();
-		if (/^polycarp-[a-z0-9-]{1,60}$/.test(saved)) return saved;
+		// A name saved before the rename starts polycarp-: the tunnel already exists under it, so it is kept.
+		if (/^(?:tychicus|polycarp)-[a-z0-9-]{1,60}$/.test(saved)) return saved;
 	}
 	const slug = machine.toLowerCase().replace(/\.local$/, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
-	const name = `polycarp-${slug || "mac"}-${randomBytes(2).toString("hex")}`;
+	const name = `tychicus-${slug || "mac"}-${randomBytes(2).toString("hex")}`;
 	writeAtomic(tunnelNameFile(), `${name}\n`, 0o600);
 	return name;
 }
@@ -118,7 +119,7 @@ export type LoginResult = { ok: true } | { ok: false; message: string };
  * with, so the person gets one tab, not two.
  */
 export async function cloudflareLoginForPanel(bin: string, onUrl: (url: string) => void, timeoutMs = LOGIN_TIMEOUT_MS, pollMs = 1000, settleMs = 15_000): Promise<LoginResult> {
-	const nothingToRun = mkdtempSync(join(tmpdir(), "polycarp-nopath-"));
+	const nothingToRun = mkdtempSync(join(tmpdir(), "tychicus-nopath-"));
 	let child: ReturnType<typeof spawn>;
 	try {
 		child = spawn(bin, ["tunnel", "login"], { stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, PATH: nothingToRun, BROWSER: "none" } });
@@ -288,7 +289,7 @@ export async function prepareCloudflare(bin: string, host: string, port: number)
 			ok: false,
 			code: "cloudflare_zone",
 			nameStep: true,
-			message: `Your Cloudflare sign-in is for a different domain, so Cloudflare made the DNS record ${added} instead of ${host}. Nothing else was set up. That record is the only change: delete it in the Cloudflare dashboard (DNS, Records) if you don't want it; Polycarp never deletes DNS records. Then use a name ending in .${added.startsWith(`${host}.`) ? added.slice(host.length + 1) : "the signed-in domain"}, or delete ${join(cloudflaredDir(), "cert.pem")} and sign in again choosing the domain for ${host}.`,
+			message: `Your Cloudflare sign-in is for a different domain, so Cloudflare made the DNS record ${added} instead of ${host}. Nothing else was set up. That record is the only change: delete it in the Cloudflare dashboard (DNS, Records) if you don't want it; Tychicus never deletes DNS records. Then use a name ending in .${added.startsWith(`${host}.`) ? added.slice(host.length + 1) : "the signed-in domain"}, or delete ${join(cloudflaredDir(), "cert.pem")} and sign in again choosing the domain for ${host}.`,
 		};
 	}
 	writeAtomic(

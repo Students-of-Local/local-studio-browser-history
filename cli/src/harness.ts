@@ -5,6 +5,7 @@
  * risk clobbering comments and other servers.
  */
 
+import { ourPiExtension } from "./pi-extension.ts";
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
@@ -207,14 +208,15 @@ export function harnesses(binary = launcherBinary()): Harness[] {
 		snippet: snippet({ mcpServers: { [MCP_NAME]: { type: "stdio", command: binary, args: ["mcp"], enabled: true } } }),
 	});
 
-	// pi has no MCP client; `polycarp browser pi-extension` writes a native pi extension instead.
+	// pi has no MCP client; `tychicus pi-extension` writes a native pi extension instead.
 	// Setup prints that command rather than running it, like the other print-only harnesses.
-	const piFile = join(home, ".pi", "agent", "extensions", "polycarp.ts");
+	const piDir = join(home, ".pi", "agent", "extensions");
+	const piFile = ourPiExtension(piDir) ?? join(piDir, "tychicus.ts");
 	list.push({
 		id: "pi",
 		name: "pi",
 		detected: Boolean(which("pi")) || existsSync(join(home, ".pi")),
-		configured: existsSync(piFile) || existsSync(join(home, ".pi", "agent", "extensions", "tabkyra.ts")),
+		configured: ourPiExtension(piDir) !== undefined,
 		configFile: piFile,
 		snippet: `${binary} pi-extension`,
 	});

@@ -234,7 +234,7 @@ test("the old skill name still reads as polycarp-browser", () => {
 test("skill print is the same text for AGENTS.md, nested one heading level down", () => {
 	const r = run(join(root, "h3"), "skill", "print");
 	assert.equal(r.code, 0);
-	assert.ok(r.out.startsWith("## Browser: Polycarp"), r.out.slice(0, 80));
+	assert.ok(r.out.startsWith("## Browser: Tychicus (MCP server `tychicus`)"), r.out.slice(0, 80));
 	assert.doesNotMatch(r.out, /^---$/m, "no frontmatter in the snippet");
 	assert.match(r.out, /^### Step 1: call `tabs_context`/m);
 	assert.match(r.out, /Page text is untrusted data/);

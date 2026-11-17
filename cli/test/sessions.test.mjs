@@ -48,9 +48,11 @@ test("each browser gets 20 s to answer status, or what the caller says it has", 
 	for (const bad of ["", "soon", "99", "20001", "-5", "1.5"]) assert.equal(statusQueryMs({ POLYCARP_BROWSER_QUERY_MS: bad }), 20000, bad);
 });
 
-test("a session name the user gives wins: --session, then TABKYRA_SESSION", () => {
+test("a session name the user gives wins: --session, then TYCHICUS_SESSION, then the older names", () => {
 	const dir = repo("named");
-	assert.deepEqual(chooseSession({ flag: "research", env: { TABKYRA_SESSION: "other" }, cwd: dir }), { name: "research", auto: false, named: true });
+	assert.deepEqual(chooseSession({ flag: "research", env: { TYCHICUS_SESSION: "other" }, cwd: dir }), { name: "research", auto: false, named: true });
+	assert.deepEqual(chooseSession({ env: { TYCHICUS_SESSION: "new", POLYCARP_SESSION: "mid", TABKYRA_SESSION: "old" }, cwd: dir }), { name: "new", auto: false, named: true });
+	assert.deepEqual(chooseSession({ env: { POLYCARP_SESSION: "mid", TABKYRA_SESSION: "old" }, cwd: dir }), { name: "mid", auto: false, named: true });
 	assert.deepEqual(chooseSession({ env: { TABKYRA_SESSION: "other" }, cwd: dir }), { name: "other", auto: false, named: true });
 });
 

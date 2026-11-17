@@ -66,16 +66,16 @@ export const SCOPES: Record<string, { tools: string[]; what: string }> = {
 	"computer.act": {
 		tools: COMPUTER_ACT_TOOLS,
 		// The app holds a connector to these windows whatever else is on (Hands router's cap, SECURITY.md).
-		what: "See those windows, click and type in them, and start apps from Polycarp's short list. Never your other windows, even with Full Access on",
+		what: "See those windows, click and type in them, and start apps from the short list in Polycarp's Mac app. Never your other windows, even with Full Access on",
 	},
 	"library.read": { tools: ["library_search", "library_cite"], what: "Search and cite the source library" },
 	"library.write": { tools: ["library_add"], what: "Add sources to the library (fetches from doi.org, OpenAlex, Crossref)" },
 	"threads.read": {
 		tools: ["threads_list", "thread_read", "thread_search"],
-		what: "Read your past Polycarp side panel chats (never private-mode ones)",
+		what: "Read your past Tychicus side panel chats (never private-mode ones)",
 	},
 	"skills.read": { tools: ["skill_match", "skill_read"], what: "Find the skill for a task and read the bundled skills (never your local edits)" },
-	"user.ask": { tools: ["ask_user"], what: "Ask the user multiple-choice questions in the Polycarp side panel and get their answers" },
+	"user.ask": { tools: ["ask_user"], what: "Ask the user multiple-choice questions in the Tychicus side panel and get their answers" },
 	"web.search": { tools: ["search"], what: "Search the web through the user's self-hosted SearXNG (SEARXNG_URL)" },
 	"web.scrape": {
 		tools: ["page_markdown", "map", "crawl"],

@@ -538,9 +538,9 @@ export function isManagedCopy(): boolean {
 
 function reloadHint(log: (line: string) => void): void {
 	log("");
-	log(`${sym.arrow} Reload Polycarp so the browser runs the new files: ${c.bold(`${COMMAND_NAME} reload`)}, or the reload button on chrome://extensions.`);
+	log(`${sym.arrow} Reload Tychicus so the browser runs the new files: ${c.bold(`${COMMAND_NAME} reload`)}, or the reload button on chrome://extensions.`);
 	if (!isManagedCopy()) {
-		log(`  ${c.dim("First release install: in chrome://extensions remove the old Polycarp, then Load unpacked:")}`);
+		log(`  ${c.dim("First release install: in chrome://extensions remove the old Tychicus, then Load unpacked:")}`);
 		log(`  ${join(appDir(), "dist-chrome")}`);
 	}
 }

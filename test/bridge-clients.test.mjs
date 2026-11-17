@@ -219,7 +219,7 @@ test("two agents in one project at once get separate sessions, titled with the a
 	const ctx = await request("c2", "tabs.context");
 	assert.deepEqual(ctx.result.tabs.map((x) => x.tabId), [two.result.tabId], "an agent saw another agent's tab");
 	assert.equal(ctx.result.session.name, "shop-1a2b-2");
-	assert.equal(ctx.result.session.group.title, "Polycarp · claude · shop 2");
+	assert.equal(ctx.result.session.group.title, "Tychicus · claude · shop 2");
 });
 
 test("a name the user chose is shared, not split", async () => {
@@ -329,7 +329,7 @@ test("the CLI's admin methods list, rename and end sessions without opening one 
 	assert.equal(port.sent.filter((m) => m.clientId === "cli" && m.error).length, 1, "only the bad rename failed");
 });
 
-test("polycarp browser sessions focus shows a tab that still exists, even when the current one is gone", async () => {
+test("tychicus sessions focus shows a tab that still exists, even when the current one is gone", async () => {
 	const { fake, request, settle, connect } = await startBridge();
 	connect("agent", "focus-1a2b", { auto: true, project: "focus" });
 	const first = (await request("agent", "tabs.create", {})).result.tabId;
@@ -369,7 +369,7 @@ test("a session id the user didn't choose (a remote session, an older CLI) stays
 	assert.equal(fake.table()["bridge-claude-6f1c2a9e-4b7d-4c1e-9a3f-1b2c3d4e5f60"].label, "claude");
 });
 
-test("polycarp browser status, which names no session, is answered without storing a session record", async () => {
+test("tychicus status, which names no session, is answered without storing a session record", async () => {
 	const { fake, port, request } = await startBridge();
 	// Settings > Agents lists every stored bridge session. A record kept for the length of this one-shot
 	// command showed there as one more agent for a moment and moved the Connect section down a row.

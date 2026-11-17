@@ -586,8 +586,8 @@ test("extension loads with the id the host manifest allows", async () => {
 	assert.ok(worker);
 });
 
-test("MCP server lists the browser tools under the polycarp name", async () => {
-	assert.equal(mcp.getServerVersion()?.name, "polycarp");
+test("MCP server lists the browser tools under the tychicus name", async () => {
+	assert.equal(mcp.getServerVersion()?.name, "tychicus");
 	const { tools } = await mcp.listTools();
 	const names = tools.map((t) => t.name);
 	for (const name of ["navigate", "read_page", "click", "type", "get_page_text"]) assert.ok(names.includes(name), name);
@@ -607,7 +607,7 @@ test("open a page, snapshot, type, click and read back through MCP", async () =>
 
 	const status = JSON.parse(await tool("status"));
 	assert.equal(status.connected, true);
-	assert.equal(status.tabGroup, "Polycarp · e2e");
+	assert.equal(status.tabGroup, "Tychicus · e2e");
 	assert.equal(status.permissionMode, "ask");
 	assert.ok(status.tabs.some((t) => t.current && t.url.startsWith(pageUrl)), JSON.stringify(status.tabs));
 
@@ -991,7 +991,7 @@ test("three agents in one project at once: a group each, titled with agent and p
 		const tabs = (await groupsOf()).filter((t) => /\?agent=\d/.test(t.url));
 		const titles = new Set(tabs.map((t) => t.group));
 		assert.equal(titles.size, 3, JSON.stringify(tabs));
-		for (const title of titles) assert.match(title, /^Polycarp · claude · demo-shop( \d)?$/);
+		for (const title of titles) assert.match(title, /^Tychicus · claude · demo-shop( \d)?$/);
 		assert.equal(new Set(tabs.map((t) => t.color)).size, 3, "two concurrent sessions share a color");
 		// The CLI sees all three, connected.
 		const listed = JSON.parse(tk("sessions", "--json")).filter((s) => s.project === "demo-shop");
@@ -1047,7 +1047,7 @@ test("tabs_release, a capped group, and ending and renaming a session from the C
 		assert.match(over.content[0].text, /^tab_limit: Your tab group already has 15 tabs.*tabs_close/);
 		const name = JSON.parse(tk("sessions", "--json")).find((s) => s.project === "release").name;
 		assert.match(tk("sessions", "rename", name, "release-demo"), /is now release-demo/);
-		assert.match(await on(agent, "tabs_context"), /^Session release-demo \| group "Polycarp · claude · release-demo"/);
+		assert.match(await on(agent, "tabs_context"), /^Session release-demo \| group "Tychicus · claude · release-demo"/);
 		assert.match(tk("sessions", "end", "release-demo", "--close"), /Ended release-demo: 15 tabs closed/);
 		assert.match(await on(agent, "tabs_context"), /News: The user ended your session from the terminal and closed its tabs/);
 	} finally {
@@ -2080,7 +2080,7 @@ test("only the tab an agent uses is held up: when the user brings a same-site ta
 		// The repeat sent at once, while the box it repeats is still open, as a small model sends it: it fails at once with
 		// dialog_open and runs nothing, so no other client's answer to that box can be repeated (first-F1, sol-sol-F1 of
 		// round 2 of the review of PR 389). The grace Cancel still lands, and is told once.
-		assert.match(await on(agent, "click", { x: 320, y: 60 }), /Polycarp cancels this box in about/);
+		assert.match(await on(agent, "click", { x: 320, y: 60 }), /Tychicus cancels this box in about/);
 		const t2 = Date.now();
 		const redo = await agent.callTool({ name: "click", arguments: { tabId: agentTab, x: 320, y: 60, on_dialog: "ok" } });
 		assert.ok(redo.isError, `the redo ran over the open box: ${redo.content[0].text}`);

@@ -105,7 +105,7 @@ export async function runPanelCall(
 		if (tab && isOwnExtensionUrl(tab.url ?? tab.pendingUrl ?? ""))
 			throw new BridgeError(
 				ERR.PERMISSION_DENIED,
-				"Your current tab shows a Polycarp page, which the page tools never act on. navigate to the site first.",
+				"Your current tab shows a Tychicus page, which the page tools never act on. navigate to the site first.",
 			);
 	}
 	// x/y are pixels of an act screenshot of this tab. With no scale recorded the point would be guessed, and a

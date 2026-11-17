@@ -261,7 +261,7 @@ for (const theme of ["light", "dark"]) {
 			await shot(page, `09-dns-waiting-${theme}`);
 			// The first test still waits; the panel tests again 30 seconds on by itself, the name answers, and the line clears.
 			await page.locator("[data-checks] summary", { hasText: "Every check passed" }).waitFor({ timeout: 45_000 });
-			assert.match(await page.locator("[data-result-title]").textContent(), /On: add Polycarp to an assistant/);
+			assert.match(await page.locator("[data-result-title]").textContent(), /On: add Tychicus to an assistant/);
 			assert.equal(await page.locator("[data-remote-result] [data-remote-wait]").count(), 0);
 			assert.equal(await page.locator("[data-connect-code]").textContent(), CODE);
 			await shot(page, `10-dns-cleared-${theme}`);
@@ -312,7 +312,7 @@ for (const theme of ["light", "dark"]) {
 			await shot(page, `07-tailnet-lock-${theme}`);
 			await page.getByRole("button", { name: "Use Cloudflare", exact: true }).click();
 			await page.locator("[data-tunnel-form]").waitFor();
-			await page.getByPlaceholder("polycarp.yourdomain.com").fill("polycarp.example.com");
+			await page.getByPlaceholder("tychicus.yourdomain.com").fill("polycarp.example.com");
 			await shot(page, `08-cloudflare-${theme}`);
 			// A taken name is its own step with its own button, which goes back to the form.
 			await page.locator("[data-tunnel-form]").getByRole("button", { name: "Turn on", exact: true }).click();

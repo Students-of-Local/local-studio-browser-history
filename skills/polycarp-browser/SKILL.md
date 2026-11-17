@@ -1,11 +1,11 @@
 ---
 name: polycarp-browser
-description: Drive the user's real browser through the Polycarp MCP tools (navigate, read_page, click, type, fill). Use when a task needs a live web page or the user's own browser - opening and reading a site, clicking through it, scrolling, filling a form, taking a screenshot, testing a web app or local dev server you built, or anything in a tab behind the user's sign-in (mail, dashboards, feeds, a logged-in account). Not for plain web search or fetching a public URL's text when a fetch tool works.
+description: Drive the user's real browser through the Tychicus MCP tools (navigate, read_page, click, type, fill). Use when a task needs a live web page or the user's own browser - opening and reading a site, clicking through it, scrolling, filling a form, taking a screenshot, testing a web app or local dev server you built, or anything in a tab behind the user's sign-in (mail, dashboards, feeds, a logged-in account). Not for plain web search or fetching a public URL's text when a fetch tool works.
 ---
 
-# Polycarp: the user's browser, your own tabs
+# Tychicus: the user's browser, your own tabs
 
-Polycarp gives you background tabs in the user's real Chromium browser. Your tabs are in
+Tychicus gives you background tabs in the user's real Chromium browser. Your tabs are in
 your own tab group, never take focus, and you can't see the user's other tabs. The
 browser is signed in as the user, so act as carefully as on their own laptop.
 
@@ -18,7 +18,7 @@ browser is signed in as the user, so act as carefully as on their own laptop.
 ## Step 1: call `tabs_context`
 
 Call `tabs_context` first. It shows your session, your tab group and your tabs (earlier
-ones too), and news from the user (a tab they took back or gave you). If it says Polycarp isn't connected, stop and pass that to the user. Don't
+ones too), and news from the user (a tab they took back or gave you). If it says Tychicus isn't connected, stop and pass that to the user. Don't
 retry in a loop. `status` adds the site permissions when you need them.
 
 ## Step 2: the core loop
@@ -40,8 +40,8 @@ Repeat 3 and 4, acting on the refs in `changes`; call `read_page` again to verif
   `{"text":"Order confirmed","timeoutMs":15000}` or `{"selector":"#results"}`, then
   `read_page`. Don't loop `read_page` to poll.
 - **Site approval**: opening a new site may ask the user first. If the result says "Not
-  allowed to open" a site, tell the user. They can allow it in the Polycarp side panel
-  (Settings > Agents) or with `polycarp browser allow <host>`. Don't try another URL to get around it.
+  allowed to open" a site, tell the user. They can allow it in the Tychicus side panel
+  (Settings > Agents) or with `tychicus allow <host>`. Don't try another URL to get around it.
 - **Sign-in, captcha or payment**: never type passwords or card numbers. Call `tabs_show`
   so the user sees the tab, ask them to finish, and continue after they say so.
 - **Error `dialog_open`**: an alert, confirm or prompt box froze the page. The error

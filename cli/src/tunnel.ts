@@ -69,8 +69,8 @@ function tailscaleOff(bin: string, mode: string, port: number): TunnelResult {
 		else failures.push(r.out);
 	}
 	if (failures.length) return { ok: false, message: failures.join(" ") };
-	const leftAlone = old && old.Proxy !== `http://127.0.0.1:${port}` ? ` ${OLD_SERVE_PATH} points at ${old.Proxy ?? "something else"}, so it was left on. If that's an old Polycarp, run this again with its --port.` : "";
-	return { ok: true, message: `${stopped.length ? `Stopped the Tailscale ${mode} for ${stopped.join(" and ")}.` : "Nothing of Polycarp's was published on Tailscale."}${leftAlone}` };
+	const leftAlone = old && old.Proxy !== `http://127.0.0.1:${port}` ? ` ${OLD_SERVE_PATH} points at ${old.Proxy ?? "something else"}, so it was left on. If that's an older Tychicus or Polycarp serve, run this again with its --port.` : "";
+	return { ok: true, message: `${stopped.length ? `Stopped the Tailscale ${mode} for ${stopped.join(" and ")}.` : "Nothing of Tychicus's was published on Tailscale."}${leftAlone}` };
 }
 
 export function tailscaleTunnel(options: { port: number; public: boolean; off: boolean }): TunnelResult {
@@ -157,7 +157,7 @@ export async function cloudflareTunnel(options: { port: number; off: boolean; ti
 			return { ok: false, message: `Can't check which process ${cloudflaredPidFile()} names on this system. Stop cloudflared yourself, then delete that file.` };
 		}
 		rmSync(cloudflaredPidFile(), { force: true });
-		if (pid === undefined) return { ok: true, message: "No Cloudflare tunnel started by Polycarp is running." };
+		if (pid === undefined) return { ok: true, message: "No Cloudflare tunnel started by Tychicus is running." };
 		try {
 			process.kill(pid);
 		} catch {

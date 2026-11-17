@@ -1,6 +1,6 @@
 /**
  * The community skill catalog (docs/decisions.md D27): every skill merged into community/skills
- * in baney75/tabkyra, published as one JSON file signed with the release key, and synced to
+ * in baney75/tychicus (baney75/tabkyra before it was archived), published as one JSON file signed with the release key, and synced to
  * each client about once a day.
  *
  * - Built in CI on main (.github/workflows/community-catalog.yml, `polycarp browser skill catalog`),
@@ -34,7 +34,13 @@ import { configDir } from "./files.ts";
 export const CATALOG_FILE = "community-catalog.json";
 export const CATALOG_SIG = "community-catalog.json.minisig";
 /** The release that holds the current catalog; its tag is not a version, so updates ignore it. */
-export const CATALOG_URL = "https://github.com/baney75/tabkyra/releases/download/community-catalog";
+export const CATALOG_URL = "https://github.com/baney75/tychicus/releases/download/community-catalog";
+/**
+ * The archived repo's release, which still serves the last catalog it published. Read only when baney75/tychicus has
+ * published none yet, so a client keeps its catalog until the first one there. Its files pass the same signature and
+ * serial checks.
+ */
+export const OLD_CATALOG_URL = "https://github.com/baney75/tabkyra/releases/download/community-catalog";
 const TRUSTED = /^tabkyra community-catalog (\d{1,15})$/;
 const MAX_CATALOG_BYTES = 2_000_000;
 export const SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000;
@@ -174,7 +180,7 @@ export function verifyCatalog(data: Buffer, signature: string, keyText = release
 	} catch {
 		throw new CatalogError("Refused the community catalog: it is not JSON.");
 	}
-	if (catalog.schema !== 1) throw new CatalogError(`Refused the community catalog: schema ${String(catalog.schema)} is not one this version reads. Update Polycarp.`);
+	if (catalog.schema !== 1) throw new CatalogError(`Refused the community catalog: schema ${String(catalog.schema)} is not one this version reads. Update Tychicus.`);
 	if (catalog.serial !== Number(m[1])) throw new CatalogError("Refused the community catalog: the file's serial doesn't match its signature.");
 	if (!Array.isArray(catalog.skills) || !Array.isArray(catalog.revoked)) throw new CatalogError("Refused the community catalog: it has no skills or revoked list.");
 	const names = new Set<string>();
@@ -233,7 +239,7 @@ export function readState(): CommunityState {
 
 function atomicWrite(file: string, data: string | Buffer): void {
 	const dir = communityDir();
-	if (existsSync(dir) && lstatSync(dir).isSymbolicLink()) throw new CatalogError(`${dir} is a symbolic link; Polycarp won't write through it.`);
+	if (existsSync(dir) && lstatSync(dir).isSymbolicLink()) throw new CatalogError(`${dir} is a symbolic link; Tychicus won't write through it.`);
 	mkdirSync(dir, { recursive: true });
 	const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
 	writeFileSync(tmp, data, { flag: "wx", mode: 0o600 });
@@ -330,9 +336,13 @@ export function removalReason(name: string): string | undefined {
 
 // --- Sync ----------------------------------------------------------------------------------
 
-/** Where catalogs come from: TABKYRA_COMMUNITY_URL (an https URL, or a folder for tests and dry runs), else the release. */
-function source(): string {
-	return envVar("COMMUNITY_URL") || CATALOG_URL;
+/**
+ * Where catalogs come from, in order: TYCHICUS_COMMUNITY_URL (an https URL, or a folder for tests and dry runs) alone,
+ * else this repo's release and then the archived repo's.
+ */
+export function catalogSources(): string[] {
+	const override = envVar("COMMUNITY_URL");
+	return override ? [override] : [CATALOG_URL, OLD_CATALOG_URL];
 }
 
 function checkUrl(url: string): void {
@@ -372,6 +382,18 @@ export interface SyncResult {
  * use as it was. `due` skips the fetch when the last good check is under a day old; a failed
  * or refused one doesn't count, so the next timer tick (hourly in the native host) tries again.
  */
+/** The catalog and its signature from the first source that has published one; NotPublished only when none has. */
+export async function fetchFirst(bases: string[]): Promise<[Buffer, string]> {
+	for (const [i, base] of bases.entries()) {
+		try {
+			return await Promise.all([fetchFile(base, CATALOG_FILE), fetchFile(base, CATALOG_SIG).then((b) => b.toString("utf8"))]);
+		} catch (err) {
+			if (!(err instanceof NotPublished) || i === bases.length - 1) throw err;
+		}
+	}
+	throw new NotPublished();
+}
+
 export async function syncCatalog(options: { due?: boolean } = {}): Promise<SyncResult> {
 	const state = readState();
 	const empty = { added: [], updated: [], removed: [] };
@@ -380,11 +402,10 @@ export async function syncCatalog(options: { due?: boolean } = {}): Promise<Sync
 		return { state: "skipped", message: `Checked ${state.lastCheck}; the next check is a day after that.`, serial: state.serial, ...empty };
 	}
 	const at = new Date().toISOString();
-	const base = source();
 	let data: Buffer;
 	let signature: string;
 	try {
-		[data, signature] = await Promise.all([fetchFile(base, CATALOG_FILE), fetchFile(base, CATALOG_SIG).then((b) => b.toString("utf8"))]);
+		[data, signature] = await fetchFirst(catalogSources());
 	} catch (err) {
 		if (err instanceof NotPublished) {
 			const message = "No community catalog is published yet.";
@@ -453,7 +474,7 @@ const STALE_LOCK_MS = 60_000;
 /** One commit at a time across processes (the native host, MCP servers, the CLI). */
 function withSyncLock<T>(fn: () => T): T {
 	const dir = communityDir();
-	if (existsSync(dir) && lstatSync(dir).isSymbolicLink()) throw new CatalogError(`${dir} is a symbolic link; Polycarp won't write through it.`);
+	if (existsSync(dir) && lstatSync(dir).isSymbolicLink()) throw new CatalogError(`${dir} is a symbolic link; Tychicus won't write through it.`);
 	mkdirSync(dir, { recursive: true });
 	const lock = join(dir, "sync.lock");
 	const deadline = Date.now() + 15_000;
@@ -468,7 +489,7 @@ function withSyncLock<T>(fn: () => T): T {
 			} catch {
 				/* gone meanwhile */
 			}
-			if (Date.now() > deadline) throw new CatalogError("Another Polycarp process is saving the community catalog; try again in a moment.");
+			if (Date.now() > deadline) throw new CatalogError("Another Tychicus process is saving the community catalog; try again in a moment.");
 			Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
 		}
 	}

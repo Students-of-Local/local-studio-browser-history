@@ -138,7 +138,7 @@ test("DOCX reads in parts, XLSX by sheet and PPTX by slide, with the same budget
 
 function history(resultText) {
 	return {
-		systemPrompt: "You are Polycarp.",
+		systemPrompt: "You are Tychicus.",
 		tools: [{ name: "extract_document", description: "Read a document", parameters: { type: "object" } }],
 		messages: [
 			{ role: "user", content: "Go to the page where he says contemplation doesn't require external things", timestamp: 1 },
@@ -183,7 +183,7 @@ test("a history holding a 700,000 character tool result is shrunk to fit before 
 	assert.ok(pairsIntact(fitted.context.messages));
 	for (const i of [0, 3]) assert.equal(fitted.context.messages[i], context.messages[i], "user messages go as they are");
 	const cut = fitted.context.messages[2].content[0].text;
-	assert.match(cut, /\[Polycarp cut this here to fit the model's context: [\d,]+ of [\d,]+ characters after this point were not sent\./);
+	assert.match(cut, /\[Tychicus cut this here to fit the model's context: [\d,]+ of [\d,]+ characters after this point were not sent\./);
 	assert.match(cut, /fewer pages \(like "40-42"\) or a query/);
 	// Stored history is untouched.
 	assert.equal(context.messages[2].content[0].text, big);
@@ -221,7 +221,7 @@ test("capText keeps the head only, so a tool's own read-on note is never kept po
 	assert.ok(cut.length <= 2000);
 	assert.ok(cut.startsWith("A"));
 	assert.doesNotMatch(cut, /B|offset 10000/);
-	assert.match(cut, /\[Polycarp cut this here to fit the model's context: [\d,]+ of 10,04\d characters after this point were not sent\. Ask for less\.\]$/);
+	assert.match(cut, /\[Tychicus cut this here to fit the model's context: [\d,]+ of 10,04\d characters after this point were not sent\. Ask for less\.\]$/);
 	assert.equal(capText("short", 2000), "short");
 });
 
@@ -236,7 +236,7 @@ const toolResult = (content, toolName = "repl") => ({
 	timestamp: 3,
 });
 const withMessage = (message, extra = []) => ({
-	systemPrompt: "You are Polycarp.",
+	systemPrompt: "You are Tychicus.",
 	tools: [],
 	messages: [
 		{ role: "user", content: "Read it", timestamp: 1 },
@@ -257,7 +257,7 @@ test("sol-F1: one result of 1,000 blocks of 350 characters is held to one budget
 	// The whole result, every block together, within the per-result budget (the note adds a line).
 	assert.ok(tokens <= fitted.resultTokens + 100, `result is ${tokens} tokens, budget ${fitted.resultTokens}`);
 	assert.ok(estimateContextTokens(fitted.context) <= budget.inputTokens);
-	assert.match(sent.at(-1).text, /Polycarp left out \d+ more of the 1000 text parts/);
+	assert.match(sent.at(-1).text, /Tychicus left out \d+ more of the 1000 text parts/);
 	assert.equal(sent[0].text, blocks[0].text, "the first blocks go whole");
 });
 
@@ -316,7 +316,7 @@ test("second-N1: every path into a message, through the real transformer, is bou
 		{ role: "user", content: big, timestamp: 4 },
 	];
 	const messages = await browserMessageTransformer(stored);
-	const context = { systemPrompt: "You are Polycarp.", tools: [], messages };
+	const context = { systemPrompt: "You are Tychicus.", tools: [], messages };
 	assert.ok(estimateContextTokens(context) > 600_000 / 3, "the paths carry the whole book before fitting");
 	const budget = budgetFor(SMALL);
 	const fitted = fitContext(context, budget);
@@ -347,7 +347,7 @@ test("second-N2: on an 8k model the real system prompt and tools leave no room, 
 	const last = await finalOf(await guardContext(inner)(SMALL, panelContext([{ role: "user", content: "hi", timestamp: 1 }]), {}));
 	assert.equal(sent.length, 0, "no request the provider must refuse");
 	assert.equal(last.type, "error");
-	assert.match(last.error.errorMessage, /context window \(8,192 tokens\) is too small for Polycarp's tools: its instructions and tools alone take about [\d,]+ tokens, and nothing was sent\. Pick a model with a window of at least [\d,]+ tokens\./);
+	assert.match(last.error.errorMessage, /context window \(8,192 tokens\) is too small for Tychicus's tools: its instructions and tools alone take about [\d,]+ tokens, and nothing was sent\. Pick a model with a window of at least [\d,]+ tokens\./);
 });
 
 test("second-N2: on a 32k model the result budget comes from what the system prompt and tools leave", async () => {

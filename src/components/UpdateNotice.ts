@@ -147,7 +147,7 @@ function mismatchBanner(): TemplateResult | typeof nothing {
 	return html`<div class="${bar} text-foreground" role="alert" data-testid="update-mismatch">
 		<span class="min-w-0">${m.reason}</span>
 		<button class="${link} ml-auto" @click=${() => requestUpdate(m.fix === "reload" ? "reload" : "reinstall")}>
-			${m.fix === "reload" ? "Reload Polycarp" : "Re-run install"}
+			${m.fix === "reload" ? "Reload Tychicus" : "Re-run install"}
 		</button>
 	</div>`;
 }
@@ -177,7 +177,7 @@ function availableLine(): TemplateResult | typeof nothing {
 		<button
 			class="${link} ml-auto"
 			?disabled=${!!s.blocked}
-			title=${s.blocked ?? "Install it now; Polycarp reloads when no agent is running"}
+			title=${s.blocked ?? "Install it now; Tychicus reloads when no agent is running"}
 			@click=${() => requestUpdate("update")}
 		>
 			Update now

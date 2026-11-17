@@ -158,7 +158,7 @@ function failed(send: Send, action: HostRunAction, message: string): HostUpdateP
 		/* held by a live updater: it finishes on its own */
 	}
 	const extensionBuild = readBuildInfo(join(root, "dist-chrome"))?.id;
-	return progress(send, action, "failed", `${message} Reloading Polycarp to run what is installed.`, { reload: true, extensionBuild });
+	return progress(send, action, "failed", `${message} Reloading Tychicus to run what is installed.`, { reload: true, extensionBuild });
 }
 
 /**
@@ -285,11 +285,11 @@ export async function computeStatus(force = false): Promise<HostUpdateStatus> {
 			canRollback = existsSync(previousDir());
 			rollbackTo = canRollback ? installedVersion(previousDir()) : undefined;
 		} else {
-			blocked = `This Polycarp runs from ${root}, which is neither a release install nor a git checkout. Run ${COMMAND_NAME} update in a terminal.`;
+			blocked = `This Tychicus runs from ${root}, which is neither a release install nor a git checkout. Run ${COMMAND_NAME} update in a terminal.`;
 		}
 	}
 	if (extension.location === "elsewhere") {
-		blocked = `The browser loads Polycarp from another folder than ${join(root, "dist-chrome")}, so updating here would not change it. Load that folder on chrome://extensions, or update the copy the browser loads.`;
+		blocked = `The browser loads Tychicus from another folder than ${join(root, "dist-chrome")}, so updating here would not change it. Load that folder on chrome://extensions, or update the copy the browser loads.`;
 	}
 	const mismatch = diagnoseVersions({ extension: extension.build, extensionOnDisk, location: extension.location, host: BUILD, cliOnDisk });
 	const status: HostUpdateStatus = {
@@ -329,7 +329,7 @@ export async function sendStatus(send: Send, force = false): Promise<HostUpdateS
 		send(status);
 		return status;
 	} catch (err) {
-		process.stderr.write(`[polycarp-host] update status failed: ${String(err)}\n`);
+		process.stderr.write(`[tychicus-host] update status failed: ${String(err)}\n`);
 		return undefined;
 	}
 }
@@ -466,7 +466,7 @@ export function handleUpdateAction(raw: unknown, send: Send): void {
 	}
 	// Only re-registering a release's host is useful when the browser loads another folder.
 	if (extension.location === "elsewhere" && !(action === "reinstall" && detectMode().mode === "release")) {
-		void computeStatus().then((status) => progress(send, action, "failed", status.blocked ?? "The browser loads Polycarp from another folder."));
+		void computeStatus().then((status) => progress(send, action, "failed", status.blocked ?? "The browser loads Tychicus from another folder."));
 		return;
 	}
 	runChild(action, send);

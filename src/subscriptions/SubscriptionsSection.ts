@@ -1,7 +1,7 @@
 import { Button } from "@mariozechner/mini-lit/dist/Button.js";
 import { html, LitElement, nothing, type TemplateResult } from "lit";
 import { customElement, state } from "lit/decorators.js";
-import { builtHelperCommand, hostCommand } from "../bridge/host-command.js";
+import { hostCommand } from "../bridge/host-command.js";
 import { COMMAND_BOX_CLASS } from "../components/command-box.js";
 import { helperInstallHint } from "../components/HelperInstallHint.js";
 import { Toast } from "../components/Toast.js";
@@ -117,7 +117,7 @@ export class SubscriptionsSection extends LitElement {
 			const result = await request<{ revoked: boolean; revokeUrl?: string }>(`${which}.signout`);
 			if (which === "chatgpt" && !result.revoked)
 				this.notice =
-					'Signed out here, but OpenAI didn\'t confirm the session was revoked. You can disconnect "Polycarp" in ChatGPT Settings (a sign-in from before the rename is listed as "Tabkyra").'; // product-name allowlist: the name OpenAI lists for older sign-ins
+					'Signed out here, but OpenAI didn\'t confirm the session was revoked. You can disconnect "Tychicus" in ChatGPT Settings (a sign-in from before the rename is listed as "Polycarp" or "Tabkyra").'; // product-name allowlist: the names OpenAI lists for older sign-ins
 			if (which === "copilot")
 				this.notice = `Signed out: the token is deleted from this computer. To remove its access on GitHub too, revoke it at ${COPILOT.revokeUrl}.`;
 			await refreshSubscriptionModels();
@@ -241,12 +241,11 @@ export class SubscriptionsSection extends LitElement {
 								<p class="text-xs text-foreground">
 									${
 										this.noHost
-											? "Subscription sign-ins run in Polycarp's helper on this computer, which isn't connected. If you have it, run this in a terminal, then reopen Settings."
+											? "Subscription sign-ins run in Tychicus's helper on this computer, which isn't connected. If you have it, run this in a terminal, then reopen Settings."
 											: html`Subscription sign-ins aren't available: ${this.error?.replace(/\.?$/, ".")} Running this in a terminal usually fixes it.`
 									}
 								</p>
-								${this.command("Set up Polycarp", `${hostCommand()} setup`)}
-								${builtHelperCommand("setup") ? this.command("If you built the helper yourself", builtHelperCommand("setup") as string) : nothing}
+								${this.command("Set up Tychicus", `${hostCommand()} setup`)}
 								${this.noHost ? html`<p class="text-xs text-muted-foreground" data-helper-install>${helperInstallHint()}</p>` : nothing}
 							</div>`
 						: nothing
@@ -296,12 +295,11 @@ export class SubscriptionsSection extends LitElement {
 				<div class="flex flex-col gap-2 rounded-md border border-border p-3" data-subscription="cli">
 					<span class="text-sm font-medium text-foreground">Claude and Gemini</span>
 					<p class="text-xs text-muted-foreground">
-						Use your Claude Code or Gemini CLI subscription by running it with Polycarp's MCP server. Anthropic's and Google's
-						terms don't allow other apps to sign in with those plans, so Polycarp doesn't.
+						Use your Claude Code or Gemini CLI subscription by running it with Tychicus's MCP server. Anthropic's and Google's
+						terms don't allow other apps to sign in with those plans, so Tychicus doesn't.
 					</p>
 					${this.command("Claude Code", cliMcpSetup("claude", hostCommand()))}
 					${this.command("Gemini CLI", cliMcpSetup("gemini", hostCommand()))}
-					${builtHelperCommand("mcp") ? html`<p class="text-xs text-muted-foreground">Built the helper yourself? Use <code class="font-mono">polycarp-browser</code> in place of <code class="font-mono">${hostCommand()}</code>.</p>` : nothing}
 				</div>
 				${this.notice ? html`<p class="text-xs text-muted-foreground" role="status">${this.notice}</p>` : nothing}
 			</div>

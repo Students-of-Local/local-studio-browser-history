@@ -15,7 +15,7 @@ import { POLICY_LABELS, type UpdatePolicy } from "../update/logic.js";
 import { runningFromStore } from "../update/store-install.js";
 
 const MODE_LABELS: Record<string, string> = {
-	release: "Signed release (~/.local/share/polycarp/browser/app)",
+	release: "Signed release (~/.local/share/tychicus/release)",
 	checkout: "Git checkout (pull, build, reload)",
 	unmanaged: "Neither (update in a terminal)",
 };
@@ -90,8 +90,8 @@ export class UpdatesTab extends SettingsTab {
 				<div class="space-y-1">
 					<h3 class="text-lg font-semibold text-foreground">Updates</h3>
 					<p class="text-sm text-muted-foreground">
-						Polycarp checks once a day. An update downloads or builds while you work, then installs and reloads
-						Polycarp when no agent is running in any side panel or bridge session.
+						Tychicus checks once a day. An update downloads or builds while you work, then installs and reloads
+						Tychicus when no agent is running in any side panel or bridge session.
 					</p>
 				</div>
 
@@ -124,7 +124,7 @@ export class UpdatesTab extends SettingsTab {
 								${s.mismatch ? this.row("Mismatch", s.mismatch.reason) : nothing}
 							</div>`
 						: html`<p class="text-sm text-muted-foreground">
-								The native host hasn't reported yet. Updates need the Polycarp CLI: run
+								The native host hasn't reported yet. Updates need the Tychicus CLI: run
 								<code class="font-mono">${hostCommand()} doctor</code> in a terminal.
 							</p>`
 				}

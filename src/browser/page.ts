@@ -2081,7 +2081,7 @@ export async function fillElement(
 			catch (e) {
 				// Only a ref that no longer resolves left the page; any other error (the node now shows something else) is its own.
 				if (!/ not found: /.test(String(e && e.message))) throw e;
-				throw new Error("Ref " + ref + " not found: the element it named left the page as Polycarp scrolled to it (the page rebuilt it). Nothing was entered. Call read_page for fresh refs.");
+				throw new Error("Ref " + ref + " not found: the element it named left the page as Tychicus scrolled to it (the page rebuilt it). Nothing was entered. Call read_page for fresh refs.");
 			}
 			if (again !== el) throw new Error("Ref " + ref + " now shows something else: the page reused it. Call read_page for fresh refs.");
 			// A field in a dialog that closed keeps its ref; writing into it would put a value

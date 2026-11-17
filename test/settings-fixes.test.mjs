@@ -54,19 +54,20 @@ test("an import without the required shape is refused and names the problem", ()
 test("screens that give a helper command also say how to get the helper", () => {
 	const hint = read("src/components/HelperInstallHint.ts");
 	assert.match(hint, /Settings > Agents/);
-	assert.match(hint, /get Polycarp for Mac/);
+	assert.match(hint, /href="https:\/\/github\.com\/baney75\/tychicus\/releases\/latest"[^>]*>install the latest release</);
+	assert.doesNotMatch(hint, /dbaney\.com\/polycarp|for Mac/);
 	const subscriptions = read("src/subscriptions/SubscriptionsSection.ts");
 	assert.match(subscriptions, /this\.noHost \? html`[^`]*\$\{helperInstallHint\(\)\}/);
 	const skills = read("src/dialogs/SkillsTab.ts");
 	assert.match(skills, /doctor\. \$\{helperInstallHint\(\)\}/);
-	assert.match(skills, /once you have Polycarp's helper \(see Settings > Agents\)/);
+	assert.match(skills, /once you have Tychicus's helper \(see Settings > Agents\)/);
 });
 
 test("the hidden userScripts API never sends a store copy to reload", () => {
-	const store = userScriptsHiddenHelp(true, "polycarp browser");
+	const store = userScriptsHiddenHelp(true, "tychicus");
 	assert.match(store, /restart the browser/);
 	assert.doesNotMatch(store, /reload/);
-	assert.match(userScriptsHiddenHelp(false, "polycarp browser"), /polycarp browser reload/);
+	assert.match(userScriptsHiddenHelp(false, "tychicus"), /tychicus reload/);
 	assert.match(read("src/dialogs/BridgeTab.ts"), /userScriptsHiddenHelp\(runningFromStore\(\), hostCommand\(\)\)/);
 });
 
@@ -103,7 +104,7 @@ test("Allowed sites stores a hostname, because permissions compare hostnames onl
 test("Always allow names what stays refused", () => {
 	const bridge = read("src/dialogs/BridgeTab.ts");
 	assert.doesNotMatch(bridge, /agents can open any site\n/);
-	assert.match(bridge, /any site except Polycarp's own pages, its approval page and its local services/);
+	assert.match(bridge, /any site except Tychicus's own pages, its approval page and its local services/);
 });
 
 test("a costs load failure shows an error, not an empty range", () => {

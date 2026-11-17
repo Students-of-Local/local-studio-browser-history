@@ -24,7 +24,7 @@
 	--radius-xl: var(--tk-radius-lg);
 }
 
-/* Polycarp's own palette (brand/README.md), for anyone with no theme file. The --tk-brass names are older than the
+/* The panel's own olive palette, carried over from Polycarp's (the icon's tile matches it), for anyone with no theme file. The --tk-brass names are older than the
    palette and stay because every rule reads them; they hold the accent. */
 :root {
 	--tk-radius-sm: calc(var(--radius) - 4px);

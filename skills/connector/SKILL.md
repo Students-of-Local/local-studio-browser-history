@@ -1,6 +1,6 @@
 ---
 name: connector
-description: Add Polycarp as a custom connector in claude.ai, ChatGPT or grok.com through a tunnel on the person's own Tailscale or Cloudflare account, and pick what the connector may do, including computer use. Use when the user asks to add a connector, make a Cloudflare tunnel or Tailscale Funnel for Polycarp, reach this computer remotely from a web assistant, or fix a connector that stopped working.
+description: Add Tychicus as a custom connector in claude.ai, ChatGPT or grok.com through a tunnel on the person's own Tailscale or Cloudflare account, and pick what the connector may do, including computer use. Use when the user asks to add a connector, make a Cloudflare tunnel or Tailscale Funnel for Tychicus, reach this computer remotely from a web assistant, or fix a connector that stopped working.
 license: AGPL-3.0
 ---
 
@@ -10,8 +10,8 @@ An assistant on the web reaches this computer through a tunnel on the person's o
 
 ## When to use
 
-- The user wants Polycarp in claude.ai, ChatGPT or grok.com, or from their phone.
-- The user asks for a tunnel, on Cloudflare or Tailscale, for Polycarp.
+- The user wants Tychicus in claude.ai, ChatGPT or grok.com, or from their phone.
+- The user asks for a tunnel, on Cloudflare or Tailscale, for Tychicus.
 - A connector stopped working.
 
 For driving the browser from an agent on this computer, use the `polycarp-browser` skill. No tunnel is needed.
@@ -26,7 +26,7 @@ For driving the browser from an agent on this computer, use the `polycarp-browse
 
 ## Steps
 
-1. **Read the state.** Run `polycarp browser remote status --json`. It changes nothing. Read `state`, `connectorUrl` and `routes`.
+1. **Read the state.** Run `tychicus remote status --json`. It changes nothing. Read `state`, `connectorUrl` and `routes`.
 2. **If `state` is `on`,** give the person `connectorUrl` and go to step 6.
 3. **If nothing is set up, offer the choice.**
 
@@ -38,17 +38,17 @@ For driving the browser from an agent on this computer, use the `polycarp-browse
    | Tool | tailscale.com/download | developers.cloudflare.com/tunnel/downloads |
 
    If `routes` shows one signed in, suggest that one. With no domain on Cloudflare, suggest Tailscale.
-   On a Mac, the easiest way is Polycarp's Settings > Browser > "Use Polycarp from Claude, ChatGPT and Grok", which has these steps as buttons.
-4. **Tailscale.** The person installs it and signs in. Then, with their yes, run `polycarp browser remote setup --no-passcode`. If `state` is `funnel_not_allowed`, give them `adminUrl`, wait for them to allow it, and run setup again.
-5. **Cloudflare.** The person installs `cloudflared`. Run `polycarp browser remote cloudflare login` and tell them their browser opened: they sign in and pick the domain. Then ask which name to use, and with their yes run `polycarp browser remote setup --no-passcode --cloudflare polycarp.example.com`.
+   The easiest way is the Tychicus side panel's Settings > Agents > "Use Tychicus from Claude, ChatGPT and Grok", which has these steps as buttons.
+4. **Tailscale.** The person installs it and signs in. Then, with their yes, run `tychicus remote setup --no-passcode`. If `state` is `funnel_not_allowed`, give them `adminUrl`, wait for them to allow it, and run setup again.
+5. **Cloudflare.** The person installs `cloudflared`. Run `tychicus remote cloudflare login` and tell them their browser opened: they sign in and pick the domain. Then ask which name to use, and with their yes run `tychicus remote setup --no-passcode --cloudflare tychicus.example.com`.
 6. **Have the person add the connector.**
    - claude.ai: Settings > Connectors > Add custom connector, paste the address.
    - ChatGPT: Settings > Apps & Connectors, turn on dev mode, Create, paste the address, OAuth.
    - grok.com: grok.com/connectors > New Connector > Custom, paste the address.
-7. **Tell them what the approval page asks.** A page from this computer opens. They check the name and tick what it may do. A new connector needs a one-time connect code, which lasts ten minutes: in Polycarp's Settings > Browser they press Make a connect code, or in their own terminal they run `polycarp browser token approval-code`. Later approvals of that connector take the code or their passcode.
+7. **Tell them what the approval page asks.** A page from this computer opens. They check the name and tick what it may do. A new connector needs a one-time connect code, which lasts ten minutes: in the Tychicus side panel's Settings > Agents, under "Use Tychicus from Claude, ChatGPT and Grok", they press New code (on a hub, Get a connect code), or in their own terminal they run `tychicus token approval-code`. Later approvals of that connector take the code or their passcode.
    - Browsing permissions are ticked to start with.
    - `computer.read` and `computer.act` are not ticked. They open the agent workspace and apps the person lends, and never other windows, even with Full Access on. The apps run as the person, so tick these only for an assistant they'd let sit at their keyboard.
-8. **Check it.** Run `polycarp browser remote status --json` again.
+8. **Check it.** Run `tychicus remote status --json` again.
 
 ## When something goes wrong
 
@@ -56,18 +56,18 @@ For driving the browser from an agent on this computer, use the `polycarp-browse
 | --- | --- |
 | `tailscale_missing`, `tailscale_signed_out` | The person installs Tailscale or signs in. |
 | `cloudflared_missing` | The person installs `cloudflared`. |
-| `cloudflare_login` | Run `polycarp browser remote cloudflare login`. |
+| `cloudflare_login` | Run `tychicus remote cloudflare login`. |
 | `cloudflare_dns` | That name is in use or not valid. Ask for another. Never overwrite a record. |
 | `cloudflare_zone` | The sign-in is for another domain. The message says how to sign in again. |
 | `cloudflare_tunnel` | The message names the command. Show it, and run it only with their yes: it deletes a tunnel. |
 | `port_busy` | Something else uses the port. Tell them what the message says. Nothing changed. |
 | `dns` | The address is new. Public DNS takes minutes. Check again later. |
-| `no_browser_connected` | The person opens their browser with Polycarp's extension. |
+| `no_browser_connected` | The person opens their browser with Tychicus's extension. |
 | `problem` | Read `message` and pass it on. |
 
 If an assistant says computer use isn't available, its `computer_status` tool explains why: Polycarp's Mac app isn't running here, or needs updating.
 
-To stop everything: with their yes, `polycarp browser remote off`. To end one assistant: `polycarp browser token clients`, then `polycarp browser token revoke <client id>`.
+To stop everything: with their yes, `tychicus remote off`. To end one assistant: `tychicus token clients`, then `tychicus token revoke <client id>`.
 
 ## Done when
 
@@ -80,7 +80,7 @@ To stop everything: with their yes, `polycarp browser remote off`. To end one as
 They ask: "I want to use my Mac from claude.ai. I have Cloudflare."
 
 1. `remote status --json` shows `routes.cloudflare` `{"installed":true,"signedIn":false}`.
-2. Run `polycarp browser remote cloudflare login`. Say: "Your browser opened Cloudflare. Sign in and pick your domain."
-3. Ask: "Which name? Something like polycarp.yourdomain.com." They say `polycarp.dbaney.example`.
-4. Ask before running `polycarp browser remote setup --no-passcode --cloudflare polycarp.dbaney.example`. Run it after their yes.
-5. Say: "In claude.ai, add a custom connector with https://polycarp.dbaney.example/mcp. On the page that opens, tick computer use only if you want it there. For the code it asks for, press Make a connect code in Polycarp's Settings > Browser."
+2. Run `tychicus remote cloudflare login`. Say: "Your browser opened Cloudflare. Sign in and pick your domain."
+3. Ask: "Which name? Something like tychicus.yourdomain.com." They say `tychicus.example.com`.
+4. Ask before running `tychicus remote setup --no-passcode --cloudflare tychicus.example.com`. Run it after their yes.
+5. Say: "In claude.ai, add a custom connector with https://tychicus.example.com/mcp. On the page that opens, tick computer use only if you want it there. For the code it asks for, press New code in the Tychicus side panel's Settings > Agents."

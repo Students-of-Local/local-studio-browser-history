@@ -44,7 +44,7 @@ export function requireSearxngUrl(): string {
 	const url = searxngUrl();
 	if (!url) {
 		throw new Error(
-			"SEARXNG_URL is not set (and ~/.config/polycarp/browser/search.json has no searxngUrl). Point it at your self-hosted SearXNG, for example http://127.0.0.1:8888. See config/search.example.json.",
+			"SEARXNG_URL is not set (and ~/.config/tychicus/search.json has no searxngUrl). Point it at your self-hosted SearXNG, for example http://127.0.0.1:8888. See config/search.example.json.",
 		);
 	}
 	let parsed: URL;

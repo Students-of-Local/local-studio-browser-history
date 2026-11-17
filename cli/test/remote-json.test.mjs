@@ -344,12 +344,12 @@ test("remote setup --json with a service and no working launcher is a problem, n
 	const r = s.run(["remote", "setup", "--json"]);
 	assert.equal(r.code, 3);
 	assert.equal(r.json().state, "problem");
-	assert.match(r.json().message, /polycarp-browser install --browser <name>/);
+	assert.match(r.json().message, /tychicus install --browser <name>/);
 	assert.match(r.json().message, /plain install registers every browser/, "it never sends the person to a step that registers every browser unsaid");
 	assert.equal(r.json().code, "launcher", "the app reads the code, not the sentence");
 	const next = r.json().next;
 	assert.equal(next.kind, "run_command");
-	assert.equal(next.command, "polycarp-browser install --browser <name>", "the command an app shows is the one the message names, never plain install");
+	assert.equal(next.command, "tychicus install --browser <name>", "the command an app shows is the one the message names, never plain install");
 	assert.ok(r.json().message.includes(next.command));
 });
 
@@ -848,8 +848,8 @@ test("remote setup --cloudflare makes the tunnel and its record, runs both servi
 	assert.equal(report.connectorUrl, `https://${CF_HOST}/mcp`);
 	assert.match(report.passcode, PASSCODE);
 	const calls = cfCalls(s);
-	assert.ok(calls.some((x) => /^cloudflared tunnel create polycarp-.*-[0-9a-f]{4}$/.test(x)), calls.join("\n"));
-	assert.match(readFileSync(join(s.env.TABKYRA_CONFIG_DIR, "cloudflare-tunnel-name"), "utf8"), /^polycarp-/);
+	assert.ok(calls.some((x) => /^cloudflared tunnel create tychicus-.*-[0-9a-f]{4}$/.test(x)), calls.join("\n"));
+	assert.match(readFileSync(join(s.env.TABKYRA_CONFIG_DIR, "cloudflare-tunnel-name"), "utf8"), /^tychicus-/);
 	assert.ok(calls.includes(`cloudflared tunnel route dns ${CF_ID} ${CF_HOST}`), calls.join("\n"));
 	assert.ok(!calls.some((x) => x.includes("--overwrite-dns")), "a name in use is never taken over");
 	const config = readFileSync(join(s.env.TABKYRA_CONFIG_DIR, "cloudflared.yml"), "utf8");
@@ -1096,7 +1096,7 @@ test("text-mode setup gives a connect code for a new assistant and never says th
 		const r = await s.runAsync(["remote", "setup", "--tailscale", "--no-service", "--port", String(local.port)], { TABKYRA_ASSUME_TTY: "1" });
 		assert.equal(r.code, 0, r.stdout + r.stderr);
 		assert.match(r.stdout, /Connect code: TK-[A-Z0-9]{4}-[A-Z0-9]{4}/);
-		assert.match(r.stdout, /Type it on the approval page when you add Polycarp to an assistant for the first time/);
+		assert.match(r.stdout, /Type it on the approval page when you add Tychicus to an assistant for the first time/);
 		assert.match(r.stdout, /Passcode: /, "the run that made the passcode shows it");
 		assert.match(r.stdout, /re-approving an assistant you already approved/);
 		assert.doesNotMatch(r.stdout, /Approve with your Polycarp pass[c]ode/);
@@ -1336,7 +1336,7 @@ test("text-mode setup with no terminal makes no connect code unasked, and says h
 		const r = await s.runAsync(["remote", "setup", "--no-service", "--port", String(local.port)]);
 		assert.equal(r.code, 0, r.stdout + r.stderr);
 		assert.doesNotMatch(r.stdout, /TK-[A-Z0-9]{4}-[A-Z0-9]{4}/, "no live code in an agent's transcript");
-		assert.match(r.stdout, /Connect code: make one with polycarp-browser token approval-code when you add an assistant/);
+		assert.match(r.stdout, /Connect code: make one with tychicus token approval-code when you add an assistant/);
 		assert.doesNotMatch(r.stdout, /setup prints one when it's done/);
 	} finally {
 		await local.close();
@@ -1380,7 +1380,7 @@ test("two zones on Cloudflare and no zone remembered: the record lands in the si
 		assert.equal(report.code, "cloudflare_zone", r.stdout);
 		assert.match(report.message, new RegExp(`made the DNS record ${CF_HOST.replace(/\./g, "\\.")}\\.other\\.example`));
 		assert.match(report.message, /delete it in the Cloudflare dashboard/);
-		assert.match(report.message, /Polycarp never deletes DNS records/);
+		assert.match(report.message, /Tychicus never deletes DNS records/);
 		assert.equal(s.remoteJsonExists(), false);
 		assert.ok(!cfCalls(s).some((x) => /delete/.test(x)), "nothing on the account is deleted");
 		// The zone is known now: another name outside it is refused before any record.

@@ -1,6 +1,6 @@
 ---
 name: bug
-description: Write a Polycarp bug report to a strict format - reproduce it, collect versions and the exact error, scrub personal data and secrets, check for a duplicate, then file it on GitHub or hand the user a ready issue. Use when the user types /bug, clicks Report in Polycarp, says something in Polycarp is broken, crashed, hung or behaved wrong, or wants a Polycarp problem reported or filed as an issue.
+description: Write a Tychicus bug report to a strict format - reproduce it, collect versions and the exact error, scrub personal data and secrets, check for a duplicate, then file it on GitHub or hand the user a ready issue. Use when the user types /bug, clicks Report in Tychicus, says something in Tychicus is broken, crashed, hung or behaved wrong, or wants a Tychicus problem reported or filed as an issue.
 license: AGPL-3.0
 ---
 
@@ -11,8 +11,8 @@ versions, with the exact error. It never carries the user's personal data or sec
 
 ## When to use
 
-- `/bug`, or the user pressed Report in Polycarp.
-- Something in Polycarp (side panel, CLI, MCP tools, skills) failed or behaved wrong.
+- `/bug`, or the user pressed Report in Tychicus.
+- Something in Tychicus (side panel, CLI, MCP tools, skills) failed or behaved wrong.
 
 Not for problems with a website itself, or with the user's own code.
 
@@ -23,7 +23,7 @@ Not for problems with a website itself, or with the user's own code.
 2. **Reproduce it once,** if it's safe to repeat: the same tool call or command. Write the
    steps as a numbered list someone else can follow on a test page.
    Don't repeat anything that sends, posts, buys or deletes.
-3. **Collect facts.** Run `polycarp browser status --json` and `polycarp browser doctor --json` and keep:
+3. **Collect facts.** Run `tychicus status --json` and `tychicus doctor --json` and keep:
    extension version, CLI version, browser, OS, and each doctor line that failed. Copy the
    exact error message from the tool result or terminal.
 4. **Scrub.** Remove from everything you will file: emails, names, phone numbers,
@@ -61,13 +61,13 @@ Not for problems with a website itself, or with the user's own code.
    2. Make the title from the same safe characters as the fingerprint, plus spaces and
       `:`. Nothing from the error goes into a command any other way.
    3. Search for the exact fingerprint line, then read each candidate:
-      `gh issue list --repo baney75/tabkyra --state open --search '"fingerprint: fp-here" in:body'`
-      and `gh issue view <number> --repo baney75/tabkyra --json body`. It is a duplicate only
+      `gh issue list --repo baney75/tychicus --state open --search '"fingerprint: fp-here" in:body'`
+      and `gh issue view <number> --repo baney75/tychicus --json body`. It is a duplicate only
       if that body contains the exact `fingerprint:` line.
-   4. Duplicate: `gh issue comment <number> --repo baney75/tabkyra --body-file bug.md`.
-      Otherwise: `gh issue create --repo baney75/tabkyra --title 'safe title' --body-file bug.md`.
+   4. Duplicate: `gh issue comment <number> --repo baney75/tychicus --body-file bug.md`.
+      Otherwise: `gh issue create --repo baney75/tychicus --title 'safe title' --body-file bug.md`.
    If `gh` isn't signed in, give the user the text to paste at
-   github.com/baney75/tabkyra/issues/new.
+   github.com/baney75/tychicus/issues/new.
 
 ## Done when
 
@@ -79,6 +79,6 @@ Not for problems with a website itself, or with the user's own code.
 
 | Symptom | Fix |
 | --- | --- |
-| `polycarp browser` isn't installed | Report the versions you can see in the side panel's About tab |
+| `tychicus` isn't installed | Report the versions you can see in the side panel's About tab |
 | The bug only happens on a private page | Describe the page type, not its content, and reproduce on a public page if you can |
 | `gh` asks to sign in | Don't sign in for the user; hand them the text |

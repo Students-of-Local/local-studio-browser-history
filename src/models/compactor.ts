@@ -151,7 +151,7 @@ export function createCompactor(deps: CompactorDeps): Compactor {
 					warned = true;
 					const why = err instanceof Error ? err.message : String(err);
 					deps.onFailure(
-						`Polycarp couldn't summarize the earlier messages (${why.slice(0, 160)}), so it cut older ones to fit instead.`,
+						`Tychicus couldn't summarize the earlier messages (${why.slice(0, 160)}), so it cut older ones to fit instead.`,
 					);
 				}
 				return sent;

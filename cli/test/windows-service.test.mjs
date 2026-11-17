@@ -218,7 +218,7 @@ test("the batch script sets the folders, logs to the file, restarts after 10 sec
 		assert.ok(!text.includes(dir) && !text.includes("Config & More"), "no folder of this computer is written in");
 		assert.equal(lines[0], "@echo off");
 		assert.ok(lines.includes("setlocal DisableDelayedExpansion"));
-		assert.ok(lines.includes("title com.tychicus.cloudflared (Polycarp; closing this window stops it until you log on again)"));
+		assert.ok(lines.includes("title com.tychicus.cloudflared (Tychicus; closing this window stops it until you log on again)"));
 		assert.ok(lines.includes('set "POLYCARP_BROWSER_CONFIG_DIR=%POLYCARP_HOME%"'));
 		assert.ok(lines.includes('set "POLYCARP_LOG=%POLYCARP_HOME%\\logs\\tychicus-cloudflared.log"'));
 		assert.ok(lines.includes('\tcall "%POLYCARP_HOME%\\tychicus.cmd" remote cloudflare run'), text);
@@ -265,7 +265,7 @@ test("Access is denied fails with one sentence that says what to do, and never a
 		winSeam({ exec: fake.exec, windowsUser: "CORP\\x" });
 		const r = await installService(SERVE_SERVICE);
 		assert.equal(r.ok, false);
-		assert.match(r.message, /^Windows didn\'t make a scheduled task for CORP\\x \(ERROR: Access is denied\.\); Polycarp never asks for administrator rights, so .* ask its admin to allow them, or keep it running yourself: .* serve\.$/);
+		assert.match(r.message, /^Windows didn\'t make a scheduled task for CORP\\x \(ERROR: Access is denied\.\); Tychicus never asks for administrator rights, so .* ask its admin to allow them, or keep it running yourself: .* serve\.$/);
 		assert.equal(r.message.split(/\.\s+[A-Z]/).length, 1, "one sentence");
 		assert.deepEqual(fake.calls.map((c) => c[1]), ["/Create"]);
 		assert.ok(!fake.calls.flat().some((a) => /runas|\/RL|HIGHEST|Start-Process/i.test(a)));
@@ -577,7 +577,7 @@ test("when the start time can't be read, nothing is killed and stop fails in one
 		const r = removeService(SERVE_SERVICE);
 		assert.equal(r.ok, false);
 		assert.ok(!fake.calls.some(([cmd]) => cmd === TASKKILL));
-		assert.match(r.failure, /^Polycarp couldn't confirm that pid 666 is still the node\.exe its com\.tychicus\.serve task started, so it ended nothing: /);
+		assert.match(r.failure, /^Tychicus couldn't confirm that pid 666 is still the node\.exe its com\.tychicus\.serve task started, so it ended nothing: /);
 		assert.ok(existsSync(join(dir, "services", "com.tychicus.serve.cmd")));
 		assert.ok(!fake.calls.some(([cmd, verb]) => cmd === SCHTASKS && verb === "/Delete"));
 	});
@@ -642,7 +642,7 @@ test("any refused /Create, in any language, gets the sentence about blocked sche
 		const r = await installService(SERVE_SERVICE);
 		assert.equal(r.ok, false);
 		assert.equal(r.message.split(/\.\s+[A-Z]/).length, 1, "one sentence");
-		assert.match(r.message, /^Windows didn't make a scheduled task for CORP\\x \(FEHLER: Zugriff verweigert\); Polycarp never asks for administrator rights, so if your organization blocks scheduled tasks, ask its admin to allow them, or keep it running yourself: .* serve\.$/);
+		assert.match(r.message, /^Windows didn't make a scheduled task for CORP\\x \(FEHLER: Zugriff verweigert\); Tychicus never asks for administrator rights, so if your organization blocks scheduled tasks, ask its admin to allow them, or keep it running yourself: .* serve\.$/);
 	});
 });
 

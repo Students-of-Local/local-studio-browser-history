@@ -43,9 +43,11 @@ to make it pass.
 A test that passed proves the logic, not what the user sees. Say which one you ran.
 
 ## Names that keep the old name
-The product is Polycarp: the manifest name, toolbar title, side panel, settings, onboarding, debug page, errors and the
-helper's output all say so, and `polycarp browser <command>` is the command the text gives. `test/product-name.test.mjs` fails
-when "Tabkyra" appears in a user-visible string, and when a renamed identifier below comes back anywhere but its named fallback.
+The product is Tychicus: the manifest name, toolbar title, side panel, settings, onboarding, debug page, errors and the
+helper's output all say so, and `tychicus <command>` is the command the text gives. `test/product-name.test.mjs` fails
+when "Tabkyra" appears in a user-visible string, when "Polycarp" does outside text about the Polycarp app, its Mac helper
+(`polycarp-spaces`) or a legacy name (its `KEPT` list, or a line marked `product-name allowlist`), and when a renamed
+identifier below comes back anywhere but its named fallback.
 
 Renamed, with a fallback for installs made before the rename. The fallbacks stay until no supported helper, extension or hub
 build predates the rename; then remove them in one change and lower the counts in `RENAMED_ALLOWED` (product-name test):
@@ -56,7 +58,7 @@ build predates the rename; then remove them in one change and lower the counts i
 - the hub headers are `x-polycarp-hub-scopes` and `x-polycarp-hub-caller`. A hub sends them under the old `x-tabkyra-hub-*`
   names too, because an older device reads only those and without a scopes header gives the caller its link token's whole cap;
   a device reads either, the new one first.
-- `User-Agent` is `polycarp-browser/<version>` (`USER_AGENT` in `cli/src/version.ts`).
+- `User-Agent` is `tychicus/<version>` (`USER_AGENT` in `cli/src/version.ts`).
 - the npm package installs only `tychicus`. `polycarp` and `polycarp-browser` are Polycarp's commands; Tychicus never puts
   them on PATH (`cli/test/polycarp-coexist.test.mjs`).
 
@@ -73,20 +75,20 @@ These stay as they are on purpose, because agents, hooks or stored data depend o
   `POLYCARP_BROWSER_CONFIG_DIR` and `TABKYRA_CONFIG_DIR` still work, and test fixtures set them), never `POLYCARP_CONFIG_DIR`,
   which is the Polycarp app's.
 - the extension's stored data: storage keys, database names and the `TabkyraAppStorage` class
-- the name OpenAI lists for a ChatGPT sign-in made before the rename: its saved client stays registered as "Tabkyra", so the unconfirmed-revoke note names it
-- the tab group title "Tabkyra · ..." that earlier versions made, which is still recognized and tidied; new groups say "Polycarp · ..."
+- the names OpenAI lists for ChatGPT sign-ins made before a rename: those saved clients stay registered as "Polycarp" or "Tabkyra", so the unconfirmed-revoke note names them
+- the tab group title "Tabkyra · ..." that earlier versions made, which is still recognized and tidied; new groups say "Tychicus · ...", and "Polycarp · ..." groups are left to Polycarp's extension
 - the theme preset `tabkyra`, the npm package name `tabkyra` (`checkout.ts` finds a checkout by it), the bearer realm `tabkyra` and the keepalive alarm's name
-Every command the CLI prints (`doctor`, `status`, errors, usage, services, the setup prompts) is built from `COMMAND_NAME` in `cli/src/self.ts`: `polycarp browser` inside the app, `polycarp-browser` for an npm link or checkout (`tabkyra` stays as a bin alias). The extension's commands for this computer come from `hostCommand()` (`src/bridge/host-command.ts`), which reads the name from the helper's update status; build them when shown, never in a module-level constant. A prompt for another device (`deviceSetupPrompt`) carries no name: the agent there finds which of the two runs. Write these strings as template literals; `cli/test/rendered-names.test.mjs` fails on a quoted string that holds `${COMMAND_NAME}`.
-Skills under `skills/`, the docs and the README say Polycarp, and the browser skill is `polycarp-browser` (install retires the `tabkyra` copy it wrote, and the router still reads tabkyra as that skill); `media/`, `cli/README.md` command names and `baney75/tabkyra` links keep the old name.
+Every command the CLI prints (`doctor`, `status`, errors, usage, services, the setup prompts) is built from `COMMAND_NAME` in `cli/src/self.ts`: `tychicus` for a release, an npm link or a plain checkout, `polycarp browser` when built into the Polycarp app's helper, and `polycarp-browser` or `tabkyra` when an older link starts it under that name. The extension's commands for this computer come from `hostCommand()` (`src/bridge/host-command.ts`), which reads the name from the helper's update status; build them when shown, never in a module-level constant. A prompt for another device (`deviceSetupPrompt`) carries no name: the agent there tries `tychicus`, then the release program. Write these strings as template literals; `cli/test/rendered-names.test.mjs` fails on a quoted string that holds `${COMMAND_NAME}`.
+Skills under `skills/`, the docs and the README say Tychicus, and the browser skill is still `polycarp-browser` (install retires the `tabkyra` copy it wrote, and the router reads Tychicus, Polycarp and tabkyra as that skill); `docs/decisions.md` and `CHANGELOG.md` keep the names of their time.
 
 ## Inside Polycarp (single executable)
 `cli/scripts/compile.mjs` builds `polycarp-browser` (Bun, bytecode) from the esbuild bundle with `TABKYRA_CLI_COMPILED=1`;
 `cli/src/self.ts` is the one place that knows whether the program is compiled. In that mode launchers and the native host
-manifest run the executable itself, the extension is read from `extension/` beside it, and `tabkyra update` is Polycarp's job.
+manifest run the executable itself, the extension is read from `extension/` beside it, and inside the Polycarp app `polycarp update` updates it.
 `spaces/scripts/build-browser.sh` builds both pieces and `bundle.sh` seals them in `Contents/Resources/browser`. Run
 `cd cli && node --test test/compiled.test.mjs` after touching launchers, `install.ts`, `paths.ts` or the entry point.
 
-## Polycarp theme: what is not themed
+## Polycarp app theme: what is not themed
 `type.display` is read and sent as `--font-serif`, but the panel draws no display headings (nothing
 uses `font-serif`), so only `type.ui`, `type.mono` and `type.size` show. If a heading starts using
 `font-serif`, delete this note. `shape.density` is not applied anywhere.
@@ -101,7 +103,7 @@ uses `font-serif`), so only `type.ui`, `type.mono` and `type.size` show. If a he
 - `@mariozechner/mini-lit`, `@mariozechner/pi-ai`, `@mariozechner/pi-web-ui`, `@mariozechner/pi-agent-core` are linked via `file:` to pinned upstream checkouts in `vendor/mini-lit` and `vendor/pi-mono` (gitignored)
 - Changes to those packages require rebuilding them (the dev watcher handles this)
 - If you need to modify upstream code, edit it in `vendor/pi-mono` or `vendor/mini-lit` directly and rebuild
-- Changes to pi-mono that Tabkyra depends on go in `patches/pi-mono.patch`, which `scripts/setup-siblings.sh` applies at the pinned commit
+- Changes to pi-mono that Tychicus depends on go in `patches/pi-mono.patch`, which `scripts/setup-siblings.sh` applies at the pinned commit
 
 ## Skills
 Bundled skills in `skills/` run with the user's sign-in in every agent that loads them.
@@ -113,7 +115,7 @@ Treat a skill change like a security change.
 - A skill folder holds `SKILL.md` and an optional license, nothing else. No scripts, no
   extra files, no symbolic links.
 - Keep each skill to 150 lines and 8,000 characters (docs/decisions.md, D12; enforced by
-  `tabkyra skill lint`). Split longer material into its own skill.
+  `tychicus skill lint`). Split longer material into its own skill.
 - Every skill must pass `node cli/dist/index.js skill lint skills`. Fix the skill, never
   the lint, to make it pass. The rules are in `docs/skill-security.md`.
 - Register a new skill in `cli/src/skills-catalog.ts` (import and map entry). A test fails
@@ -124,7 +126,7 @@ Treat a skill change like a security change.
 - Community skills live in `community/skills/` with cases in `community/cases/`; they follow
   `CONTRIBUTING-skills.md` and pass `node cli/dist/index.js skill lint --community community/skills`.
   A community pull request changes nothing outside `community/`. Agents prepare a submission
-  (`tabkyra skill submit` without `--confirm`) and never send one without the user's yes (D27).
+  (`tychicus skill submit` without `--confirm`) and never send one without the user's yes (D27).
 
 ## Changelog
 Location: `CHANGELOG.md`
@@ -143,7 +145,7 @@ Use these sections under `## [Unreleased]`:
   first: the "What's new" card shows the first two entries of each section.
 - NEVER modify already-released version sections
 - Start each entry with one short sentence (under 110 characters) that says what changed for the
-  person using Tabkyra, in their words: "Settings tabs no longer leave one tab alone on a line."
+  person using Tychicus, in their words: "Settings tabs no longer leave one tab alone on a line."
   Details, file names, decisions (D12) and tests come after it. The side panel's "What's new" card
   shows only that first sentence (`digestReleaseNotes` in `src/update/logic.ts`), and a longer one is
   cut at its first colon, semicolon or parenthesis.
@@ -182,9 +184,10 @@ deploy target is configured; `./run.sh deploy` refuses until one is chosen.
 The site is static HTML (no backend). Source is in `site/src/frontend/`.
 
 ## Brand
-Brand assets are generated by `media/brand/build.mjs` (rules in `media/brand/BRAND.md`).
-Edit the script, run `node media/brand/build.mjs`, and look at the PNGs it writes. Never
-edit the outputs by hand.
+The app icon is the hand-drawn sealed letter in `media/brand/icon.svg` and `icon-16.svg`; `media/brand/BRAND.md`
+says where its copies and PNGs go, and `test/tychicus-logo.test.mjs` checks they match. The older helm art
+(marks, heroes, social cards) is generated by `media/brand/build.mjs`: edit the script, run it, and look at the PNGs it
+writes. Never edit those outputs by hand.
 
 ## Style
 - No emojis in commits, code, or comments
@@ -212,7 +215,7 @@ edit the outputs by hand.
 
 ## Sign-in policy
 API keys, plus subscription sign-ins only on a route the provider documents for third-party
-apps, with Tabkyra's own registration: Sign in with ChatGPT (open-source path) and GitHub
+apps, with Tychicus's own registration: Sign in with ChatGPT (open-source path) and GitHub
 Copilot through the Copilot SDK (D28). Tokens stay in the native host, never in browser
 storage. Never add a sign-in that sends another app's OAuth client id, originator, user agent
 or headers, never spawn a provider's CLI to borrow its sign-in, and never add a Claude or
@@ -244,7 +247,7 @@ test/                   # Extension tests (node --test): auth policy, privacy, s
 skills/                 # Bundled agent skills, one SKILL.md per folder, compiled into the CLI
 cli/
   src/
-    index.ts            # `tabkyra` command dispatch and --help
+    index.ts            # `tychicus` command dispatch and --help
     mcp.ts              # MCP server: browser and library tools, safety instructions
     host.ts, client.ts  # Native host and the Unix-socket client
     setup.ts, doctor.ts, install.ts, harness.ts  # Setup, checks, host registration, harness configs
@@ -252,7 +255,7 @@ cli/
     skill-lint.ts       # The skill lint (docs/skill-security.md)
     skills-catalog.ts   # Every bundled skill, imported at build time
     library.ts          # Source library: DOI and arXiv, retraction checks, cite, export
-    remote.ts           # `tabkyra serve` (MCP over HTTP, loopback) and scoped tokens
+    remote.ts           # `tychicus serve` (MCP over HTTP, loopback) and scoped tokens
     tunnel.ts           # Tailscale and Cloudflare tunnels for serve
     update.ts, minisign.ts  # Signed release updates
   test/                 # CLI tests, including the lint red team and the e2e bridge test
@@ -268,6 +271,6 @@ static/
 ```
 
 ## Bridge development
-- After changing `src/`, rebuild and reload with `npm run build && tabkyra reload` (always `&&`: a reload after a failed build unloads the extension until it is reloaded from the extensions page).
-- `tabkyra debug` prints the extension's bridge state, request timings, and a Chrome API benchmark.
+- After changing `src/`, rebuild and reload with `npm run build && tychicus reload` (always `&&`: a reload after a failed build unloads the extension until it is reloaded from the extensions page).
+- `tychicus debug` prints the extension's bridge state, request timings, and a Chrome API benchmark.
 - The CLI is a separate package: `cd cli && npm run check`.

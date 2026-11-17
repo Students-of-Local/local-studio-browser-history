@@ -419,7 +419,7 @@ export async function detachTab(tabId: number, force = false): Promise<void> {
 	if (force) await stopScreencast(tabId).catch(() => undefined);
 	attachedTabs.delete(tabId);
 	viewportTabs.delete(tabId);
-	noteCaptureStopped(tabId, "Polycarp released the debugger (the client disconnected or the session ended)");
+	noteCaptureStopped(tabId, "Tychicus released the debugger (the client disconnected or the session ended)");
 	try {
 		await chrome.debugger.detach({ tabId });
 	} catch {

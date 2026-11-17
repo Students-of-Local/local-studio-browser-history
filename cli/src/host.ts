@@ -143,9 +143,9 @@ function onExtensionMessage(message: ExtToHost): void {
 			// The local thread mirror; every field is checked in applyMirror.
 			try {
 				const what = applyMirror(message as unknown as Record<string, unknown>, browserId);
-				if (what.startsWith("refused")) process.stderr.write(`[polycarp-host] thread mirror ${what}\n`);
+				if (what.startsWith("refused")) process.stderr.write(`[tychicus-host] thread mirror ${what}\n`);
 			} catch (err) {
-				process.stderr.write(`[polycarp-host] thread mirror failed: ${err instanceof Error ? err.message : String(err)}\n`);
+				process.stderr.write(`[tychicus-host] thread mirror failed: ${err instanceof Error ? err.message : String(err)}\n`);
 			}
 			return;
 		case "update_action":
@@ -267,7 +267,7 @@ export function runNativeHost(args: readonly string[] = []): void {
 	const refusal = callerRefusal(args);
 	if (refusal) {
 		// Before a frame is read or a socket opened: another extension gets nothing from this host.
-		process.stderr.write(`[polycarp-host] ${refusal}\n`);
+		process.stderr.write(`[tychicus-host] ${refusal}\n`);
 		process.exit(1);
 	}
 	browserName = parentBrowserName();
@@ -279,7 +279,7 @@ export function runNativeHost(args: readonly string[] = []): void {
 		chmodSync(dir, 0o700);
 		const st = statSync(dir);
 		if (st.uid !== process.getuid?.()) {
-			process.stderr.write(`[polycarp-host] ${dir} is owned by another user; refusing to start\n`);
+			process.stderr.write(`[tychicus-host] ${dir} is owned by another user; refusing to start\n`);
 			process.exit(1);
 		}
 		sweepStaleSockets(dir);
@@ -297,7 +297,7 @@ export function runNativeHost(args: readonly string[] = []): void {
 			const { messages, error } = parser.push(chunk);
 			for (const m of messages) onClientMessage(client, m as ClientToHost);
 			if (error) {
-				process.stderr.write(`[polycarp-host] bad frame from ${id}: ${String(error)}\n`);
+				process.stderr.write(`[tychicus-host] bad frame from ${id}: ${String(error)}\n`);
 				socket.destroy();
 			}
 		});
@@ -320,7 +320,7 @@ export function runNativeHost(args: readonly string[] = []): void {
 		const { messages, error } = parser.push(chunk);
 		for (const m of messages) onExtensionMessage(m as ExtToHost);
 		if (error) {
-			process.stderr.write(`[polycarp-host] bad frame from extension, restarting: ${String(error)}\n`);
+			process.stderr.write(`[tychicus-host] bad frame from extension, restarting: ${String(error)}\n`);
 			stopping = true;
 			failOutstanding(`the browser's reply was lost (${error.message}); the bridge is restarting`);
 			dropExtension();
@@ -376,7 +376,7 @@ export function runNativeHost(args: readonly string[] = []): void {
 	process.stdin.on("end", () => {
 		eukhe?.closeAll();
 		stopping = true;
-		failOutstanding("the browser connection dropped while this ran (the Polycarp extension reloaded or restarted)");
+		failOutstanding("the browser connection dropped while this ran (the Tychicus extension reloaded or restarted)");
 		shutdown();
 	});
 	const killed = () => {

@@ -163,6 +163,6 @@ test("second-S3: doctor's not-connected fix does not send people through registr
 	const row = doctor(env).find((c) => c.id === "connected");
 	assert.equal(row.status, "fail");
 	assert.doesNotMatch(row.fix, /\bsetup\b|install/);
-	assert.match(row.fix, /load the Polycarp extension/);
+	assert.match(row.fix, /load the Tychicus extension/);
 	assert.match(row.fix, /polycarp browser doctor again/);
 });

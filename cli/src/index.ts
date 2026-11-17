@@ -69,8 +69,8 @@ function help(): string {
 		for (const spec of VISIBLE_COMMANDS.filter((x) => x.group === group)) for (const [usage, what] of helpRows(spec)) rows.push(cmd(usage, what));
 		if (group === "Agents") {
 			rows.push(
-				`  ${c.dim("Claude Code:")} claude mcp add --scope user polycarp -- ${tildePath(cliLauncherPath())} mcp`,
-				`  ${c.dim("Codex:")}       codex mcp add polycarp -- ${tildePath(cliLauncherPath())} mcp`,
+				`  ${c.dim("Claude Code:")} claude mcp add --scope user tychicus -- ${tildePath(cliLauncherPath())} mcp`,
+				`  ${c.dim("Codex:")}       codex mcp add tychicus -- ${tildePath(cliLauncherPath())} mcp`,
 				`  ${c.dim(`(${COMMAND_NAME} setup adds these for you; ${COMMAND_NAME} doctor checks them.)`)}`,
 			);
 		}
@@ -82,14 +82,14 @@ function help(): string {
 		"",
 		`${c.dim("Flags:")} --help, --version. Read commands that list [--json] print JSON for scripts.`,
 		c.dim(EXIT_CODES),
-		`${c.dim("Docs:")} https://github.com/baney75/polycarp`,
+		`${c.dim("Docs:")} https://github.com/baney75/tychicus`,
 		"",
 	].join("\n");
 }
 
 /** NOT_CONNECTED is written for agents; people at the terminal get the direct version. */
 const NOT_CONNECTED_HERE =
-	`Polycarp isn't connected. Open Helium or Chrome with the Polycarp extension loaded, or run \`${COMMAND_NAME} doctor\` to see why.`;
+	`Tychicus isn't connected. Open Helium or Chrome with the Tychicus extension loaded, or run \`${COMMAND_NAME} doctor\` to see why.`;
 const forPeople = (message: string) => (message === NOT_CONNECTED ? NOT_CONNECTED_HERE : message);
 
 /** "https://GitHub.com/x" or "github.com" -> "github.com"; undefined for anything that isn't a host. */
@@ -450,17 +450,17 @@ async function main(): Promise<void> {
 			if (want === "on") {
 				const claude = harnesses().find((h) => h.id === "claude");
 				if (claude?.configured !== true) {
-					console.error(`Claude Code isn't set up with Polycarp under its current name, so the rule would match nothing. Run: ${COMMAND_NAME} setup`);
+					console.error(`Claude Code isn't set up with Tychicus under its current name, so the rule would match nothing. Run: ${COMMAND_NAME} setup`);
 					process.exitCode = 1;
 					return;
 				}
 				// A person's decision: an agent with a shell mustn't be able to wave its own prompts away.
 				if (!process.stdin.isTTY || !process.stdout.isTTY) {
-					console.error("Turning this on takes a person: run it in a terminal, or use Settings > Agents in the Polycarp app.");
+					console.error("Turning this on takes a person: run it in a terminal.");
 					process.exitCode = 1;
 					return;
 				}
-				if (!(await confirm("Let Claude Code use Polycarp's tools without asking?", { assumeYes: false, defaultYes: false }))) return;
+				if (!(await confirm("Let Claude Code use Tychicus's tools without asking?", { assumeYes: false, defaultYes: false }))) return;
 			}
 			const problem = setClaudeAllows(want === "on");
 			if (problem) {
@@ -468,7 +468,7 @@ async function main(): Promise<void> {
 				process.exitCode = 1;
 				return;
 			}
-			console.log(want === "on" ? `${sym.warn} Claude Code now uses Polycarp's tools without asking.` : `${sym.ok} Claude Code asks before using Polycarp's tools.`);
+			console.log(want === "on" ? `${sym.warn} Claude Code now uses Tychicus's tools without asking.` : `${sym.ok} Claude Code asks before using Tychicus's tools.`);
 			return;
 		}
 		case "allow-all":
@@ -650,7 +650,7 @@ async function main(): Promise<void> {
 					return;
 				}
 				console.log(`${sym.ok} OAuth passcode:\n\n  ${passcode}\n`);
-				console.log(c.dim("Shown once. Type it on the approval page when claude.ai, ChatGPT or grok.com connects. Keep it in a password manager, but not one the browser Polycarp drives can fill. Running this again replaces it and clears approval rate limits; grants already approved keep working."));
+				console.log(c.dim("Shown once. Type it on the approval page when claude.ai, ChatGPT or grok.com connects. Keep it in a password manager, but not one the browser Tychicus drives can fill. Running this again replaces it and clears approval rate limits; grants already approved keep working."));
 				return;
 			}
 			if (sub === "approval-code") {
@@ -949,9 +949,16 @@ async function main(): Promise<void> {
 			console.log(sdkInstalled() ? `${sym.ok} GitHub's Copilot SDK is installed.` : `${sym.warn} Not installed. Run \`${COMMAND_NAME} copilot-sdk install\`.`);
 			return;
 		}
-		case "pi-extension":
-			console.log(`${sym.ok} Wrote ${writePiExtension(argv[1])}`);
+		case "pi-extension": {
+			const pi = writePiExtension(argv[1]);
+			console.log(`${sym.ok} Wrote ${pi.file}`);
+			for (const path of pi.removed) console.log(`${sym.ok} Removed ${path}, which an older copy of this helper wrote`);
+			if (pi.polycarp)
+				console.log(
+					`${sym.warn} The Polycarp app's pi extension is also at ${pi.polycarp}. pi loads both, and their browser tools have the same names: keep one.`,
+				);
 			return;
+		}
 		case "completion": {
 			const script = completionScript(argv[1] ?? "");
 			if (!script) throw new UsageError(`Usage: ${COMMAND_NAME} completion zsh|bash|fish. For zsh: eval "$(${COMMAND_NAME} completion zsh)" in ~/.zshrc`);

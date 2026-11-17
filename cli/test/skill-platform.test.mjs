@@ -153,7 +153,7 @@ test("edit outside a terminal writes the exact source as a draft, prints the app
 	assert.equal(r.code, 0, r.out);
 	const draft = join(home, ".config", "tychicus", "skill-drafts", "dorks", "SKILL.md");
 	assert.equal(readFileSync(draft, "utf8"), run(home, ["skill", "print", "dorks", "--raw"]).stdout);
-	assert.match(r.out, new RegExp(`polycarp-browser skill apply ${dirname(draft).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+	assert.match(r.out, new RegExp(`tychicus skill apply ${dirname(draft).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
 	assert.equal(existsSync(marker), false, "no editor opens without a terminal");
 	assert.equal(existsSync(local(home, "dorks")), false);
 
@@ -236,7 +236,7 @@ test("edit --draft-only never touches a draft with unapplied changes, and rsi us
 	assert.equal(readFileSync(draft, "utf8"), unfinished);
 	// rsi drafts only through --draft-only, with no print-and-redirect fallback that could overwrite.
 	const rsi = bundled("rsi");
-	assert.match(rsi, /polycarp browser skill edit <name> --draft-only/);
+	assert.match(rsi, /tychicus skill edit <name> --draft-only/);
 	assert.match(rsi, /holds unapplied\s+changes, stop and ask the user/);
 	assert.doesNotMatch(rsi, /print \S+ --raw >/);
 	assert.doesNotMatch(rsi, /mkdir -p ~\/\.config\/tabkyra\/skill-drafts/);
@@ -309,7 +309,7 @@ test("edit --draft-only never opens an editor or asks, even in a terminal", (t) 
 	}
 	assert.equal(existsSync(marker), false, "no editor ran");
 	assert.doesNotMatch(r.out, /Apply\?/);
-	assert.match(r.out, /polycarp-browser skill apply \S+skill-drafts\/dorks/);
+	assert.match(r.out, /tychicus skill apply \S+skill-drafts\/dorks/);
 	assert.equal(existsSync(local(home, "dorks")), false);
 	assert.equal(run(home, ["skill", "edit", "dorks", "--draft-only", "--yes"]).code, 0);
 	assert.equal(existsSync(local(home, "dorks")), false, "--yes doesn't make --draft-only apply");

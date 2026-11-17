@@ -210,8 +210,8 @@ for (const width of [400, 320]) {
 				}),
 			);
 			const commands = boxes.map((b) => b.text);
-			assert.ok(commands.includes("polycarp browser remote setup"), JSON.stringify(commands));
-			assert.ok(commands.includes("polycarp browser hub setup --public-url https://ADDRESS"), JSON.stringify(commands));
+			assert.ok(commands.includes("tychicus remote setup"), JSON.stringify(commands));
+			assert.ok(commands.includes("tychicus hub setup --public-url https://ADDRESS"), JSON.stringify(commands));
 			for (const box of boxes) {
 				assert.equal(box.clipped, false, `${box.text} is cut off`);
 				assert.ok(box.right <= box.width, `${box.text} runs ${box.right - box.width}px past the panel`);
@@ -655,7 +655,7 @@ test("a 400-page PDF read on a small-window model ends with an answer, not a 400
 		assert.match(toolResult, /query/);
 		assert.ok(toolResult.length < 60_000, `tool result was ${toolResult.length} characters`);
 		// The tool's own answer reached the model whole: the guard did not cut it again.
-		assert.doesNotMatch(toolResult, /Polycarp cut this here/);
+		assert.doesNotMatch(toolResult, /Tychicus cut this here/);
 		// The reply asked for is what the budget kept room for.
 		assert.ok(maxTokens.every((n) => n <= 2048), `max tokens asked: ${maxTokens.join(", ")}`);
 	} finally {
@@ -705,7 +705,7 @@ test("a 32k model finds Book VIII in a 400-page PDF by searching, reads those pa
 		assert.match(results[1], new RegExp(`Page ${first} of 400[\\s\\S]*another self[\\s\\S]*Page ${last} of 400`));
 		for (const t of results) {
 			assert.ok(t.length < 40_000, `a tool answer of ${t.length} characters`);
-			assert.doesNotMatch(t, /Polycarp cut this here/, "the tool's answer fit as it was");
+			assert.doesNotMatch(t, /Tychicus cut this here/, "the tool's answer fit as it was");
 		}
 		for (const b of bodies) {
 			assert.ok(!b.includes(FAR_LINE.slice(0, 15)), "page 300 was never sent");
@@ -941,7 +941,7 @@ test("a long chat is summarized when the guard would drop turns, and the notes h
 		const sent = requests.at(-1);
 		assert.match(sent, /which it summarized to fit the model's context/);
 		assert.match(sent, new RegExp(`Q${turn}: The committee`), "the latest question is sent whole");
-		assert.doesNotMatch(sent, /Polycarp left out the \d+ (earliest messages|messages after its notes)/, "nothing was dropped");
+		assert.doesNotMatch(sent, /Tychicus left out the \d+ (earliest messages|messages after its notes)/, "nothing was dropped");
 		await page.locator("[data-compaction]").first().waitFor({ timeout: 10_000 });
 		// A reload: the panel reopens this chat from storage, with a new agent and compactor.
 		const before = summaries.length;
@@ -955,7 +955,7 @@ test("a long chat is summarized when the guard would drop turns, and the notes h
 		const after = requests.at(-1);
 		assert.match(after, new RegExp(`NOTE-FACTS ${before}`), "the stored notes are sent after the reload");
 		assert.match(after, /LAST-Q: what did we settle\?/);
-		assert.doesNotMatch(after, /Polycarp left out the \d+ (earliest messages|messages after its notes)/);
+		assert.doesNotMatch(after, /Tychicus left out the \d+ (earliest messages|messages after its notes)/);
 		assert.equal(summaries.length, before, "no new summary was needed");
 		assert.equal(await page.getByText(/400 status code|too long for the model|couldn't summarize/).count(), 0);
 	} finally {

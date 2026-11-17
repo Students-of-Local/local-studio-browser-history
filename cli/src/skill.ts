@@ -250,7 +250,7 @@ function localText(name: string): { text?: string; problem?: string; overBudget?
 
 /** Refuse to touch anything under a symbolic link: a link could lead outside Polycarp's folders. */
 function assertNoLinks(paths: string[]): void {
-	for (const p of paths) if (isLink(p)) throw new SkillError(`${p} is a symbolic link; Polycarp won't read or write through it. Remove it by hand.`);
+	for (const p of paths) if (isLink(p)) throw new SkillError(`${p} is a symbolic link; Tychicus won't read or write through it. Remove it by hand.`);
 }
 
 function isLink(path: string): boolean {
@@ -376,7 +376,7 @@ export function agentsSnippet(name = BROWSER_SKILL): string {
 	const body = text.startsWith("---\n") && end >= 0 ? text.slice(end + 5) : text;
 	// One level down, so it nests under a project's own headings.
 	const nested = body.trim().replace(/^(#{2,5}) /gm, "#$1 ");
-	const heading = name === BROWSER_SKILL ? "## Browser: Polycarp (MCP server `polycarp`)" : `## Skill: ${name}`;
+	const heading = name === BROWSER_SKILL ? "## Browser: Tychicus (MCP server `tychicus`)" : `## Skill: ${name}`;
 	return `${nested.replace(/^# .*/, heading)}\n`;
 }
 
@@ -623,7 +623,7 @@ export function refreshInstalledSkills(): RefreshResult {
 			continue;
 		}
 		if (record[file] !== sha256(existing)) {
-			result.skipped.push({ skill, file, reason: "edited since Polycarp installed it" });
+			result.skipped.push({ skill, file, reason: "edited since Tychicus installed it" });
 			continue;
 		}
 		writeFileSync(file, wanted);
@@ -1113,7 +1113,7 @@ export function removeSkill(name: string): string {
 		const removed = removeInstalledCopies(name);
 		return `Turned off the community skill ${name} on this device${removed.length ? ` and removed ${removed.length} installed cop${removed.length === 1 ? "y" : "ies"}` : ""}. ${COMMAND_NAME} skill enable ${name} brings it back.`;
 	}
-	if (SKILLS.has(name)) throw new SkillError(`${name} is a built-in skill; it ships with Polycarp and can't be removed. An agent that shouldn't use it can skip it.`);
+	if (SKILLS.has(name)) throw new SkillError(`${name} is a built-in skill; it ships with Tychicus and can't be removed. An agent that shouldn't use it can skip it.`);
 	throw new SkillError(`No skill named ${name}.${gone(name)} Run ${COMMAND_NAME} skill list.`);
 }
 
@@ -1223,7 +1223,7 @@ export function checkSkill(
 		ok &&= good || !community;
 		lines.push(`${good ? sym.ok : sym.fail} router: ${own.correct} of ${own.cases} cases route to ${name}; ${own.falseInvokes} of ${own.noneCases} none cases route to a skill`);
 		for (const m of own.misses) lines.push(`  ${sym.dot} expected ${m.expected}, got ${m.got}: ${m.task}`);
-		lines.push(`${sym.dot} The full regression (every case, every skill) runs in a Polycarp checkout and at submit time.`);
+		lines.push(`${sym.dot} The full regression (every case, every skill) runs in a Tychicus checkout and at submit time.`);
 	}
 	return { ok, name, text, community, findings, report, own, lines };
 }
@@ -1286,7 +1286,7 @@ export async function runSkillSync(args: string[], flags: SkillFlags): Promise<n
 		if (flags.on || flags.off) {
 			setEnabled(Boolean(flags.on));
 			if (flags.off) reconcileInstalled();
-			console.log(flags.on ? `${sym.ok} Community skills are on. They are checked about once a day; run ${COMMAND_NAME} skill sync to check now.` : `${sym.ok} Community skills are off: none is matched or read, and Polycarp stops checking for them.`);
+			console.log(flags.on ? `${sym.ok} Community skills are on. They are checked about once a day; run ${COMMAND_NAME} skill sync to check now.` : `${sym.ok} Community skills are off: none is matched or read, and Tychicus stops checking for them.`);
 			return 0;
 		}
 		const result = await syncCommunity();
@@ -1323,7 +1323,7 @@ function printInstall(results: InstallResult[]): void {
 		for (const r of mine.filter((r) => r.retired)) console.log(`${sym.dot} ${target.name.padEnd(12)} removed ${c.dim(r.retired ?? "")}, the copy of ${r.skill} under its old name`);
 		for (const r of mine.filter((r) => r.backup)) console.log(`${sym.dot} ${target.name.padEnd(12)} replaced ${r.file}; the old file is in ${c.dim(r.backup ?? "")}`);
 		for (const r of mine.filter((r) => r.state === "linked")) {
-			console.log(`${sym.warn} ${target.name.padEnd(12)} left alone: ${c.dim(r.file)} is a symbolic link, and Polycarp won't write through one. Replace the link by hand to install it.`);
+			console.log(`${sym.warn} ${target.name.padEnd(12)} left alone: ${c.dim(r.file)} is a symbolic link, and Tychicus won't write through one. Replace the link by hand to install it.`);
 		}
 		for (const r of mine.filter((r) => r.state === "kept")) {
 			console.log(`${sym.warn} ${target.name.padEnd(12)} left alone: ${c.dim(r.file)} is not ours ${c.dim(`(${COMMAND_NAME} skill install ${r.skill} --force replaces it)`)}`);
@@ -1389,7 +1389,7 @@ function readIfExists(file: string): string | undefined {
 
 function runEvalCommand(flags: SkillFlags): number {
 	const casesFile = flags.cases ? resolve(flags.cases) : findCases(process.cwd());
-	if (!casesFile || !existsSync(casesFile)) throw new SkillError("No skills-eval/router-cases.jsonl here or above. Run this in a Polycarp checkout, or pass --cases <file>.");
+	if (!casesFile || !existsSync(casesFile)) throw new SkillError("No skills-eval/router-cases.jsonl here or above. Run this in a Tychicus checkout, or pass --cases <file>.");
 	const dir = dirname(casesFile);
 	const baselineFile = join(dir, "baseline.json");
 	const heldoutText = readIfExists(join(dir, "router-heldout.jsonl"));

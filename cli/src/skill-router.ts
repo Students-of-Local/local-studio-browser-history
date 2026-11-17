@@ -13,7 +13,7 @@
  * A match needs MIN_SCORE and two pieces of evidence, or one word specific enough to reach
  * SINGLE_SCORE alone. Otherwise the answer is "none": a small model does better with no
  * skill than with the wrong one (docs/decisions.md D12). The constants are calibrated on
- * skills-eval/router-cases.jsonl; `polycarp browser skill eval` reports how well they hold.
+ * skills-eval/router-cases.jsonl; `tychicus skill eval` reports how well they hold.
  */
 
 export interface RouterSkill {
@@ -359,20 +359,20 @@ const EXCLUDES = new RegExp(
 	].join("|"),
 );
 /**
- * The browser skill's other names: the product ("Polycarp", "polycarp browser", which is also
- * the command) and the skill's name before the rename ("tabkyra", also the old command). A task
- * that says one of them means the polycarp-browser skill, so it reads as that name.
+ * The browser skill's other names: the product ("Tychicus", which is also the command), its name and command
+ * before that ("Polycarp", "polycarp browser") and the skill's name before the rename ("tabkyra", also the old
+ * command). A task that says one of them means the polycarp-browser skill, so it reads as that name.
  */
 const BROWSER_SKILL = "polycarp-browser";
 /** One word, as the old name was: the joined name the index keeps for a hyphenated name, so "browser" alone doesn't score twice. */
 const BROWSER_WORD = "polycarpbrowser";
-const BROWSER_ALIASES = /\b(?:tabkyra|polycarp(?:[- ]browser)?)\b/gi;
+const BROWSER_ALIASES = /\b(?:tabkyra|tychicus|polycarp(?:[- ]browser)?)\b/gi;
 
 /** The browser skill's other names, in a task or a skill's own text, as its one word (when the catalog has that skill). */
 function browserAliases(text: string, names: ReadonlySet<string>): string {
 	return names.has(BROWSER_SKILL) ? text.replace(BROWSER_ALIASES, BROWSER_WORD) : text;
 }
-/** `polycarp browser skill <subcommand>` (or `tabkyra skill ...`) is the CLI (read as "polycarpbrowser cli"), not a mention of the skill. */
+/** `tychicus skill <subcommand>` (or `polycarp browser skill ...`, `tabkyra skill ...`) is the CLI (read as "polycarpbrowser cli"), not a mention of the skill. */
 const CLI_SUBCOMMAND = /^\s+(?:install|list|print|lint|apply|revert|edit|eval|match|versions|rollback)\b/;
 
 /** "the osint skill", "this dorks skill": a determiner, and at most one word, right before the mention. */
@@ -412,8 +412,8 @@ interface ReadTask {
  *   word elsewhere ("the latest updates", "review what you find") doesn't count.
  * - It is ruled out when a negation governs it ("don't use the osint skill", "instead of the
  *   dorks skill", see EXCLUDES): that skill is never returned.
- * - "Polycarp", "polycarp browser" and "tabkyra" read as the polycarp-browser skill's name.
- * - `polycarp browser skill install` and the other subcommands are the CLI, not the polycarp-browser skill.
+ * - "Tychicus", "Polycarp", "polycarp browser" and "tabkyra" read as the polycarp-browser skill's name.
+ * - `tychicus skill install` and the other subcommands are the CLI, not the polycarp-browser skill.
  * - Otherwise ("use the osint skill on this landlord") it is a request for that skill.
  */
 function readTask(index: RouterIndex, task: string): ReadTask {

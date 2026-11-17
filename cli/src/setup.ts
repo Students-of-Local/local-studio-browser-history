@@ -197,11 +197,11 @@ async function connectHarnesses(options: SetupOptions): Promise<boolean> {
 	let ok = true;
 	for (const h of found) {
 		if (h.configured === true) {
-			console.log(`  ${sym.ok} ${h.name.padEnd(12)} ${c.dim("already has Polycarp")}`);
+			console.log(`  ${sym.ok} ${h.name.padEnd(12)} ${c.dim("already has Tychicus")}`);
 			continue;
 		}
 		if (h.configured === undefined) {
-			console.log(`  ${sym.warn} ${h.name}: couldn't tell whether Polycarp is configured. ${c.dim(`Run ${COMMAND_NAME} doctor for details.`)}`);
+			console.log(`  ${sym.warn} ${h.name}: couldn't tell whether Tychicus is configured. ${c.dim(`Run ${COMMAND_NAME} doctor for details.`)}`);
 			continue;
 		}
 		const replacing = h.configured === "stale" || h.configured === "other";
@@ -213,7 +213,7 @@ async function connectHarnesses(options: SetupOptions): Promise<boolean> {
 				console.log(`  ${sym.dot} ${c.bold(h.name)}: run ${shown}`);
 				continue;
 			}
-			let question = `Add Polycarp to ${c.bold(h.name)}?`;
+			let question = `Add Tychicus to ${c.bold(h.name)}?`;
 			if (h.configured === "stale") question = `${c.bold(h.name)}'s ${MCP_NAME} entry points at a missing command. Replace it?`;
 			if (h.configured === "other") question = `${c.bold(h.name)}'s ${MCP_NAME} entry runs ${h.currentCommand}. Replace it with this install?`;
 			// An entry running some other existing command may be the user's own wrapper:
@@ -239,7 +239,7 @@ async function connectHarnesses(options: SetupOptions): Promise<boolean> {
 			continue;
 		}
 		if (h.snippet?.startsWith("{")) {
-			console.log(`  ${sym.dot} ${c.bold(h.name)}: ${replacing ? "replace the Polycarp entry in" : "add this to"} ${c.cyan(h.configFile ?? "its MCP config")}`);
+			console.log(`  ${sym.dot} ${c.bold(h.name)}: ${replacing ? "replace the Tychicus entry in" : "add this to"} ${c.cyan(h.configFile ?? "its MCP config")}`);
 			for (const line of h.snippet.split("\n")) console.log(`    ${line}`);
 		} else if (h.snippet) {
 			console.log(`  ${sym.dot} ${c.bold(h.name)}: run ${c.bold(h.snippet)}`);
@@ -255,7 +255,7 @@ async function offerSkill(options: SetupOptions): Promise<void> {
 	if (targets.length === 0) return;
 	const names = targets.map((t) => t.name).join(", ");
 	const skills = [...SKILLS.keys()].join(", ");
-	if (!(await confirm(`  ${sym.dot} Install the Polycarp skills (${skills}) for ${names}? ${c.dim(`(${COMMAND_NAME} skill install)`)}`, { assumeYes: options.yes }))) {
+	if (!(await confirm(`  ${sym.dot} Install the Tychicus skills (${skills}) for ${names}? ${c.dim(`(${COMMAND_NAME} skill install)`)}`, { assumeYes: options.yes }))) {
 		console.log(`    ${c.dim("Later:")} ${COMMAND_NAME} skill install`);
 		return;
 	}
@@ -288,7 +288,7 @@ async function connectedOnCurrentBuild(state: ReloadState): Promise<Probe & { re
 	if (!built || p.version === built) return { ...p, ready: true };
 	if (state.reloadedAt === undefined && p.socket) {
 		state.reloadedAt = Date.now();
-		console.log(`  ${sym.warn} The browser runs Polycarp ${p.version}, the build is ${built}. Reloading the extension...`);
+		console.log(`  ${sym.warn} The browser runs Tychicus ${p.version}, the build is ${built}. Reloading the extension...`);
 		await reloadExtension(p.socket);
 		return { ...p, ready: false };
 	}
@@ -315,7 +315,7 @@ async function loadExtension(options: SetupOptions): Promise<Loaded> {
 					`   and click ${c.bold("Load unpacked")}.`,
 					`${c.brass("2")}  Pick this folder:`,
 					`   ${c.cyan(dir)}`,
-					`${c.brass("3")}  Optional: click ${c.bold("Details")} on Polycarp and turn on`,
+					`${c.brass("3")}  Optional: click ${c.bold("Details")} on Tychicus and turn on`,
 					`   ${c.bold("Allow user scripts")} (faster page scripts).`,
 				],
 				"One step in your browser",
@@ -349,14 +349,14 @@ async function loadExtension(options: SetupOptions): Promise<Loaded> {
 		last = p;
 		if (p.mismatch) {
 			if (live) process.stdout.write("\r\x1b[2K");
-			console.log(`  ${sym.fail} The browser still runs Polycarp ${p.version} after a reload; the build is ${builtVersion()}.`);
-			console.log(`  It is probably loaded from another folder. On chrome://extensions, remove Polycarp and load unpacked:`);
+			console.log(`  ${sym.fail} The browser still runs Tychicus ${p.version} after a reload; the build is ${builtVersion()}.`);
+			console.log(`  It is probably loaded from another folder. On chrome://extensions, remove Tychicus and load unpacked:`);
 			console.log(`  ${c.cyan(dir)}`);
 			return "failed";
 		}
 		if (p.ready) {
 			if (live) process.stdout.write("\r\x1b[2K");
-			console.log(`  ${sym.ok} ${c.bold("Connected.")} Polycarp can reach your browser ${c.dim(`(${p.version ?? "unknown version"})`)}.`);
+			console.log(`  ${sym.ok} ${c.bold("Connected.")} Tychicus can reach your browser ${c.dim(`(${p.version ?? "unknown version"})`)}.`);
 			return "connected";
 		}
 		if (live) process.stdout.write(`\r  ${c.brass(frames[frame++ % frames.length])} Waiting for the extension to connect ${c.dim("(Ctrl+C to stop)")}`);
@@ -366,7 +366,7 @@ async function loadExtension(options: SetupOptions): Promise<Loaded> {
 	console.log(`  ${sym.fail} The extension did not connect within ${options.timeoutS} s.`);
 	if (last.connected) console.log(`  It is connected but still runs an old build. Reload it on chrome://extensions.`);
 	else if (reload.reloadedAt !== undefined) {
-		console.log(`  It went away after the reload. On chrome://extensions, check that Polycarp is on and loaded from:`);
+		console.log(`  It went away after the reload. On chrome://extensions, check that Tychicus is on and loaded from:`);
 		console.log(`  ${c.cyan(dir)}`);
 	} else if (last.error) console.log(`  Last error: ${last.error}`);
 	console.log(`  If it is loaded, reload it once on chrome://extensions, then run ${c.bold(`${COMMAND_NAME} doctor`)}.`);
@@ -403,8 +403,8 @@ export async function runSetup(options: SetupOptions): Promise<number> {
 
 	console.log();
 	if (connected && harnessesOk) {
-		console.log(`${sym.ok} ${c.bold("Polycarp is ready.")} Ask your agent to open a page, for example:`);
-		console.log(`  ${c.dim('"Use Polycarp to open news.ycombinator.com and list the top five stories."')}`);
+		console.log(`${sym.ok} ${c.bold("Tychicus is ready.")} Ask your agent to open a page, for example:`);
+		console.log(`  ${c.dim('"Use Tychicus to open news.ycombinator.com and list the top five stories."')}`);
 		return 0;
 	}
 	const next = connected ? "fix the agent step above" : "load the extension";

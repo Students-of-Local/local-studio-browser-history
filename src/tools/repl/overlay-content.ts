@@ -1,4 +1,4 @@
-import { POLYCARP_MARK } from "../../components/polycarp-svg.js";
+import { TYCHICUS_MARK } from "../../components/tychicus-svg.js";
 
 /**
  * The bar's look: the side panel's own tokens, the Polycarp preset's light and dark palettes (src/appearance/palettes.ts),
@@ -238,9 +238,9 @@ export function createOverlayScript(taskName: string): string {
 	// The bar: Polycarp's mark and name with the task on one line, clipped (the whole task on hover), and Stop.
 	const toolbar = document.createElement('div');
 	toolbar.className = 'bar';
-	toolbar.innerHTML = '<span class="mark" aria-hidden="true">' + ${JSON.stringify(POLYCARP_MARK)} +
-		'</span><span class="text" role="status"><b>Polycarp</b><span class="task"></span></span>' +
-		'<button type="button" aria-label="Stop the script Polycarp is running">Stop</button>';
+	toolbar.innerHTML = '<span class="mark" aria-hidden="true">' + ${JSON.stringify(TYCHICUS_MARK)} +
+		'</span><span class="text" role="status"><b>Tychicus</b><span class="task"></span></span>' +
+		'<button type="button" aria-label="Stop the script Tychicus is running">Stop</button>';
 	const task = ${JSON.stringify(taskName)};
 	toolbar.querySelector('.task').textContent = ' \u00b7 ' + task;
 	toolbar.querySelector('.text').title = task;
