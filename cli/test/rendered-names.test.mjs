@@ -64,7 +64,8 @@ test("a Cloudflare tunnel that is already running names the command to stop it, 
 test("the host does not ask the system for its parent browser until it runs as the native host", () => {
 	const text = readFileSync(join(here, "..", "src", "host.ts"), "utf8");
 	assert.doesNotMatch(text, /^const browserName = parentBrowserName\(\)/m, "a top-level call would run `ps` for every command, --version included");
-	assert.match(text, /export function runNativeHost\(\): void \{\n\tbrowserName = parentBrowserName\(\);/);
+	// The caller check comes first (no frame is read for another extension), then the parent browser, still inside.
+	assert.match(text, /export function runNativeHost\(args: readonly string\[\] = \[\]\): void \{\n\tconst refusal = callerRefusal\(args\);\n\tif \(refusal\) \{\n[\s\S]*?\n\t\}\n\tbrowserName = parentBrowserName\(\);/);
 	const r = spawnSync(process.execPath, [cli, "--version"], { env: { PATH: "/usr/bin:/bin", HOME: home, TABKYRA_PARENT_BROWSER: "" }, encoding: "utf8" });
 	assert.equal(r.status, 0);
 });

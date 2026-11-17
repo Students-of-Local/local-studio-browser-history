@@ -8,6 +8,7 @@ import { BrowserSession, cleanupOrphanGroups } from "./browser/session.js";
 import { startVeil } from "./browser/veil.js";
 import { startCommunityWorker } from "./community/worker.js";
 import { startConnectRelay } from "./connect/relay.js";
+import { startEukheRelay } from "./eukhe/relay.js";
 import { startSiteEdits } from "./site-edits/apply.js";
 import { startSubscriptionRelay } from "./subscriptions/relay.js";
 import { runningFromStore } from "./update/store-install.js";
@@ -39,6 +40,8 @@ chrome.webNavigation.onTabReplaced.addListener(({ replacedTabId, tabId }) => {
 // native-messaging bridge. Connects when the CLI has installed the host manifest.
 startBridge();
 startSubscriptionRelay();
+// The side panel's Local Studio chats: the host relays them to the Eukhe daemon (cli/src/eukhe.ts).
+startEukheRelay();
 // The side panel's page tools (read_page, act, ...) run here, on the same handlers as the bridge.
 startPanelPageTools();
 startConnectRelay();

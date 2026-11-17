@@ -1,0 +1,209 @@
+// The native host's relay to Local Studio's Eukhe daemon (cli/src/eukhe.ts), against a fake daemon that speaks
+// eukhe.daemon v7 (helpers/fake-eukhe.mjs): a command's answer comes back, session events arrive in the order the daemon
+// sent them, a missing daemon is a clear eukhe_unavailable within 2 s (never a hang), and an abort ends a turn mid-stream.
+// The relay lets the panel send only its own commands, on sessions it made, and refuses every shell step.
+import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { createServer } from "node:net";
+import { join } from "node:path";
+import test from "node:test";
+import { loadTs } from "./helpers/bundle-ts.mjs";
+import { startFakeEukhe } from "./helpers/fake-eukhe.mjs";
+
+const { EukheRelay, eukheSocketPath, EUKHE_COMMANDS } = await loadTs(`export { EukheRelay, eukheSocketPath, EUKHE_COMMANDS } from "@src/eukhe.ts";`);
+
+const posix = process.platform !== "win32";
+const skip = !posix && "Unix sockets";
+
+/** A relay whose frames to the extension are collected, with a request helper that resolves on the answer. */
+function harness(path, options = {}) {
+	const frames = [];
+	const waiters = new Map();
+	const relay = new EukheRelay((frame) => {
+		frames.push(frame);
+		if (frame.id !== undefined) waiters.get(`${frame.conversation}:${frame.id}`)?.(frame);
+	}, { socketPath: () => path, ...options });
+	let seq = 0;
+	const ask = (conversation, op, command) =>
+		new Promise((resolve) => {
+			const id = ++seq;
+			waiters.set(`${conversation}:${id}`, resolve);
+			relay.handle({ type: "eukhe", id, conversation, op, ...(command ? { command } : {}) });
+		});
+	const events = (conversation) => frames.filter((f) => f.conversation === conversation && f.event).map((f) => f.event);
+	return { relay, frames, ask, events };
+}
+
+const until = async (fn, ms, what) => {
+	const end = Date.now() + ms;
+	while (Date.now() < end) {
+		const v = fn();
+		if (v) return v;
+		await new Promise((r) => setTimeout(r, 10));
+	}
+	throw new Error(`timed out waiting for ${what}`);
+};
+
+function tempDir(t) {
+	const dir = mkdtempSync(join(process.env.TMPDIR || "/tmp", "eukhe-relay-"));
+	t.after(() => rmSync(dir, { recursive: true, force: true }));
+	return dir;
+}
+
+test("the daemon socket is found where Eukhe looks for it", () => {
+	assert.equal(eukheSocketPath({ EUKHE_DAEMON_SOCKET: "/run/x/daemon.sock", TMPDIR: "/t" }, 1000), "/run/x/daemon.sock");
+	assert.equal(eukheSocketPath({ EUKHE_DAEMON_SOCKET: "~/eukhe.sock", HOME: "/home/u" }, 1000), "/home/u/eukhe.sock");
+	assert.equal(eukheSocketPath({ EUKHE_DAEMON_SOCKET: "", TMPDIR: "/t" }, 1000), "/t/eukhe-1000/daemon.sock");
+	assert.equal(eukheSocketPath({}, 501), "/tmp/eukhe-501/daemon.sock");
+});
+
+test("a command goes to the daemon in an eukhe.daemon v7 envelope and its answer comes back", { skip, timeout: 20_000 }, async (t) => {
+	const dir = tempDir(t);
+	const daemon = await startFakeEukhe({ path: join(dir, "eukhe-1000", "daemon.sock") });
+	t.after(() => daemon.close());
+	const { ask, relay } = harness(daemon.path);
+	t.after(() => relay.closeAll());
+
+	const probe = await ask("chat-1", "probe");
+	assert.equal(probe.result?.reachable, true, JSON.stringify(probe));
+	assert.equal(probe.result.appVersion, "fake-0.0.0");
+
+	const created = await ask("chat-1", "command", { type: "create", config: { provider: "llamacpp", model: "lfm2.5-8b" }, lifecycle: "resident" });
+	const session = created.result?.activeSessionId;
+	assert.match(session ?? "", /^session-/, JSON.stringify(created));
+	const attached = await ask("chat-1", "command", { type: "attach", activeSessionId: session, clientKind: "gateway" });
+	assert.equal(attached.error, undefined);
+	const models = await ask("chat-1", "command", { type: "get_available_models", activeSessionId: session });
+	assert.deepEqual(models.result.models.map((m) => m.id), ["gpt-5.5", "lfm2.5-8b"]);
+
+	const create = daemon.commands.find((c) => c.type === "create");
+	assert.deepEqual(create.protocol, { name: "eukhe.daemon", version: 7 });
+	assert.equal(create.lifecycle, "client_owned", "a panel session ends with the panel's connection");
+	assert.equal(daemon.commands.find((c) => c.type === "attach").clientKind, "interactive", "a panel never attaches as a gateway (which runs shell steps unasked)");
+	await until(() => daemon.connections === 1, 2000, "one connection for the chat (the probe's closes)");
+});
+
+test("session events stream back in the daemon's order, after the prompt's answer", { skip, timeout: 20_000 }, async (t) => {
+	const dir = tempDir(t);
+	const daemon = await startFakeEukhe({ path: join(dir, "d.sock") });
+	t.after(() => daemon.close());
+	const { ask, events, frames, relay } = harness(daemon.path);
+	t.after(() => relay.closeAll());
+	const session = (await ask("c", "command", { type: "create", config: {} })).result.activeSessionId;
+	await ask("c", "command", { type: "attach", activeSessionId: session });
+	const prompted = await ask("c", "command", { type: "prompt", activeSessionId: session, message: "read this page" });
+	assert.equal(prompted.result?.accepted, true);
+	await until(() => events("c").some((e) => e.event?.type === "agent_end"), 5000, "agent_end");
+	const seen = events("c").map((e) => {
+		const ev = e.event;
+		return ev.type === "message_update" ? `delta:${ev.assistantMessageEvent.delta}` : ev.type;
+	});
+	assert.deepEqual(seen, [
+		"agent_start",
+		"turn_start",
+		"message_start",
+		"delta:Reading ",
+		"delta:the page. ",
+		"tool_execution_start",
+		"tool_execution_end",
+		"delta:It says hello.",
+		"message_end",
+		"turn_end",
+		"agent_end",
+	]);
+	const answerAt = frames.findIndex((f) => f.id !== undefined && f.result?.accepted);
+	const firstEventAt = frames.findIndex((f) => f.event);
+	assert.ok(answerAt < firstEventAt, "the prompt's answer comes before its events");
+	assert.equal(daemon.commands.find((c) => c.type === "prompt").message, "read this page");
+});
+
+test("no daemon is eukhe_unavailable within 2 s, with what to do; never a hang", { skip, timeout: 20_000 }, async (t) => {
+	const dir = tempDir(t);
+	// No socket at all.
+	const missing = harness(join(dir, "nothing", "daemon.sock"));
+	let started = Date.now();
+	const none = await missing.ask("c", "command", { type: "create", config: {} });
+	assert.equal(none.error?.code, "eukhe_unavailable");
+	assert.match(none.error.message, /Start Local Studio, or run `eukhe`/);
+	assert.ok(Date.now() - started < 2000, `answered in ${Date.now() - started} ms`);
+	const probe = await missing.ask("c", "probe");
+	assert.equal(probe.error?.code, "eukhe_unavailable");
+
+	// Something listens but never says hello: still no hang.
+	const mute = join(dir, "mute.sock");
+	const server = createServer(() => undefined);
+	await new Promise((r) => server.listen(mute, r));
+	t.after(() => server.close());
+	const quiet = harness(mute);
+	started = Date.now();
+	const silent = await quiet.ask("c", "probe");
+	assert.equal(silent.error?.code, "eukhe_unavailable");
+	assert.match(silent.error.message, /no hello/);
+	assert.ok(Date.now() - started < 2000, `answered in ${Date.now() - started} ms`);
+
+	// Windows has no daemon yet: the same code, saying so.
+	const win = harness(join(dir, "x.sock"), { platform: "win32" });
+	const windows = await win.ask("c", "probe");
+	assert.equal(windows.error?.code, "eukhe_unavailable");
+	assert.match(windows.error.message, /not on Windows yet/);
+});
+
+test("an abort mid-stream ends the turn: no more deltas, the turn closes as aborted", { skip, timeout: 20_000 }, async (t) => {
+	const dir = tempDir(t);
+	const words = Array.from({ length: 40 }, (_, i) => `w${i} `);
+	const daemon = await startFakeEukhe({
+		path: join(dir, "d.sock"),
+		stepMs: 20,
+		turn: async (turn) => {
+			for (const w of words) {
+				if (turn.aborted) return;
+				await turn.delta(w);
+			}
+		},
+	});
+	t.after(() => daemon.close());
+	const { ask, events, relay } = harness(daemon.path);
+	t.after(() => relay.closeAll());
+	const session = (await ask("c", "command", { type: "create", config: {} })).result.activeSessionId;
+	await ask("c", "command", { type: "attach", activeSessionId: session });
+	await ask("c", "command", { type: "prompt", activeSessionId: session, message: "count" });
+	await until(() => events("c").filter((e) => e.event?.type === "message_update").length >= 3, 5000, "three deltas");
+	const aborted = await ask("c", "command", { type: "abort", activeSessionId: session });
+	assert.equal(aborted.error, undefined);
+	await until(() => events("c").some((e) => e.event?.type === "agent_end"), 5000, "agent_end after the abort");
+	const deltas = events("c").filter((e) => e.event?.type === "message_update").length;
+	assert.ok(deltas < words.length, `the turn stopped early (${deltas} of ${words.length} deltas)`);
+	const end = events("c").find((e) => e.event?.type === "message_end");
+	assert.equal(end.event.message.stopReason, "aborted");
+});
+
+test("the panel sends only its own commands, on sessions its chat made, and every shell step is refused", { skip, timeout: 20_000 }, async (t) => {
+	const dir = tempDir(t);
+	const daemon = await startFakeEukhe({
+		path: join(dir, "d.sock"),
+		turn: async (turn) => {
+			await turn.shell("rm -rf ~/work");
+			await turn.delta("done");
+		},
+	});
+	t.after(() => daemon.close());
+	const { ask, events, relay } = harness(daemon.path);
+	t.after(() => relay.closeAll());
+	for (const type of ["shutdown", "answer_shell_approval", "list", "pause_workers"]) {
+		assert.equal(EUKHE_COMMANDS.has(type), false);
+		const refused = await ask("a", "command", { type, activeSessionId: "x" });
+		assert.equal(refused.error?.code, "permission_denied", type);
+	}
+	const mine = (await ask("a", "command", { type: "create", config: {} })).result.activeSessionId;
+	const theirs = await ask("b", "command", { type: "prompt", activeSessionId: mine, message: "hi" });
+	assert.equal(theirs.error?.code, "permission_denied", "chat b may not drive chat a's session");
+	assert.equal(daemon.commands.filter((c) => c.type !== "create").length, 0, "nothing refused reached the daemon");
+
+	await ask("a", "command", { type: "attach", activeSessionId: mine });
+	await ask("a", "command", { type: "prompt", activeSessionId: mine, message: "clean up" });
+	await until(() => events("a").some((e) => e.event?.type === "agent_end"), 5000, "agent_end");
+	const answer = await until(() => daemon.commands.find((c) => c.type === "answer_shell_approval"), 2000, "the shell answer");
+	assert.equal(answer.verdict, "deny");
+	assert.equal(answer.activeSessionId, mine);
+	assert.deepEqual(events("a").find((e) => e.type === "shell_refused"), { type: "shell_refused", activeSessionId: mine, command: "rm -rf ~/work" });
+});

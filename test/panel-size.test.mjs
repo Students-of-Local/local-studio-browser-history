@@ -92,7 +92,7 @@ test("the model button opens the picker before anything that waits on the networ
 test("the welcome dialog shows once, and its X opens nothing", () => {
 	const panel = readFileSync(join(root, "src/sidepanel.ts"), "utf8");
 	const seen = panel.indexOf("[WELCOME_SEEN_KEY]: true");
-	const show = panel.indexOf("await WelcomeSetupDialog.show()");
+	const show = panel.indexOf("await WelcomeSetupDialog.show(");
 	assert.ok(seen > 0 && seen < show, "remembered before it can be closed by the panel going away");
 	assert.match(panel, /!\(await chrome\.storage\.local\.get\(WELCOME_SEEN_KEY\)\)\[WELCOME_SEEN_KEY\]/);
 	assert.match(panel, /choice !== "dismissed"\) \{/);

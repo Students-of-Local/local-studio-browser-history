@@ -15,6 +15,8 @@ const PROVIDER_NAMES: Record<string, string> = {
 	groq: "Groq",
 	huggingface: "Hugging Face",
 	"llama.cpp": "llama.cpp",
+	// Local Studio's Eukhe daemon (src/eukhe): local models and its own sign-ins, no key in the extension.
+	"local-studio": "Local Studio",
 	lmstudio: "LM Studio",
 	minimax: "MiniMax",
 	"minimax-cn": "MiniMax (China)",

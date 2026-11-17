@@ -135,6 +135,12 @@ export interface ExtHello {
 	 * tell one browser from another and resend a request only to the browser it started on.
 	 */
 	browserId?: string;
+	/**
+	 * What this extension understands beyond `methods`: "chunks" (a host frame over MAX_FRAME_TO_EXTENSION arrives as
+	 * HostChunk pieces, src/bridge/chunks.ts) and "eukhe" (the side panel's Local Studio chats, ExtEukhe). A host sends
+	 * neither to an extension that did not list it. Absent from builds before batch 3.
+	 */
+	features?: string[];
 }
 
 /**
@@ -215,7 +221,21 @@ export interface ExtConnect {
 	params?: Record<string, unknown>;
 }
 
+/**
+ * One step of a side panel chat that runs on Local Studio's Eukhe daemon (cli/src/eukhe.ts). `conversation` names the
+ * panel chat; the host keeps one daemon connection for each. `probe` connects and reads the daemon's hello, `command`
+ * sends one daemon command (only the ones in EUKHE_COMMANDS), `close` drops the chat's connection.
+ */
+export interface ExtEukhe {
+	type: "eukhe";
+	id: number;
+	conversation: string;
+	op: "probe" | "command" | "close";
+	command?: Record<string, unknown>;
+}
+
 export type ExtToHost =
+	| ExtEukhe
 	| ExtHello
 	| ExtResponse
 	| ExtEvent
@@ -397,7 +417,37 @@ export interface HostConnect {
 	progress?: Record<string, unknown>;
 }
 
+/**
+ * The host's side of ExtEukhe: with `id`, the answer to one probe or command (`result` is the daemon's `data`, or
+ * `error`); without it, a frame the daemon pushed for the chat (`event`: a session_event, session_closed or a refused
+ * shell step). `closed` says the daemon connection ended.
+ */
+export interface HostEukhe {
+	type: "eukhe";
+	conversation: string;
+	id?: number;
+	result?: unknown;
+	error?: RpcError;
+	event?: Record<string, unknown>;
+	closed?: boolean;
+}
+
+/**
+ * One piece of a host frame too big for one native message (Chrome caps host to extension at 1 MiB). `data` is base64 of
+ * the frame's UTF-8 JSON bytes from `index * piece`; the extension joins the `count` pieces of `id` and handles the
+ * frame as if it came whole (src/bridge/chunks.ts).
+ */
+export interface HostChunk {
+	type: "chunk";
+	id: number;
+	index: number;
+	count: number;
+	data: string;
+}
+
 export type HostToExt =
+	| HostEukhe
+	| HostChunk
 	| HostSubscription
 	| HostConnect
 	| HostClientConnected
@@ -438,7 +488,12 @@ export const ERR = {
 	NAV_FAILED: "navigation_failed",
 	/** The session holds the most tabs it may (MAX_SESSION_TABS); close some first. */
 	TAB_LIMIT: "tab_limit",
+	/** No Eukhe daemon answers on its socket (Local Studio is not running), or this platform has none yet. */
+	EUKHE_UNAVAILABLE: "eukhe_unavailable",
 } as const;
+
+/** The features this build's extension lists in its hello (ExtHello.features). */
+export const EXTENSION_FEATURES = ["chunks", "eukhe"] as const;
 
 /**
  * Methods with no side effect in the page or the tab strip: repeating one changes nothing, so a

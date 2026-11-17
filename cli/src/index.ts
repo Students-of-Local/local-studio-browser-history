@@ -344,7 +344,7 @@ async function main(): Promise<void> {
 			process.exitCode = await status(flag("--json"));
 			return;
 		case "host":
-			runNativeHost();
+			runNativeHost(argv.slice(1));
 			return;
 		case "mcp":
 			// --profile panel: the side panel's page tools, for measuring the panel's tool surface (eval/web-bench.mjs).

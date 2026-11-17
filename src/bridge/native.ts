@@ -35,6 +35,7 @@ import { resyncMirror, startThreadMirror } from "../threads/mirror.js";
 import { asBuildInfo, BUILD, type BuildInfo } from "../update/build.js";
 import type { UpdateAction } from "../update/logic.js";
 import { runningFromStore } from "../update/store-install.js";
+import { ChunkAssembler } from "./chunks.js";
 import {
 	type Delivered,
 	dialogError,
@@ -64,12 +65,15 @@ import {
 import {
 	BRIDGE_METHODS,
 	ERR,
+	EXTENSION_FEATURES,
 	type ExtConnect,
+	type ExtEukhe,
 	type ExtSubscription,
 	type ExtToHost,
 	FILE_ASK_TIMEOUT_MS,
 	type HostClientConnected,
 	type HostConnect,
+	type HostEukhe,
 	type HostForwardedRequest,
 	type HostSubscription,
 	type HostToExt,
@@ -760,6 +764,23 @@ export function sendSubscription(message: ExtSubscription): boolean {
 	return true;
 }
 
+/** Local Studio frames go to the relay (src/eukhe/relay.ts); "disconnected" when the host goes. */
+let eukheHandler: ((message: HostEukhe | "disconnected") => void) | undefined;
+
+export function onEukheMessage(handler: (message: HostEukhe | "disconnected") => void): void {
+	eukheHandler = handler;
+}
+
+/** Send a Local Studio frame to the host; false when no host is connected. */
+export function sendEukhe(message: ExtEukhe): boolean {
+	if (!port) return false;
+	send(message);
+	return true;
+}
+
+/** Joins frames the host sent in pieces (over Chrome's 1 MiB cap); one per port. */
+let assembler = new ChunkAssembler();
+
 /** Connect frames go to the relay (src/connect/relay.ts); "disconnected" when the host goes. */
 let connectHandler: ((message: HostConnect | "disconnected") => void) | undefined;
 
@@ -776,6 +797,16 @@ export function sendConnect(message: ExtConnect): boolean {
 
 function onHostMessage(message: HostToExt): void {
 	switch (message.type) {
+		case "chunk": {
+			const joined = assembler.push(message);
+			if (joined.error) console.warn("[Bridge] dropped a frame sent in pieces:", joined.error);
+			if (joined.message && (joined.message as { type?: unknown }).type !== "chunk")
+				onHostMessage(joined.message as HostToExt);
+			return;
+		}
+		case "eukhe":
+			eukheHandler?.(message);
+			return;
 		case "connect":
 			connectHandler?.(message);
 			return;
@@ -1113,6 +1144,8 @@ function connect(): void {
 		if (unregistered) hostNameIndex = (hostNameIndex + 1) % NATIVE_HOST_NAMES.length;
 		subscriptionHandler?.("disconnected");
 		connectHandler?.("disconnected");
+		eukheHandler?.("disconnected");
+		assembler = new ChunkAssembler();
 		// The host answered these "interrupted: it may have run" and the agent may repeat them
 		// after checking the page: the running handlers must send no more input.
 		for (const state of clients.values()) {
@@ -1144,6 +1177,7 @@ function connect(): void {
 			version: chrome.runtime.getManifest().version,
 			protocol: PROTOCOL_VERSION,
 			methods: [...BRIDGE_METHODS],
+			features: [...EXTENSION_FEATURES],
 			build: BUILD,
 			diskBuild,
 			browserId,

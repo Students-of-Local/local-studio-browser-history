@@ -15,6 +15,9 @@ import { encodeFrame, FrameParser } from "./framing.ts";
 import { guardedHosts } from "./guarded-hosts.ts";
 import { socketDir, socketPath } from "./paths.ts";
 import { ConnectService } from "./connect-host.ts";
+import { CHUNK_PIECE_BYTES, chunkFrame, MAX_CHUNKED_FRAME_BYTES } from "../../src/bridge/chunks.ts";
+import { EukheRelay } from "./eukhe.ts";
+import { extensionOrigins } from "./install.ts";
 import { SubscriptionService } from "./subscriptions/service.ts";
 import { applyMirror } from "./threads-mirror.ts";
 import { handleCommunityAction, onCommunityHello, startCommunityTimer } from "./community-host.ts";
@@ -44,6 +47,11 @@ let subscriptions: SubscriptionService | undefined;
 let connect: ConnectService | undefined;
 /** Set once the host has decided to exit; no request is forwarded after that. */
 let stopping = false;
+/** The side panel's Local Studio chats (cli/src/eukhe.ts); made on the first frame. */
+let eukhe: EukheRelay | undefined;
+/** What the connected extension understands beyond its methods (ExtHello.features). */
+let extensionFeatures: string[] = [];
+let chunkSeq = 0;
 
 /** Write a frame to the extension; false when it was refused as oversized. */
 function toExtension(message: HostToExt): boolean {
@@ -51,6 +59,12 @@ function toExtension(message: HostToExt): boolean {
 	// then fails with EPIPE), and the extension must hear the port close, not more traffic.
 	if (stopping) return false;
 	const frame = encodeFrame(message);
+	if (frame.length > MAX_FRAME_TO_EXTENSION && frame.length - 4 <= MAX_CHUNKED_FRAME_BYTES && extensionFeatures.includes("chunks")) {
+		// Chrome closes the port on a message over 1 MiB: send it in pieces the extension joins (src/bridge/chunks.ts).
+		const id = ++chunkSeq;
+		for (const piece of chunkFrame(frame.subarray(4), id, CHUNK_PIECE_BYTES)) process.stdout.write(encodeFrame(piece));
+		return true;
+	}
 	if (frame.length > MAX_FRAME_TO_EXTENSION) {
 		// Never let one oversized frame kill the native port.
 		const failing = message as { clientId?: string; id?: number };
@@ -104,6 +118,7 @@ function onExtensionMessage(message: ExtToHost): void {
 			extensionReady = true;
 			browserId = typeof message.browserId === "string" ? message.browserId.slice(0, 64) : undefined;
 			extensionMethods = Array.isArray(message.methods) ? message.methods : undefined;
+			extensionFeatures = Array.isArray(message.features) ? message.features.filter((f): f is string => typeof f === "string") : [];
 			noteHello(message, toExtension);
 			void sendStatus(toExtension);
 			onCommunityHello(toExtension);
@@ -145,6 +160,11 @@ function onExtensionMessage(message: ExtToHost): void {
 			if (typeof message.id !== "number" || typeof message.method !== "string") return;
 			subscriptions ??= new SubscriptionService();
 			void subscriptions.handle(message, toExtension);
+			return;
+		case "eukhe":
+			// Checked inside: only the panel commands in EUKHE_COMMANDS, on sessions the chat made itself.
+			eukhe ??= new EukheRelay(toExtension);
+			eukhe.handle(message);
 			return;
 		case "connect":
 			// Parsed strictly inside: a frame that isn't exactly a known call gets an error and runs nothing.
@@ -230,7 +250,26 @@ function dropExtension(): void {
 	}
 }
 
-export function runNativeHost(): void {
+/**
+ * Which extension started this host. A browser starts it as `<host> chrome-extension://<id>/` (Windows adds
+ * `--parent-window`); only the pinned extension (src/bridge/extension-id.json, and the store copy once it exists) may
+ * talk to it, so the host needs no pairing code. A host run by hand, with no origin, is the user's own process.
+ * Returns the refusal, or undefined when the caller may go on.
+ */
+export function callerRefusal(args: readonly string[], allowed: readonly string[] = extensionOrigins()): string | undefined {
+	const origin = args.find((a) => !a.startsWith("--parent-window"));
+	if (origin === undefined) return undefined;
+	if (allowed.includes(origin)) return undefined;
+	return `${origin} is not the Tychicus extension (expected ${allowed.join(" or ")}); refusing to start`;
+}
+
+export function runNativeHost(args: readonly string[] = []): void {
+	const refusal = callerRefusal(args);
+	if (refusal) {
+		// Before a frame is read or a socket opened: another extension gets nothing from this host.
+		process.stderr.write(`[polycarp-host] ${refusal}\n`);
+		process.exit(1);
+	}
 	browserName = parentBrowserName();
 	// A closed pipe to the browser must not crash the host while it answers its clients.
 	process.stdout.on("error", () => undefined);
@@ -335,6 +374,7 @@ export function runNativeHost(): void {
 	// The extension went away (reloaded, updated, worker restarted): what it had not answered
 	// never will be.
 	process.stdin.on("end", () => {
+		eukhe?.closeAll();
 		stopping = true;
 		failOutstanding("the browser connection dropped while this ran (the Polycarp extension reloaded or restarted)");
 		shutdown();

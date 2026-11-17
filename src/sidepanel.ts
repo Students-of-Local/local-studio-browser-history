@@ -64,6 +64,14 @@ import { SiteEditsTab } from "./dialogs/SiteEditsTab.js";
 import { SkillsTab } from "./dialogs/SkillsTab.js";
 import { UpdatesTab } from "./dialogs/UpdatesTab.js";
 import { type WelcomeChoice, WelcomeSetupDialog } from "./dialogs/WelcomeSetupDialog.js";
+import {
+	isLocalStudioProvider,
+	LOCAL_STUDIO_PROVIDER,
+	localStudioModels,
+	probeLocalStudio,
+	refreshLocalStudioModels,
+	registerLocalStudioApi,
+} from "./eukhe/stream.js";
 import { registerCompactionRenderer } from "./messages/CompactionMessage.js";
 import { browserMessageTransformer } from "./messages/message-transformer.js";
 import {
@@ -552,8 +560,18 @@ async function pageChangeNote(): Promise<NavigationMessage | undefined> {
 }
 
 async function selectDefaultModelForAvailableProvider() {
+	if (!agent) return;
 	const providers = await getProvidersWithKeys();
-	if (providers.length === 0 || !agent) return;
+	if (providers.length === 0) {
+		// No key: Local Studio, when it runs, needs none.
+		const local = await localStudioReady.catch(() => []);
+		if (local.length > 0 && !isLocalStudioProvider(agent.state.model?.provider ?? "")) {
+			agent.setModel(local[0]);
+			await storage.settings.set("lastUsedModel", local[0]);
+			renderApp();
+		}
+		return;
+	}
 
 	// Try each provider with keys and find a default model
 	for (const provider of providers) {
@@ -597,11 +615,19 @@ async function getProvidersWithKeys(): Promise<string[]> {
 	return [...(await providersWithKeys(storage.providerKeys))];
 }
 
-/** No provider key and no subscription sign-in: the model button says what to do instead of naming a model. */
+/**
+ * Local Studio's models, looked up once when the panel starts (the host answers within about 2 s whether the Eukhe daemon
+ * runs). Chats run there need no key in the extension (src/eukhe/stream.ts).
+ */
+let localStudioReady: Promise<Model<any>[]> = Promise.resolve([]);
+
+/** No provider key, no subscription sign-in and no Local Studio: the model button says what to do instead of naming a model. */
 let providerless = false;
 async function refreshProviderless(): Promise<void> {
 	const none =
-		(await getProvidersWithKeys()).length === 0 && (await refreshSubscriptionModels().catch(() => [])).length === 0;
+		(await getProvidersWithKeys()).length === 0 &&
+		(await refreshSubscriptionModels().catch(() => [])).length === 0 &&
+		(await localStudioReady.catch(() => [])).length === 0;
 	if (none === providerless) return;
 	providerless = none;
 	refreshModelLabel(true);
@@ -902,8 +928,14 @@ const createAgent = async (initialState?: Partial<AgentState>, shouldSave = true
 	let defaultModel: Model<any> | undefined;
 	if (!initialState?.model) {
 		const savedModel = await storage.settings.get<Model<any>>("lastUsedModel");
-		if (savedModel && !isBlockedModel(savedModel)) {
-			defaultModel = savedModel;
+		// With Local Studio running, it is the default: no key to add. A model the person picked stays; only a Local
+		// Studio pick, or no pick, waits to hear whether the daemon runs.
+		const usable = savedModel && !isBlockedModel(savedModel) ? savedModel : undefined;
+		const local = usable && !isLocalStudioProvider(usable.provider) ? [] : await localStudioReady.catch(() => []);
+		if (usable && (!isLocalStudioProvider(usable.provider) || local.some((m) => m.id === usable.id))) {
+			defaultModel = usable;
+		} else if (local.length > 0) {
+			defaultModel = local[0];
 		} else {
 			// Try to find a default model for a provider the user already has a key for
 			const keyed = await getProvidersWithKeys();
@@ -940,6 +972,8 @@ const createAgent = async (initialState?: Partial<AgentState>, shouldSave = true
 		),
 	);
 	const getApiKey = async (provider: string) => {
+		// Local Studio holds its own sign-ins; the extension has no key for it.
+		if (isLocalStudioProvider(provider)) return undefined;
 		const stored = await storage.providerKeys.get(provider);
 		if (!stored) return undefined;
 		return resolveApiKey(stored, provider);
@@ -1041,6 +1075,15 @@ const createAgent = async (initialState?: Partial<AgentState>, shouldSave = true
 			return chrome.runtime.getURL("sandbox.html");
 		},
 		onApiKeyRequired: async (provider: string) => {
+			// Local Studio needs no key: it is ready when its daemon runs.
+			if (isLocalStudioProvider(provider)) {
+				if (await probeLocalStudio()) return true;
+				Toast.error(
+					"Local Studio isn't running. Start Local Studio, or run eukhe in a terminal, then send again.",
+					8000,
+				);
+				return false;
+			}
 			// A subscription provider has no key: it is ready when its sign-in is.
 			if (isSubscriptionProvider(provider)) {
 				const status = await trySubscriptionStatus(true);
@@ -1057,7 +1100,8 @@ const createAgent = async (initialState?: Partial<AgentState>, shouldSave = true
 			// Opens from what's known now, without waiting on the network or the helper: this used to take as long as the
 			// slowest provider's list, up to 4 seconds and more, with nothing on screen.
 			const withKeys = await getProvidersWithKeys();
-			let providers = [...withKeys, ...knownSubscriptionProviders()];
+			const local = localStudioModels().length > 0 ? [LOCAL_STUDIO_PROVIDER] : [];
+			let providers = [...local, ...withKeys, ...knownSubscriptionProviders()];
 			if (providers.length === 0) {
 				// Nothing known yet: a plan might still be signed in, and the alternative is a Settings page they don't need.
 				const brief = new Promise<string[]>((resolve) => setTimeout(() => resolve([]), 500));
@@ -1094,7 +1138,10 @@ const createAgent = async (initialState?: Partial<AgentState>, shouldSave = true
 			void Promise.all([
 				refreshSubscriptionModels().catch(() => knownSubscriptionProviders()),
 				refreshDiscoveredModels(storage, { wait: true, timeoutMs: 15000 }).catch(() => {}),
-			]).then(([subscriptions]) => selector.refreshed([...withKeys, ...subscriptions]));
+				refreshLocalStudioModels().catch(() => []),
+			]).then(([subscriptions, , studio]) =>
+				selector.refreshed([...(studio.length ? [LOCAL_STUDIO_PROVIDER] : []), ...withKeys, ...subscriptions]),
+			);
 		},
 		onBeforeSend: async () => {
 			// Polycarp may be swapping in an update and about to reload; a run started then would be cut
@@ -1572,6 +1619,12 @@ async function initApp() {
 
 	// Register cached provider model lists now; refresh stale ones in the background.
 	refreshDiscoveredModels(storage).catch((err) => console.warn("Model discovery failed:", err));
+	// Local Studio's daemon: when it runs, chats need no key (src/eukhe/stream.ts).
+	registerLocalStudioApi();
+	localStudioReady = refreshLocalStudioModels().catch((err) => {
+		console.warn("Local Studio models unavailable:", err);
+		return [];
+	});
 	installFreeMode({
 		settings: storage.settings,
 		hasOpenRouterKey: async () => Boolean(await storage.providerKeys.get("openrouter")),
@@ -1712,8 +1765,13 @@ async function initApp() {
 	if (!(await hasAnyApiKey()) && !(await chrome.storage.local.get(WELCOME_SEEN_KEY))[WELCOME_SEEN_KEY]) {
 		// Once. Someone who drives this browser from their own agent has no keys and shouldn't be asked on every new chat.
 		await chrome.storage.local.set({ [WELCOME_SEEN_KEY]: true });
-		const choice: WelcomeChoice = await WelcomeSetupDialog.show();
-		if (choice !== "dismissed") {
+		// With Local Studio running, chat works now: the welcome asks for no key, and keys sit behind a link.
+		const studio = (await localStudioReady.catch(() => [])).length > 0;
+		const choice: WelcomeChoice = await WelcomeSetupDialog.show(studio ? "local-studio" : "keys");
+		if (choice === "chat") {
+			await selectDefaultModelForAvailableProvider();
+			renderApp();
+		} else if (choice !== "dismissed") {
 			// "Set up provider" lands on the API keys list, not the top of the tab (Free mode and subscriptions sit above it).
 			await openApiKeysDialog(
 				choice === "connect" ? { tab: "Agents", anchor: "connect-heading" } : { tab: "Providers" },
