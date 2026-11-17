@@ -1,3 +1,7 @@
+> **Note.** This is the full user guide carried over from Polycarp's `browser/` folder. It still says
+> Polycarp, `polycarp-browser` and `baney75/tabkyra` in places. Those commands keep working as aliases of
+> `tychicus`. Start with [README.md](README.md).
+
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="media/brand/hero.png">
