@@ -218,7 +218,7 @@ Groups an agent hasn't touched for 30 minutes after it disconnected collapse on 
 and blank tabs left by an abandoned session are closed.
 
 **Which session an agent gets.** `tychicus mcp` picks the session from, in order:
-`tychicus mcp --session <name>`, `TABKYRA_SESSION`, then the project: the git root of the
+`tychicus mcp --session <name>`, `TYCHICUS_SESSION` (the older `POLYCARP_SESSION` and `TABKYRA_SESSION` still work), then the project: the git root of the
 folder the agent runs in (or the folder), as `<folder>-<4 hex>`. Restart Claude Code in the
 same repository and it finds the tabs it left; a different folder gets its own session. The
 harness is part of the session, so Claude Code and Codex in one project don't share tabs.
