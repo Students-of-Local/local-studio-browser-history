@@ -432,3 +432,38 @@ test("review-r1 first-F1: --force is refused while a Tychicus service is install
 	assert.deepEqual(snapshot(F.base), before);
 	assert.ok(!m.calls.some((c) => c.includes("bootout")), m.calls.join("\n"));
 });
+
+test("review-r2 second-S1: an interrupt mid-swap starts Polycarp's serve again and undoes the copy", async () => {
+	fixture();
+	let exited;
+	const m = useManager("darwin", ["com.polycarp.serve", "com.polycarp.cloudflared"], (cmd, args) => {
+		// Ctrl-C arrives while Tychicus's serve is being installed, after Polycarp's was stopped.
+		if (cmd === "launchctl" && args[0] === "bootstrap" && args[2].endsWith("com.tychicus.serve.plist")) process.emit("SIGINT", "SIGINT");
+		return undefined;
+	});
+	const { said, say } = lines();
+	const exit = (code) => {
+		exited = code;
+		throw new Error("exited");
+	};
+	assert.equal(await importPolycarp({ say, probe: probeFor(m), ...fast, exit }), 1);
+	assert.equal(exited, 1);
+	assert.match(said.join("\n"), /Interrupted \(SIGINT\)/);
+	assert.ok(m.loaded.has("com.polycarp.serve"), [...m.loaded].join(","));
+	assert.ok(!m.loaded.has("com.tychicus.serve"));
+	assert.ok(!existsSync(join(F.target, "remote.json")));
+	assert.equal(process.listenerCount("SIGINT"), 0);
+});
+
+test("review-r2 first-F2: a slow last probe after every swap was confirmed still exits 0 and says how to check", async () => {
+	fixture();
+	const m = useManager("darwin", ["com.polycarp.serve", "com.polycarp.cloudflared"]);
+	let retired = false;
+	const probe = async () => {
+		retired ||= existsSync(join(F.agents, "retired-polycarp"));
+		return retired ? undefined : probeFor(m)();
+	};
+	const { said, say } = lines();
+	assert.equal(await importPolycarp({ say, probe, ...fast }), 0, said.join("\n"));
+	assert.match(said.join("\n"), /every service was confirmed, but the last check/);
+});

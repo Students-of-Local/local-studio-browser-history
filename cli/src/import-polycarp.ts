@@ -102,6 +102,8 @@ export interface ImportOptions {
 	settleMs?: number;
 	/** For tests: where Tychicus finds cloudflared (defaults to cloudflaredBinary()). */
 	cloudflared?: () => string | undefined;
+	/** For tests: how an interrupt ends the process after rollback (defaults to process.exit). */
+	exit?: (code: number) => void;
 }
 
 /** serve answers an unauthenticated /mcp request with 401 and a sign-in challenge: up, and guarding the door. */
@@ -589,7 +591,11 @@ export async function importPolycarp(o: ImportOptions = {}): Promise<number> {
 		return 1;
 	}
 	const done: Array<{ spec: ServiceSpec; polycarp?: PolycarpJob; stopped: boolean }> = [];
+	let rolledBack = false;
 	const rollback = (): string[] => {
+		// Once only: an interrupt and the error it causes can both ask for it.
+		if (rolledBack) return [];
+		rolledBack = true;
 		const problems: string[] = [];
 		for (const step of done.reverse()) {
 			const removed = removeService(step.spec);
@@ -602,6 +608,14 @@ export async function importPolycarp(o: ImportOptions = {}): Promise<number> {
 		undoCopy();
 		return problems;
 	};
+	// Ctrl-C or a SIGTERM during the swap would leave Polycarp's serve stopped and Tychicus's unconfirmed: put everything back first.
+	const onSignal = (signal: NodeJS.Signals) => {
+		const problems = rollback();
+		say(`Interrupted (${signal}). Polycarp's services were started again and the copied files removed${problems.length ? `, except: ${problems.join("; ")}` : ""}.`);
+		(o.exit ?? ((code: number) => process.exit(code)))(1);
+	};
+	process.once("SIGINT", onSignal);
+	process.once("SIGTERM", onSignal);
 	try {
 		for (const s of plan.swaps) {
 			const step = { spec: s.spec, polycarp: s.polycarp, stopped: false };
@@ -628,14 +642,23 @@ export async function importPolycarp(o: ImportOptions = {}): Promise<number> {
 		}
 	} catch (err) {
 		// Whatever threw, Polycarp's stopped services must run again: the connector can't be left down.
+		const interrupted = rolledBack;
 		const problems = rollback();
-		say(`The move stopped on an error: ${err instanceof Error ? err.message : String(err)}. Polycarp's services were started again and the copied files removed${problems.length ? `, except: ${problems.join("; ")}` : ""}.`);
+		if (!interrupted) say(`The move stopped on an error: ${err instanceof Error ? err.message : String(err)}. Polycarp's services were started again and the copied files removed${problems.length ? `, except: ${problems.join("; ")}` : ""}.`);
 		return 1;
+	} finally {
+		process.removeListener("SIGINT", onSignal);
+		process.removeListener("SIGTERM", onSignal);
 	}
 	for (const s of plan.swaps) if (s.polycarp) say(retirePolycarp(s.polycarp));
+	// Every service was confirmed above, so the move is done; the read-back reports, and a slow last probe isn't a failure.
 	const ok = await readBack(plan, o, say);
-	if (ok) say(`Done. The connector keeps its address; claude.ai, ChatGPT and grok.com need no change.`);
-	return ok ? 0 : 1;
+	say(
+		ok
+			? `Done. The connector keeps its address; claude.ai, ChatGPT and grok.com need no change.`
+			: `Done: every service was confirmed, but the last check of /mcp didn't get ${EXPECTED_MCP_STATUS}. Run ${COMMAND_NAME} remote status in a moment to see it answering.`,
+	);
+	return 0;
 }
 
 /** For `install`: a one-line hint when Polycarp has a remote setup and Tychicus has none yet. */
