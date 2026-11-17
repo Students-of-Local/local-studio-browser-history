@@ -214,6 +214,11 @@ export function streamLocalStudio(
 			}
 			let session = (await chatSession(conversation, model.id)).session;
 			if (turn.ended) return;
+			// Stopped while the session was being made: the abort listener below would never hear it.
+			if (options?.signal?.aborted) {
+				turn.finish(true);
+				return;
+			}
 			const abort = () => {
 				turn.aborting = true;
 				void eukheRequest("command", conversation, { type: "abort", activeSessionId: session.id }).catch(
