@@ -2,8 +2,11 @@
  * `tychicus install --release <folder>`: install from a downloaded GitHub release. Every artifact in the folder is
  * checked against the release's SHA256SUMS, and against its build provenance attestation when the GitHub CLI is on
  * PATH (`gh attestation verify`), before anything is unpacked; one mismatch refuses the whole install. Then the
- * archive for this computer is unpacked into one fixed folder (releaseRoot()), so the host manifests and the unpacked
- * extension keep their paths across upgrades, and the unpacked `tychicus install` registers itself.
+ * archive for this computer is unpacked into a folder of its own under versions/, and the unpacked `tychicus install`
+ * registers itself from there. Only after that works does the `release` pointer (a symlink, a junction on Windows)
+ * move to the new version, and the extension is copied to one fixed real folder, so the browser keeps loading it
+ * from the same place. A running copy (the native host the browser started, an MCP server) keeps its own folder:
+ * an old version is removed only once no program runs from it.
  *
  * The check is as strong as the program that runs it: a tampered archive could carry a `tychicus` that skips it. To
  * check before running anything from the download, run
@@ -13,9 +16,9 @@
 
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, renameSync, rmdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { delimiter, dirname, join } from "node:path";
+import { delimiter, dirname, join, relative, resolve, sep } from "node:path";
 import { browserDirs } from "./install.ts";
 import { eukheSettingsPath, localStudioPluginsDir, PLUGINS } from "./local-studio.ts";
 import { NATIVE_HOST_NAMES } from "../../src/bridge/protocol.ts";
@@ -34,10 +37,25 @@ export function platformTag(platform: string = process.platform, arch: string = 
 	return `${platform === "win32" ? "win" : platform}-${arch}`;
 }
 
-/** The one folder a release is unpacked into: the `tychicus` program, `extension/` and `plugins/`. */
+/** The folder that holds the installed versions, the `release` pointer and the extension folder. */
+export function releaseBase(): string {
+	if (process.platform === "win32") return join(process.env.LOCALAPPDATA || join(homedir(), "AppData", "Local"), "Tychicus");
+	return join(process.env.XDG_DATA_HOME || join(homedir(), ".local", "share"), "tychicus");
+}
+
+/** The pointer to the current version's folder: the `tychicus` program, `extension/` and `plugins/`. */
 export function releaseRoot(): string {
-	if (process.platform === "win32") return join(process.env.LOCALAPPDATA || join(homedir(), "AppData", "Local"), "Tychicus", "release");
-	return join(process.env.XDG_DATA_HOME || join(homedir(), ".local", "share"), "tychicus", "release");
+	return join(releaseBase(), "release");
+}
+
+/** Every unpacked version, one folder each, named <version>-<first 12 hex of the archive's SHA-256>. */
+export function versionsDir(base: string = releaseBase()): string {
+	return join(base, "versions");
+}
+
+/** The fixed, real folder the browser loads the extension from. A symlink would not do: Chrome stores the path it resolves to. */
+export function releaseExtensionDir(base: string = releaseBase()): string {
+	return join(base, "extension");
 }
 
 /** The release's program inside releaseRoot(). */
@@ -140,6 +158,16 @@ export function verifyRelease(dir: string, options: { skipAttestation?: boolean;
 
 const MARKER = ".release-sha256";
 
+/**
+ * The tar to unpack with. On Windows that is the system's own bsdtar: Git for Windows puts GNU tar on PATH, which reads
+ * `C:\...` as a remote host and fails.
+ */
+function tarProgram(): string {
+	if (process.platform !== "win32") return "tar";
+	const system = join(process.env.SystemRoot || "C:\\Windows", "System32", "tar.exe");
+	return existsSync(system) ? system : "tar";
+}
+
 /** True when releaseRoot() already holds this exact archive. */
 export function releaseCurrent(sha: string, root: string = releaseRoot()): boolean {
 	try {
@@ -150,33 +178,183 @@ export function releaseCurrent(sha: string, root: string = releaseRoot()): boole
 }
 
 /**
- * Unpack the checked archive into `root`, replacing what was there in one rename. Every entry must sit under the
- * archive's one top folder, with no `..` and no absolute path.
+ * Unpack the checked archive into its own folder under versions/, or reuse that folder when it already holds this
+ * exact archive. Every entry must sit under the archive's one top folder, with no `..` and no absolute path. Nothing
+ * that exists is replaced: a version folder is only ever added.
  */
-export function unpackRelease(archivePath: string, sha: string, root: string = releaseRoot()): void {
+export function unpackVersion(archivePath: string, version: string, sha: string, base: string = releaseBase()): string {
+	const target = join(versionsDir(base), `${version}-${sha.slice(0, 12)}`);
+	if (releaseCurrent(sha, target)) return target;
 	const zip = archivePath.endsWith(".zip");
-	const listing = execFileSync("tar", [zip ? "-tf" : "-tzf", archivePath], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 })
+	const listing = execFileSync(tarProgram(), [zip ? "-tf" : "-tzf", archivePath], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 })
 		.split(/\r?\n/)
 		.filter(Boolean);
 	const top = listing[0]?.split("/")[0];
 	if (!top || listing.some((p) => p.startsWith("/") || /^[A-Za-z]:/.test(p) || p.split(/[\\/]/).includes("..") || p.split("/")[0] !== top))
 		throw new ReleaseRefused(`${archivePath} is not laid out as one release folder; nothing was installed.`);
-	const parent = dirname(root);
-	mkdirSync(parent, { recursive: true });
-	const staging = join(parent, `.unpack-${process.pid}`);
+	mkdirSync(versionsDir(base), { recursive: true });
+	const staging = join(base, `.unpack-${process.pid}`);
 	rmSync(staging, { recursive: true, force: true });
 	mkdirSync(staging);
 	try {
-		execFileSync("tar", [zip ? "-xf" : "-xzf", archivePath, "-C", staging], { stdio: ["ignore", "ignore", "pipe"] });
+		execFileSync(tarProgram(), [zip ? "-xf" : "-xzf", archivePath, "-C", staging], { stdio: ["ignore", "ignore", "pipe"] });
 		const unpacked = join(staging, top);
 		writeFileSync(join(unpacked, MARKER), `${sha}\n`);
-		const old = join(parent, `.old-${process.pid}`);
-		if (existsSync(root)) renameSync(root, old);
-		renameSync(unpacked, root);
-		rmSync(old, { recursive: true, force: true });
+		// A folder of this name without the marker is an unpack that never finished: nothing was ever run from it.
+		if (existsSync(target)) rmSync(target, { recursive: true, force: true });
+		renameSync(unpacked, target);
 	} finally {
 		rmSync(staging, { recursive: true, force: true });
 	}
+	return target;
+}
+
+/** The version folder the `release` pointer names, if it is a pointer. */
+function pointerTarget(pointer: string): string | undefined {
+	try {
+		if (!lstatSync(pointer).isSymbolicLink()) return undefined;
+		return resolve(dirname(pointer), readlinkSync(pointer));
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * Point `release` at `target`. On POSIX a new symlink is renamed over the old one, so there is always a pointer. On
+ * Windows the old junction is removed (rmdir removes the link, never what it points at) and a new one made. A
+ * `release` that is a real folder (the layout before versions/) is moved into versions/ first.
+ */
+export function switchPointer(target: string, base: string = releaseBase()): void {
+	const pointer = join(base, "release");
+	let st: ReturnType<typeof lstatSync> | undefined;
+	try {
+		st = lstatSync(pointer);
+	} catch {
+		st = undefined;
+	}
+	if (st && !st.isSymbolicLink()) {
+		// Windows reports a junction as a directory here; readlink tells the two apart.
+		let junction = false;
+		try {
+			readlinkSync(pointer);
+			junction = true;
+		} catch {
+			junction = false;
+		}
+		if (!junction) {
+			try {
+				renameSync(pointer, join(versionsDir(base), `previous-${process.pid}`));
+			} catch (err) {
+				throw new ReleaseRefused(`${pointer} is in use by a running Tychicus (${(err as Error).message}). Quit the browser and any agent using Tychicus, then install again.`);
+			}
+		}
+	}
+	if (process.platform === "win32") {
+		try {
+			rmdirSync(pointer);
+		} catch {
+			/* no pointer yet */
+		}
+		symlinkSync(target, pointer, "junction");
+		return;
+	}
+	const fresh = join(base, `.release-${process.pid}`);
+	rmSync(fresh, { force: true });
+	symlinkSync(relative(base, target), fresh);
+	renameSync(fresh, pointer);
+}
+
+/** Copy the version's extension into the fixed extension folder, swapping the whole folder in one rename where it can. */
+export function refreshExtension(versionDir: string, base: string = releaseBase()): string {
+	const dest = releaseExtensionDir(base);
+	const staged = join(base, `.extension-${process.pid}`);
+	rmSync(staged, { recursive: true, force: true });
+	cpSync(join(versionDir, "extension"), staged, { recursive: true });
+	const old = join(base, `.extension-old-${process.pid}`);
+	try {
+		if (existsSync(dest)) renameSync(dest, old);
+		renameSync(staged, dest);
+		rmSync(old, { recursive: true, force: true });
+	} catch {
+		// A browser on Windows can hold the folder open: copy over it instead.
+		if (!existsSync(dest) && existsSync(old)) renameSync(old, dest);
+		cpSync(staged, dest, { recursive: true, force: true });
+		rmSync(staged, { recursive: true, force: true });
+	}
+	return dest;
+}
+
+/**
+ * The version folders some running program was started from, or undefined where that can't be told (then nothing is
+ * pruned). Linux reads /proc/<pid>/exe, macOS asks ps; Windows is answered by the rename in pruneVersions.
+ */
+function foldersInUse(folders: string[]): Set<string> | undefined {
+	const inUse = new Set<string>();
+	const mark = (exe: string) => {
+		for (const f of folders) if (exe.startsWith(f + sep)) inUse.add(f);
+	};
+	if (process.platform === "linux") {
+		let pids: string[];
+		try {
+			pids = readdirSync("/proc").filter((p) => /^\d+$/.test(p));
+		} catch {
+			return undefined;
+		}
+		for (const pid of pids) {
+			try {
+				mark(readlinkSync(`/proc/${pid}/exe`));
+			} catch {
+				/* gone, or another user's */
+			}
+		}
+		return inUse;
+	}
+	if (process.platform === "darwin") {
+		const r = spawnSync("ps", ["-axo", "comm="], { encoding: "utf8" });
+		if (r.status !== 0) return undefined;
+		for (const line of r.stdout.split("\n")) mark(line.trim());
+		return inUse;
+	}
+	return undefined;
+}
+
+/** Remove every version folder but `keep` that no program runs from. Returns the folders removed. */
+export function pruneVersions(keep: string, base: string = releaseBase()): string[] {
+	const dir = versionsDir(base);
+	let names: string[];
+	try {
+		names = readdirSync(dir);
+	} catch {
+		return [];
+	}
+	const folders = names.map((n) => join(dir, n)).filter((f) => resolve(f) !== resolve(keep) && resolve(f) !== pointerTarget(join(base, "release")));
+	const removed: string[] = [];
+	if (process.platform === "win32") {
+		// Windows lets a folder holding a running program be renamed, but never lets the running program be deleted:
+		// deleting tychicus.exe first is the test. Once it is gone nothing can start from the folder again.
+		for (const f of folders) {
+			try {
+				rmSync(join(f, "tychicus.exe"), { force: true });
+			} catch {
+				continue;
+			}
+			try {
+				rmSync(f, { recursive: true, force: true, maxRetries: 3 });
+				removed.push(f);
+			} catch {
+				/* a file still open; the next install tries again */
+			}
+		}
+		return removed;
+	}
+	const inUse = foldersInUse(folders);
+	if (!inUse) return removed;
+	for (const f of folders) {
+		if (inUse.has(f)) continue;
+		rmSync(f, { recursive: true, force: true });
+		removed.push(f);
+	}
+	return removed;
 }
 
 /** How to load the unpacked extension, printed after an install. */
@@ -205,8 +383,9 @@ export async function installFromRelease(dir: string, options: { dryRun?: boolea
 		console.log(`${sym.fail} ${err.message}`);
 		return 1;
 	}
+	const base = releaseBase();
 	const root = releaseRoot();
-	const program = releaseProgram(root);
+	const target = join(versionsDir(base), `${check.version}-${check.sha256.slice(0, 12)}`);
 	const args = ["install"];
 	const given = options.passOn ?? [];
 	for (let i = 0; i < given.length; i++) {
@@ -216,9 +395,9 @@ export async function installFromRelease(dir: string, options: { dryRun?: boolea
 		if (name === "--browser" && !given[i].includes("=") && given[i + 1] !== undefined) args.push(given[++i]);
 	}
 	if (options.dryRun) {
-		const current = releaseCurrent(check.sha256, root);
-		console.log(`${sym.ok} ${current ? "Current" : "Would unpack"} ${c.dim(`${check.archive} -> ${root}`)}`);
-		console.log(`${sym.ok} Would run ${c.dim(`${program} ${args.join(" ")}`)}, which writes:`);
+		const current = releaseCurrent(check.sha256, target);
+		console.log(`${sym.ok} ${current ? "Already unpacked" : "Would unpack"} ${c.dim(`${check.archive} -> ${target}`)}`);
+		console.log(`${sym.ok} Would run ${c.dim(`${releaseProgram(target)} ${args.join(" ")}`)}, which writes:`);
 		for (const { dir: browserDir } of browserDirs()) {
 			if (!existsSync(browserDir)) continue;
 			for (const host of NATIVE_HOST_NAMES) console.log(`  ${join(browserDir, "NativeMessagingHosts", `${host}.json`)}`);
@@ -227,23 +406,35 @@ export async function installFromRelease(dir: string, options: { dryRun?: boolea
 			for (const id of Object.keys(PLUGINS)) console.log(`  ${join(localStudioPluginsDir(), id)}`);
 			console.log(`  ${eukheSettingsPath()} (mcpServers.tychicus)`);
 		}
+		console.log(`${sym.ok} Then would point ${c.dim(`${root} -> ${target}`)}, copy its extension to ${c.dim(releaseExtensionDir(base))} and remove older versions no program runs from`);
 		return 0;
 	}
-	if (releaseCurrent(check.sha256, root)) console.log(`${sym.ok} ${check.archive} is already installed in ${c.dim(root)}`);
-	else {
-		try {
-			unpackRelease(join(dir, check.archive), check.sha256, root);
-		} catch (err) {
-			console.log(`${sym.fail} ${(err as Error).message}`);
-			return 1;
-		}
-		console.log(`${sym.ok} Unpacked ${check.archive} into ${c.dim(root)}`);
-	}
-	const r = spawnSync(program, args, { stdio: "inherit", env: { ...process.env, TYCHICUS_RELEASE_PARENT: "1" } });
-	if (r.status !== 0) {
-		console.log(`${sym.fail} ${program} ${args.join(" ")} failed (${r.status ?? r.signal ?? r.error?.message}).`);
+	const already = releaseCurrent(check.sha256, target);
+	try {
+		unpackVersion(join(dir, check.archive), check.version, check.sha256, base);
+	} catch (err) {
+		console.log(`${sym.fail} ${(err as Error).message}`);
 		return 1;
 	}
-	for (const line of loadSteps(join(root, "extension"))) console.log(line);
+	console.log(`${sym.ok} ${already ? `${check.archive} is already installed in` : `Unpacked ${check.archive} into`} ${c.dim(target)}`);
+	// The new version registers itself from its own folder; the pointer moves only once that worked.
+	const program = releaseProgram(target);
+	const r = spawnSync(program, args, { stdio: "inherit", env: { ...process.env, TYCHICUS_RELEASE_PARENT: "1" } });
+	if (r.status !== 0) {
+		console.log(`${sym.fail} ${program} ${args.join(" ")} failed (${r.status ?? r.signal ?? r.error?.message}). The installed version is unchanged.`);
+		return 1;
+	}
+	let extension: string;
+	try {
+		switchPointer(target, base);
+		extension = refreshExtension(target, base);
+	} catch (err) {
+		console.log(`${sym.fail} ${(err as Error).message}`);
+		return 1;
+	}
+	console.log(`${sym.ok} ${c.dim(`${root} -> ${target}`)}`);
+	const removed = pruneVersions(target, base);
+	if (removed.length) console.log(`${sym.ok} Removed ${removed.length} older version${removed.length === 1 ? "" : "s"} no program runs from`);
+	for (const line of loadSteps(extension)) console.log(line);
 	return 0;
 }

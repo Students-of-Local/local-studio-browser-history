@@ -29,9 +29,16 @@ export function selfPrefix(script: string | undefined = process.argv[1]): string
 	return COMPILED || !script ? [] : [script];
 }
 
-/** Where the bundled extension folder sits: next to the helper (Polycarp.app/Contents/Resources/browser/extension). */
+/**
+ * Where the bundled extension folder sits: next to the helper (Polycarp.app/Contents/Resources/browser/extension). A
+ * release installed by `install --release` runs from <base>/versions/<version>/, and the browser loads the copy in the
+ * fixed folder <base>/extension, which outlives each version folder.
+ */
 export function bundledExtensionDir(): string | undefined {
-	return COMPILED ? join(dirname(process.execPath), "extension") : undefined;
+	if (!COMPILED) return undefined;
+	const dir = dirname(process.execPath);
+	if (RELEASE_BUILD && basename(dirname(dir)) === "versions") return join(dirname(dirname(dir)), "extension");
+	return join(dir, "extension");
 }
 
 /** The name this program was started under: `tychicus`, or an old alias such as `polycarp-browser`. */

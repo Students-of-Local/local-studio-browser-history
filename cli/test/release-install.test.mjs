@@ -3,9 +3,9 @@
 // is written. The host manifests it writes name only Tychicus's host and allow only the one pinned extension id,
 // and a second run changes nothing. `--local-studio` adds the plugins and Eukhe's mcpServers entry.
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, test } from "node:test";
@@ -78,7 +78,11 @@ test("a clean release verifies, unpacks into the install folder and runs the unp
 	assert.ok(existsSync(join(releaseRoot(home), "extension", "manifest.json")), r.out);
 	assert.equal(readFileSync(join(releaseRoot(home), "ran-with"), "utf8").trim(), "install");
 	// How to load the extension: the unpacked folder's path.
-	assert.ok(r.out.includes(join(releaseRoot(home), "extension")), r.out);
+	// The browser loads the extension from a fixed real folder: Chrome stores the path a symlink resolves to.
+	const extension = join(home, ".local", "share", "tychicus", "extension");
+	assert.ok(r.out.includes(extension), r.out);
+	assert.ok(lstatSync(extension).isDirectory() && !lstatSync(extension).isSymbolicLink());
+	assert.equal(JSON.parse(readFileSync(join(extension, "manifest.json"), "utf8")).version, "9.9.9");
 });
 
 test("a second run of the same release unpacks nothing again", { skip: process.platform === "win32" }, () => {
@@ -256,4 +260,52 @@ test("the archive unpacked in the download folder, as README's command leaves it
 	const stray = run(freshHome(), ["install", "--release", dir]);
 	assert.notEqual(stray.status, 0);
 	assert.match(stray.out, /tychicus-9\.9\.9-notes\.txt is not listed in SHA256SUMS/);
+});
+
+/** A copy of a small real program inside a release, so a test can run it from there the way a browser runs the host. */
+function withSleeper(rel) {
+	const stage = join(scratch, `restage-${++n}`);
+	mkdirSync(stage);
+	assert.equal(spawnSync("tar", ["-xzf", join(rel.dir, rel.archive), "-C", stage]).status, 0);
+	copyFileSync("/bin/sleep", join(stage, rel.top, "sleeper"));
+	chmodSync(join(stage, rel.top, "sleeper"), 0o755);
+	assert.equal(spawnSync("tar", ["-czf", join(rel.dir, rel.archive), "-C", stage, rel.top]).status, 0);
+	rmSync(stage, { recursive: true });
+	writeFileSync(
+		join(rel.dir, "SHA256SUMS"),
+		readdirSync(rel.dir)
+			.filter((f) => f !== "SHA256SUMS")
+			.map((f) => `${sha256(join(rel.dir, f))}  ${f}\n`)
+			.join(""),
+	);
+	return rel;
+}
+
+// sol-F3 (PR 3): the browser keeps the native host running from the installed release, and an MCP server runs from it
+// too. An upgrade must not delete or replace the folder a running copy was started from; it installs the new version
+// beside it, switches the release pointer, and removes the old folder only once nothing runs from it.
+test("an upgrade while the installed copy runs keeps that copy's files, switches to the new version, and prunes the old one after it stops", { skip: process.platform !== "linux" }, async () => {
+	const home = freshHome();
+	const first = withSleeper(makeRelease("9.9.8"));
+	assert.equal(run(home, ["install", "--release", first.dir]).status, 0);
+	const sleeper = spawn(join(releaseRoot(home), "sleeper"), ["600"], { stdio: "ignore" });
+	try {
+		const exe = () => readlinkSync(`/proc/${sleeper.pid}/exe`);
+		for (let i = 0; i < 100 && !exe().endsWith("sleeper"); i++) await new Promise((r) => setTimeout(r, 20));
+		const runningFrom = dirname(exe());
+		const second = withSleeper(makeRelease("9.9.9"));
+		const r = run(home, ["install", "--release", second.dir]);
+		assert.equal(r.status, 0, r.out);
+		assert.doesNotMatch(exe(), /\(deleted\)$/, "the running copy's program was deleted");
+		assert.equal(JSON.parse(readFileSync(join(runningFrom, "extension", "manifest.json"), "utf8")).version, "9.9.8", "the running copy's folder was replaced");
+		assert.equal(JSON.parse(readFileSync(join(releaseRoot(home), "extension", "manifest.json"), "utf8")).version, "9.9.9");
+		assert.equal(readFileSync(join(releaseRoot(home), "ran-with"), "utf8").trim(), "install");
+		sleeper.kill("SIGKILL");
+		await new Promise((r) => sleeper.once("exit", r));
+		const again = run(home, ["install", "--release", withSleeper(makeRelease("9.9.10")).dir]);
+		assert.equal(again.status, 0, again.out);
+		assert.equal(existsSync(runningFrom), false, "the stopped old version was not removed");
+	} finally {
+		sleeper.kill("SIGKILL");
+	}
 });

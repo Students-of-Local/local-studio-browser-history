@@ -337,7 +337,7 @@ jobs:
       - run: npm run build
       - name: The Windows cases, on Windows
         run: |
-          node --test test/windows-service.test.mjs test/cli.test.mjs test/legacy-socket.test.mjs test/cloudflare-tunnel.test.mjs
+          node --test test/windows-service.test.mjs test/cli.test.mjs test/legacy-socket.test.mjs test/cloudflare-tunnel.test.mjs test/release-upgrade-windows.test.mjs
           node --experimental-strip-types --test test/hub-devices.test.mjs test/file-rules.test.mjs
 
   # The suites that drive the built extension in a real Chromium: the extension, native host and MCP server end to end
