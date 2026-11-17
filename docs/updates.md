@@ -1,31 +1,31 @@
 # Updates
 
-Polycarp updates from the side panel. The native host checks once a day; the panel shows
-"Update available" with an **Update now** button; the update runs, and Polycarp reloads
+Tychicus updates from the side panel. The native host checks once a day; the panel shows
+"Update available" with an **Update now** button; the update runs, and Tychicus reloads
 itself once no agent is running. Settings > About (Updates) shows what runs and offers Check now,
-Update now and Roll back. `polycarp-browser update` does the release install from a terminal.
+Update now and Roll back. `tychicus update` does the release install from a terminal.
 
-**Inside Polycarp, use `polycarp update`.** It updates the helper and the extension together with the app, the
+**Inside Tychicus, use `polycarp update`.** It updates the helper and the extension together with the app, the
 commands and the skill, from a clean copy of `origin/main`, and `polycarp version` shows whether they match
 ([Updating](../../README.md#updating) in the main README). This page describes the browser part's own updater, which
-the standalone browser uses. The helper inside Polycarp.app has no updater of its own (`polycarp-browser update` there
+the standalone browser uses. The helper inside Polycarp.app has no updater of its own (`tychicus update` there
 says to run `polycarp update`). On Linux `polycarp update` copies the helper and the extension out of its clean copy
-to `~/.local/share/polycarp/browser/source`, which is not a git checkout, so the side panel's Update now refuses there
+to `~/.local/share/tychicus/source`, which is not a git checkout, so the side panel's Update now refuses there
 (the Unmanaged row below) and `polycarp update` is the way. On Windows `polycarp update` is not supported yet.
 
-What "update" does depends on how Polycarp runs (the install mode):
+What "update" does depends on how Tychicus runs (the install mode):
 
 | Mode | When | Update now does | Roll back does |
 | --- | --- | --- | --- |
-| **Release** | the native host runs from `~/.local/share/polycarp/browser/app` | downloads the newest signed GitHub release, verifies it ([checks](#what-an-update-checks-before-it-touches-a-file)) and unpacks it to `staged/`; once idle, swaps it in | swaps back to the release before it |
-| **Checkout** | the native host runs from a git checkout of Polycarp that is on main (a standalone browser checkout; a full Polycarp install uses `polycarp update` instead) | `git fetch`, `git pull --ff-only` on main, `./scripts/setup-siblings.sh`, builds the extension and the CLI into `.tabkyra-update/next/`; once idle, swaps them in | swaps back to the build before it (the git checkout stays where it is) |
-| Unmanaged | anything else (an npm install, a copied folder) | refuses: run `polycarp-browser update` in a terminal | |
+| **Release** | the native host runs from `~/.local/share/tychicus/app` | downloads the newest signed GitHub release, verifies it ([checks](#what-an-update-checks-before-it-touches-a-file)) and unpacks it to `staged/`; once idle, swaps it in | swaps back to the release before it |
+| **Checkout** | the native host runs from a git checkout of Tychicus that is on main (a standalone browser checkout; a full Tychicus install uses `polycarp update` instead) | `git fetch`, `git pull --ff-only` on main, `./scripts/setup-siblings.sh`, builds the extension and the CLI into `.tabkyra-update/next/`; once idle, swaps them in | swaps back to the build before it (the git checkout stays where it is) |
+| Unmanaged | anything else (an npm install, a copied folder) | refuses: run `tychicus update` in a terminal | |
 
 ## The side panel
 
 - **Update now** (under the header, and in Settings > About (Updates)) sends the native host one
   of a fixed set of action names. The host runs the matching fixed command
-  (`polycarp-browser update --host`, `--host --activate`, `--host --rollback` or `--host --reinstall`)
+  (`tychicus update --host`, `--host --activate`, `--host --rollback` or `--host --reinstall`)
   as a child process of the CLI it runs from, and streams each step to the panel: checking,
   downloading, verifying, pulling, installing, building, skills, then done or failed with
   the reason.
@@ -33,7 +33,7 @@ What "update" does depends on how Polycarp runs (the install mode):
   builds a checkout, aside; nothing the browser loads changes, so you can keep working. The
   panel then shows "Update ready". The second step (`--host --activate`) swaps the new files
   in, refreshes skills and records What's new. The service worker sends it only when no
-  agent is running, and reloads Polycarp right after, so the browser never runs a mix of old
+  agent is running, and reloads Tychicus right after, so the browser never runs a mix of old
   and new files for more than that moment. Roll back also runs only when idle. **Install
   now** in the panel asks for the second step (it still waits for idle).
 - **The reload.** The extension reloads itself with `chrome.runtime.reload()`, never while an
@@ -53,7 +53,7 @@ What "update" does depends on how Polycarp runs (the install mode):
   fence still holds panels off and the next worker takes the gate back before it lets a
   bridge request through. An install or rollback that fails, or doesn't answer, still ends
   in a reload, since files may have changed. While the worker holds the gate, a
-  side panel send is refused with "Polycarp is installing an update and reloads in a moment"
+  side panel send is refused with "Tychicus is installing an update and reloads in a moment"
   (the text goes back into the editor) and a bridge request gets an error saying to repeat
   it after the bridge reconnects; a bridge request counts as running from the moment it
   arrives. After an install the gate stays held until the reload. One update operation runs
@@ -61,7 +61,7 @@ What "update" does depends on how Polycarp runs (the install mode):
   and `chrome.storage.local`, so chats and agent tab groups come back after the reload;
   reopen the side panel to continue.
 - **The updater outlives the host.** It runs in its own process group and writes each step
-  to `~/.config/polycarp/browser/update-progress.json`. If the browser closes the native host
+  to `~/.config/tychicus/update-progress.json`. If the browser closes the native host
   mid-update, the update finishes, and the next host reports it (or reports that it stopped,
   if its process died). A host also repairs an interrupted swap when it starts.
 - **What's new.** After the reload a card shows the release notes (the GitHub release
@@ -69,15 +69,15 @@ What "update" does depends on how Polycarp runs (the install mode):
   "And N more" and a link to the full notes (notes without a bullet list show as text) or, in a checkout, the commits pulled in (first-parent, a pull request shown by its
   title, at most 20, with a link to compare on GitHub). The ✕ hides it.
 - **Bundled skills.** After an update the new CLI refreshes the skills installed in Claude
-  Code, Codex and OpenCode that you haven't edited (`polycarp-browser skill refresh`). A copy is
-  refreshed only when it is exactly what Polycarp wrote (`~/.config/polycarp/browser/skills-installed.json`
+  Code, Codex and OpenCode that you haven't edited (`tychicus skill refresh`). A copy is
+  refreshed only when it is exactly what Tychicus wrote (`~/.config/tychicus/skills-installed.json`
   records the hash of every file install writes, and the updater records the unedited copies
   right before it swaps). Edited copies are left alone and listed in What's new.
 - **Version mismatch.** Each build writes `build-info.json` (a build id, the commit and the
   version) and compiles the same record in. If the installed extension and CLI come from
   different commits (an update stopped partway), the panel offers **Re-run install**. If the
   browser or the native host still runs an older build than the one installed, it offers
-  **Reload Polycarp**.
+  **Reload Tychicus**.
 - **Settings > About (Updates)** shows the running build, the installed one, the mode, the folder,
   the channel (`main` in a checkout), the last and next check, why an update would refuse,
   and the updates choice:
@@ -113,7 +113,7 @@ is swapped by renames; the CLI is replaced file by file in place (a rename over 
 so `cli/dist/index.js`, which the native host's launcher runs, is never missing. Install
 and Roll back write a journal (`.tabkyra-update/journal.json`) and keep every source whole
 until they commit, so a crash at any point is finished or undone by the next updater, the
-next native host start, or `polycarp-browser doctor`, `status`, `setup` or `update` in a terminal (`status --json`
+next native host start, or `tychicus doctor`, `status`, `setup` or `update` in a terminal (`status --json`
 only reads, on every system: it is what `polycarp version` asks, so it repairs nothing). The builds they replace go to `.tabkyra-update/previous/` for Roll
 back. If `npm install` in `setup-siblings.sh` rewrote a `package-lock.json`, the updater puts
 it back as committed (any other changed tracked file stops the update), so the next update
@@ -138,29 +138,29 @@ else; a frame with any other field, or an unknown name, is refused before anythi
 | Action | The host |
 | --- | --- |
 | `check` | checks now (a GitHub API GET, or `git fetch origin main` in a checkout) |
-| `update` | runs `polycarp-browser update --host` (download or pull, verify or build, stage) |
-| `activate` | runs `polycarp-browser update --host --activate` (swap the staged build in); the service worker sends it only when idle |
-| `rollback` | runs `polycarp-browser update --host --rollback` |
-| `reinstall` | runs `polycarp-browser update --host --reinstall` (the mismatch fix: register the host again, or rebuild a checkout from HEAD) |
-| `policy-off`, `policy-notify`, `policy-auto` | writes the updates choice to `~/.config/polycarp/browser/update.json` |
+| `update` | runs `tychicus update --host` (download or pull, verify or build, stage) |
+| `activate` | runs `tychicus update --host --activate` (swap the staged build in); the service worker sends it only when idle |
+| `rollback` | runs `tychicus update --host --rollback` |
+| `reinstall` | runs `tychicus update --host --reinstall` (the mismatch fix: register the host again, or rebuild a checkout from HEAD) |
+| `policy-off`, `policy-notify`, `policy-auto` | writes the updates choice to `~/.config/tychicus/update.json` |
 
 The command lines are constants (`UPDATE_COMMANDS` in `cli/src/update-host.ts`) passed as
 argv without a shell, and the updater's own commands (`git`, `npm run build`,
-`scripts/setup-siblings.sh`) are fixed too. Only Polycarp's own pages can ask the service
+`scripts/setup-siblings.sh`) are fixed too. Only Tychicus's own pages can ask the service
 worker for an action; a content script can't.
 
 ## Commands
 
 | Command | What it does | Exit code |
 | --- | --- | --- |
-| `polycarp-browser update --check` | Asks GitHub for the newest release on your channel | 0 up to date (or nothing published), **100** update available, 1 error, 2 usage |
-| `polycarp-browser update --check --json` | The same, as JSON (`current`, `latest`, `available`, `channel`, `url`, `error`) | as above |
-| `polycarp-browser update` | Downloads, verifies and installs the newest release | 0 done or up to date, 1 refused or failed |
-| `polycarp-browser update --yes` | Also answers yes to "install the release" when you run from a git checkout | |
-| `polycarp-browser update --rollback` | Swaps back to the release before this one (run it again to undo). From a git checkout it asks first (`--yes` skips the question) | 0, 1 when there is none or you said no |
-| `--channel stable\|nightly` | Picks the channel. An update (not `--check`) remembers it in `~/.config/polycarp/browser/update.json` | |
-| `polycarp-browser update --auto-check off` | Turns the daily check off, the same as Settings > About (Updates) > Off (`on` turns it back on). `TABKYRA_NO_UPDATE_CHECK=1` also turns it off | |
-| `polycarp-browser skill refresh [--json]` | Refreshes the installed skills you haven't edited (the update runs it) | 0 |
+| `tychicus update --check` | Asks GitHub for the newest release on your channel | 0 up to date (or nothing published), **100** update available, 1 error, 2 usage |
+| `tychicus update --check --json` | The same, as JSON (`current`, `latest`, `available`, `channel`, `url`, `error`) | as above |
+| `tychicus update` | Downloads, verifies and installs the newest release | 0 done or up to date, 1 refused or failed |
+| `tychicus update --yes` | Also answers yes to "install the release" when you run from a git checkout | |
+| `tychicus update --rollback` | Swaps back to the release before this one (run it again to undo). From a git checkout it asks first (`--yes` skips the question) | 0, 1 when there is none or you said no |
+| `--channel stable\|nightly` | Picks the channel. An update (not `--check`) remembers it in `~/.config/tychicus/update.json` | |
+| `tychicus update --auto-check off` | Turns the daily check off, the same as Settings > About (Updates) > Off (`on` turns it back on). `TABKYRA_NO_UPDATE_CHECK=1` also turns it off | |
+| `tychicus skill refresh [--json]` | Refreshes the installed skills you haven't edited (the update runs it) | 0 |
 
 Stable takes releases tagged `vX.Y.Z`. Nightly also takes prereleases such as
 `vX.Y.Z-nightly.20261025`.
@@ -168,28 +168,28 @@ Stable takes releases tagged `vX.Y.Z`. Nightly also takes prereleases such as
 Script example:
 
 ```sh
-polycarp-browser update --check; case $? in 0) echo current ;; 100) polycarp-browser update ;; *) echo "check failed" ;; esac
+tychicus update --check; case $? in 0) echo current ;; 100) tychicus update ;; *) echo "check failed" ;; esac
 ```
 
 ## Where it installs
 
 ```
-~/.local/share/polycarp/browser/app/        the installed release: dist-chrome/, cli/dist/index.js, release.json
-~/.local/share/polycarp/browser/previous/   the release before it, for --rollback
-~/.config/polycarp/browser/update-status.json   the last check (the native host reads it)
-~/.config/polycarp/browser/update.json      the channel and the updates choice
-~/.config/polycarp/browser/last-update.json the last update, rollback or reinstall ("What's new")
+~/.local/share/tychicus/app/        the installed release: dist-chrome/, cli/dist/index.js, release.json
+~/.local/share/tychicus/previous/   the release before it, for --rollback
+~/.config/tychicus/update-status.json   the last check (the native host reads it)
+~/.config/tychicus/update.json      the channel and the updates choice
+~/.config/tychicus/last-update.json the last update, rollback or reinstall ("What's new")
 <checkout>/.tabkyra-update/        checkout mode: next/ (a build in progress), previous/ (for Roll back)
 ```
 
-The browser loads `~/.local/share/polycarp/browser/app/dist-chrome`, and the agent launcher
-(`~/.config/polycarp/browser/polycarp`) and native host run `app/cli/dist/index.js`. Both paths stay
+The browser loads `~/.local/share/tychicus/app/dist-chrome`, and the agent launcher
+(`~/.config/tychicus/tychicus`) and native host run `app/cli/dist/index.js`. Both paths stay
 the same across updates, so harness configs never change.
 
-**From a git checkout** (how Polycarp is developed), `polycarp-browser update` in a terminal doesn't
+**From a git checkout** (how Tychicus is developed), `tychicus update` in a terminal doesn't
 touch the checkout; Update now in the side panel updates the checkout itself (see Checkout
-mode above). It offers to install the release into `~/.local/share/polycarp/browser/app` and points the
-native host and launcher there. After that first install, remove the old Polycarp on
+mode above). It offers to install the release into `~/.local/share/tychicus/app` and points the
+native host and launcher there. After that first install, remove the old Tychicus on
 `chrome://extensions` and load the new folder once. To keep running from the checkout,
 answer no and use `git pull`, `./scripts/setup-siblings.sh`, `npm run build` and
 `cd cli && npm run build`.
@@ -219,10 +219,10 @@ Any failure stops the update, and the installed release stays as it was.
 The update holds a lock: a directory, `update.lock`, holding the owner's pid. It is taken
 over only when that pid is dead, or when no pid was written and the lock is over 10 minutes
 old. Under the lock it does two renames: `app/` becomes `previous/`, and the staged folder
-becomes `app/`. If the second rename fails, the first is undone. Release swaps are these renames, not the journal checkout mode uses; a crash between them leaves `app/` missing until `recover()` (below) runs. The native host and launcher run from `app/`, so with it missing run the repair by hand from the kept copy: `node ~/.local/share/polycarp/browser/previous/cli/dist/index.js update` (every `polycarp-browser update` run repairs first). Rollback is three renames
+becomes `app/`. If the second rename fails, the first is undone. Release swaps are these renames, not the journal checkout mode uses; a crash between them leaves `app/` missing until `recover()` (below) runs. The native host and launcher run from `app/`, so with it missing run the repair by hand from the kept copy: `node ~/.local/share/tychicus/previous/cli/dist/index.js update` (every `tychicus update` run repairs first). Rollback is three renames
 through a `.swap-*` folder.
 
-Every `polycarp-browser update` run, including `--check` and `--rollback`, first repairs whatever a
+Every `tychicus update` run, including `--check` and `--rollback`, first repairs whatever a
 crash left, without deleting a release:
 
 - if `app/` is missing, a `.swap-*` folder or `previous/` becomes `app/`;
@@ -230,8 +230,8 @@ crash left, without deleting a release:
 - unused staging folders are removed.
 
 After the swap, the new CLI runs `install`, which rewrites the launcher and every browser's
-native host manifest if they changed. Then it tells you to reload Polycarp
-(`polycarp-browser reload`, or the reload button on `chrome://extensions`). The browser keeps
+native host manifest if they changed. Then it tells you to reload Tychicus
+(`tychicus reload`, or the reload button on `chrome://extensions`). The browser keeps
 running the old files until you reload.
 
 ## The daily check
@@ -246,12 +246,12 @@ the next version.
 ## Starting with an older build
 
 A build from before the update system has no Update now button, and its native host can't
-run updates. Update a checkout once by hand, then reload Polycarp:
+run updates. Update a checkout once by hand, then reload Tychicus:
 
 ```sh
 git pull --ff-only && ./scripts/setup-siblings.sh
 TABKYRA_NO_BUMP=1 npm run build && (cd cli && npm run build)
-polycarp-browser reload  # or the reload button on chrome://extensions
+tychicus reload  # or the reload button on chrome://extensions
 ```
 
 `TABKYRA_NO_BUMP=1` keeps the build from editing the manifest; a checkout with local changes
@@ -272,7 +272,7 @@ Checked 2026-10-27, before the first release:
   the `release` environment, which needs baney75's approval for every signing run (see
   "Release key" below).
 - **The workflow has never run.** The `v1.0.0` tag predates it and has no release;
-  `polycarp-browser update` reads releases, not tags, so it is ignored.
+  `tychicus update` reads releases, not tags, so it is ignored.
 - **The version.** `static/manifest.chrome.json` says 1.1.8, so `./release.sh patch` makes
   `v1.1.9`. Build with `TABKYRA_NO_BUMP=1` (the workflow does): a plain `npm run build` bumps
   the manifest in the checkout.
@@ -328,7 +328,7 @@ environment lacks the secret, which would hide a broken environment secret and r
 ref. `gh secret list --repo baney75/tabkyra` must not list it.
 
 To cut a release, run `./release.sh patch` on a clean, up-to-date main, then approve the publish job's `release` deployment. Then, on a machine
-with the CLI, `polycarp-browser update --check` exits 100 and `polycarp-browser update` installs it.
+with the CLI, `tychicus update --check` exits 100 and `tychicus update` installs it.
 
 Before the first tag after any change to the secret or the public key, prove they are a pair
 with the real minisign: `gh workflow run release-key-check.yml --repo baney75/tabkyra`, then
@@ -346,7 +346,7 @@ against the one key committed at that tag. So there is no clean rotation today:
   `release.yml`'s own verify step, which checks against the key in that commit.
 
 Until the CLI and the workflow accept a list of trusted keys (issue #33),
-replacing the key means every user reinstalls Polycarp from a trusted channel. Keep the
+replacing the key means every user reinstalls Tychicus from a trusted channel. Keep the
 current secret in both places; don't replace either unless you mean to make users reinstall.
 
 **If the key leaks:** delete every copy of the secret so you stop signing with it, and publish
