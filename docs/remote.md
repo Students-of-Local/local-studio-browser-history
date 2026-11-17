@@ -133,6 +133,10 @@ every 5 seconds for up to 10 minutes; if the service has no launcher yet it writ
 `--no-input` never asks a question (it needs `--tailscale`, `--cloudflare <name>` or `--public-url`). `--json`, or a
 run with no terminal, never waits or asks. A connect code is made for a person at a terminal, or with `--connect-code`.
 
+## Moving from Polycarp
+
+`tychicus remote import-polycarp` moves a connector Polycarp serves to Tychicus at the same address, once. See the README, "Moving a connector from Polycarp", for what it copies and how it swaps the services; run it with `--dry-run` first.
+
 ## Tailscale or Cloudflare
 
 Both are free and run on your own account. Polycarp never makes an account. It installs neither tool, and downloads cloudflared only when you say yes.

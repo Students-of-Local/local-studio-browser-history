@@ -157,6 +157,35 @@ not built yet; see [docs/LINUX.md](docs/LINUX.md) for what works there and what 
 - [docs/](docs/README.md): design notes and references.
 - [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
 
+## Remote access
+
+`tychicus remote setup` makes the MCP server reachable from claude.ai, ChatGPT and grok.com through Tailscale Funnel or
+your own Cloudflare tunnel; [docs/remote.md](docs/remote.md) has every step.
+
+### Moving a connector from Polycarp
+
+If Polycarp's browser helper already serves your connector (for example `https://polycarp.example.com/mcp`), move it
+once with:
+
+```bash
+tychicus remote import-polycarp --dry-run   # lists each file, the folder it comes from, and each service swap
+tychicus remote import-polycarp
+```
+
+It reads Polycarp's services (`com.polycarp.serve`, `.cloudflared`, `.hub`, `.link`) to learn which folder each one
+uses, `<config>/polycarp/browser`, the older `<config>/tabkyra`, or one its service file names, and copies the remote,
+OAuth, token, hub and tunnel files into `<config>/tychicus` (private, 0600), moving any path inside them that pointed
+into a Polycarp folder. Tunnel credentials under a Polycarp folder are copied; ones in `~/.cloudflared` stay put. The
+hostname, tunnel and sign-ins are kept, so the connector needs no change in claude.ai, ChatGPT or grok.com. Nothing under
+Polycarp's folders is changed or deleted.
+
+Then it swaps each service in turn: Polycarp's stops, Tychicus's starts and must answer (serve: `GET /mcp` on this
+computer returns 401), or Polycarp's comes back, the copy is undone and the command exits 1 with the reason. On success
+Polycarp's plists move to `~/Library/LaunchAgents/retired-polycarp/` (Linux: its units are disabled, not deleted), and it
+reads back which services are loaded. It refuses when Tychicus already has remote state; `--force` replaces it after
+saving Tychicus's files to a `pre-import-<time>` folder. `tychicus install` prints a hint to run it when Polycarp has a
+`remote.json` and Tychicus doesn't.
+
 ## Moved from Polycarp
 
 This repository is the `browser/` folder of [baney75/polycarp](https://github.com/baney75/polycarp)

@@ -93,6 +93,9 @@ export function setServiceSeamForTests(next: ServiceSeam): void {
 	seam = next;
 }
 const platform = (): NodeJS.Platform => seam.platform ?? process.platform;
+/** The platform services are made for, and the runner that talks to its service manager (the test seam's when set). */
+export const servicePlatform = platform;
+export const serviceRunner = (): SyncRunner => seam.exec ?? runSync;
 
 
 const xml = (text: string) => text.replace(/[&<>"']/g, (ch) => `&#${ch.charCodeAt(0)};`);

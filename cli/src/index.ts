@@ -26,6 +26,7 @@ import { loadHubConfig } from "./hub-state.ts";
 import { linkBusy, linkEnroll, linkMintCode, linkOff, linkRun, linkScopes, linkStatus, normalizeHubUrl, printCode } from "./link.ts";
 import { runTheme } from "./theme.ts";
 import { remoteFix } from "./remote-fix.ts";
+import { importHint, importPolycarp } from "./import-polycarp.ts";
 import { loadRemoteConfig, remoteFile, remoteOff, remoteSetup, remoteStatus, remoteTest } from "./remote-setup.ts";
 import { interactiveTerminal } from "./remote-guide.ts";
 import { createHubToken, hubTunnel, HUB_SCOPES } from "./hub.ts";
@@ -418,6 +419,8 @@ async function main(): Promise<void> {
 					return;
 				}
 			}
+			const hint = importHint();
+			if (hint) console.log(`${sym.ok} ${hint}`);
 			if (dryRun) return;
 			if (result.written.length > 0) console.log(c.dim("If the extension was already loaded, reload it once on chrome://extensions."));
 			// A release's own copy prints how to load its extension; under --release the outer run does, after it.
@@ -780,8 +783,12 @@ async function main(): Promise<void> {
 				process.exitCode = await remoteOff({ json: flag("--json") });
 				return;
 			}
+			if (sub === "import-polycarp") {
+				process.exitCode = await importPolycarp({ dryRun: flag("--dry-run"), force: flag("--force") });
+				return;
+			}
 			throw new UsageError(
-				`Usage: ${COMMAND_NAME} remote setup [--tailscale | --cloudflare [name.yourdomain.com] | --public-url https://host] [--replace-funnel] [--port N] [--no-service] [--no-passcode] [--no-wait] [--no-input] [--yes] [--connect-code] [--json] | cloudflare login [--json] | status [--json] | test [--json] | fix [--yes] [--dry-run] [--json] | off [--json]`,
+				`Usage: ${COMMAND_NAME} remote setup [--tailscale | --cloudflare [name.yourdomain.com] | --public-url https://host] [--replace-funnel] [--port N] [--no-service] [--no-passcode] [--no-wait] [--no-input] [--yes] [--connect-code] [--json] | cloudflare login [--json] | status [--json] | test [--json] | fix [--yes] [--dry-run] [--json] | off [--json] | import-polycarp [--dry-run] [--force]`,
 			);
 		}
 		case "hub": {

@@ -125,6 +125,7 @@ export function configDirOverride(): string | undefined {
 /**
  * Tychicus's config directory: the override, else <config>/tychicus. It never shares a folder with Polycarp's helper
  * (`<config>/polycarp/browser`) or reads its older `<config>/tabkyra`: those belong to Polycarp, which moves them itself.
+ * Only `remote import-polycarp` (import-polycarp.ts) reads them, once, to copy the remote connector here.
  */
 export function configDir(): string {
 	return configDirOverride() || join(configHome(), "tychicus");

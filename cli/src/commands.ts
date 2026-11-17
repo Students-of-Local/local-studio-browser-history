@@ -254,6 +254,7 @@ export const COMMANDS: CommandSpec[] = [
 			{ name: "test", what: "Prove an assistant can reach it, from outside: public DNS, TLS, the OAuth metadata, the sign-in challenge and a streaming probe", flags: ["--json"] },
 			{ name: "fix", what: "Repair what remote test or status found, one step at a time, asking first (--yes to skip asking, --dry-run to list)", flags: ["--yes", "--dry-run", "--json"] },
 			{ name: "off", what: "Stop the service, close the tunnel or Funnel and remove remote.json", flags: ["--json"] },
+			{ name: "import-polycarp", what: "Move Polycarp's remote connector (same address, same sign-ins) to Tychicus, once (--dry-run to list)", flags: ["--dry-run", "--force"] },
 		],
 	},
 	{
@@ -383,6 +384,7 @@ export const REMOTE_GUIDE = [
 	`  3. ${COMMAND_NAME} remote test     Prove an assistant can reach and stream from it, from outside`,
 	`  4. ${COMMAND_NAME} remote fix      Repair what status or test found (--dry-run lists the steps)`,
 	`  5. ${COMMAND_NAME} remote off      Stop the service, close the tunnel and remove remote.json`,
+	`Moving from Polycarp: ${COMMAND_NAME} remote import-polycarp [--dry-run] [--force] copies its connector here and swaps the services, once.`,
 	"Each takes --json. Exit codes: 0 ok, 1 failed, 2 usage; setup and fix also 3 when a person has to act, test and fix 3 when nothing is set up.",
 	`Every flag: ${COMMAND_NAME} --help`,
 	"",
