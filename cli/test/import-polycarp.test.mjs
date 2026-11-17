@@ -5,7 +5,7 @@
 // <config>/tabkyra/polycarp, which execs node on a working tree.
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { after, afterEach, beforeEach, test } from "node:test";
@@ -154,7 +154,8 @@ const lines = () => {
 	return { said, say: (line) => said.push(line) };
 };
 const mode = (p) => statSync(p).mode & 0o777;
-const fast = { waitMs: 50, settleMs: 0 };
+/** cloudflared counts as installed unless a test says otherwise, so the host running the tests doesn't decide. */
+const fast = { waitMs: 50, settleMs: 0, cloudflared: () => "/opt/homebrew/bin/cloudflared" };
 /** serve answers 401 while com.tychicus.serve is loaded, as the real one does to a request with no token. */
 const probeFor = (m) => async () => (m.loaded.has("com.tychicus.serve") || m.loaded.has("tychicus-serve") ? 401 : undefined);
 
@@ -319,4 +320,101 @@ test("path rewriting matches whole folders only", () => {
 	const r = rewritePaths("a: /x/tabkyra/c.json\nb: /x/tabkyra-other/d\nc: /x/tabkyra\n", ["/x/tabkyra"], "/x/tychicus");
 	assert.equal(r.text, "a: /x/tychicus/c.json\nb: /x/tabkyra-other/d\nc: /x/tychicus\n");
 	assert.equal(r.count, 2);
+});
+
+test("review-r1 first-F3: remote.json with no port is checked on the default port, not rolled back", async () => {
+	fixture();
+	writeFileSync(join(F.P, "remote.json"), `${JSON.stringify({ publicUrl: "https://polycarp.example.com", route: "cloudflare" })}\n`, { mode: 0o600 });
+	const m = useManager("darwin", ["com.polycarp.serve", "com.polycarp.cloudflared"]);
+	const asked = [];
+	const probe = async (port) => {
+		asked.push(port);
+		return probeFor(m)();
+	};
+	const { said, say } = lines();
+	assert.equal(await importPolycarp({ say, probe, ...fast }), 0, said.join("\n"));
+	assert.ok(asked.length && asked.every((p) => p === PORT), asked.join(","));
+	assert.doesNotMatch(said.join("\n"), /no port to check/);
+});
+
+test("review-r1 first-F4: an exception mid-swap still starts Polycarp's serve again and undoes the copy", async () => {
+	fixture();
+	const m = useManager("darwin", ["com.polycarp.serve", "com.polycarp.cloudflared"], (cmd, args) => {
+		if (cmd === "launchctl" && args[0] === "bootstrap" && args[2].endsWith("com.tychicus.cloudflared.plist")) throw new Error("spawn launchctl EAGAIN");
+		return undefined;
+	});
+	const { said, say } = lines();
+	assert.equal(await importPolycarp({ say, probe: probeFor(m), ...fast }), 1);
+	assert.match(said.join("\n"), /stopped on an error: spawn launchctl EAGAIN/);
+	assert.deepEqual([...m.loaded].sort(), ["com.polycarp.cloudflared", "com.polycarp.serve"]);
+	assert.ok(!existsSync(join(F.target, "remote.json")));
+	assert.ok(!existsSync(join(F.agents, "com.tychicus.serve.plist")));
+});
+
+test("review-r1 first-F4: a copy that fails partway leaves no copied files and touches no service", { skip: process.getuid?.() === 0 && "root reads any file" }, async () => {
+	fixture();
+	// The tunnel credentials are unreadable, so the copy fails after remote.json and the rest were written.
+	chmodSync(join(F.T, `${TUNNEL_ID}.json`), 0);
+	const m = useManager("darwin", ["com.polycarp.serve", "com.polycarp.cloudflared"]);
+	const { said, say } = lines();
+	const code = await importPolycarp({ say, probe: probeFor(m), ...fast }).catch((err) => err);
+	assert.equal(code, 1, String(code));
+	assert.match(said.join("\n"), /Copying failed/);
+	assert.ok(!existsSync(join(F.target, "remote.json")));
+	assert.ok(!m.calls.some((c) => c.includes("bootout")), m.calls.join("\n"));
+});
+
+test("review-r1 first-F2: another program answering on the port is not taken for Tychicus's serve", async () => {
+	fixture();
+	const m = useManager("darwin", ["com.polycarp.serve", "com.polycarp.cloudflared"]);
+	const { said, say } = lines();
+	// Something outside both services answers 401 on the port the whole time.
+	assert.equal(await importPolycarp({ say, probe: async () => 401, ...fast }), 1);
+	assert.match(said.join("\n"), /another program still answers on http:\/\/127\.0\.0\.1:8787\/mcp/);
+	assert.deepEqual([...m.loaded].sort(), ["com.polycarp.cloudflared", "com.polycarp.serve"]);
+	assert.ok(!existsSync(join(F.agents, "com.tychicus.serve.plist")));
+});
+
+test("review-r1 first-F2: a 401 while Tychicus's serve isn't running doesn't count", async () => {
+	fixture();
+	let stopped = false;
+	const m = useManager("darwin", ["com.polycarp.serve", "com.polycarp.cloudflared"], (cmd, args, loaded) => {
+		// Tychicus's serve loads, then dies at once; launchd keeps reporting it as not running.
+		if (cmd === "launchctl" && args[0] === "print" && (args[1] ?? "").endsWith("com.tychicus.serve")) return { code: 113, out: "Could not find service" };
+		return undefined;
+	});
+	// The port is quiet right after Polycarp's serve stops, then a stray program answers 401.
+	const probe = async () => {
+		if (!stopped) {
+			stopped = !m.loaded.has("com.polycarp.serve");
+			return undefined;
+		}
+		return 401;
+	};
+	const { said, say } = lines();
+	assert.equal(await importPolycarp({ say, probe, ...fast }), 1);
+	assert.match(said.join("\n"), /com\.tychicus\.serve isn't running, so another program holds the port/);
+	assert.deepEqual([...m.loaded].filter((l) => l.startsWith("com.polycarp")).sort(), ["com.polycarp.cloudflared", "com.polycarp.serve"]);
+});
+
+test("review-r1 first-F5: with no cloudflared for Tychicus, Polycarp's downloaded copy is copied in, runnable", async () => {
+	fixture();
+	mkdirSync(join(F.T, "bin"));
+	writeFileSync(join(F.T, "bin", "cloudflared"), "#!/bin/sh\necho cloudflared\n", { mode: 0o755 });
+	const m = useManager("darwin", ["com.polycarp.serve", "com.polycarp.cloudflared"]);
+	const { said, say } = lines();
+	assert.equal(await importPolycarp({ say, probe: probeFor(m), ...fast, cloudflared: () => undefined }), 0, said.join("\n"));
+	assert.equal(mode(join(F.target, "bin", "cloudflared")), 0o755);
+	assert.ok(existsSync(join(F.T, "bin", "cloudflared")));
+});
+
+test("review-r1 first-F5: with no cloudflared anywhere, nothing is stopped and the fix is named", async () => {
+	fixture();
+	const before = snapshot(F.base);
+	const m = useManager("darwin", ["com.polycarp.serve", "com.polycarp.cloudflared"]);
+	const { said, say } = lines();
+	assert.equal(await importPolycarp({ say, probe: probeFor(m), ...fast, cloudflared: () => undefined }), 1);
+	assert.match(said.join("\n"), /needs cloudflared.*brew install cloudflared.*Nothing was changed/);
+	assert.ok(!m.calls.some((c) => c.includes("bootout")), m.calls.join("\n"));
+	assert.deepEqual(snapshot(F.base), before);
 });

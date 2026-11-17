@@ -18,9 +18,10 @@ import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync
 import { request } from "node:http";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { CLOUDFLARE_SERVICE } from "./cloudflare.ts";
+import { CLOUDFLARE_SERVICE, cloudflaredBinary } from "./cloudflare.ts";
 import { configDir, configHome } from "./files.ts";
 import { COMMAND_NAME } from "./self.ts";
+import { DEFAULT_PORT } from "./tunnel.ts";
 import { HUB_SERVICE, installService, LINK_SERVICE, removeService, SERVE_SERVICE, type ServiceSpec, serviceFile, servicePlatform, serviceRunner, serviceRunning, sleep } from "./service.ts";
 
 export type Role = "serve" | "cloudflared" | "hub" | "link";
@@ -84,7 +85,7 @@ export interface ImportPlan {
 	folders: string[];
 	files: PickedFile[];
 	/** Files cloudflared.yml names (tunnel credentials, origin certificate): copied when under a Polycarp folder, else left. */
-	extras: Array<{ key: string; path: string; copyTo?: string }>;
+	extras: Array<{ key: string; path: string; copyTo?: string; program?: boolean }>;
 	/** The Tychicus services to start, in order. */
 	swaps: Array<{ role: Role; spec: ServiceSpec; polycarp?: PolycarpJob }>;
 	port?: number;
@@ -99,6 +100,8 @@ export interface ImportOptions {
 	waitMs?: number;
 	/** How long a started tunnel, hub or link must stay up before it counts as running. */
 	settleMs?: number;
+	/** For tests: where Tychicus finds cloudflared (defaults to cloudflaredBinary()). */
+	cloudflared?: () => string | undefined;
 }
 
 /** serve answers an unauthenticated /mcp request with 401 and a sign-in challenge: up, and guarding the door. */
@@ -273,7 +276,7 @@ function under(path: string, roots: string[]): string | undefined {
 const spellings = (folder: string) => [...new Set([folder, resolve(folder), real(folder)])];
 
 /** Work out what an import would do. Reads only. */
-export function planImport(): ImportPlan {
+export function planImport(findCloudflared: () => string | undefined = cloudflaredBinary): ImportPlan {
 	const target = resolve(configDir());
 	const jobs = findPolycarpJobs();
 	const { fresh, legacy } = polycarpFolders();
@@ -321,12 +324,13 @@ export function planImport(): ImportPlan {
 			extras.push({ key, path: value, ...(rel !== undefined ? { copyTo: join(target, rel) } : {}) });
 		}
 	}
+	// Polycarp's remote.json leaves the port out when it is the default, and serve then listens on DEFAULT_PORT.
 	let port: number | undefined;
 	const remote = files.find((f) => f.name === "remote.json");
 	if (remote) {
 		try {
 			const raw = JSON.parse(readFileSync(join(remote.from, remote.name), "utf8")) as { port?: unknown };
-			if (typeof raw.port === "number" && Number.isInteger(raw.port)) port = raw.port;
+			port = typeof raw.port === "number" && Number.isInteger(raw.port) ? raw.port : DEFAULT_PORT;
 		} catch {
 			throw new ImportError(`${join(remote.from, remote.name)} isn't valid JSON, so it can't be imported. Nothing was changed.`);
 		}
@@ -337,6 +341,17 @@ export function planImport(): ImportPlan {
 		const polycarp = jobs.find((j) => j.role === role);
 		const wanted = role === "serve" ? has("remote.json") : role === "cloudflared" ? has("cloudflared.yml") || Boolean(polycarp?.loaded) : Boolean(polycarp?.loaded);
 		if (wanted) swaps.push({ role, spec, ...(polycarp ? { polycarp } : {}) });
+	}
+	// Tychicus's tunnel service runs cloudflared too. Polycarp may have used a copy it downloaded into its own folder, which
+	// Tychicus doesn't look in: copy that one, or stop here before anything is changed.
+	if (swaps.some((s) => s.role === "cloudflared") && !findCloudflared()) {
+		const own = candidates.map((c) => join(c, "bin", "cloudflared")).find(isFile);
+		if (!own) {
+			throw new ImportError(
+				`Tychicus's tunnel needs cloudflared, and it isn't on PATH, in Homebrew's folders or in Tychicus's own bin folder, nor in Polycarp's. Install it (brew install cloudflared) and run this again. Nothing was changed.`,
+			);
+		}
+		extras.push({ key: "cloudflared program", path: own, copyTo: join(target, "bin", "cloudflared"), program: true });
 	}
 	return { target, jobs, folders: candidates, files, extras, swaps, ...(port !== undefined ? { port } : {}) };
 }
@@ -404,7 +419,8 @@ async function confirm(role: Role, spec: ServiceSpec, plan: ImportPlan, o: Impor
 		let last: number | undefined;
 		for (;;) {
 			last = await probe(plan.port);
-			if (last === EXPECTED_MCP_STATUS) return undefined;
+			// The answer must come from Tychicus's serve: a 401 while it isn't running is some other program on the port.
+			if (last === EXPECTED_MCP_STATUS) return serviceRunning(spec) ? undefined : `http://127.0.0.1:${plan.port}/mcp answered, but ${spec.label} isn't running, so another program holds the port`;
 			if (Date.now() >= deadline) break;
 			await sleep(500);
 		}
@@ -417,6 +433,19 @@ async function confirm(role: Role, spec: ServiceSpec, plan: ImportPlan, o: Impor
 	}
 	await sleep(o.settleMs ?? 5000);
 	return serviceRunning(spec) ? undefined : `${spec.label} started, then stopped`;
+}
+
+/** After Polycarp's serve stops, its port must go quiet; a program still answering there would take Tychicus's place. */
+async function portFree(plan: ImportPlan, o: ImportOptions): Promise<string | undefined> {
+	if (plan.port === undefined) return undefined;
+	const probe = o.probe ?? ((port: number) => probeLocalMcp(port));
+	const deadline = Date.now() + (o.waitMs ?? 20_000);
+	for (;;) {
+		const status = await probe(plan.port);
+		if (status === undefined) return undefined;
+		if (Date.now() >= deadline) return `another program still answers on http://127.0.0.1:${plan.port}/mcp (status ${status}) with Polycarp's serve stopped, so Tychicus's serve couldn't use the port. Stop that program and run this again`;
+		await sleep(500);
+	}
 }
 
 /** Copy the planned files. Returns how to undo it. */
@@ -436,26 +465,7 @@ function copyFiles(plan: ImportPlan, force: boolean, say: (line: string) => void
 		}
 		if (backups.length) say(`Saved Tychicus's earlier files to ${backupDir}.`);
 	}
-	const put = (to: string, data: Buffer) => {
-		mkdirSync(dirname(to), { recursive: true, mode: 0o700 });
-		const tmp = `${to}.${process.pid}.tmp`;
-		writeFileSync(tmp, data, { mode: 0o600 });
-		chmodSync(tmp, 0o600);
-		renameSync(tmp, to);
-		written.push(to);
-	};
-	for (const f of plan.files) {
-		const raw = readFileSync(join(f.from, f.name));
-		const { text, count } = rewritePaths(raw.toString("utf8"), roots, plan.target);
-		put(f.to, count ? Buffer.from(text, "utf8") : raw);
-		say(`Copied ${f.name} from ${f.from}${count ? ` (${count} path${count === 1 ? "" : "s"} moved to ${plan.target})` : ""}.`);
-	}
-	for (const e of plan.extras) {
-		if (!e.copyTo) continue;
-		put(e.copyTo, readFileSync(e.path));
-		say(`Copied the ${e.key} file ${e.path} to ${e.copyTo}.`);
-	}
-	return () => {
+	const undo = () => {
 		for (const path of written) rmSync(path, { force: true });
 		for (const b of backups) {
 			try {
@@ -465,6 +475,37 @@ function copyFiles(plan: ImportPlan, force: boolean, say: (line: string) => void
 			}
 		}
 	};
+	const put = (to: string, data: Buffer, fileMode = 0o600) => {
+		mkdirSync(dirname(to), { recursive: true, mode: 0o700 });
+		const tmp = `${to}.${process.pid}.tmp`;
+		try {
+			writeFileSync(tmp, data, { mode: fileMode });
+			chmodSync(tmp, fileMode);
+			renameSync(tmp, to);
+		} catch (err) {
+			rmSync(tmp, { force: true });
+			throw err;
+		}
+		written.push(to);
+	};
+	try {
+		for (const f of plan.files) {
+			const raw = readFileSync(join(f.from, f.name));
+			const { text, count } = rewritePaths(raw.toString("utf8"), roots, plan.target);
+			put(f.to, count ? Buffer.from(text, "utf8") : raw);
+			say(`Copied ${f.name} from ${f.from}${count ? ` (${count} path${count === 1 ? "" : "s"} moved to ${plan.target})` : ""}.`);
+		}
+		for (const e of plan.extras) {
+			if (!e.copyTo) continue;
+			put(e.copyTo, readFileSync(e.path), e.program ? 0o755 : 0o600);
+			say(`Copied the ${e.key} file ${e.path} to ${e.copyTo}.`);
+		}
+	} catch (err) {
+		// A copy that fails partway leaves nothing behind: what was written goes, what was set aside comes back.
+		undo();
+		throw err;
+	}
+	return undo;
 }
 
 function describe(plan: ImportPlan, say: (line: string) => void): void {
@@ -506,7 +547,7 @@ export async function importPolycarp(o: ImportOptions = {}): Promise<number> {
 	}
 	let plan: ImportPlan;
 	try {
-		plan = planImport();
+		plan = planImport(o.cloudflared);
 	} catch (err) {
 		if (!(err instanceof ImportError)) throw err;
 		say(err.message);
@@ -531,7 +572,13 @@ export async function importPolycarp(o: ImportOptions = {}): Promise<number> {
 		return 0;
 	}
 	describe(plan, say);
-	const undoCopy = copyFiles(plan, Boolean(o.force), say);
+	let undoCopy: () => void;
+	try {
+		undoCopy = copyFiles(plan, Boolean(o.force), say);
+	} catch (err) {
+		say(`Copying failed: ${err instanceof Error ? err.message : String(err)}. The files copied so far were removed; no service was touched.`);
+		return 1;
+	}
 	const done: Array<{ spec: ServiceSpec; polycarp?: PolycarpJob; stopped: boolean }> = [];
 	const rollback = (): string[] => {
 		const problems: string[] = [];
@@ -546,27 +593,35 @@ export async function importPolycarp(o: ImportOptions = {}): Promise<number> {
 		undoCopy();
 		return problems;
 	};
-	for (const s of plan.swaps) {
-		const step = { spec: s.spec, polycarp: s.polycarp, stopped: false };
-		done.push(step);
-		if (s.polycarp?.loaded) {
-			const stuck = await stopPolycarp(s.polycarp);
-			if (stuck) {
+	try {
+		for (const s of plan.swaps) {
+			const step = { spec: s.spec, polycarp: s.polycarp, stopped: false };
+			done.push(step);
+			if (s.polycarp?.loaded) {
+				const stuck = await stopPolycarp(s.polycarp);
+				if (stuck) {
+					const problems = rollback();
+					say(`${stuck}. Everything was put back${problems.length ? `, except: ${problems.join("; ")}` : ""}.`);
+					return 1;
+				}
+				step.stopped = true;
+				say(`Stopped ${s.polycarp.label}.`);
+			}
+			const held = s.role === "serve" ? await portFree(plan, o) : undefined;
+			const installed = held ? { ok: false as const, message: held } : await installService(s.spec);
+			const problem = installed.ok ? await confirm(s.role, s.spec, plan, o) : installed.message;
+			if (problem) {
 				const problems = rollback();
-				say(`${stuck}. Everything was put back${problems.length ? `, except: ${problems.join("; ")}` : ""}.`);
+				say(`${s.spec.label} didn't take over: ${problem}. Polycarp's services were started again and the copied files removed${problems.length ? `, except: ${problems.join("; ")}` : ""}.`);
 				return 1;
 			}
-			step.stopped = true;
-			say(`Stopped ${s.polycarp.label}.`);
+			say(`Started ${s.spec.label}.`);
 		}
-		const installed = await installService(s.spec);
-		const problem = installed.ok ? await confirm(s.role, s.spec, plan, o) : installed.message;
-		if (problem) {
-			const problems = rollback();
-			say(`${s.spec.label} didn't take over: ${problem}. Polycarp's services were started again and the copied files removed${problems.length ? `, except: ${problems.join("; ")}` : ""}.`);
-			return 1;
-		}
-		say(`Started ${s.spec.label}.`);
+	} catch (err) {
+		// Whatever threw, Polycarp's stopped services must run again: the connector can't be left down.
+		const problems = rollback();
+		say(`The move stopped on an error: ${err instanceof Error ? err.message : String(err)}. Polycarp's services were started again and the copied files removed${problems.length ? `, except: ${problems.join("; ")}` : ""}.`);
+		return 1;
 	}
 	for (const s of plan.swaps) if (s.polycarp) say(retirePolycarp(s.polycarp));
 	const ok = await readBack(plan, o, say);
