@@ -45,7 +45,7 @@ it needs no extra step. Reload the extension once after the first install.
 | `tychicus install [--force]` | write the native host manifest (Helium, Chrome, Chromium, Brave, Edge, Arc, Vivaldi, Opera; Linux and Windows too) and the launchers in `~/.config/tychicus/` |
 | `tychicus reload` | reload the extension (after rebuilding `dist-chrome`) |
 | `tychicus debug` | bridge state, recent request timings, Chrome API benchmark |
-| `tychicus pi-extension` | write `~/.pi/agent/extensions/polycarp.ts` for pi (the file name an older helper used, so it replaces that one) |
+| `tychicus pi-extension` | write `~/.pi/agent/extensions/tychicus.ts` for pi; it removes a `polycarp.ts` or `tabkyra.ts` an older copy of this helper wrote, and names the Polycarp app's own `polycarp.ts` without touching it |
 | `tychicus skill install [name...] [--all] [--force]` | install the bundled skills into Claude Code, Codex and OpenCode; a same-name skill Tychicus didn't write is left alone without `--force` |
 | `tychicus skill list` | the bundled skills and what each is for |
 | `tychicus skill print [name] [--raw]` | a skill as an AGENTS.md section (default `polycarp-browser`); `--raw` is the exact SKILL.md |
