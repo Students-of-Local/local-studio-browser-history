@@ -38,7 +38,7 @@ Your agent does steps 1 to 4. Step 5 needs your yes.
    the pull request it would open. Nothing is sent. (MCP: `skill_manage` with action `prepare_submit`.)
 5. **Submit.** If you approve the preview, run the command it prints, with its
    `--confirm <code>`. The code covers that exact skill and those cases; any change needs a new
-   preview. Tychicus forks `baney75/tabkyra` to your GitHub account with `gh`, pushes a branch
+   preview. Tychicus forks `baney75/tychicus` to your GitHub account with `gh`, pushes a branch
    and opens the pull request. `--dry-run` does everything except the push.
 
 Submission needs `gh` signed in (`gh auth login`). It refuses personal data outright and
