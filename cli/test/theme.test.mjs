@@ -224,7 +224,7 @@ test("a missing or invalid Polycarp file means no theme, never a crash", async (
 		"not json": "{nope",
 		"empty file": "",
 		"an array": "[]",
-		"wrong schema": edit((f) => { f.schema = 2; }),
+		"wrong schema": edit((f) => { f.schema = 3; }),
 		"no browser section": edit((f) => { delete f.surfaces.browser; }),
 		"bad color": edit((f) => { f.surfaces.browser.light.accent = "teal"; }),
 		"short color": edit((f) => { f.surfaces.browser.dark.border = "#fff"; }),
@@ -362,7 +362,7 @@ test("a file that is there but refused is told apart from no file, with the reas
 	});
 	const white = structuredClone(fixture("calm"));
 	for (const mode of ["light", "dark"]) for (const role of Object.keys(white.surfaces.browser[mode])) white.surfaces.browser[mode][role] = "#ffffff";
-	const wrongSchema = { ...fixture("calm"), schema: 2 };
+	const wrongSchema = { ...fixture("calm"), schema: 3 };
 	const cases = [["{nope", /not valid JSON/], [white, /calm would be unreadable: light foreground on background is 1\.00:1/], [wrongSchema, /not a valid theme\.json for the Polycarp app/]];
 	for (const [file, reason] of cases) {
 		await withPolycarp(file, () => {

@@ -179,7 +179,7 @@ export function parsePolycarpTheme(raw: unknown): PolycarpTheme | undefined {
 
 function parseStructure(raw: unknown): PolycarpTheme | undefined {
 	try {
-		if (!isRecord(raw) || raw.schema !== 1) return undefined;
+		if (!isRecord(raw) || (raw.schema !== 1 && raw.schema !== 2)) return undefined;
 		const { name, title, mode } = raw;
 		if (typeof name !== "string" || !NAME.test(name)) return undefined;
 		if (
