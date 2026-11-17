@@ -44,7 +44,8 @@ import { BUILD } from "../../src/update/build.ts";
 import { argsProblem, COMMANDS, completionScript, EXIT_CODES, helpRows, REMOTE_GUIDE, VALUE_FLAGS, VISIBLE_COMMANDS } from "./commands.ts";
 import { VERSION } from "./version.ts";
 import { installLocalStudio, LocalStudioError, localStudioCommand } from "./local-studio.ts";
-import { installFromRelease, loadSteps } from "./release.ts";
+import { installFromRelease, loadSteps, releaseProgram, releaseRoot } from "./release.ts";
+import { restartStaleServices } from "./service-version.ts";
 
 /** A path under the home folder as ~/..., for help text. */
 const tildePath = (path: string) => (path.startsWith(`${homedir()}/`) ? `~${path.slice(homedir().length)}` : path);
@@ -391,9 +392,13 @@ async function main(): Promise<void> {
 				if (!match) throw new UsageError(`Unknown browser "${only}". Use one of: ${known.map((b) => b.name).join(", ")}.`);
 				if (!existsSync(match.dir)) throw new UsageError(`${only} has no profile folder on this computer (${match.dir}). Open it once, then run this again.`);
 			}
+			if (flag("--restart-services")) {
+				process.exitCode = await restartStaleServices(releaseRoot(), releaseProgram());
+				return;
+			}
 			const release = option("--release");
 			if (release !== undefined) {
-				process.exitCode = await installFromRelease(release, { dryRun, skipAttestation: flag("--skip-attestation"), passOn: argv.slice(1) });
+				process.exitCode = await installFromRelease(release, { dryRun, skipAttestation: flag("--skip-attestation"), noRestart: flag("--no-restart"), passOn: argv.slice(1) });
 				return;
 			}
 			const result = install({ force: flag("--force"), browser: only, dryRun });

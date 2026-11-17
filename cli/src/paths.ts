@@ -1,5 +1,5 @@
 import { statSync } from "node:fs";
-import { userInfo } from "node:os";
+import { homedir, userInfo } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { bundledExtensionDir } from "./self.ts";
@@ -61,3 +61,14 @@ export function extensionDir(): string {
 
 /** Files a loadable build must have; a half-written dist-chrome unloads the extension. */
 export const EXTENSION_FILES = ["manifest.json", "background.js", "sidepanel.js", "sidepanel.html", "app.css"];
+
+/** The folder that holds the installed versions, the `release` pointer and the extension folder. */
+export function releaseBase(): string {
+	if (process.platform === "win32") return join(process.env.LOCALAPPDATA || join(homedir(), "AppData", "Local"), "Tychicus");
+	return join(process.env.XDG_DATA_HOME || join(homedir(), ".local", "share"), "tychicus");
+}
+
+/** The pointer to the current version's folder: the `tychicus` program, `extension/` and `plugins/`. */
+export function releaseRoot(): string {
+	return join(releaseBase(), "release");
+}
