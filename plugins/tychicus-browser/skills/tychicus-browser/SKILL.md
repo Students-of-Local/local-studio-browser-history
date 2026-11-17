@@ -1,7 +1,7 @@
 ---
 name: tychicus-browser
 description: Work in background Chromium tabs through the Tychicus extension's tools (navigate, read_page, find, click, type, fill, get_page_text). Use when a task needs a live web page, a site behind the user's sign-in, a form, or a check of a web app as a user sees it. Not for a web search or a public page a fetch tool can read.
-version: 1.1.10
+version: 1.2.1
 ---
 
 # Tychicus browser
