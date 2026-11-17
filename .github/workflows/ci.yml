@@ -32,6 +32,8 @@ on:
     types: [opened, synchronize, reopened, labeled, unlabeled]
   push:
     branches: [main]
+  # By hand: gh workflow run ci.yml
+  workflow_dispatch:
 
 permissions:
   contents: read
