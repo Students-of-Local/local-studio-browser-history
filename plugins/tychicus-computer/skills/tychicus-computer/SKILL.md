@@ -1,7 +1,7 @@
 ---
 name: tychicus-computer
 description: Read and operate desktop apps through the Tychicus computer tools (computer_open, computer_snapshot, computer_click, computer_type). Use when a task needs a native app's window rather than a web page, such as reading a dialog, pressing a button or typing into a field. Not for web pages; use the tychicus-browser skill for those.
-version: 1.1.10
+version: 1.2.1
 ---
 
 # Tychicus computer
