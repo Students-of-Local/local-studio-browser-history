@@ -1,25 +1,34 @@
 /**
  * Moving agents from Polycarp: Claude Code, Codex, OpenCode, Cursor and OMP may still have an MCP entry that runs
  * Polycarp's browser server (`polycarp browser mcp`, `polycarp-browser mcp`, Polycarp's old browser launcher or
- * `tabkyra mcp`). When Polycarp drops its browser, those agents would lose their browser tools. For each such entry
- * this adds a `tychicus` entry that runs Tychicus's launcher with `mcp`, and points the old entry at the same command
- * under its old name. That alias is temporary: fleet rules that say "the polycarp MCP server" keep working until they
- * are renamed, and the aliases are listed in agent-aliases.json in Tychicus's config folder.
+ * `tabkyra mcp`). When Polycarp drops its browser, those agents would lose their browser tools.
  *
- * Only the harness config files are written, each after a timestamped backup beside it, and only the entries that
- * launch Polycarp's browser server change: the rest of each file is kept byte for byte. A file that doesn't parse is
- * refused and left alone. Polycarp's own folders and launchers are never read or written. A second run finds nothing
- * to move and changes nothing.
+ * The move points each such entry at Tychicus's launcher with `mcp` and keeps its old name, so one server runs and
+ * fleet rules that say "the polycarp MCP server" keep working. That name is a temporary alias, listed in
+ * agent-aliases.json in Tychicus's config folder. The finish step (`setup --agents --finish`) renames each alias to
+ * `tychicus` once nothing names it, and takes it off the list.
+ *
+ * Only the harness config files are written, each after a timestamped backup beside it, and only the entries that move
+ * change: the rest of each file is kept byte for byte, and the result must parse to exactly the intended config. A file
+ * that doesn't parse is refused and left alone. A file that changed after it was planned is planned again and written
+ * only if the same entries move. Polycarp's own folders and launchers are never read or written. A second run finds
+ * nothing to do and changes nothing.
  */
 
-import { chmodSync, copyFileSync, existsSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
+import { parse as parseToml } from "smol-toml";
 import { configDir } from "./files.ts";
 import { MCP_NAME } from "./harness.ts";
+import { blankComments, dropTrailingCommas, skipSpace, stringEnd } from "./jsonc.ts";
+import { COMMAND_NAME } from "./self.ts";
 
 /** The harnesses whose MCP config this moves, with the file each one documents for user scope. */
 export type MigrationHarness = "claude" | "codex" | "opencode" | "cursor" | "omp";
+
+/** "move" points entries at Tychicus under their old names; "finish" renames those aliases to tychicus. */
+export type PlanKind = "move" | "finish";
 
 export interface Repointed {
 	name: string;
@@ -27,7 +36,21 @@ export interface Repointed {
 	from: string;
 }
 
+export interface Finished {
+	name: string;
+	/** "removed" when a tychicus entry already runs the same command. */
+	action: "renamed" | "removed";
+}
+
+/** A Claude Code project (local scope) entry that still runs Polycarp's browser server. It is left alone. */
+export interface ProjectEntry {
+	project: string;
+	name: string;
+	from: string;
+}
+
 export interface FilePlan {
+	kind: PlanKind;
 	harness: MigrationHarness;
 	/** The harness's display name. */
 	name: string;
@@ -35,11 +58,23 @@ export interface FilePlan {
 	/** "change": `after` differs from `before`. "refused": the file couldn't be read safely; nothing is written. */
 	status: "missing" | "unchanged" | "change" | "refused";
 	reason?: string;
-	/** Entries that launched Polycarp's browser server and now run Tychicus, under their old names. */
+	/** A refused file counts as a failure only when it could hold an entry to move: its text names polycarp or tabkyra. */
+	blocking: boolean;
+	/** The launcher moved entries run. */
+	binary: string;
+	/** Move: entries that launched Polycarp's browser server and now run Tychicus, under their old names. */
 	repointed: Repointed[];
-	/** True when a `tychicus` entry is added. */
-	added: boolean;
-	/** Notes on things left alone (an entry with extra arguments, a form this can't edit). */
+	/** Finish: the recorded aliases in this file. */
+	aliases: string[];
+	/** Finish: the aliases renamed to tychicus or removed. */
+	finished: Finished[];
+	/** Finish: recorded aliases no longer in the file as moved; they leave the list without a write. */
+	forget: string[];
+	/** Entries that still run Polycarp's browser server but are left alone, with the reason and the manual fix. */
+	leftAlone: string[];
+	/** Claude Code project entries that still run Polycarp's browser server; left alone (see ProjectEntry). */
+	projects: ProjectEntry[];
+	/** Things worth knowing that need nothing done now. */
 	notes: string[];
 	before?: string;
 	after?: string;
@@ -67,19 +102,54 @@ export function migrationFiles(): { harness: MigrationHarness; file: string }[] 
 	];
 }
 
+function newPlan(kind: PlanKind, harness: MigrationHarness, file: string, binary: string): FilePlan {
+	return { kind, harness, name: NAMES[harness], file, status: "missing", blocking: false, binary, repointed: [], aliases: [], finished: [], forget: [], leftAlone: [], projects: [], notes: [] };
+}
+
+function refuse(plan: FilePlan, reason: string, blocking: boolean): void {
+	plan.status = "refused";
+	plan.reason = reason;
+	plan.blocking = blocking;
+	plan.repointed = [];
+	plan.finished = [];
+	plan.after = undefined;
+}
+
+/** Text that could hold an entry to move. A file without it is refused harmlessly: there was nothing to move in it. */
+function couldHoldEntry(text: string): boolean {
+	return /polycarp|tabkyra/i.test(text);
+}
+
+function message(err: unknown): string {
+	return (err instanceof Error ? err.message : String(err)).split("\n")[0];
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+	return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function programName(command: string): string {
+	return basename(command.replaceAll("\\", "/"))
+		.toLowerCase()
+		.replace(/\.(exe|cmd|bat)$/, "");
+}
+
 /**
  * True when command and args start Polycarp's browser MCP server: `polycarp browser mcp`, `polycarp-browser mcp`,
  * `tabkyra mcp`, or Polycarp's browser launcher (`.../polycarp/browser/polycarp`) with `mcp`. Plain `polycarp mcp`
  * is the Polycarp app's own server and is not this.
  */
 export function launchesPolycarpBrowser(command: string, args: string[]): boolean {
-	const base = basename(command.replaceAll("\\", "/"))
-		.toLowerCase()
-		.replace(/\.(exe|cmd|bat)$/, "");
+	const base = programName(command);
 	const line = args.join(" ");
 	if (base === "polycarp" && line === "browser mcp") return true;
 	if ((base === "polycarp-browser" || base === "tabkyra") && line === "mcp") return true;
 	return base === "polycarp" && line === "mcp" && /[\\/]polycarp[\\/]browser[\\/]polycarp(\.(exe|cmd))?$/i.test(command);
+}
+
+/** A Tychicus launcher with `mcp`: what a moved entry runs. */
+function runsTychicus(command: string, args: string[]): boolean {
+	return programName(command) === "tychicus" && args.length === 1 && args[0] === "mcp";
 }
 
 /** The same commands with something more after `mcp`: left alone and named, since the extra flags may not carry over. */
@@ -92,23 +162,25 @@ function commandLine(command: string, args: string[]): string {
 	return [command, ...args].join(" ");
 }
 
-// ---- JSON: find where each value sits, so only the entries that move are rewritten ----
+type Command = { command: string; args: string[] };
+
+function sameCommand(a: Command, b: Command): boolean {
+	return a.command === b.command && a.args.join("\0") === b.args.join("\0");
+}
+
+// ---- JSON (and OpenCode's JSONC): find where each value sits, so only what moves is rewritten ----
 
 /** End offset (exclusive) of the JSON value starting at `i`. The text is already known to parse. */
 function valueEnd(text: string, i: number): number {
 	const ch = text[i];
-	if (ch === '"') {
-		let j = i + 1;
-		while (text[j] !== '"') j += text[j] === "\\" ? 2 : 1;
-		return j + 1;
-	}
+	if (ch === '"') return stringEnd(text, i);
 	if (ch === "{" || ch === "[") {
 		let depth = 0;
 		let j = i;
 		for (;;) {
 			const c = text[j];
 			if (c === '"') {
-				j = valueEnd(text, j);
+				j = stringEnd(text, j);
 				continue;
 			}
 			if (c === "{" || c === "[") depth++;
@@ -122,11 +194,6 @@ function valueEnd(text: string, i: number): number {
 	let j = i;
 	while (j < text.length && !/[\s,\]}]/.test(text[j])) j++;
 	return j;
-}
-
-function skipSpace(text: string, i: number): number {
-	while (/\s/.test(text[i] ?? "")) i++;
-	return i;
 }
 
 /** For the object at `start`: each key's [key start, value start, value end]. */
@@ -147,163 +214,219 @@ function objectSpans(text: string, start: number): Map<string, [number, number, 
 	return spans;
 }
 
-/** The file's indent unit: the first indented line's leading whitespace, else two spaces. */
-function indentUnit(text: string): string {
-	const first = text.match(/\n([ \t]+)\S/)?.[1];
-	if (!first) return "  ";
-	return first.startsWith("\t") ? "\t" : first;
+interface JsonFormat {
+	/** The key that holds the servers. */
+	key: string;
+	/** "args": command and args fields. "array": OpenCode's command array. */
+	shape: "args" | "array";
+	/** OpenCode reads JSONC: comments and trailing commas. */
+	jsonc: boolean;
 }
 
-/** JSON with short string arrays on one line, as harness.ts's snippets print them, indented to sit at `indent`. */
-function formatValue(value: unknown, unit: string, indent: string, compact: boolean): string {
-	if (compact) return JSON.stringify(value);
-	const pretty = JSON.stringify(value, null, unit).replace(/\[\s+([^[\]{}]*?)\s+\]/g, (_m, inner: string) => `[${inner.split(/,\s+/).join(", ")}]`);
-	return pretty.replaceAll("\n", `\n${indent}`);
+const JSON_FORMATS: Record<Exclude<MigrationHarness, "codex">, JsonFormat> = {
+	claude: { key: "mcpServers", shape: "args", jsonc: false },
+	opencode: { key: "mcp", shape: "array", jsonc: true },
+	cursor: { key: "mcpServers", shape: "args", jsonc: false },
+	omp: { key: "mcpServers", shape: "args", jsonc: false },
+};
+
+/** The parsed config, and the text to find offsets in: the file with any comments blanked. */
+function readJsonText(text: string, jsonc: boolean): { data: unknown; scan: string } {
+	const scan = jsonc ? blankComments(text) : text;
+	return { data: JSON.parse(jsonc ? dropTrailingCommas(scan) : text), scan };
 }
 
-type JsonShape = "args" | "array";
-
-function entryCommand(entry: unknown, shape: JsonShape): { command: string; args: string[] } | undefined {
-	if (!entry || typeof entry !== "object" || Array.isArray(entry)) return undefined;
-	const e = entry as Record<string, unknown>;
+function jsonCommand(entry: unknown, shape: JsonFormat["shape"]): Command | undefined {
+	if (!isObject(entry)) return undefined;
 	if (shape === "array") {
-		if (!Array.isArray(e.command) || !e.command.every((x) => typeof x === "string") || e.command.length === 0) return undefined;
-		return { command: e.command[0] as string, args: (e.command as string[]).slice(1) };
+		const c = entry.command;
+		if (!Array.isArray(c) || c.length === 0 || !c.every((x) => typeof x === "string")) return undefined;
+		return { command: c[0] as string, args: (c as string[]).slice(1) };
 	}
-	if (typeof e.command !== "string") return undefined;
-	const args = e.args === undefined ? [] : e.args;
+	if (typeof entry.command !== "string") return undefined;
+	const args = entry.args === undefined ? [] : entry.args;
 	if (!Array.isArray(args) || !args.every((x) => typeof x === "string")) return undefined;
-	return { command: e.command, args: args as string[] };
+	return { command: entry.command, args: args as string[] };
 }
 
-function retarget(entry: Record<string, unknown>, shape: JsonShape, binary: string): Record<string, unknown> {
+function retarget(entry: Record<string, unknown>, shape: JsonFormat["shape"], binary: string): Record<string, unknown> {
 	return shape === "array" ? { ...entry, command: [binary, "mcp"] } : { ...entry, command: binary, args: ["mcp"] };
 }
 
-function planJson(plan: FilePlan, text: string, key: string, shape: JsonShape, binary: string): void {
-	let data: unknown;
+interface Edit {
+	at: number;
+	end: number;
+	text: string;
+}
+
+function applyEdits(text: string, edits: Edit[]): string {
+	let out = text;
+	for (const edit of [...edits].sort((a, b) => b.at - a.at)) out = out.slice(0, edit.at) + edit.text + out.slice(edit.end);
+	return out;
+}
+
+/** Parse a JSON harness config, or refuse the plan. */
+function parseJsonConfig(plan: FilePlan, text: string, format: JsonFormat): { data: Record<string, unknown>; scan: string } | undefined {
+	const kind = format.jsonc ? "JSONC" : "JSON";
+	let parsed: { data: unknown; scan: string };
 	try {
-		data = JSON.parse(text);
+		parsed = readJsonText(text, format.jsonc);
 	} catch (err) {
-		plan.status = "refused";
-		plan.reason = `it isn't valid JSON (${err instanceof Error ? err.message : String(err)}), so it was left as it is. Fix it, or move the entries by hand.`;
-		return;
+		refuse(plan, `it isn't valid ${kind} (${message(err)}), so it was left as it is. Fix it, or move the entries by hand.`, couldHoldEntry(text));
+		return undefined;
 	}
-	if (!data || typeof data !== "object" || Array.isArray(data)) {
-		plan.status = "refused";
-		plan.reason = "it isn't a JSON object, so it was left as it is.";
-		return;
+	if (!isObject(parsed.data)) {
+		refuse(plan, `it isn't a ${kind} object, so it was left as it is.`, couldHoldEntry(text));
+		return undefined;
 	}
-	const servers = (data as Record<string, unknown>)[key];
-	if (!servers || typeof servers !== "object" || Array.isArray(servers)) return;
-	const entries = servers as Record<string, unknown>;
-	const top = objectSpans(text, skipSpace(text, 0));
-	const serversStart = top.get(key)?.[1];
-	if (serversStart === undefined) return;
-	const spans = objectSpans(text, serversStart);
-	const unit = indentUnit(text);
-	const hasTychicus = Object.hasOwn(entries, MCP_NAME);
-	// Edits from the end of the file backwards, so earlier offsets stay right.
-	const edits: { at: number; end: number; text: string }[] = [];
-	for (const [name, entry] of Object.entries(entries)) {
-		const cmd = entryCommand(entry, shape);
-		if (!cmd) continue;
-		if (!launchesPolycarpBrowser(cmd.command, cmd.args)) {
-			if (nearMiss(cmd.command, cmd.args)) plan.notes.push(`"${name}" runs ${commandLine(cmd.command, cmd.args)}: extra arguments, so it was left alone. Point it at ${binary} mcp by hand.`);
-			continue;
-		}
-		const span = spans.get(name);
-		if (!span) continue;
-		const [keyStart, valueStart, end] = span;
-		const lineStart = text.lastIndexOf("\n", keyStart) + 1;
-		const lead = text.slice(lineStart, keyStart);
-		const compact = !/^[ \t]*$/.test(lead);
-		const indent = compact ? "" : lead;
-		const moved = retarget(entry as Record<string, unknown>, shape, binary);
-		// An entry written on one line stays on one line.
-		const oneLine = !compact && !text.slice(valueStart, end).includes("\n");
-		const format = (value: unknown) => (oneLine ? formatValue(value, unit, "", false).replace(/\n\s*/g, " ") : formatValue(value, unit, indent, compact));
-		let replacement = format(moved);
-		if (!hasTychicus && !plan.added && name !== MCP_NAME) {
-			replacement += `${compact ? ", " : `,\n${indent}`}${JSON.stringify(MCP_NAME)}: ${format(moved)}`;
-			plan.added = true;
-		}
-		edits.push({ at: valueStart, end, text: replacement });
-		plan.repointed.push({ name, from: commandLine(cmd.command, cmd.args) });
-	}
+	return { data: parsed.data, scan: parsed.scan };
+}
+
+/** Each server's [key start, value start, value end] under `key`. */
+function serverSpans(scan: string, key: string): Map<string, [number, number, number]> | undefined {
+	const start = objectSpans(scan, skipSpace(scan, 0)).get(key)?.[1];
+	if (start === undefined || scan[start] !== "{") return undefined;
+	return objectSpans(scan, start);
+}
+
+/** Write `after` into the plan if it parses to exactly `expected`; otherwise refuse the file. */
+function settleJson(plan: FilePlan, text: string, edits: Edit[], expected: unknown, format: JsonFormat): void {
 	if (edits.length === 0) return;
-	let after = text;
-	for (const edit of edits.sort((a, b) => b.at - a.at)) after = after.slice(0, edit.at) + edit.text + after.slice(edit.end);
-	// The edited text must parse to exactly the intended object: everything else as it was.
-	const expected = structuredClone(data) as Record<string, Record<string, unknown>>;
-	const rebuilt: Record<string, unknown> = {};
-	for (const [name, entry] of Object.entries(entries)) {
-		const moved = plan.repointed.some((r) => r.name === name);
-		rebuilt[name] = moved ? retarget(entry as Record<string, unknown>, shape, binary) : entry;
-		if (moved && plan.added && name === plan.repointed[0].name) rebuilt[MCP_NAME] = rebuilt[name];
-	}
-	expected[key] = rebuilt;
+	const after = applyEdits(text, edits);
 	let parsed: unknown;
 	try {
-		parsed = JSON.parse(after);
+		parsed = readJsonText(after, format.jsonc).data;
 	} catch {
 		parsed = undefined;
 	}
 	if (JSON.stringify(parsed) !== JSON.stringify(expected)) {
-		plan.status = "refused";
-		plan.reason = "the edit didn't come out as intended, so the file was left as it is. Move the entries by hand.";
-		plan.repointed = [];
-		plan.added = false;
+		refuse(plan, "the edit didn't come out as intended, so the file was left as it is. Move the entries by hand.", true);
 		return;
 	}
 	plan.status = "change";
 	plan.after = after;
 }
 
-// ---- Codex's TOML: tables are edited line by line, the rest of the file is kept ----
-
-const TABLE = /^\s*\[\s*mcp_servers\.(?:"([^"\\]+)"|'([^']+)'|([A-Za-z0-9_-]+))((?:\.[A-Za-z0-9_-]+)*)\s*\]\s*(?:#.*)?$/;
-
-/** A TOML string (basic or literal) as the whole value, or undefined. */
-function tomlString(raw: string): string | undefined {
-	const v = raw.trim();
-	if (/^'[^']*'$/.test(v)) return v.slice(1, -1);
-	if (/^"(?:[^"\\]|\\.)*"$/.test(v)) {
-		try {
-			return JSON.parse(v) as string;
-		} catch {
-			return undefined;
+/** Claude Code's project (local scope) entries win over the user entry in that project. They are named, not edited. */
+function noteProjects(plan: FilePlan, data: Record<string, unknown>): void {
+	if (!isObject(data.projects)) return;
+	for (const [project, settings] of Object.entries(data.projects)) {
+		const servers = isObject(settings) ? settings.mcpServers : undefined;
+		if (!isObject(servers)) continue;
+		for (const [name, entry] of Object.entries(servers)) {
+			const cmd = jsonCommand(entry, "args");
+			if (cmd && launchesPolycarpBrowser(cmd.command, cmd.args)) plan.projects.push({ project, name, from: commandLine(cmd.command, cmd.args) });
 		}
 	}
+}
+
+function twoServersNote(plan: FilePlan, servers: Record<string, unknown>): void {
+	if (Object.hasOwn(servers, MCP_NAME) && plan.repointed.some((r) => r.name !== MCP_NAME)) {
+		plan.notes.push(`a ${MCP_NAME} entry is there too, so this agent runs two Tychicus servers until ${COMMAND_NAME} setup --agents --finish removes the old name.`);
+	}
+}
+
+function planJsonMove(plan: FilePlan, text: string, format: JsonFormat): void {
+	const parsed = parseJsonConfig(plan, text, format);
+	if (!parsed) return;
+	const { data, scan } = parsed;
+	if (plan.harness === "claude") noteProjects(plan, data);
+	const servers = data[format.key];
+	if (!isObject(servers)) return;
+	const spans = serverSpans(scan, format.key);
+	if (!spans) return;
+	const edits: Edit[] = [];
+	const expected = structuredClone(data) as Record<string, Record<string, unknown>>;
+	for (const [name, entry] of Object.entries(servers)) {
+		const cmd = jsonCommand(entry, format.shape);
+		if (!cmd) continue;
+		const from = commandLine(cmd.command, cmd.args);
+		if (!launchesPolycarpBrowser(cmd.command, cmd.args)) {
+			if (nearMiss(cmd.command, cmd.args)) plan.leftAlone.push(`"${name}" runs ${from}: extra arguments, so it was left alone. Point it at ${plan.binary} mcp by hand.`);
+			continue;
+		}
+		const span = spans.get(name);
+		const fields = span ? objectSpans(scan, span[1]) : undefined;
+		const command = fields?.get("command");
+		const args = fields?.get("args");
+		if (!command || (format.shape === "args" && !args)) continue;
+		// Only the command (and args) values change; the entry's other fields, comments and layout stay.
+		if (format.shape === "array") edits.push({ at: command[1], end: command[2], text: `[${JSON.stringify(plan.binary)}, "mcp"]` });
+		else if (args) edits.push({ at: command[1], end: command[2], text: JSON.stringify(plan.binary) }, { at: args[1], end: args[2], text: '["mcp"]' });
+		expected[format.key][name] = retarget(entry as Record<string, unknown>, format.shape, plan.binary);
+		plan.repointed.push({ name, from });
+	}
+	twoServersNote(plan, servers);
+	settleJson(plan, text, edits, expected, format);
+}
+
+/** The text range that removes one entry from its object, with the comma that separated it. */
+function removalRange(scan: string, keyStart: number, end: number): [number, number] {
+	const next = skipSpace(scan, end);
+	if (scan[next] === ",") return [keyStart, skipSpace(scan, next + 1)];
+	let prev = keyStart - 1;
+	while (prev >= 0 && /\s/.test(scan[prev])) prev--;
+	return scan[prev] === "," ? [prev, end] : [prev + 1, end];
+}
+
+/** What the finish step does with one alias, given the tychicus entry (if any) already in the file. */
+function finishAction(plan: FilePlan, alias: string, cmd: Command | undefined, present: boolean, tychicus: Command | undefined): "rename" | "remove" | undefined {
+	if (!present) {
+		plan.forget.push(alias);
+		plan.notes.push(`"${alias}" is no longer in the file; it leaves the list of aliases.`);
+		return undefined;
+	}
+	if (!cmd || !runsTychicus(cmd.command, cmd.args)) {
+		plan.forget.push(alias);
+		plan.notes.push(`"${alias}" no longer runs Tychicus${cmd ? ` (it runs ${commandLine(cmd.command, cmd.args)})` : ""}, so it was left alone and leaves the list of aliases.`);
+		return undefined;
+	}
+	if (!tychicus) return "rename";
+	if (sameCommand(tychicus, cmd)) return "remove";
+	plan.leftAlone.push(
+		`"${alias}" runs ${commandLine(cmd.command, cmd.args)}, but the ${MCP_NAME} entry runs ${commandLine(tychicus.command, tychicus.args)}. Remove one of the two by hand, then run ${COMMAND_NAME} setup --agents --finish again.`,
+	);
 	return undefined;
 }
 
-/** A one-line TOML array of strings, or undefined. */
-function tomlStrings(raw: string): string[] | undefined {
-	const v = raw.trim();
-	if (!v.startsWith("[") || !v.endsWith("]")) return undefined;
-	const items: string[] = [];
-	const rest = v.slice(1, -1).replace(/"(?:[^"\\]|\\.)*"|'[^']*'/g, (m) => {
-		const s = tomlString(m);
-		if (s !== undefined) items.push(s);
-		return "";
-	});
-	return /^[\s,]*$/.test(rest) ? items : undefined;
+function planJsonFinish(plan: FilePlan, text: string, format: JsonFormat): void {
+	const parsed = parseJsonConfig(plan, text, format);
+	if (!parsed) return;
+	const { data, scan } = parsed;
+	const servers = isObject(data[format.key]) ? (data[format.key] as Record<string, unknown>) : {};
+	const spans = serverSpans(scan, format.key) ?? new Map();
+	let tychicus = Object.hasOwn(servers, MCP_NAME) ? (jsonCommand(servers[MCP_NAME], format.shape) ?? { command: "", args: [] }) : undefined;
+	const edits: Edit[] = [];
+	let renamed: string | undefined;
+	const removed = new Set<string>();
+	for (const alias of plan.aliases) {
+		const cmd = jsonCommand(servers[alias], format.shape);
+		const span = spans.get(alias);
+		const action = finishAction(plan, alias, cmd, Object.hasOwn(servers, alias) && span !== undefined, tychicus);
+		if (!action || !span || !cmd) continue;
+		const [keyStart, , end] = span;
+		if (action === "rename") {
+			edits.push({ at: keyStart, end: valueEnd(scan, keyStart), text: JSON.stringify(MCP_NAME) });
+			renamed = alias;
+			tychicus = cmd;
+		} else {
+			const [from, to] = removalRange(scan, keyStart, end);
+			edits.push({ at: from, end: to, text: "" });
+			removed.add(alias);
+		}
+		plan.finished.push({ name: alias, action: action === "rename" ? "renamed" : "removed" });
+	}
+	const rebuilt: Record<string, unknown> = {};
+	for (const [name, entry] of Object.entries(servers)) {
+		if (removed.has(name)) continue;
+		rebuilt[name === renamed ? MCP_NAME : name] = entry;
+	}
+	settleJson(plan, text, edits, { ...data, [format.key]: rebuilt }, format);
 }
 
-function stripComment(value: string): string {
-	// A # outside quotes starts a comment.
-	let quote = "";
-	for (let i = 0; i < value.length; i++) {
-		const ch = value[i];
-		if (quote) {
-			if (ch === "\\" && quote === '"') i++;
-			else if (ch === quote) quote = "";
-		} else if (ch === '"' || ch === "'") quote = ch;
-		else if (ch === "#") return value.slice(0, i);
-	}
-	return value;
-}
+// ---- Codex's TOML: read with a real parser, edited by table text so comments and layout stay ----
+
+const TABLE = /^\s*\[\s*mcp_servers\.(?:"([^"\\]+)"|'([^']+)'|([A-Za-z0-9_-]+))((?:\.[A-Za-z0-9_-]+)*)\s*\]\s*(?:#.*)?$/;
 
 interface TomlTable {
 	name: string;
@@ -314,8 +437,7 @@ interface TomlTable {
 	end: number;
 }
 
-function planToml(plan: FilePlan, text: string, binary: string): void {
-	const lines = text.split("\n");
+function tomlTables(lines: string[]): TomlTable[] {
 	const tables: TomlTable[] = [];
 	let current: TomlTable | undefined;
 	for (let i = 0; i < lines.length; i++) {
@@ -325,91 +447,222 @@ function planToml(plan: FilePlan, text: string, binary: string): void {
 		current = m ? { name: m[1] ?? m[2] ?? m[3], sub: m[4], header: i, end: lines.length } : undefined;
 		if (current) tables.push(current);
 	}
-	const hasTychicus = tables.some((t) => t.name === MCP_NAME && t.sub === "");
-	const replace = new Map<number, string>();
-	let insertAt = -1;
-	const copy: string[] = [];
-	for (const table of tables.filter((t) => t.sub === "")) {
-		let command: { line: number; value?: string } | undefined;
-		let args: { line: number; value?: string[] } | undefined;
-		let unsure = false;
-		for (let i = table.header + 1; i < table.end; i++) {
-			const kv = lines[i].match(/^(\s*)(command|args)\s*=\s*(.*)$/);
-			if (!kv) continue;
-			const value = stripComment(kv[3]);
-			if (kv[2] === "command") command = { line: i, value: tomlString(value) };
-			else {
-				args = { line: i, value: tomlStrings(value) };
-				if (!args.value) unsure = true;
-			}
-		}
-		if (!command?.value) continue;
-		const argList = args?.value ?? [];
-		if (unsure) {
-			if (/\b(polycarp|tabkyra)/i.test(command.value)) plan.notes.push(`[mcp_servers.${table.name}] runs ${command.value} with args this can't read (more than one line?), so it was left alone.`);
-			continue;
-		}
-		if (!launchesPolycarpBrowser(command.value, argList)) {
-			if (nearMiss(command.value, argList)) plan.notes.push(`[mcp_servers.${table.name}] runs ${commandLine(command.value, argList)}: extra arguments, so it was left alone. Point it at ${binary} mcp by hand.`);
-			continue;
-		}
-		const indent = lines[command.line].match(/^\s*/)?.[0] ?? "";
-		replace.set(command.line, `${indent}command = ${JSON.stringify(binary)}`);
-		if (args) replace.set(args.line, `${lines[args.line].match(/^\s*/)?.[0] ?? ""}args = ["mcp"]`);
-		plan.repointed.push({ name: table.name, from: commandLine(command.value, argList) });
-		if (!hasTychicus && !plan.added && table.name !== MCP_NAME) {
-			// The new table copies this one and its subtables (env and so on), with the new command.
-			const family = tables.filter((t) => t.name === table.name);
-			insertAt = Math.max(...family.map((t) => t.end));
-			for (const t of family) {
-				const block = lines.slice(t.header, t.end).map((line, k) => {
-					const at = t.header + k;
-					if (at === t.header) return `[mcp_servers.${MCP_NAME}${t.sub}]`;
-					return replace.get(at) ?? line;
-				});
-				if (!args && t.sub === "") block.splice(command.line - t.header + 1, 0, `${indent}args = ["mcp"]`);
-				while (block.length > 1 && block[block.length - 1].trim() === "") block.pop();
-				copy.push(...block, "");
-			}
-			plan.added = true;
-		}
-		if (!args) replace.set(command.line, `${replace.get(command.line)}\n${indent}args = ["mcp"]`);
-	}
-	if (plan.repointed.length === 0) return;
-	const out: string[] = [];
-	for (let i = 0; i < lines.length; i++) {
-		if (i === insertAt) out.push(...copy);
-		out.push(replace.get(i) ?? lines[i]);
-	}
-	if (insertAt === lines.length) {
-		// The last table: a blank line, then the copy, which ends the file with a newline.
-		if (out[out.length - 1] !== "") out.push("");
-		out.push(...copy);
-	}
-	plan.status = "change";
-	plan.after = out.join("\n");
+	return tables;
 }
 
-/** What a run would change in each harness config, without writing anything. */
-export function planMigration(binary: string): FilePlan[] {
-	return migrationFiles().map(({ harness, file }) => {
-		const plan: FilePlan = { harness, name: NAMES[harness], file, status: "missing", repointed: [], added: false, notes: [] };
-		if (!existsSync(file)) return plan;
-		let text: string;
-		try {
-			text = readFileSync(file, "utf8");
-		} catch (err) {
-			plan.status = "refused";
-			plan.reason = `it couldn't be read (${err instanceof Error ? err.message : String(err)}).`;
-			return plan;
+function tomlCommand(entry: unknown): Command | undefined {
+	if (!isObject(entry) || typeof entry.command !== "string") return undefined;
+	const args = entry.args === undefined ? [] : entry.args;
+	if (!Array.isArray(args) || !args.every((x) => typeof x === "string")) return undefined;
+	return { command: entry.command, args: args as string[] };
+}
+
+/** The line where an array that opens on `line` at `from` closes, reading strings and comments. */
+function arrayEndLine(lines: string[], line: number, from: number): number | undefined {
+	let depth = 0;
+	for (let l = line; l < lines.length; l++) {
+		const text = lines[l];
+		for (let i = l === line ? from : 0; i < text.length; i++) {
+			const ch = text[i];
+			if (ch === "#") break;
+			if (ch === '"' || ch === "'") {
+				let j = i + 1;
+				while (j < text.length && text[j] !== ch) j += ch === '"' && text[j] === "\\" ? 2 : 1;
+				i = j;
+			} else if (ch === "[") depth++;
+			else if (ch === "]" && --depth === 0) return l;
 		}
-		plan.status = "unchanged";
-		plan.before = text;
-		if (harness === "codex") planToml(plan, text, binary);
-		else if (harness === "opencode") planJson(plan, text, "mcp", "array", binary);
-		else planJson(plan, text, "mcpServers", "args", binary);
+	}
+	return undefined;
+}
+
+/** `key = value` among a table's own lines: the first line, the last (an array can span lines) and the indent. */
+function tomlKey(lines: string[], table: TomlTable, key: string): { line: number; last: number; indent: string } | undefined {
+	for (let i = table.header + 1; i < table.end; i++) {
+		const m = lines[i].match(new RegExp(`^(\\s*)(?:${key}|"${key}")\\s*=\\s*`));
+		if (!m) continue;
+		if (lines[i][m[0].length] !== "[") return { line: i, last: i, indent: m[1] };
+		const last = arrayEndLine(lines, i, m[0].length);
+		return last === undefined ? undefined : { line: i, last, indent: m[1] };
+	}
+	return undefined;
+}
+
+/** Parse Codex's config, or refuse the plan. */
+function parseCodex(plan: FilePlan, text: string): { data: Record<string, unknown>; servers: Record<string, unknown> } | undefined {
+	let data: Record<string, unknown>;
+	try {
+		data = parseToml(text) as Record<string, unknown>;
+	} catch (err) {
+		refuse(plan, `it isn't valid TOML (${message(err)}), so it was left as it is. Fix it, or move the entries by hand.`, couldHoldEntry(text));
+		return undefined;
+	}
+	return { data, servers: isObject(data.mcp_servers) ? data.mcp_servers : {} };
+}
+
+/** Write `after` into the plan if it parses to exactly `expected`; otherwise refuse the file. */
+function settleToml(plan: FilePlan, lines: string[], replace: Map<number, string>, drop: Set<number>, expected: unknown): void {
+	if (replace.size === 0 && drop.size === 0) return;
+	const after = lines
+		.flatMap((line, i) => (drop.has(i) ? [] : [replace.get(i) ?? line]))
+		.join("\n");
+	let parsed: unknown;
+	try {
+		parsed = parseToml(after);
+	} catch {
+		parsed = undefined;
+	}
+	if (JSON.stringify(parsed) !== JSON.stringify(expected)) {
+		refuse(plan, "the edit didn't come out as valid TOML with the intended entries, so the file was left as it is. Move the entries by hand.", true);
+		return;
+	}
+	plan.status = "change";
+	plan.after = after;
+}
+
+function planTomlMove(plan: FilePlan, text: string): void {
+	const parsed = parseCodex(plan, text);
+	if (!parsed) return;
+	const lines = text.split("\n");
+	const tables = tomlTables(lines);
+	const replace = new Map<number, string>();
+	const drop = new Set<number>();
+	// A fresh parse, not a clone: smol-toml's dates keep their own form only as parsed.
+	const expected = parseToml(text) as Record<string, Record<string, Record<string, unknown>>>;
+	for (const [name, entry] of Object.entries(parsed.servers)) {
+		const cmd = tomlCommand(entry);
+		if (!cmd) continue;
+		const from = commandLine(cmd.command, cmd.args);
+		if (!launchesPolycarpBrowser(cmd.command, cmd.args)) {
+			if (nearMiss(cmd.command, cmd.args)) plan.leftAlone.push(`[mcp_servers.${name}] runs ${from}: extra arguments, so it was left alone. Point it at ${plan.binary} mcp by hand.`);
+			continue;
+		}
+		const table = tables.find((t) => t.name === name && t.sub === "");
+		const command = table && tomlKey(lines, table, "command");
+		const args = table && tomlKey(lines, table, "args");
+		if (!command || !args || command.last !== command.line) {
+			plan.leftAlone.push(`"${name}" runs ${from}, but it is written in a form this can't edit (an inline table, dotted keys or a multi-line string), so it was left alone. Point it at ${plan.binary} mcp by hand.`);
+			continue;
+		}
+		replace.set(command.line, `${command.indent}command = ${JSON.stringify(plan.binary)}`);
+		replace.set(args.line, `${args.indent}args = ["mcp"]`);
+		for (let i = args.line + 1; i <= args.last; i++) drop.add(i);
+		expected.mcp_servers[name].command = plan.binary;
+		expected.mcp_servers[name].args = ["mcp"];
+		plan.repointed.push({ name, from });
+	}
+	twoServersNote(plan, parsed.servers);
+	settleToml(plan, lines, replace, drop, expected);
+}
+
+function planTomlFinish(plan: FilePlan, text: string): void {
+	const parsed = parseCodex(plan, text);
+	if (!parsed) return;
+	const { servers } = parsed;
+	const lines = text.split("\n");
+	const tables = tomlTables(lines);
+	const replace = new Map<number, string>();
+	const drop = new Set<number>();
+	let tychicus = Object.hasOwn(servers, MCP_NAME) ? (tomlCommand(servers[MCP_NAME]) ?? { command: "", args: [] }) : undefined;
+	let renamed: string | undefined;
+	const removed = new Set<string>();
+	for (const alias of plan.aliases) {
+		const cmd = tomlCommand(servers[alias]);
+		const action = finishAction(plan, alias, cmd, Object.hasOwn(servers, alias), tychicus);
+		if (!action || !cmd) continue;
+		const family = tables.filter((t) => t.name === alias);
+		if (!family.some((t) => t.sub === "")) {
+			plan.leftAlone.push(`"${alias}" is written in a form this can't rename (an inline table or dotted keys). Rename it to ${MCP_NAME} by hand.`);
+			continue;
+		}
+		if (action === "rename") {
+			for (const t of family) replace.set(t.header, lines[t.header].replace(/(\[\s*mcp_servers\.)(?:"[^"\\]+"|'[^']+'|[A-Za-z0-9_-]+)/, `$1${MCP_NAME}`));
+			renamed = alias;
+			tychicus = cmd;
+		} else {
+			for (const t of family) for (let i = t.header; i < t.end; i++) drop.add(i);
+			removed.add(alias);
+		}
+		plan.finished.push({ name: alias, action: action === "rename" ? "renamed" : "removed" });
+	}
+	const expected = parseToml(text) as Record<string, unknown>;
+	if (isObject(expected.mcp_servers)) {
+		const rebuilt: Record<string, unknown> = {};
+		for (const [name, entry] of Object.entries(expected.mcp_servers)) {
+			if (removed.has(name)) continue;
+			rebuilt[name === renamed ? MCP_NAME : name] = entry;
+		}
+		expected.mcp_servers = rebuilt;
+	}
+	settleToml(plan, lines, replace, drop, expected);
+}
+
+// ---- Plans ----
+
+function planMoveText(plan: FilePlan, text: string): void {
+	if (plan.harness === "codex") planTomlMove(plan, text);
+	else planJsonMove(plan, text, JSON_FORMATS[plan.harness]);
+}
+
+function planFinishText(plan: FilePlan, text: string): void {
+	if (plan.harness === "codex") planTomlFinish(plan, text);
+	else planJsonFinish(plan, text, JSON_FORMATS[plan.harness]);
+}
+
+/** Read the file into the plan and fill it in, or refuse it when it can't be read. */
+function planFile(plan: FilePlan): FilePlan {
+	if (!existsSync(plan.file)) {
+		if (plan.kind === "finish") plan.forget = [...plan.aliases];
 		return plan;
+	}
+	let text: string;
+	try {
+		text = readFileSync(plan.file, "utf8");
+	} catch (err) {
+		refuse(plan, `it couldn't be read (${message(err)}).`, true);
+		return plan;
+	}
+	plan.status = "unchanged";
+	plan.before = text;
+	if (plan.kind === "move") planMoveText(plan, text);
+	else planFinishText(plan, text);
+	return plan;
+}
+
+/** What moving agents from Polycarp would change in each harness config, without writing anything. */
+export function planMigration(binary: string): FilePlan[] {
+	return migrationFiles().map(({ harness, file }) => planFile(newPlan("move", harness, file, binary)));
+}
+
+/** What finishing the move would change: each recorded alias renamed to tychicus. Nothing is written. */
+export function planFinish(binary: string): FilePlan[] {
+	const byFile = new Map<string, { harness: MigrationHarness; names: string[] }>();
+	for (const record of readAliases()) {
+		const group = byFile.get(record.file) ?? { harness: record.harness, names: [] };
+		if (!group.names.includes(record.name)) group.names.push(record.name);
+		byFile.set(record.file, group);
+	}
+	return [...byFile].map(([file, { harness, names }]) => {
+		const plan = newPlan("finish", harness, file, binary);
+		plan.aliases = names;
+		return planFile(plan);
 	});
+}
+
+/** The plan for the file's current text, to compare with the one the user approved. */
+function replan(plan: FilePlan, text: string): FilePlan {
+	const again = newPlan(plan.kind, plan.harness, plan.file, plan.binary);
+	again.aliases = plan.aliases;
+	again.status = "unchanged";
+	again.before = text;
+	if (plan.kind === "move") planMoveText(again, text);
+	else planFinishText(again, text);
+	return again;
+}
+
+/** The same entries move (or the same aliases finish) as in the plan the user said yes to. */
+function sameApproval(approved: FilePlan, current: FilePlan): boolean {
+	return current.status === "change" && JSON.stringify([approved.repointed, approved.finished]) === JSON.stringify([current.repointed, current.finished]);
 }
 
 /** A line diff of before and after, three lines of context, as `diff -u` prints it. */
@@ -461,6 +714,16 @@ export function backupStamp(now = new Date()): string {
 	return now.toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
 }
 
+/** `path`, or `path-2`, `path-3`... when a backup from the same second is already there. */
+function freeName(path: string): string {
+	if (!existsSync(path)) return path;
+	let n = 2;
+	while (existsSync(`${path}-${n}`)) n++;
+	return `${path}-${n}`;
+}
+
+// ---- The list of temporary aliases ----
+
 /** The file that lists the temporary aliases. */
 export function aliasFile(): string {
 	return join(configDir(), "agent-aliases.json");
@@ -475,38 +738,115 @@ export function readAliases(): AliasRecord[] {
 	}
 }
 
+function writeAliases(aliases: AliasRecord[]): void {
+	const file = aliasFile();
+	if (aliases.length === 0) {
+		rmSync(file, { force: true });
+		return;
+	}
+	mkdirSync(dirname(file), { recursive: true });
+	const record = {
+		note: `Temporary: these entries keep their old names but run Tychicus, so rules that name the polycarp MCP server still work. Once nothing names them, ${COMMAND_NAME} setup --agents --finish renames each to ${MCP_NAME}.`,
+		aliases,
+	};
+	writeFileSync(file, `${JSON.stringify(record, null, 2)}\n`);
+}
+
+function recordAliases(plan: FilePlan, now: Date): void {
+	const known = readAliases();
+	for (const r of plan.repointed) {
+		if (r.name === MCP_NAME) continue;
+		if (!known.some((k) => k.harness === plan.harness && k.file === plan.file && k.name === r.name)) known.push({ harness: plan.harness, file: plan.file, name: r.name, since: now.toISOString() });
+	}
+	writeAliases(known);
+}
+
+function forgetAliases(plan: FilePlan): void {
+	const names = new Set([...plan.finished.map((f) => f.name), ...plan.forget]);
+	if (names.size === 0) return;
+	const known = readAliases();
+	const kept = known.filter((k) => !(k.harness === plan.harness && k.file === plan.file && names.has(k.name)));
+	if (kept.length !== known.length) writeAliases(kept);
+}
+
+function readServers(harness: MigrationHarness, text: string): Record<string, unknown> | undefined {
+	if (harness === "codex") {
+		const data = parseToml(text) as Record<string, unknown>;
+		return isObject(data.mcp_servers) ? data.mcp_servers : undefined;
+	}
+	const format = JSON_FORMATS[harness];
+	const { data } = readJsonText(text, format.jsonc);
+	const servers = isObject(data) ? data[format.key] : undefined;
+	return isObject(servers) ? servers : undefined;
+}
+
 /**
- * Write each changed file: a backup beside it first (same permissions), then the new text through a temporary file
- * and a rename, into the real file when the path is a link. Returns the backups made. Refused and unchanged files
- * are not touched.
+ * The recorded alias through which this harness runs Tychicus, if its entry is still there and still runs a Tychicus
+ * launcher. Setup and doctor count it as configured, so they don't add a second `tychicus` entry beside it.
+ */
+export function liveAlias(harness: string): AliasRecord | undefined {
+	for (const record of readAliases()) {
+		if (record.harness !== harness) continue;
+		try {
+			const entry = readServers(record.harness, readFileSync(record.file, "utf8"))?.[record.name];
+			const cmd = record.harness === "codex" ? tomlCommand(entry) : jsonCommand(entry, JSON_FORMATS[record.harness].shape);
+			if (cmd && runsTychicus(cmd.command, cmd.args)) return record;
+		} catch {
+			// An unreadable file is no alias.
+		}
+	}
+	return undefined;
+}
+
+// ---- Writing ----
+
+function changedWhileDeciding(plan: FilePlan): void {
+	refuse(plan, `it changed while you were deciding; run ${COMMAND_NAME} setup --agents${plan.kind === "finish" ? " --finish" : ""} again. Nothing was written to it.`, true);
+}
+
+/**
+ * Write each changed file: the new text to a temporary file beside the real one (through a link to its target), a
+ * last check that the file is still the text this run planned from, a backup of that text, then a rename. A file that
+ * changed after it was planned is planned again and written only if the same entries move; otherwise it is refused
+ * (the plan's status says so) and nothing is written to it. Each file's aliases are recorded (move) or taken off the
+ * list (finish) right after its rename. Returns the backups made.
  */
 export function applyMigration(plans: FilePlan[], now = new Date()): { file: string; backup: string }[] {
 	const done: { file: string; backup: string }[] = [];
 	const stamp = backupStamp(now);
 	for (const plan of plans) {
+		if (plan.kind === "finish" && plan.status !== "change" && plan.status !== "refused") forgetAliases(plan);
 		if (plan.status !== "change" || plan.after === undefined) continue;
 		const real = realpathSync(plan.file);
 		const mode = statSync(real).mode & 0o777;
-		const backup = `${plan.file}.tychicus-backup-${stamp}`;
-		copyFileSync(real, backup);
-		chmodSync(backup, mode);
 		const temp = join(dirname(real), `.${basename(real)}.tychicus-${process.pid}`);
-		writeFileSync(temp, plan.after, { mode });
-		chmodSync(temp, mode);
-		renameSync(temp, real);
-		done.push({ file: plan.file, backup });
-	}
-	const aliases = plans.flatMap((p) => (p.status === "change" ? p.repointed.filter((r) => r.name !== MCP_NAME).map((r) => ({ harness: p.harness, file: p.file, name: r.name })) : []));
-	if (aliases.length > 0) {
-		const known = readAliases();
-		for (const a of aliases) {
-			if (!known.some((k) => k.harness === a.harness && k.file === a.file && k.name === a.name)) known.push({ ...a, since: now.toISOString() });
+		try {
+			const fresh = readFileSync(real, "utf8");
+			if (fresh !== plan.before) {
+				const again = replan(plan, fresh);
+				if (!sameApproval(plan, again)) {
+					changedWhileDeciding(plan);
+					continue;
+				}
+				Object.assign(plan, again);
+			}
+			writeFileSync(temp, plan.after as string, { mode });
+			chmodSync(temp, mode);
+			// From here to the rename: one read, the backup and the rename.
+			if (readFileSync(real, "utf8") !== fresh) {
+				changedWhileDeciding(plan);
+				continue;
+			}
+			const backup = freeName(`${plan.file}.tychicus-backup-${stamp}`);
+			writeFileSync(backup, fresh, { mode, flag: "wx" });
+			chmodSync(backup, mode);
+			renameSync(temp, real);
+			done.push({ file: plan.file, backup });
+			if (plan.kind === "move") recordAliases(plan, now);
+			else forgetAliases(plan);
+		} finally {
+			rmSync(temp, { force: true });
 		}
-		const record = {
-			note: `Temporary: these entries keep their old names but run Tychicus, so rules that name the polycarp MCP server still work. Remove each once nothing names it; the ${MCP_NAME} entry beside it stays.`,
-			aliases: known,
-		};
-		writeFileSync(aliasFile(), `${JSON.stringify(record, null, 2)}\n`);
 	}
 	return done;
 }

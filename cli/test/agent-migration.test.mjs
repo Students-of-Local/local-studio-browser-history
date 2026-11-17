@@ -1,31 +1,37 @@
 // Moving agents from Polycarp (agent-migration.ts): five harness configs in a fake HOME. Claude Code runs Polycarp's
-// browser MCP, Codex has only other servers, Cursor already has tychicus beside an old tabkyra entry, OMP's file is not
-// valid JSON, and OpenCode runs Polycarp's old browser launcher. A dry run writes nothing; a real run backs each file up
-// first, moves only those entries and keeps every other byte; a second run changes nothing.
+// browser MCP (and so does one of its projects), Codex has only other servers, Cursor already has tychicus beside an
+// old tabkyra entry, OMP's file is not valid JSON, and OpenCode runs Polycarp's old browser launcher in a JSONC file.
+// A dry run writes nothing; a real run backs each file up first and points only those entries at Tychicus under their
+// old names; a second run changes nothing; the finish step renames the aliases to tychicus.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { after, test } from "node:test";
+import { fileURLToPath } from "node:url";
+import { parse } from "smol-toml";
 import { loadTs } from "./helpers/bundle-ts.mjs";
 
-const { applyMigration, launchesPolycarpBrowser, planMigration, readAliases, unifiedDiff } = await loadTs(
-	`export { applyMigration, launchesPolycarpBrowser, planMigration, readAliases, unifiedDiff } from "@src/agent-migration.ts";`,
-);
+// `export *`: a name the source doesn't have is undefined, not a build error, so the tests that use only planMigration
+// and applyMigration also run against an older agent-migration.ts.
+const m = await loadTs(`export * from "@src/agent-migration.ts";`);
+const { applyMigration, launchesPolycarpBrowser, planMigration, unifiedDiff } = m;
 
+const cli = join(dirname(fileURLToPath(import.meta.url)), "..", "dist", "index.js");
 const root = mkdtempSync(join(process.env.TMPDIR || tmpdir(), "tychicus-migrate-"));
 after(() => rmSync(root, { recursive: true, force: true }));
 
 const ENV_KEYS = ["HOME", "XDG_CONFIG_HOME", "CLAUDE_CONFIG_DIR", "CODEX_HOME", "TYCHICUS_CONFIG_DIR", "POLYCARP_BROWSER_CONFIG_DIR", "TABKYRA_CONFIG_DIR"];
 
-/** Run `fn` with HOME at a fresh folder and the config overrides cleared. */
+/** Run `fn` with HOME at a fresh folder, the config overrides cleared and Tychicus's config folder inside it. */
 function inHome(name, fn) {
 	const home = join(root, name);
 	mkdirSync(home, { recursive: true });
 	const saved = ENV_KEYS.map((k) => [k, process.env[k]]);
 	for (const k of ENV_KEYS) delete process.env[k];
 	process.env.HOME = home;
+	process.env.TYCHICUS_CONFIG_DIR = join(home, ".config", "tychicus");
 	try {
 		return fn(home);
 	} finally {
@@ -39,7 +45,11 @@ function put(file, text, mode) {
 	if (mode) chmodSync(file, mode);
 }
 
+/** A TOML text as plain objects: smol-toml makes inline tables with a null prototype. */
+const parseToml = (text) => JSON.parse(JSON.stringify(parse(text)));
+
 const backups = (file) => readdirSync(dirname(file)).filter((f) => f.startsWith(`${basename(file)}.tychicus-backup-`));
+const aliasList = () => m.readAliases().map((a) => `${a.harness}:${a.name}`).sort();
 
 const CLAUDE = `{
   "numStartups": 412,
@@ -104,16 +114,18 @@ const OMP = `{
 }
 `;
 
+/** OpenCode reads JSONC: a comment and a trailing comma, both kept by the move. */
 function opencode(home) {
 	return `{
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
+    // The browser, from Polycarp.
     "polycarp": {
       "type": "local",
       "command": ["${home}/.config/polycarp/browser/polycarp", "mcp"],
-      "enabled": true
-    }
-  }
+      "enabled": true,
+    },
+  },
 }
 `;
 }
@@ -138,6 +150,11 @@ function fixtures(home) {
 	return { files, dotfile };
 }
 
+/** OpenCode's JSONC, read the way OpenCode reads it, for checking a result. */
+function jsonc(text) {
+	return JSON.parse(text.replace(/^\s*\/\/.*$/gm, "").replace(/,(\s*[}\]])/g, "$1"));
+}
+
 test("the browser MCP commands are recognized, and nothing else is", () => {
 	assert.equal(launchesPolycarpBrowser("polycarp", ["browser", "mcp"]), true);
 	assert.equal(launchesPolycarpBrowser("/opt/homebrew/bin/polycarp", ["browser", "mcp"]), true);
@@ -154,11 +171,9 @@ test("the browser MCP commands are recognized, and nothing else is", () => {
 	assert.equal(launchesPolycarpBrowser("npx", ["-y", "polycarp-browser", "mcp"]), false);
 });
 
-test("five harnesses: dry run, write with backups, every other byte kept, and a second run changes nothing", () => {
+test("five harnesses: dry run, then the old entries run Tychicus under their old names, one server each, with backups; a second run changes nothing", () => {
 	inHome("five", (home) => {
 		const { files, dotfile } = fixtures(home);
-		process.env.TYCHICUS_CONFIG_DIR = join(home, ".config", "tychicus");
-		mkdirSync(process.env.TYCHICUS_CONFIG_DIR, { recursive: true });
 		const bin = join(home, ".config", "tychicus", "tychicus");
 		const original = Object.fromEntries(Object.entries(files).map(([k, f]) => [k, readFileSync(f, "utf8")]));
 
@@ -167,28 +182,29 @@ test("five harnesses: dry run, write with backups, every other byte kept, and a 
 		const by = Object.fromEntries(plans.map((p) => [p.harness, p]));
 		assert.equal(by.claude.status, "change");
 		assert.deepEqual(by.claude.repointed, [{ name: "polycarp", from: "polycarp browser mcp" }]);
-		assert.equal(by.claude.added, true);
+		// Claude Code's project scope is named, not edited (first-F2).
+		assert.deepEqual(by.claude.projects, [{ project: "/work/app", name: "polycarp", from: "polycarp browser mcp" }]);
 		assert.equal(by.codex.status, "unchanged", "an unrelated MCP and the Polycarp app's own server are left alone");
 		assert.equal(by.cursor.status, "change");
 		assert.deepEqual(by.cursor.repointed, [{ name: "tabkyra", from: "tabkyra mcp" }]);
-		assert.equal(by.cursor.added, false, "Cursor already has tychicus");
+		assert.match(by.cursor.notes.join("\n"), /two Tychicus servers until .* setup --agents --finish/);
 		assert.equal(by.omp.status, "refused");
+		assert.equal(by.omp.blocking, true, "a file naming polycarp that doesn't parse is a failure");
 		assert.match(by.omp.reason, /isn't valid JSON/);
-		assert.equal(by.opencode.status, "change");
+		assert.equal(by.opencode.status, "change", "OpenCode's JSONC is read");
 		assert.equal(by.opencode.repointed[0].from, `${home}/.config/polycarp/browser/polycarp mcp`);
-		assert.equal(by.opencode.added, true);
 		for (const [k, f] of Object.entries(files)) {
 			assert.equal(readFileSync(f, "utf8"), original[k], `dry run changed ${k}`);
 			assert.deepEqual(backups(f), [], `dry run made a backup of ${k}`);
 		}
 
-		// The exact before and after for Claude Code, as `diff -u` prints it: only the polycarp entry, then the new tychicus entry.
+		// The exact before and after for Claude Code, as `diff -u` prints it: only the command and args change.
 		assert.equal(
 			unifiedDiff(files.claude, by.claude.before, by.claude.after),
 			[
 				`--- ${files.claude}`,
 				`+++ ${files.claude} (after)`,
-				"@@ -8,11 +8,16 @@",
+				"@@ -8,11 +8,8 @@",
 				"     },",
 				'     "polycarp": {',
 				'       "type": "stdio",',
@@ -197,14 +213,6 @@ test("five harnesses: dry run, write with backups, every other byte kept, and a 
 				'-        "browser",',
 				'-        "mcp"',
 				"-      ],",
-				`+      "command": "${bin}",`,
-				'+      "args": ["mcp"],',
-				'+      "env": {',
-				'+        "POLYCARP_SESSION": "claude"',
-				"+      }",
-				"+    },",
-				'+    "tychicus": {',
-				'+      "type": "stdio",',
 				`+      "command": "${bin}",`,
 				'+      "args": ["mcp"],',
 				'       "env": {',
@@ -225,7 +233,8 @@ test("five harnesses: dry run, write with backups, every other byte kept, and a 
 			assert.equal(body(unifiedDiff(plan.file, plan.before, plan.after)), body(real.stdout), `${plan.harness}: the diff matches diff -u`);
 		}
 
-		// A real run.
+		// A real run, into a config folder that doesn't exist yet.
+		assert.equal(existsSync(process.env.TYCHICUS_CONFIG_DIR), false);
 		const stamp = new Date("2026-11-17T20:00:00Z");
 		const written = applyMigration(plans, stamp);
 		assert.deepEqual(written.map((w) => w.file).sort(), [files.claude, files.cursor, files.opencode].sort());
@@ -236,10 +245,10 @@ test("five harnesses: dry run, write with backups, every other byte kept, and a 
 		assert.equal(statSync(`${files.claude}.tychicus-backup-20261117T200000Z`).mode & 0o777, 0o600, "the backup keeps the file's permissions");
 		assert.equal(statSync(files.claude).mode & 0o777, 0o600, "the file keeps its permissions");
 
+		// One server per agent: the old entry runs Tychicus, and no second tychicus entry is added (second-F7).
 		const claude = JSON.parse(readFileSync(files.claude, "utf8"));
 		assert.deepEqual(claude.mcpServers.polycarp, { type: "stdio", command: bin, args: ["mcp"], env: { POLYCARP_SESSION: "claude" } });
-		assert.deepEqual(claude.mcpServers.tychicus, claude.mcpServers.polycarp);
-		assert.deepEqual(Object.keys(claude.mcpServers), ["github", "polycarp", "tychicus"]);
+		assert.deepEqual(Object.keys(claude.mcpServers), ["github", "polycarp"]);
 		assert.deepEqual(claude.mcpServers.github, JSON.parse(CLAUDE).mcpServers.github);
 		assert.deepEqual(claude.projects, JSON.parse(CLAUDE).projects, "project scope is not touched");
 		assert.equal(claude.numStartups, 412);
@@ -251,10 +260,9 @@ test("five harnesses: dry run, write with backups, every other byte kept, and a 
 		assert.equal(readFileSync(dotfile, "utf8"), readFileSync(files.cursor, "utf8"));
 		assert.match(readFileSync(files.cursor, "utf8"), /^\t\t"tabkyra": \{$/m, "the file's tab indent is kept");
 
-		const oc = JSON.parse(readFileSync(files.opencode, "utf8"));
-		assert.deepEqual(oc.mcp.polycarp, { type: "local", command: [bin, "mcp"], enabled: true });
-		assert.deepEqual(oc.mcp.tychicus, oc.mcp.polycarp);
-		assert.equal(oc.$schema, "https://opencode.ai/config.json");
+		const ocText = readFileSync(files.opencode, "utf8");
+		assert.equal(ocText, opencode(home).replace(`["${home}/.config/polycarp/browser/polycarp", "mcp"]`, `["${bin}", "mcp"]`), "only the command changes; the comment and trailing commas stay");
+		assert.deepEqual(Object.keys(jsonc(ocText).mcp), ["polycarp"]);
 
 		assert.equal(readFileSync(files.omp, "utf8"), OMP, "the malformed file is not written");
 		assert.deepEqual(backups(files.omp), []);
@@ -264,13 +272,12 @@ test("five harnesses: dry run, write with backups, every other byte kept, and a 
 		// Polycarp's own folder is never created or written.
 		assert.equal(existsSync(join(home, ".config", "polycarp")), false);
 
-		// The aliases are recorded as temporary.
+		// The aliases are recorded as temporary, in the config folder the run made.
 		const record = JSON.parse(readFileSync(join(home, ".config", "tychicus", "agent-aliases.json"), "utf8"));
 		assert.match(record.note, /^Temporary/);
-		assert.deepEqual(
-			readAliases().map((a) => `${a.harness}:${a.name}`).sort(),
-			["claude:polycarp", "cursor:tabkyra", "opencode:polycarp"],
-		);
+		assert.deepEqual(aliasList(), ["claude:polycarp", "cursor:tabkyra", "opencode:polycarp"]);
+		assert.equal(m.liveAlias("claude")?.name, "polycarp", "setup and doctor see Claude Code's Tychicus through the alias");
+		assert.equal(m.liveAlias("codex"), undefined);
 
 		// A second run: nothing to move, nothing written, no new backups.
 		const again = planMigration(bin);
@@ -284,20 +291,131 @@ test("five harnesses: dry run, write with backups, every other byte kept, and a 
 			assert.equal(readFileSync(f, "utf8"), now[k], `the second run changed ${k}`);
 			assert.ok(backups(f).length <= 1, `the second run backed up ${k}`);
 		}
-		assert.equal(readAliases().length, 3, "the alias list doesn't grow");
+		assert.equal(aliasList().length, 3, "the alias list doesn't grow");
+
+		// The finish step renames each alias to tychicus in place; Cursor's tychicus runs another command, so its alias
+		// stays for a manual fix. A backup made in the same second as the move's gets its own name.
+		const finish = m.planFinish(bin);
+		const fin = Object.fromEntries(finish.map((p) => [p.harness, p]));
+		assert.deepEqual(fin.claude.finished, [{ name: "polycarp", action: "renamed" }]);
+		assert.deepEqual(fin.opencode.finished, [{ name: "polycarp", action: "renamed" }]);
+		assert.equal(fin.cursor.status, "unchanged");
+		assert.match(fin.cursor.leftAlone[0], /the tychicus entry runs \/opt\/tychicus\/tychicus mcp\. Remove one of the two by hand/);
+		const finished = applyMigration(finish, stamp);
+		assert.deepEqual(finished.map((w) => w.backup).sort(), [`${files.claude}.tychicus-backup-20261117T200000Z-2`, `${files.opencode}.tychicus-backup-20261117T200000Z-2`].sort());
+		assert.equal(readFileSync(`${files.claude}.tychicus-backup-20261117T200000Z`, "utf8"), original.claude, "the move's backup is kept");
+		const done = JSON.parse(readFileSync(files.claude, "utf8"));
+		assert.deepEqual(Object.keys(done.mcpServers), ["github", "tychicus"], "renamed in place");
+		assert.deepEqual(done.mcpServers.tychicus, { type: "stdio", command: bin, args: ["mcp"], env: { POLYCARP_SESSION: "claude" } });
+		assert.equal(readFileSync(files.opencode, "utf8"), ocText.replace('"polycarp": {', '"tychicus": {'));
+		assert.deepEqual(aliasList(), ["cursor:tabkyra"], "finished aliases leave the list");
+		assert.equal(m.liveAlias("claude"), undefined);
+
+		// Finishing again changes nothing.
+		const before = Object.fromEntries(Object.entries(files).map(([k, f]) => [k, readFileSync(f, "utf8")]));
+		assert.deepEqual(applyMigration(m.planFinish(bin), new Date("2026-11-17T22:00:00Z")), []);
+		for (const [k, f] of Object.entries(files)) assert.equal(readFileSync(f, "utf8"), before[k], `a second finish changed ${k}`);
+		assert.deepEqual(aliasList(), ["cursor:tabkyra"]);
 	});
 });
 
-test("Codex: a browser MCP table and its env table are copied to tychicus, the rest of the file kept", () => {
-	inHome("codex", (home) => {
-		process.env.TYCHICUS_CONFIG_DIR = join(home, "tconf");
+// The config folder exists in the race tests, so they fail on the race itself and not on second-F6's missing folder.
+test("first-F1, sol-F2: a change made elsewhere in the file while the user decides survives the move", () => {
+	inHome("race", (home) => {
+		const file = join(home, ".claude.json");
+		const bin = join(home, ".config", "tychicus", "tychicus");
 		mkdirSync(process.env.TYCHICUS_CONFIG_DIR, { recursive: true });
+		put(file, CLAUDE, 0o600);
+		const [plan] = planMigration(bin).filter((p) => p.harness === "claude");
+		assert.equal(plan.status, "change");
+		// Claude Code bumps a counter while the user reads the diff.
+		const bumped = CLAUDE.replace('"numStartups": 412', '"numStartups": 413');
+		writeFileSync(file, bumped);
+		applyMigration([plan], new Date("2026-11-17T20:00:00Z"));
+		const moved = JSON.parse(readFileSync(file, "utf8"));
+		assert.equal(moved.numStartups, 413, "the change made while the user decided is kept");
+		assert.equal(moved.mcpServers.polycarp.command, bin, "and the entry still moves");
+		assert.equal(readFileSync(`${file}.tychicus-backup-20261117T200000Z`, "utf8"), bumped, "the backup is the file as it was just before the write");
+	});
+});
+
+test("first-F1, sol-F2: a file whose entry changed while the user decides is refused, with nothing written", () => {
+	inHome("race-entry", (home) => {
+		const file = join(home, ".claude.json");
+		const bin = join(home, ".config", "tychicus", "tychicus");
+		mkdirSync(process.env.TYCHICUS_CONFIG_DIR, { recursive: true });
+		put(file, CLAUDE, 0o600);
+		const [plan] = planMigration(bin).filter((p) => p.harness === "claude");
+		assert.equal(plan.status, "change");
+		// The entry the user said yes to gets new arguments, so the approved plan no longer fits it.
+		const edited = CLAUDE.replace('"args": [\n        "browser",\n        "mcp"\n      ]', '"args": ["browser", "mcp", "--session", "x"]');
+		assert.notEqual(edited, CLAUDE);
+		writeFileSync(file, edited);
+		assert.deepEqual(applyMigration([plan], new Date("2026-11-17T20:00:00Z")), []);
+		assert.equal(readFileSync(file, "utf8"), edited, "the file is left as the other writer left it");
+		assert.deepEqual(backups(file), []);
+		assert.equal(plan.status, "refused");
+		assert.match(plan.reason, /changed while you were deciding; run .* setup --agents again/);
+		assert.equal(existsSync(join(process.env.TYCHICUS_CONFIG_DIR, "agent-aliases.json")), false, "no alias is recorded");
+	});
+});
+
+test("sol-F1: Codex with an inline tychicus table: the move and the finish both leave a config that parses", () => {
+	inHome("codex-inline", (home) => {
+		const file = join(home, ".codex", "config.toml");
+		const bin = join(home, ".config", "tychicus", "tychicus");
+		mkdirSync(process.env.TYCHICUS_CONFIG_DIR, { recursive: true });
+		const text = `model = "gpt-6.1-sol"
+
+[mcp_servers]
+tychicus = { command = "/opt/tychicus/tychicus", args = ["mcp"] }
+
+[mcp_servers.polycarp]
+command = "polycarp" # the old helper
+args = ["browser", "mcp"]
+startup_timeout_sec = 30
+
+[mcp_servers.polycarp.env]
+POLYCARP_SESSION = "codex"
+`;
+		put(file, text);
+		assert.deepEqual(Object.keys(parseToml(text).mcp_servers), ["tychicus", "polycarp"]);
+		const [plan] = planMigration(bin).filter((p) => p.harness === "codex");
+		assert.equal(plan.status, "change");
+		const parsed = parseToml(plan.after);
+		assert.deepEqual(parsed.mcp_servers.tychicus, { command: "/opt/tychicus/tychicus", args: ["mcp"] }, "the inline tychicus table is kept as it was");
+		assert.deepEqual(parsed.mcp_servers.polycarp, { command: bin, args: ["mcp"], startup_timeout_sec: 30, env: { POLYCARP_SESSION: "codex" } });
+		assert.equal(plan.after, text.replace('command = "polycarp" # the old helper\nargs = ["browser", "mcp"]', `command = "${bin}"\nargs = ["mcp"]`));
+		applyMigration([plan], new Date("2026-11-17T20:00:00Z"));
+		parseToml(readFileSync(file, "utf8"));
+
+		// The finish: the inline tychicus runs another command, so the alias waits for a manual fix and the file stays.
+		const [held] = m.planFinish(bin);
+		assert.equal(held.status, "unchanged");
+		assert.match(held.leftAlone[0], /Remove one of the two by hand/);
+
+		// With the inline tychicus running the same launcher, the alias and its env table go, and the file parses.
+		const same = readFileSync(file, "utf8").replace('"/opt/tychicus/tychicus"', JSON.stringify(bin));
+		writeFileSync(file, same);
+		const [finish] = m.planFinish(bin);
+		assert.deepEqual(finish.finished, [{ name: "polycarp", action: "removed" }]);
+		applyMigration([finish], new Date("2026-11-17T21:00:00Z"));
+		assert.deepEqual(parseToml(readFileSync(file, "utf8")).mcp_servers, { tychicus: { command: bin, args: ["mcp"] } });
+		assert.deepEqual(m.readAliases(), []);
+	});
+});
+
+test("Codex: a browser MCP table is repointed in place, and the finish renames it and its env table to tychicus", () => {
+	inHome("codex", (home) => {
 		const file = join(home, ".codex", "config.toml");
 		const text = `model = "gpt-6.1-sol"
 
 [mcp_servers.polycarp]
 command = "polycarp" # the old helper
-args = ["browser", "mcp"]
+args = [
+  "browser",
+  "mcp",
+]
 startup_timeout_sec = 30
 
 [mcp_servers.polycarp.env]
@@ -311,35 +429,62 @@ args = ["-y", "@modelcontextprotocol/server-github"]
 		const bin = "/home/u/.config/tychicus/tychicus";
 		const [plan] = planMigration(bin).filter((p) => p.harness === "codex");
 		assert.equal(plan.status, "change");
-		assert.equal(
-			plan.after,
-			`model = "gpt-6.1-sol"
-
-[mcp_servers.polycarp]
-command = "${bin}"
-args = ["mcp"]
-startup_timeout_sec = 30
-
-[mcp_servers.polycarp.env]
-POLYCARP_SESSION = "codex"
-
-[mcp_servers.tychicus]
-command = "${bin}"
-args = ["mcp"]
-startup_timeout_sec = 30
-
-[mcp_servers.tychicus.env]
-POLYCARP_SESSION = "codex"
-
-[mcp_servers.github]
-command = "npx"
-args = ["-y", "@modelcontextprotocol/server-github"]
-`,
-		);
+		assert.equal(plan.after, text.replace('command = "polycarp" # the old helper\nargs = [\n  "browser",\n  "mcp",\n]', `command = "${bin}"\nargs = ["mcp"]`));
 		applyMigration([plan], new Date("2026-11-17T20:00:00Z"));
 		assert.equal(readFileSync(`${file}.tychicus-backup-20261117T200000Z`, "utf8"), text);
-		const [second] = planMigration(bin).filter((p) => p.harness === "codex");
-		assert.equal(second.status, "unchanged");
+		assert.equal(planMigration(bin).find((p) => p.harness === "codex").status, "unchanged");
+
+		const [finish] = m.planFinish(bin);
+		assert.deepEqual(finish.finished, [{ name: "polycarp", action: "renamed" }]);
+		assert.equal(finish.after, plan.after.replace("[mcp_servers.polycarp]", "[mcp_servers.tychicus]").replace("[mcp_servers.polycarp.env]", "[mcp_servers.tychicus.env]"));
+		applyMigration([finish], new Date("2026-11-17T21:00:00Z"));
+		assert.deepEqual(Object.keys(parseToml(readFileSync(file, "utf8")).mcp_servers), ["tychicus", "github"]);
+	});
+});
+
+test("second-F5: a JSONC or trailing-comma config with no Polycarp entry doesn't fail setup", () => {
+	inHome("jsonc", (home) => {
+		put(join(home, ".config", "opencode", "opencode.json"), `{\n  // my servers\n  "mcp": {\n    "github": { "type": "local", "command": ["npx", "-y", "gh-mcp"], },\n  },\n}\n`);
+		put(join(home, ".omp", "agent", "mcp.json"), `{ "mcpServers": { "github": { "command": "npx", "args": ["gh-mcp"], }, } }\n`);
+		const env = { HOME: home, PATH: join(home, "no-bin"), TYCHICUS_CONFIG_DIR: join(home, ".config", "tychicus"), TABKYRA_NO_UPDATE_CHECK: "1", NO_COLOR: "1" };
+		for (const args of [["setup", "--agents", "--dry-run"], ["setup", "--agents", "--yes"]]) {
+			const run = spawnSync(process.execPath, [cli, ...args], { encoding: "utf8", env, input: "", timeout: 60000 });
+			const out = run.stdout + run.stderr;
+			assert.equal(run.status, 0, `${args.join(" ")} exits 0:\n${out}`);
+			assert.match(out, /OMP: .* was not read: it isn't valid JSON .* It names neither polycarp nor tabkyra/, "the file that doesn't parse is a warning");
+			assert.doesNotMatch(out, /OpenCode: .* was not/, "OpenCode's JSONC is read");
+			assert.doesNotMatch(out, /OpenCode: couldn't tell/, "and setup's own check of OpenCode reads it too");
+		}
+		const plans = planMigration("/t/tychicus");
+		assert.equal(plans.find((p) => p.harness === "omp").blocking, false);
+		assert.equal(plans.find((p) => p.harness === "opencode").status, "unchanged");
+	});
+});
+
+test("second-F6: when a later file's write fails, the aliases already moved are recorded", { skip: process.getuid?.() === 0 && "root can write anywhere" }, () => {
+	inHome("partial", (home) => {
+		const bin = join(home, ".config", "tychicus", "tychicus");
+		process.env.TYCHICUS_CONFIG_DIR = join(home, "not-yet", "tychicus");
+		put(join(home, ".claude.json"), CLAUDE);
+		const locked = join(home, ".cursor");
+		const second = `{\n  "mcpServers": {\n    "polycarp": { "command": "polycarp", "args": ["browser", "mcp"] }\n  }\n}\n`;
+		put(join(locked, "mcp.json"), second);
+		const plans = planMigration(bin);
+		assert.deepEqual(plans.filter((p) => p.status === "change").map((p) => p.harness), ["claude", "cursor"]);
+		chmodSync(locked, 0o555);
+		try {
+			assert.throws(() => applyMigration(plans, new Date("2026-11-17T20:00:00Z")), /EACCES|EPERM/);
+		} finally {
+			chmodSync(locked, 0o755);
+		}
+		assert.equal(JSON.parse(readFileSync(join(home, ".claude.json"), "utf8")).mcpServers.polycarp.command, bin, "the first file was written");
+		const record = JSON.parse(readFileSync(join(home, "not-yet", "tychicus", "agent-aliases.json"), "utf8"));
+		assert.deepEqual(
+			record.aliases.map((a) => `${a.harness}:${a.name}`),
+			["claude:polycarp"],
+			"its alias is recorded, in a config folder made for it",
+		);
+		assert.equal(readFileSync(join(locked, "mcp.json"), "utf8"), second, "the second file is untouched");
 	});
 });
 
@@ -350,7 +495,7 @@ test("an entry with extra arguments after mcp is named, not moved", () => {
 		put(file, text);
 		const [plan] = planMigration("/t/tychicus").filter((p) => p.harness === "cursor");
 		assert.equal(plan.status, "unchanged");
-		assert.match(plan.notes[0], /extra arguments, so it was left alone/);
+		assert.match(plan.leftAlone[0], /extra arguments, so it was left alone/);
 	});
 });
 
@@ -360,21 +505,15 @@ test("a minified config is edited in place on its one line", () => {
 		put(file, `{"mcpServers":{"polycarp":{"type":"stdio","command":"polycarp","args":["browser","mcp"],"enabled":true}}}`);
 		const [plan] = planMigration("/t/tychicus").filter((p) => p.harness === "omp");
 		assert.equal(plan.status, "change");
-		assert.equal(
-			plan.after,
-			`{"mcpServers":{"polycarp":{"type":"stdio","command":"/t/tychicus","args":["mcp"],"enabled":true}, "tychicus": {"type":"stdio","command":"/t/tychicus","args":["mcp"],"enabled":true}}}`,
-		);
+		assert.equal(plan.after, `{"mcpServers":{"polycarp":{"type":"stdio","command":"/t/tychicus","args":["mcp"],"enabled":true}}}`);
 	});
 });
 
-test("an entry written on one line stays on one line, and so does the tychicus entry beside it", () => {
+test("an entry written on one line stays on one line", () => {
 	inHome("one-line", (home) => {
 		const file = join(home, ".cursor", "mcp.json");
 		put(file, `{\n  "mcpServers": {\n    "polycarp": { "command": "polycarp", "args": ["browser", "mcp"] },\n    "other": { "command": "x" }\n  }\n}\n`);
 		const [plan] = planMigration("/t/tychicus").filter((p) => p.harness === "cursor");
-		assert.equal(
-			plan.after,
-			`{\n  "mcpServers": {\n    "polycarp": { "command": "/t/tychicus", "args": ["mcp"] },\n    "tychicus": { "command": "/t/tychicus", "args": ["mcp"] },\n    "other": { "command": "x" }\n  }\n}\n`,
-		);
+		assert.equal(plan.after, `{\n  "mcpServers": {\n    "polycarp": { "command": "/t/tychicus", "args": ["mcp"] },\n    "other": { "command": "x" }\n  }\n}\n`);
 	});
 });
