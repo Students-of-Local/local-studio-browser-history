@@ -198,6 +198,9 @@ async function settleAfter(
 		return {};
 	}
 	ctx.delivered(delivered, tabId);
+	// An action in a cross-origin frame: settle sees neither the frame's requests nor its DOM, so a quiet top page
+	// proves nothing. It waits the full quiet window and never reports "nothing" (a weak model would pay twice).
+	const inFrame = !!options.before?.frame.hit || /"ref":"f[0-9a-z]{4}e\d+"/.test(JSON.stringify(delivered) ?? "");
 	try {
 		const settled = await settle(tabId, {
 			since,
@@ -206,10 +209,11 @@ async function settleAfter(
 			guardedHosts: ctx.guardedHosts,
 			watched: options.watched ?? true,
 			...options.wait,
-			...(options.idle ? { idleMs: IDLE_MS } : {}),
+			...(options.idle && !inFrame ? { idleMs: IDLE_MS } : {}),
 		}).catch(() => undefined);
 		const out: Record<string, unknown> = settled ? unsettledNote(settled) : {};
 		const kinds = new Set<EffectKind>();
+		if (inFrame) kinds.add("unknown");
 		const downloads = await downloadsSince(tabId, since, DOWNLOAD_WAIT_MS);
 		if (downloads.length) {
 			Object.assign(out, { downloads, downloadNote: DOWNLOAD_NOTE });

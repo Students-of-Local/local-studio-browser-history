@@ -51,7 +51,9 @@
 		"no-effect-click",
 		"name-partial-refused",
 		"name-past-read-cap",
-		"stale-ref-search-cut"
+		"stale-ref-search-cut",
+		"frame-late-reaction",
+		"alias-ref-acted"
 	],
 	"failing": {},
 	"calls": {
@@ -106,7 +108,9 @@
 		"no-effect-click": 6,
 		"name-partial-refused": 2,
 		"name-past-read-cap": 2,
-		"stale-ref-search-cut": 5
+		"stale-ref-search-cut": 5,
+		"frame-late-reaction": 3,
+		"alias-ref-acted": 6
 	},
 	"ms": {
 		"react-input": 2000,
@@ -160,6 +164,8 @@
 		"no-effect-click": 2379,
 		"name-partial-refused": 2000,
 		"name-past-read-cap": 2000,
-		"stale-ref-search-cut": 2004
+		"stale-ref-search-cut": 2004,
+		"frame-late-reaction": 3432,
+		"alias-ref-acted": 4074
 	}
 }

@@ -584,11 +584,19 @@ function resolveRef(ref: string, live: (el: Element) => boolean, print: (el: Ele
  * before it writes). resolveRef never heals such a ref, and says the action may already have happened. Self-contained.
  */
 function refActed(ref: string): void {
-	const w = window as unknown as { __tabkyraActed?: unknown };
+	const w = window as unknown as { __tabkyraActed?: unknown; __tabkyraRefs?: unknown };
 	const acted = w.__tabkyraActed instanceof Set ? (w.__tabkyraActed as Set<string>) : new Set<string>();
 	w.__tabkyraActed = acted;
-	acted.delete(ref);
-	acted.add(ref);
+	// Every ref naming the element the input reached: a healed ref and the fresh one a change report gave share it, and
+	// either one healing onto a look-alike after the action would do it again.
+	const refs = w.__tabkyraRefs instanceof Map ? (w.__tabkyraRefs as Map<string, Element>) : undefined;
+	const el = refs?.get(ref);
+	const aliases = [ref];
+	if (el && refs) for (const [r, x] of refs) if (x === el && r !== ref) aliases.push(r);
+	for (const r of aliases) {
+		acted.delete(r);
+		acted.add(r);
+	}
 	for (const old of acted) {
 		if (acted.size <= 500) break;
 		acted.delete(old);
