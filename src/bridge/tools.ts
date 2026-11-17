@@ -52,6 +52,7 @@ import { DOWNLOAD_NOTE, downloadsSince } from "../browser/downloads.js";
 import type { FrameRule } from "../browser/frames.js";
 import { injectScript } from "../browser/inject.js";
 import {
+	type Aim,
 	fillElement,
 	goBack,
 	goForward,
@@ -61,6 +62,7 @@ import {
 	pageHtml,
 	pageText,
 	pasteInto,
+	pressLanded,
 	runInPage,
 	scrollPage,
 	snapshot,
@@ -478,7 +480,7 @@ async function pointFor(
 	tabId: number,
 	act: "click" | "hover" | "type",
 	before?: Before,
-): Promise<{ x: number; y: number }> {
+): Promise<{ x: number; y: number; aim?: Aim }> {
 	const x = num(params, "x");
 	const y = num(params, "y");
 	if (x !== undefined && y !== undefined) return screenshotToCss(tabId, { x, y });
@@ -489,7 +491,7 @@ async function pointFor(
 			"Give a ref from read_page (best), a selector, or x and y from your latest screenshot.",
 		);
 	const rect = await locate(tabId, t, skipFor(ctx, tabId), act, before?.frame.hit);
-	return { x: rect.x, y: rect.y };
+	return { x: rect.x, y: rect.y, ...(rect.aim ? { aim: rect.aim } : {}) };
 }
 
 /** One `actions` step as [handler, params]; accepts the spellings models reach for. */
@@ -517,6 +519,22 @@ export function normalizeStep(step: Params, i: number): [string, Params] {
 }
 
 /**
+ * After the focusing press of type or paste into a cross-origin frame: refuse before any key or text goes out when
+ * the press reached something else, since the keys would go wherever the focus is.
+ */
+async function focusLanded(tabId: number, aim: Aim | undefined, ref: string | undefined, act: string): Promise<void> {
+	if (!aim) return;
+	const landed = await pressLanded(tabId, aim);
+	if (landed === undefined || landed === "el") return;
+	throw new BridgeError(
+		ERR.NOT_ACTIONABLE,
+		`The press that focuses ref ${ref} did not reach it: ${
+			landed ? `it landed on ${landed} in the frame` : "nothing in its frame got it (the page around the frame did)"
+		}. Nothing was ${act}. Call read_page to see the page, then try again.`,
+	);
+}
+
+/**
  * type with paste:true: the text arrives as one paste, as the page sees a paste (pasteInto), never through the
  * user's clipboard. Text no handler takes goes in at the focus as one insertion. Retried as type is.
  */
@@ -531,7 +549,8 @@ const pasteText: Handler = async (ctx, params) => {
 	const attempt = async (): Promise<"page" | "inserted"> => {
 		if (t.ref || t.selector) {
 			const rect = await locate(tabId, t, skipFor(ctx, tabId), "type", before?.frame.hit);
-			await click(tabId, rect.x, rect.y, { stop: () => stopIfAborted(ctx) });
+			await click(tabId, rect.x, rect.y, { stop: () => stopIfAborted(ctx), pointerThere: !!rect.aim });
+			await focusLanded(tabId, rect.aim, t.ref, "pasted");
 		}
 		stopIfAborted(ctx);
 		handed = true;
@@ -1024,7 +1043,7 @@ export const handlers: Record<string, Handler> = {
 		// The look first: the point is found right before the input goes out, so a layout that
 		// moved during the look can't misplace the click.
 		const before = await changesBefore(ctx, tabId, params);
-		const p = await pointFor(ctx, params, tabId, "click", before);
+		const { aim, ...p } = await pointFor(ctx, params, tabId, "click", before);
 		const button = str(params, "mouseButton");
 		const since = await actionStart(ctx, tabId);
 		// Checked right before the input goes out and again before its last event: a call that ended (a timeout) sends none.
@@ -1034,6 +1053,7 @@ export const handlers: Record<string, Handler> = {
 				button: button === "right" || button === "middle" ? button : "left",
 				clickCount: num(params, "clickCount") ?? 1,
 				stop: () => stopIfAborted(ctx),
+				pointerThere: !!aim,
 				// on_dialog's answer is armed before the press, the click's first event: a page may open its box on
 				// mousedown (first-F1 of the review of PR 216).
 				beforeFirstPress:
@@ -1051,6 +1071,22 @@ export const handlers: Record<string, Handler> = {
 		} finally {
 			ctx.inputDone?.();
 		}
+		// In a cross-origin frame the browser, not the page, picks what the press reaches: one that went elsewhere is
+		// a failure, never a click that worked (a change the scroll made would read as its effect).
+		if (aim && !openDialog(tabId) && !ctx.aborted()) {
+			const landed = await pressLanded(tabId, aim);
+			if (landed !== undefined && landed !== "el") {
+				ctx.delivered();
+				throw new BridgeError(
+					ERR.NOT_ACTIONABLE,
+					`The click went out at (${Math.round(p.x)}, ${Math.round(p.y)}) but did not reach ref ${str(params, "ref")}: ${
+						landed
+							? `it landed on ${landed} in the frame`
+							: "nothing in its frame got it (the page around the frame did)"
+					}. Call read_page to see the page, then try again.`,
+				);
+			}
+		}
 		// A dialog the click's page opens while it settles is still the click's doing.
 		const settled = await settleAfter(ctx, tabId, since, { clicked: p }, { before, idle: true });
 		return { clicked: p, ...settled };
@@ -1058,8 +1094,11 @@ export const handlers: Record<string, Handler> = {
 
 	hover: async (ctx, params) => {
 		const tabId = await resolveTab(ctx, params, true);
-		const p = await pointFor(ctx, params, tabId, "hover");
-		await hover(tabId, p.x, p.y);
+		const { aim, ...p } = await pointFor(ctx, params, tabId, "hover");
+		// In a cross-origin frame the pointer is already there, and the frame's element got the move (aimInFrame): a
+		// second move to the same point can wait forever for its reply in a background tab, so none is sent.
+		if (aim) cuePointer(tabId, "hover", p.x, p.y);
+		else await hover(tabId, p.x, p.y);
 		return { hovered: p };
 	},
 
@@ -1095,7 +1134,8 @@ export const handlers: Record<string, Handler> = {
 		const attempt = async () => {
 			if (t.ref || t.selector) {
 				const rect = await locate(tabId, t, skipFor(ctx, tabId), "type", before?.frame.hit);
-				await click(tabId, rect.x, rect.y, { stop: () => stopIfAborted(ctx) });
+				await click(tabId, rect.x, rect.y, { stop: () => stopIfAborted(ctx), pointerThere: !!rect.aim });
+				await focusLanded(tabId, rect.aim, t.ref, "typed");
 			}
 			stopIfAborted(ctx);
 			await typeText(tabId, text, ctx.aborted, () => {
