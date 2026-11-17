@@ -13,13 +13,15 @@
  * the session.
  *
  * What the panel may do is narrow on purpose: the commands in EUKHE_COMMANDS, each on a session this chat created, attached
- * as an interactive client. Every shell step a session asks about is refused here, so a panel chat never runs a shell
- * command, whatever the model or a page says.
+ * as an interactive client. A panel chat reads web pages, and a page can tell the model anything, so the host pins each
+ * session before the panel may use it: it works in an empty private folder, and its auto set (`shell.autoEffects`, which
+ * Eukhe defaults to every effect, unasked) is narrowed to reads (PANEL_PIN). Every other shell step or file write then
+ * asks, and every ask is refused here, so a panel chat never runs a command or writes a file, whatever a page says.
  */
 
-import { lstatSync, type Stats } from "node:fs";
+import { lstatSync, mkdtempSync, rmSync, type Stats } from "node:fs";
 import { createConnection, type Socket } from "node:net";
-import { homedir } from "node:os";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ExtEukhe, HostEukhe, RpcError } from "../../src/bridge/protocol.ts";
 import { ERR } from "../../src/bridge/protocol.ts";
@@ -42,6 +44,13 @@ export const EUKHE_COMMANDS: ReadonlySet<string> = new Set([
 	"set_model",
 	"get_last_assistant_text",
 ]);
+
+/**
+ * The cvar line each panel session gets before the panel may use it: only reads inside its own folder run without asking
+ * (eukhe 452f1be: eukhe-core durable/shell.rs auto_set, durable/path_policy.rs DocumentsGate). Session scope, never
+ * `global`: the person's own config is untouched.
+ */
+export const PANEL_PIN = "set shell.autoEffects read";
 
 /** Daemon frames passed on to the panel; the rest (roster, list progress) are none of its business. */
 const FORWARDED = new Set(["session_event", "session_closed"]);
@@ -175,13 +184,13 @@ export function connectDaemon(
 /**
  * The create command a panel chat may send, built from an allowlist: the provider and model, whether to keep a session
  * file, and the small tool profile hint. The session lives only as long as the panel's connection (client_owned) and
- * works in the home folder, as Local Studio's own sessions do; neither can be changed from the extension.
+ * works in `cwd`, the host's empty private folder; neither can be changed from the extension.
  */
-export function panelCreate(raw: Record<string, unknown>): Record<string, unknown> {
+export function panelCreate(raw: Record<string, unknown>, cwd: string): Record<string, unknown> {
 	const asked = raw.config && typeof raw.config === "object" && !Array.isArray(raw.config) ? (raw.config as Record<string, unknown>) : {};
 	const config: Record<string, unknown> = {};
 	for (const key of ["provider", "model"] as const) if (typeof asked[key] === "string" && asked[key]) config[key] = asked[key];
-	config.cwd = homedir();
+	config.cwd = cwd;
 	const env = raw.env as Record<string, unknown> | undefined;
 	return {
 		type: "create",
@@ -200,6 +209,10 @@ interface Conversation {
 	sessions: Set<string>;
 	/** Envelope ids of create commands, whose answer names a new session. */
 	creates: Set<string>;
+	/** Envelope ids of PANEL_PIN commands -> the create's answer, given to the panel once the pin holds. */
+	pins: Map<string, Record<string, unknown>>;
+	/** The connection, once open: a daemon frame arrives only after it is. */
+	live?: DaemonLink;
 	closed: boolean;
 }
 
@@ -207,6 +220,8 @@ interface Conversation {
 export class EukheRelay {
 	private readonly conversations = new Map<string, Conversation>();
 	private seq = 0;
+	/** The panel sessions' folder: made on the first create (mode 0700, empty), removed with the relay. */
+	private folder: string | undefined;
 
 	constructor(
 		private readonly send: (frame: HostEukhe) => void,
@@ -215,6 +230,11 @@ export class EukheRelay {
 
 	private path(): string {
 		return this.options.socketPath?.() ?? eukheSocketPath();
+	}
+
+	private workspace(): string {
+		this.folder ??= mkdtempSync(join(tmpdir(), "tychicus-panel-"));
+		return this.folder;
 	}
 
 	private reply(conversation: string, id: number, answer: { result?: unknown; error?: RpcError }): void {
@@ -270,7 +290,7 @@ export class EukheRelay {
 		if (typeof type !== "string" || !EUKHE_COMMANDS.has(type))
 			return { error: { code: ERR.PERMISSION_DENIED, message: `The side panel may not send ${JSON.stringify(type)} to Eukhe.` } };
 		delete command.id;
-		if (type === "create") return { command: panelCreate(command) };
+		if (type === "create") return { command: panelCreate(command, this.workspace()) };
 		const session = command.activeSessionId;
 		const own = this.conversations.get(conversation)?.sessions;
 		if (typeof session !== "string" || !own?.has(session))
@@ -283,7 +303,14 @@ export class EukheRelay {
 	private conversation(name: string): Conversation {
 		const existing = this.conversations.get(name);
 		if (existing && !existing.closed) return existing;
-		const conv: Conversation = { link: Promise.resolve() as never, pending: new Map(), sessions: new Set(), creates: new Set(), closed: false };
+		const conv: Conversation = {
+			link: Promise.resolve() as never,
+			pending: new Map(),
+			sessions: new Set(),
+			creates: new Set(),
+			pins: new Map(),
+			closed: false,
+		};
 		conv.link = connectDaemon(
 			this.path(),
 			(frame) => this.onDaemonFrame(name, conv, frame),
@@ -304,6 +331,7 @@ export class EukheRelay {
 		let link: DaemonLink;
 		try {
 			link = await conv.link;
+			conv.live = link;
 		} catch (err) {
 			this.reply(conversation, id, { error: asRpcError(err) });
 			return;
@@ -312,12 +340,26 @@ export class EukheRelay {
 			this.reply(conversation, id, { error: unavailable(this.path(), process.platform, "the daemon connection closed") });
 			return;
 		}
-		const envelopeId = `tychicus_${process.pid}_${++this.seq}`;
+		const envelopeId = this.write(link, command);
 		conv.pending.set(envelopeId, id);
 		if (command.type === "create") conv.creates.add(envelopeId);
-		link.socket.write(
-			`${JSON.stringify({ type: "command", id: envelopeId, protocol: link.protocol, clientId: `tychicus-panel:${process.pid}`, command })}\n`,
-		);
+	}
+
+	/** Send one command on a chat's connection; its envelope id. */
+	private write(link: DaemonLink, command: Record<string, unknown>): string {
+		const envelopeId = `tychicus_${process.pid}_${++this.seq}`;
+		if (!link.socket.destroyed)
+			link.socket.write(
+				`${JSON.stringify({ type: "command", id: envelopeId, protocol: link.protocol, clientId: `tychicus-panel:${process.pid}`, command })}\n`,
+			);
+		return envelopeId;
+	}
+
+	/** A new session is the chat's only once PANEL_PIN holds on it; until then the panel has not heard of it. */
+	private pin(link: DaemonLink, conv: Conversation, id: number, created: Record<string, unknown>): void {
+		const envelopeId = this.write(link, { type: "cvar", activeSessionId: created.activeSessionId, line: PANEL_PIN, global: false });
+		conv.pending.set(envelopeId, id);
+		conv.pins.set(envelopeId, created);
 	}
 
 	private onDaemonFrame(name: string, conv: Conversation, frame: Record<string, unknown>): void {
@@ -326,9 +368,31 @@ export class EukheRelay {
 			if (id === undefined) return;
 			conv.pending.delete(frame.id);
 			const created = conv.creates.delete(frame.id);
+			const pinned = conv.pins.get(frame.id);
+			conv.pins.delete(frame.id);
+			if (pinned) {
+				const session = pinned.activeSessionId as string;
+				if (frame.success === true) {
+					conv.sessions.add(session);
+					this.reply(name, id, { result: pinned });
+				} else {
+					// An unpinned session would write files unasked: end it, and the chat gets none.
+					if (conv.live) this.write(conv.live, { type: "kill", activeSessionId: session });
+					this.reply(name, id, {
+						error: {
+							code: "eukhe_error",
+							message: `Local Studio could not limit this chat to reading (${String(frame.error ?? "no answer")}), so the chat did not start. Update Local Studio, or use an API key instead.`,
+						},
+					});
+				}
+				return;
+			}
 			if (frame.success === true) {
 				const data = (frame.data ?? {}) as Record<string, unknown>;
-				if (created && typeof data.activeSessionId === "string") conv.sessions.add(data.activeSessionId);
+				if (created && typeof data.activeSessionId === "string" && conv.live) {
+					this.pin(conv.live, conv, id, data);
+					return;
+				}
 				this.reply(name, id, { result: data });
 			} else {
 				const info = frame.errorInfo as { code?: unknown } | undefined;
@@ -348,20 +412,16 @@ export class EukheRelay {
 			});
 			return;
 		}
-		if (typeof frame.type === "string" && FORWARDED.has(frame.type)) this.send({ type: "eukhe", conversation: name, event: frame });
+		if (typeof frame.type === "string" && FORWARDED.has(frame.type)) this.send({ type: "eukhe", conversation: name, event: panelFrame(frame) });
 	}
 
 	/** Answer a session's shell question with no: the panel runs no shell commands. */
 	private refuseShell(conv: Conversation, frame: Record<string, unknown>): void {
 		const request = frame.request as { requestId?: unknown } | undefined;
 		if (typeof frame.activeSessionId !== "string" || typeof request?.requestId !== "string") return;
-		void conv.link.then((link) => {
-			if (link.socket.destroyed) return;
-			const command = { type: "answer_shell_approval", activeSessionId: frame.activeSessionId, requestId: request.requestId, verdict: "deny" };
-			link.socket.write(
-				`${JSON.stringify({ type: "command", id: `tychicus_${process.pid}_${++this.seq}`, protocol: link.protocol, clientId: `tychicus-panel:${process.pid}`, command })}\n`,
-			);
-		});
+		void conv.link.then((link) =>
+			this.write(link, { type: "answer_shell_approval", activeSessionId: frame.activeSessionId, requestId: request.requestId, verdict: "deny" }),
+		);
 	}
 
 	private onDaemonClose(name: string, conv: Conversation): void {
@@ -370,6 +430,7 @@ export class EukheRelay {
 		for (const id of conv.pending.values())
 			this.reply(name, id, { error: unavailable(this.path(), process.platform, "the daemon connection closed") });
 		conv.pending.clear();
+		conv.pins.clear();
 		this.send({ type: "eukhe", conversation: name, closed: true });
 	}
 
@@ -385,7 +446,57 @@ export class EukheRelay {
 	/** The extension went away: every chat's connection goes with it. */
 	closeAll(): void {
 		for (const name of [...this.conversations.keys()]) this.close(name);
+		if (this.folder) rmSync(this.folder, { recursive: true, force: true });
+		this.folder = undefined;
 	}
+}
+
+/** Cut a string to `max` characters. */
+function cut(text: unknown, max: number): string {
+	const s = typeof text === "string" ? text : "";
+	return s.length > max ? `${s.slice(0, max - 3)}...` : s;
+}
+
+/**
+ * The part of a daemon frame the panel reads (src/eukhe/models.ts EukheTurn.take). Eukhe's events carry the whole
+ * message so far, and turn_end and agent_end every message of the run, screenshots included: forwarded whole, one long
+ * answer resends itself on every word, and a run with a few screenshots outgrows a native message and is dropped.
+ */
+export function panelFrame(frame: Record<string, unknown>): Record<string, unknown> {
+	const base = { type: frame.type, activeSessionId: frame.activeSessionId };
+	if (frame.type !== "session_event") return { ...base, reason: frame.reason };
+	const ev = (frame.event ?? {}) as Record<string, unknown>;
+	const out: Record<string, unknown> = { type: ev.type };
+	switch (ev.type) {
+		case "message_update": {
+			const change = (ev.assistantMessageEvent ?? {}) as Record<string, unknown>;
+			out.assistantMessageEvent = { type: change.type, ...(typeof change.delta === "string" ? { delta: change.delta } : {}) };
+			break;
+		}
+		case "tool_execution_start": {
+			out.toolCallId = ev.toolCallId;
+			out.toolName = cut(ev.toolName, 200);
+			const args = ev.args && typeof ev.args === "object" ? JSON.stringify(ev.args) : "";
+			out.args = args.length > 1000 ? { args: cut(args, 1000) } : ev.args;
+			break;
+		}
+		case "tool_execution_end": {
+			out.toolCallId = ev.toolCallId;
+			out.toolName = cut(ev.toolName, 200);
+			out.isError = ev.isError === true;
+			const content = (ev.result as { content?: unknown } | undefined)?.content;
+			out.result = {
+				content: (Array.isArray(content) ? content : []).slice(0, 50).map((c: { type?: unknown; text?: unknown }) =>
+					c?.type === "text" ? { type: "text", text: cut(c.text, 1000) } : { type: String(c?.type ?? "unknown") },
+				),
+			};
+			break;
+		}
+		case "turn_end":
+			if (typeof ev.error === "string") out.error = cut(ev.error, 2000);
+			break;
+	}
+	return { ...base, event: out };
 }
 
 function asRpcError(err: unknown): RpcError {

@@ -8,9 +8,16 @@
 // `turn(t)` runs for each prompt: t.delta(text) streams text, t.tool(name, args, run) streams one tool call around
 // `run()`, t.shell(command) asks the attached clients about a shell step, t.aborted says the turn was aborted, t.message
 // is the prompt. Without `turn`, a fixed turn streams two deltas, one tool call and a last delta.
+//
+// Each session has Eukhe's auto set (`shell.autoEffects`): every effect by default, as eukhe 452f1be ships it
+// (eukhe-core settings/cvar/table.rs), changed by a `cvar` command's `set shell.autoEffects <list>` line. t.write(path)
+// is a file tool's write as Eukhe gates it (eukhe-core durable/path_policy.rs): it runs unasked when the auto set holds
+// its effects, else it asks the attached clients and runs only on an approve. `writes` lists the writes that ran.
+// `cvar: false` makes a daemon that refuses every cvar command.
 import { mkdirSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
-import { dirname } from "node:path";
+import { tmpdir } from "node:os";
+import { dirname, isAbsolute, join, relative } from "node:path";
 
 export const DEFAULT_MODELS = [
 	{ id: "gpt-5.5", name: "GPT-5.5", provider: "openai-codex", api: "openai-codex-responses", baseUrl: "https://chatgpt.com/backend-api", reasoning: true, input: ["text", "image"], contextWindow: 272000, maxTokens: 128000 },
@@ -19,7 +26,10 @@ export const DEFAULT_MODELS = [
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-export async function startFakeEukhe({ path, turn, models = DEFAULT_MODELS, stepMs = 15, hello = true } = {}) {
+/** Eukhe's shell effects; the default auto set is all of them. */
+export const ALL_EFFECTS = ["read", "write", "exec", "net", "outside", "protected", "secret"];
+
+export async function startFakeEukhe({ path, turn, models = DEFAULT_MODELS, stepMs = 15, hello = true, cvar = true } = {}) {
 	mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
 	rmSync(path, { force: true });
 	/** Every command received, in order: { type, ...fields }. */
@@ -28,6 +38,10 @@ export async function startFakeEukhe({ path, turn, models = DEFAULT_MODELS, step
 	const sessions = new Map();
 	let nextSession = 0;
 	const sockets = new Set();
+	/** The writes that ran: { activeSessionId, path, asked }. */
+	const writes = [];
+	/** requestId -> resolve(verdict) for the questions out now. */
+	const questions = new Map();
 
 	const write = (socket, frame) => {
 		if (!socket.destroyed) socket.write(`${JSON.stringify(frame)}\n`);
@@ -74,6 +88,30 @@ export async function startFakeEukhe({ path, turn, models = DEFAULT_MODELS, step
 				await sleep(stepMs);
 				return result;
 			},
+			async write(target, body = "") {
+				if (session.aborted) return undefined;
+				const cwd = session.config?.cwd ?? process.cwd();
+				const full = isAbsolute(target) ? target : join(cwd, target);
+				const under = (root) => {
+					const rel = relative(root, full);
+					return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+				};
+				const effects = ["write", ...(under(cwd) || under(tmpdir()) ? [] : ["outside"])];
+				return this.tool("write", { path: full, content: body }, async () => {
+					let asked = false;
+					if (!effects.every((e) => session.autoEffects.includes(e))) {
+						asked = true;
+						const requestId = `write_${++tools}`;
+						const verdict = new Promise((resolve) => questions.set(requestId, resolve));
+						for (const s of session.attached) write(s, { type: "shell_approval", activeSessionId: sessionId, request: { requestId, step: 0, command: `write ${full}`, effects } });
+						const said = await Promise.race([verdict, sleep(2000).then(() => "unanswered")]);
+						questions.delete(requestId);
+						if (said !== "approve") throw new Error(`(${effects.join(", ")}) the user did not approve this step`);
+					}
+					writes.push({ activeSessionId: sessionId, path: full, asked });
+					return { content: [{ type: "text", text: `wrote ${full}` }] };
+				});
+			},
 			async shell(command) {
 				const requestId = `shell_${++tools}`;
 				for (const s of session.attached) write(s, { type: "shell_approval", activeSessionId: sessionId, request: { requestId, step: 0, command, effects: {} } });
@@ -106,7 +144,7 @@ export async function startFakeEukhe({ path, turn, models = DEFAULT_MODELS, step
 		switch (command.type) {
 			case "create": {
 				const id = `session-${++nextSession}`;
-				sessions.set(id, { attached: new Set(), aborted: false, busy: false, last: "", config: command.config, owner: socket });
+				sessions.set(id, { attached: new Set(), aborted: false, busy: false, last: "", config: command.config, owner: socket, autoEffects: [...ALL_EFFECTS] });
 				return respond(true, { activeSessionId: id });
 			}
 			case "attach":
@@ -133,7 +171,17 @@ export async function startFakeEukhe({ path, turn, models = DEFAULT_MODELS, step
 				for (const s of session.attached) write(s, { type: "session_closed", activeSessionId: command.activeSessionId, reason: "killed" });
 				return respond(true, {});
 			case "answer_shell_approval":
+				questions.get(command.requestId)?.(command.verdict);
 				return respond(true, {});
+			case "cvar": {
+				if (!session) return respond(false, undefined, "No session");
+				if (!cvar) return respond(false, undefined, "Unknown command cvar");
+				const set = /^set shell\.autoEffects (.*)$/.exec(command.line ?? "");
+				const list = set?.[1].split(",").map((e) => e.trim()).filter(Boolean);
+				if (command.global || !list?.every((e) => ALL_EFFECTS.includes(e))) return respond(false, undefined, `bad cvar line ${command.line}`);
+				session.autoEffects = list;
+				return respond(true, { values: [], errors: [] });
+			}
 			default:
 				return respond(false, undefined, `Unknown command ${command.type}`);
 		}
@@ -172,6 +220,7 @@ export async function startFakeEukhe({ path, turn, models = DEFAULT_MODELS, step
 		path,
 		commands,
 		sessions,
+		writes,
 		/** Connections open now. */
 		get connections() {
 			return sockets.size;

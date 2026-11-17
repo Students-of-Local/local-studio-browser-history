@@ -30,7 +30,13 @@ tool steps back to the panel. Stop sends Abort to that session.
   the signed-in subscriptions, each labeled.
 - **The browser tools come back through the plugin.** `tychicus install --local-studio` gives
   Eukhe the `tychicus` tool server, so the session reads and acts on your tabs with the small tool
-  list. The panel refuses every shell step a session asks for.
+  list.
+- **A page can't make a panel chat change your files.** A panel chat reads web pages, and a page
+  can tell the model anything. So the host limits each panel session before the panel may use it:
+  the session works in an empty private folder instead of your home folder, and only reads in that
+  folder run without asking (Eukhe's `shell.autoEffects`, set for that session alone). Every shell
+  command and file write then asks, and the panel says no to each one. If Local Studio won't take
+  the limit, the chat does not start.
 - **Only this extension.** The host answers only the pinned Tychicus extension ID and exits for
   any other caller before it reads a message.
 - **When Local Studio is not running**, a chat on it says so and how to fix it (start Local
