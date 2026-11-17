@@ -5,7 +5,7 @@
  * restarts the ones that are not the release through installService, the same way setup and `remote fix` start them.
  */
 import { existsSync, realpathSync } from "node:fs";
-import { basename, dirname } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { CLOUDFLARE_SERVICE } from "./cloudflare.ts";
 import { envVar } from "./env.ts";
 import { loadRemoteConfig, waitForServe } from "./remote-setup.ts";
@@ -41,12 +41,23 @@ const real = (path: string): string | undefined => {
 export const currentRelease = (root: string): string | undefined => real(root);
 
 /**
- * The version folder a program sits in (<base>/versions/<folder>/<program>), or undefined for any other path. The folder is
- * resolved first: ps on macOS names a program started through the `release` pointer by the pointer's path.
+ * The version folder a program runs from, or undefined when that can't be told. A program in <base>/versions/<folder>/ is that
+ * folder (the versions folder resolved, never the version folder itself). A program in the `release` pointer runs what the
+ * pointer named when it started, which only `pointer.before` knows: the pointer itself is never resolved here, since after
+ * install moves it, it names the new version whatever the process runs.
  */
-function versionFolder(program: string): string | undefined {
-	const folder = real(dirname(program)) ?? dirname(program);
-	return basename(dirname(folder)) === "versions" ? folder : undefined;
+function versionFolder(program: string, pointer: Pointer): string | undefined {
+	const dir = dirname(program);
+	if (basename(dirname(dir)) === "versions") return join(real(dirname(dir)) ?? dirname(dir), basename(dir));
+	const root = pointer.root;
+	const sameDir = resolve(dir) === resolve(root) || join(real(dirname(dir)) ?? dirname(dir), basename(dir)) === join(real(dirname(root)) ?? dirname(root), basename(root));
+	return sameDir ? pointer.before : undefined;
+}
+
+/** The `release` pointer's path, and the version folder it named when the services were started (undefined: not known). */
+export interface Pointer {
+	root: string;
+	before?: string;
 }
 
 /**
@@ -54,7 +65,7 @@ function versionFolder(program: string): string | undefined {
  * isn't running, or runs a program outside versions/ (a checkout, an npm link), is not counted: its version can't be told
  * from the release.
  */
-export function staleServices(current: string | undefined, specs: ServiceSpec[] = OWNED_SERVICES): StaleService[] {
+export function staleServices(current: string | undefined, pointer: Pointer, specs: ServiceSpec[] = OWNED_SERVICES): StaleService[] {
 	if (!current) return [];
 	const stale: StaleService[] = [];
 	for (const spec of specs) {
@@ -62,7 +73,7 @@ export function staleServices(current: string | undefined, specs: ServiceSpec[] 
 		if (!file || !existsSync(file)) continue;
 		const pid = servicePid(spec);
 		const program = pid ? processProgram(pid, spec) : undefined;
-		const folder = program ? versionFolder(program) : undefined;
+		const folder = program ? versionFolder(program, pointer) : undefined;
 		if (!pid || !folder || folder === current) continue;
 		stale.push({ spec, pid, running: versionName(folder), release: versionName(current) });
 	}
@@ -86,12 +97,13 @@ const waitMs = () => {
 };
 
 /** Wait until the service's process runs from `current`. Returns its pid, or undefined at the deadline. */
-async function readBack(spec: ServiceSpec, current: string): Promise<number | undefined> {
+async function readBack(spec: ServiceSpec, current: string, root: string): Promise<number | undefined> {
 	const deadline = Date.now() + waitMs();
 	for (;;) {
 		const pid = servicePid(spec);
 		const program = pid ? processProgram(pid, spec) : undefined;
-		if (pid && program && versionFolder(program) === current) return pid;
+		// Restarted after the pointer moved: a program started through it runs `current`.
+		if (pid && program && versionFolder(program, { root, before: current }) === current) return pid;
 		if (Date.now() >= deadline) return undefined;
 		await sleep(250);
 	}
@@ -108,7 +120,9 @@ export async function restartStaleServices(root: string, program: string, say: (
 		say(`${sym.fail} No release is installed here (${root}), so there is no version to restart the services on.`);
 		return 1;
 	}
-	const stale = staleServices(current);
+	// The parent install says what the pointer named before it moved it, for a program ps names by the pointer.
+	const before = envVar("RELEASE_BEFORE");
+	const stale = staleServices(current, { root, before: before ? (real(before) ?? before) : undefined });
 	if (!stale.length) {
 		say(`${sym.ok} Every running Tychicus service runs ${versionName(current)}`);
 		return 0;
@@ -122,7 +136,7 @@ export async function restartStaleServices(root: string, program: string, say: (
 		};
 		const r = await installService(s.spec);
 		if (!r.ok) return failed(`restart failed: ${r.message}`);
-		const pid = await readBack(s.spec, current);
+		const pid = await readBack(s.spec, current, root);
 		if (!pid) return failed(`restarted, but it doesn't run ${s.release} after ${Math.round(waitMs() / 1000)} seconds`);
 		if (s.spec === SERVE_SERVICE) {
 			let config: ReturnType<typeof loadRemoteConfig>;

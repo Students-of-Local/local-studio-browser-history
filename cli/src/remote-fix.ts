@@ -85,7 +85,7 @@ async function diagnose(config: RemoteConfig): Promise<Diagnosis> {
 
 	// A service started before `install --release` moved the pointer keeps running the old version until it restarts.
 	const release = currentRelease(releaseRoot());
-	const stale = new Map(staleServices(release, config.route === "cloudflare" ? [SERVE_SERVICE, CLOUDFLARE_SERVICE] : [SERVE_SERVICE]).map((s) => [s.spec.label, s]));
+	const stale = new Map(staleServices(release, { root: releaseRoot() }, config.route === "cloudflare" ? [SERVE_SERVICE, CLOUDFLARE_SERVICE] : [SERVE_SERVICE]).map((s) => [s.spec.label, s]));
 	const oldCloudflared = stale.get(CLOUDFLARE_SERVICE.label);
 	if (oldCloudflared && !actions.some((a) => a.kind === "restart_cloudflared")) {
 		actions.push({ kind: "restart_cloudflared", what: `Restart the Cloudflare tunnel's service: it runs ${oldCloudflared.running}, and release is ${oldCloudflared.release}` });

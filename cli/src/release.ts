@@ -17,7 +17,7 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
-import { delimiter, dirname, join, relative, resolve, sep } from "node:path";
+import { basename, delimiter, dirname, join, relative, resolve, sep } from "node:path";
 import { browserDirs } from "./install.ts";
 import { releaseBase, releaseRoot } from "./paths.ts";
 import { eukheSettingsPath, localStudioPluginsDir, PLUGINS } from "./local-studio.ts";
@@ -399,7 +399,7 @@ export async function installFromRelease(dir: string, options: { dryRun?: boolea
 			console.log(`  ${eukheSettingsPath()} (mcpServers.tychicus)`);
 		}
 		console.log(`${sym.ok} Then would point ${c.dim(`${root} -> ${target}`)}, copy its extension to ${c.dim(releaseExtensionDir(base))} and remove older versions no program runs from`);
-		const stale = staleServices(real(target) ?? target).map((s) => `${serviceName(s.spec)} (${s.running})`);
+		const stale = staleServices(versionPath(target), { root, before: real(root) }).map((s) => `${serviceName(s.spec)} (${s.running})`);
 		if (stale.length) console.log(`${sym.ok} Then would ${options.noRestart ? "name" : "restart"} the services on another version: ${stale.join(", ")}`);
 		return 0;
 	}
@@ -419,6 +419,8 @@ export async function installFromRelease(dir: string, options: { dryRun?: boolea
 		return 1;
 	}
 	let extension: string;
+	// What the pointer names before it moves: a service ps names by the pointer's path runs that version.
+	const before = real(root);
 	try {
 		switchPointer(target, base);
 		extension = refreshExtension(target, base);
@@ -427,7 +429,7 @@ export async function installFromRelease(dir: string, options: { dryRun?: boolea
 		return 1;
 	}
 	console.log(`${sym.ok} ${c.dim(`${root} -> ${target}`)}`);
-	const restarted = restartServices(target, root, options.noRestart === true);
+	const restarted = restartServices(target, root, before, options.noRestart === true);
 	const removed = pruneVersions(target, base);
 	if (removed.length) console.log(`${sym.ok} Removed ${removed.length} older version${removed.length === 1 ? "" : "s"} no program runs from`);
 	for (const line of loadSteps(extension)) console.log(line);
@@ -442,24 +444,35 @@ const real = (path: string): string | undefined => {
 	}
 };
 
+/** A version folder's path with the versions folder resolved, as staleServices names them; the folder itself may not exist yet. */
+const versionPath = (folder: string) => join(real(dirname(folder)) ?? dirname(folder), basename(folder));
+
 /**
  * After the pointer moved: a service keeps the program it was started with, so each Tychicus service still on an older
  * version is restarted by the new version's own program (its install points the services' launcher at itself; this process
- * may be the old one), or with `noRestart` named with the command that restarts it. Returns the exit code.
+ * may be the old one), or with `noRestart` named with the command that restarts it. `before` is the version folder the
+ * pointer named before it moved. Returns the exit code.
  */
-function restartServices(target: string, root: string, noRestart: boolean): number {
-	const stale = staleServices(real(target) ?? target);
+function restartServices(target: string, root: string, before: string | undefined, noRestart: boolean): number {
+	const current = versionPath(target);
+	const stale = staleServices(current, { root, before });
 	if (!stale.length) return 0;
 	const program = releaseProgram(root);
 	if (noRestart) {
 		for (const line of staleLines(stale, program)) console.log(`${sym.warn} ${line}`);
 		return 0;
 	}
-	const r = spawnSync(releaseProgram(target), ["install", "--restart-services"], { stdio: "inherit", env: { ...process.env, TYCHICUS_RELEASE_PARENT: "1" } });
-	// Read back here too: a version from before --restart-services would take it for a plain install and exit 0.
-	const left = staleServices(real(target) ?? target);
-	if (r.status === 0 && !left.length) return 0;
-	for (const line of staleLines(left, program)) console.log(`${sym.fail} ${line}`);
+	const r = spawnSync(releaseProgram(target), ["install", "--restart-services"], {
+		stdio: "inherit",
+		env: { ...process.env, TYCHICUS_RELEASE_PARENT: "1", ...(before ? { TYCHICUS_RELEASE_BEFORE: before } : {}) },
+	});
+	// Read back here too: a version from before --restart-services would take it for a plain install and exit 0. A process
+	// that is still the one found stale runs what the pointer named before; one started since runs what it names now.
+	const oldPids = new Set(stale.map((s) => s.pid));
+	const left = new Map(staleServices(current, { root, before: current }).map((s) => [s.spec.label, s]));
+	for (const s of staleServices(current, { root, before })) if (oldPids.has(s.pid)) left.set(s.spec.label, s);
+	if (r.status === 0 && !left.size) return 0;
+	for (const line of staleLines([...left.values()], program)) console.log(`${sym.fail} ${line}`);
 	console.log(`${sym.fail} The services on an older version weren't all restarted (${r.status === 0 ? "still running the old version" : (r.status ?? r.signal ?? r.error?.message)}). Run: ${restartCommand(program)}`);
 	return 1;
 }

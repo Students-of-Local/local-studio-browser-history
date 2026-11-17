@@ -4,7 +4,7 @@
  */
 
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve, win32 } from "node:path";
 import { launcherBinary } from "./harness.ts";
@@ -409,8 +409,16 @@ export function recordServicePid(
 	delete env[PID_FILE_VAR];
 	const pid = o.pid ?? process.pid;
 	try {
-		// performance.timeOrigin is when this process started, in ms since 1970 (nodejs.org/api/perf_hooks.html).
-		writeFileSync(file, `${pid}\n${win32.basename(o.execPath ?? process.execPath)}\n${Math.round(o.startMs ?? performance.timeOrigin)}\n`);
+		// performance.timeOrigin is when this process started, in ms since 1970 (nodejs.org/api/perf_hooks.html). The fourth line is
+		// the program's real path, resolved now: a program started through the `release` junction keeps the version it started with.
+		const execPath = o.execPath ?? process.execPath;
+		let program = execPath;
+		try {
+			program = realpathSync(execPath);
+		} catch {
+			/* the path as given */
+		}
+		writeFileSync(file, `${pid}\n${win32.basename(execPath)}\n${Math.round(o.startMs ?? performance.timeOrigin)}\n${program}\n`);
 	} catch {
 		return;
 	}
@@ -855,8 +863,11 @@ export function servicePid(spec: ServiceSpec): number | undefined {
 }
 
 /**
- * Read-only: the path of the program a process runs, or undefined when it can't be told. Linux reads /proc/<pid>/exe, macOS
- * asks ps (as pruneVersions does), Windows asks Get-Process for its Path and checks it is the program the service recorded.
+ * Read-only: the path of the program a process runs, or undefined when it can't be told. The path must be the one resolved when
+ * the process started: a program started through the `release` pointer runs the version the pointer named then, and resolving
+ * the pointer now would name the newest one. Linux reads /proc/<pid>/exe (resolved at exec). macOS asks lsof for the program's
+ * vnode path (also resolved at exec), else ps, which can name the pointer. Windows reads the real path the program recorded
+ * (recordServicePid), else asks Get-Process, which can name the junction.
  */
 export function processProgram(pid: number, spec?: ServiceSpec): string | undefined {
 	const exec: SyncRunner = seam.exec ?? ((cmd, args) => run(cmd, args, 10_000));
@@ -868,11 +879,17 @@ export function processProgram(pid: number, spec?: ServiceSpec): string | undefi
 		}
 	}
 	if (platform() === "darwin") {
+		// -d txt: the program's own text file comes first, then the libraries it loaded.
+		const open = exec("/usr/sbin/lsof", ["-a", "-p", String(pid), "-d", "txt", "-Fn"]);
+		const real = open.code === 0 ? /^n(\/.*)$/m.exec(open.out)?.[1] : undefined;
+		if (real) return real;
 		const r = exec("/bin/ps", ["-o", "comm=", "-p", String(pid)]);
 		const path = r.out.trim();
 		return r.code === 0 && isAbsolute(path) ? path : undefined;
 	}
 	if (platform() === "win32") {
+		const record = spec ? (readIfFile(windowsPidPath(spec)) ?? "").split(/\r?\n/).map((line) => line.trim()) : [];
+		if (record[0] === String(pid) && record[3] && win32.isAbsolute(record[3])) return record[3];
 		const r = exec(powershellPath(), ["-NoProfile", "-NonInteractive", "-Command", `(Get-Process -Id ${pid} -ErrorAction Stop).Path`]);
 		const path = r.out.trim();
 		if (r.code !== 0 || !win32.isAbsolute(path)) return undefined;

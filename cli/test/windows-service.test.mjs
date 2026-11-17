@@ -505,7 +505,8 @@ test("the service's helper records its pid, image and start time, marks the reco
 		const env = { POLYCARP_SERVICE_PID_FILE: file };
 		const hooks = [];
 		recordServicePid({ env, pid: 4242, execPath: "C:\\Program Files\\nodejs\\node.exe", platform: "win32", startMs: STARTED + 0.4, onExit: (fn) => hooks.push(fn) });
-		assert.equal(readFileSync(file, "utf8"), `4242\nnode.exe\n${STARTED}\n`);
+		// The fourth line is the program's real path (here as given: it isn't on this disk), which tells its version (processProgram).
+		assert.equal(readFileSync(file, "utf8"), `4242\nnode.exe\n${STARTED}\nC:\\Program Files\\nodejs\\node.exe\n`);
 		assert.equal(env.POLYCARP_SERVICE_PID_FILE, undefined);
 		assert.equal(hooks.length, 1);
 		hooks[0]();
