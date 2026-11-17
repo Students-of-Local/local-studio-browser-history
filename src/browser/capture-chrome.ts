@@ -80,7 +80,7 @@ function listen(): void {
 }
 
 function creator() {
-	return { name: "Polycarp", version: chrome.runtime.getManifest().version };
+	return { name: "Tychicus", version: chrome.runtime.getManifest().version };
 }
 
 async function startNetwork(tabId: number, _id: string, onEnd: (why: string) => void): Promise<Run> {

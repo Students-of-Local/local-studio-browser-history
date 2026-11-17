@@ -219,7 +219,7 @@ test("update --yes installs the signed release and registers the host from it", 
 	assert.equal(r.code, 0, r.out);
 	assert.match(r.out, /Signature verified/);
 	assert.match(r.out, /Checksum verified/);
-	assert.match(r.out, /Reload Polycarp/);
+	assert.match(r.out, /Reload Tychicus/);
 	assert.equal(appVersion(), "9.1.1");
 	const launcher = readFileSync(join(home, ".config", "tychicus", "tychicus-host"), "utf8");
 	assert.ok(launcher.includes(appCli()), `launcher points at the release: ${launcher}`);
@@ -373,7 +373,7 @@ test("a held lock stops a second updater; a dead one is taken over", async () =>
 	// No pid written yet and fresh: another updater is between mkdir and writing its pid.
 	let r = await run(appCli(), "update", "--check");
 	assert.equal(r.code, 1, r.out);
-	assert.match(r.out, /Another polycarp-browser update is running/);
+	assert.match(r.out, /Another tychicus update is running/);
 	// A pid that no longer exists: taken over.
 	writeFileSync(join(lock, "pid"), "999999");
 	r = await run(appCli(), "update", "--check");

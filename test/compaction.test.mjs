@@ -152,7 +152,7 @@ test("when the summary call fails, the request goes on for the guard to cut, and
 	assert.equal(sent, chat, "the chat goes on as it is");
 	assert.ok((await guard(sent)).dropped > 0, "and the guard cuts it, as before compaction");
 	assert.equal(records.length, 0);
-	assert.deepEqual(failures, ["Polycarp couldn't summarize the earlier messages (503 status code (no body)), so it cut older ones to fit instead."]);
+	assert.deepEqual(failures, ["Tychicus couldn't summarize the earlier messages (503 status code (no body)), so it cut older ones to fit instead."]);
 	// The next request, barely larger, doesn't call the model again; a much larger one tries again, without a second notice.
 	await c.transform([...chat, person("and one more")]);
 	assert.equal(calls.length, 1);

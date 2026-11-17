@@ -22,7 +22,7 @@ export function startSubscriptionRelay(): void {
 			for (const w of waiting.values())
 				w.port.postMessage({
 					id: w.id,
-					error: { code: "no_host", message: "Polycarp's native host disconnected. Try again." },
+					error: { code: "no_host", message: "Tychicus's native host disconnected. Try again." },
 				} satisfies RelayReply);
 			waiting.clear();
 			return;
@@ -61,7 +61,7 @@ export function startSubscriptionRelay(): void {
 					id: req.id,
 					error: {
 						code: "no_host",
-						message: `Polycarp's native host isn't connected. Run ${hostCommandText("setup")}, then try again.`,
+						message: `Tychicus's native host isn't connected. Run ${hostCommandText("setup")}, then try again.`,
 					},
 				} satisfies RelayReply);
 			}

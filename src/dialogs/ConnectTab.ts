@@ -4,7 +4,7 @@ import { html, nothing, type TemplateResult } from "lit";
 import { customElement, state } from "lit/decorators.js";
 import { live } from "lit/directives/live.js";
 import { deviceSetupPrompt, remoteSetupPrompt } from "../agent-setup-prompt.js";
-import { builtHelperCommand, hostCommand } from "../bridge/host-command.js";
+import { hostCommand } from "../bridge/host-command.js";
 import { COMMAND_BOX_CLASS } from "../components/command-box.js";
 import { Toast } from "../components/Toast.js";
 import {
@@ -208,7 +208,7 @@ export class ConnectTab extends SettingsTab {
 				ok: false,
 				text:
 					linkWritten && err instanceof ConnectRequestError && err.code === "no_reply"
-						? "Polycarp may have linked this device. Reopen Settings to check."
+						? "Tychicus may have linked this device. Reopen Settings to check."
 						: err instanceof Error
 							? err.message
 							: String(err),
@@ -266,12 +266,11 @@ export class ConnectTab extends SettingsTab {
 	private noHostBox(): TemplateResult {
 		return html`
 			<div class="flex flex-col gap-2 rounded-md border border-border bg-muted/40 p-3" data-connect-setup>
-				<p class="text-xs text-foreground">Polycarp's helper isn't connected. It runs on this computer and does the work here. If you have it, run this in a terminal, then reopen Settings.</p>
-				${this.command("Set up Polycarp", `${hostCommand()} setup`)}
-				${builtHelperCommand("setup") ? this.command("If you built the helper yourself", builtHelperCommand("setup") as string) : nothing}
+				<p class="text-xs text-foreground">Tychicus's helper isn't connected. It runs on this computer and does the work here. If you have it, run this in a terminal, then reopen Settings.</p>
+				${this.command("Set up Tychicus", `${hostCommand()} setup`)}
 				<p class="text-xs text-muted-foreground">
 					Don't have it? Copy the setup prompt above into your coding agent, or
-					<a class="underline" href="https://dbaney.com/polycarp/" target="_blank" rel="noopener noreferrer">get Polycarp for Mac</a>.
+					<a class="underline" href="https://github.com/baney75/tychicus/releases/latest" target="_blank" rel="noopener noreferrer">install the latest release</a>.
 				</p>
 			</div>
 		`;
@@ -325,7 +324,7 @@ export class ConnectTab extends SettingsTab {
 								})
 							: html`<p class="text-xs text-muted-foreground">This device can't make codes. Make one on your hub, or on a device linked as a manager.</p>`
 					}
-					${canMint ? html`<p class="text-xs text-muted-foreground">Paste the URL into the assistant's connector settings, then type this code on Polycarp's approval page.</p>` : nothing}
+					${canMint ? html`<p class="text-xs text-muted-foreground">Paste the URL into the assistant's connector settings, then type this code on Tychicus's approval page.</p>` : nothing}
 				</div>
 			`,
 		);

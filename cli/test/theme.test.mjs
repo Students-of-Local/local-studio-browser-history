@@ -300,14 +300,14 @@ test("a theme whose mode is light or dark pins the pages", async () => {
 	}
 });
 
-test("polycarp browser theme list and set say when a Polycarp theme is in force", async () => {
+test("polycarp browser theme list and set say when a theme from the Polycarp app is in force", async () => {
 	await withPolycarp(fixture("parchment"), () => {
 		const list = say(() => assert.equal(poly.runTheme(["list"], false), 0));
-		assert.match(list, /Polycarp theme is in force: parchment/);
+		assert.match(list, /A theme from the Polycarp app is in force: parchment/);
 		assert.match(list, /polycarp theme set/);
 		const set = say(() => assert.equal(poly.runTheme(["set", "rose"], false), 0));
 		assert.match(set, /Theme is rose/);
-		assert.match(set, /Polycarp theme parchment is in force and takes priority/);
+		assert.match(set, /the Polycarp app's theme parchment is in force and takes priority/);
 		const json = JSON.parse(say(() => poly.runTheme(["list"], true)));
 		assert.deepEqual(json.polycarp, { name: "parchment", title: "Parchment", mode: "auto" });
 		assert.equal(json.preset, "rose", "the saved choice is kept");
@@ -363,14 +363,14 @@ test("a file that is there but refused is told apart from no file, with the reas
 	const white = structuredClone(fixture("calm"));
 	for (const mode of ["light", "dark"]) for (const role of Object.keys(white.surfaces.browser[mode])) white.surfaces.browser[mode][role] = "#ffffff";
 	const wrongSchema = { ...fixture("calm"), schema: 2 };
-	const cases = [["{nope", /not valid JSON/], [white, /calm would be unreadable: light foreground on background is 1\.00:1/], [wrongSchema, /not a valid theme\.json for Polycarp/]];
+	const cases = [["{nope", /not valid JSON/], [white, /calm would be unreadable: light foreground on background is 1\.00:1/], [wrongSchema, /not a valid theme\.json for the Polycarp app/]];
 	for (const [file, reason] of cases) {
 		await withPolycarp(file, () => {
 			const state = poly.polycarpState();
 			assert.equal(state.state, "refused");
 			assert.match(state.reason, reason);
 			const text = say(() => poly.runTheme(["list"], false));
-			assert.match(text, /The Polycarp theme was refused, so the saved choice below is used: /);
+			assert.match(text, /The Polycarp app's theme was refused, so the saved choice below is used: /);
 			assert.match(text, /\* tabkyra/, "the saved preset is still listed");
 			const json = JSON.parse(say(() => poly.runTheme(["list"], true)));
 			assert.match(json.polycarpRefused, reason);

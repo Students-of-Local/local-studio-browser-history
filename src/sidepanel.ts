@@ -28,7 +28,7 @@ import { dispatchToSandbox, setCdpMessageHandler } from "./browser/inject.js";
 import { BrowserSession, listSessions, sessionIdForTab, sessionOwningTab } from "./browser/session.js";
 import { shareActiveTab } from "./browser/share-tab.js";
 import { communityLibrary, readCommunityStatus } from "./community/status.js";
-import { polycarpMark } from "./components/PolycarpMark.js";
+import { tychicusMark } from "./components/TychicusMark.js";
 import "./components/HeaderMenu.js";
 import { startAppearance } from "./appearance/apply.js";
 import { followSystem } from "./appearance/mode.js";
@@ -503,7 +503,7 @@ async function copyCurrentChat() {
 		return;
 	}
 	try {
-		await navigator.clipboard.writeText(chatToMarkdown(messages, currentTitle || "Polycarp chat", agent.state.model));
+		await navigator.clipboard.writeText(chatToMarkdown(messages, currentTitle || "Tychicus chat", agent.state.model));
 		Toast.success("Chat copied as Markdown");
 	} catch {
 		Toast.error("Couldn't copy the chat");
@@ -1155,7 +1155,7 @@ const createAgent = async (initialState?: Partial<AgentState>, shouldSave = true
 			const reserved = await reserveRun(markBusyForSend);
 			if (!reserved) {
 				throw new Error(
-					"Polycarp is installing an update and reloads in a moment. Send it again after the reload.",
+					"Tychicus is installing an update and reloads in a moment. Send it again after the reload.",
 				);
 			}
 			if (note && agent) agent.appendMessage(note);
@@ -1383,7 +1383,7 @@ async function saveTitle(value: string) {
 }
 
 function titleArea() {
-	if (!currentTitle) return html`<span class="text-sm font-semibold tracking-tight select-none">Polycarp</span>`;
+	if (!currentTitle) return html`<span class="text-sm font-semibold tracking-tight select-none">Tychicus</span>`;
 	if (isEditingTitle)
 		return html`<div class="flex-1 min-w-0" data-title-input>
 			${Input({
@@ -1424,7 +1424,7 @@ const renderApp = () => {
 		<div class="w-full h-full flex flex-col bg-background text-foreground overflow-hidden">
 			<!-- Header: brand or chat title, then what is used every chat; the rest is under More. -->
 			<div class="flex items-center gap-1 border-b border-border shrink-0 h-12 px-2">
-				<span class="flex items-center shrink-0 px-1 select-none" aria-hidden="true">${polycarpMark(18)}</span>
+				<span class="flex items-center shrink-0 px-1 select-none" aria-hidden="true">${tychicusMark(18)}</span>
 				<div class="flex items-center gap-1 flex-1 min-w-0">${titleArea()}</div>
 				<div class="flex items-center gap-0.5 shrink-0 tk-tips-end">
 					${

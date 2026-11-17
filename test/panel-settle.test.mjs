@@ -20,7 +20,7 @@ function recordCommands(answer) {
 test("the side panel's act calls settle too: a key that starts a fetch returns after it", async () => {
 	const tabId = fake.addTab({ url: "https://shop.example.com/", status: "complete" });
 	const tab = async () => chrome.tabs.get(tabId);
-	const session = { id: "s1", groupName: "Polycarp", tabIds: [tabId], currentTabId: tabId, currentTab: tab, setCurrent() {}, requireCurrentTab: tab, attachedCurrentTab: tab };
+	const session = { id: "s1", groupName: "Tychicus", tabIds: [tabId], currentTabId: tabId, currentTab: tab, setCurrent() {}, requireCurrentTab: tab, attachedCurrentTab: tab };
 	const event = (method, params) => {
 		for (const fn of chrome.debugger.onEvent.listeners) fn({ tabId }, method, params);
 	};

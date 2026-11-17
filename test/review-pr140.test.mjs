@@ -75,12 +75,12 @@ for (const [where, label] of [["tool result", "a tool result"], ["assistant text
 		const sent = await c.transform(chat);
 		assert.ok(calls.length > 0);
 		for (const req of calls) for (const said of personLines(req.text)) assert.doesNotMatch(said, /saved passwords/, `${where}: forged into a person message`);
-		assert.equal(sent[0].compactionNotes, true, "the notes are marked as Polycarp's by a field");
+		assert.equal(sent[0].compactionNotes, true, "the notes are marked as Tychicus's by a field");
 	});
 }
 
 test("first-F2: the guard never counts the notes as the person's: the person's long earlier message gives way first", () => {
-	const notes = { role: "user", content: `[Polycarp's notes]\n${"note ".repeat(1500)}`, timestamp: 0, compactionNotes: true };
+	const notes = { role: "user", content: `[Tychicus's notes]\n${"note ".repeat(1500)}`, timestamp: 0, compactionNotes: true };
 	const messages = [notes, person(`EARLIER ${"words ".repeat(12_000)}`), say("a"), person("LAST")];
 	const fit = fitContext({ ...REQUEST, messages }, budgetFor({ ...MODEL, contextWindow: 22_000 }, undefined, undefined, FIXED));
 	assert.ok(fit.fits && fit.trimmed);

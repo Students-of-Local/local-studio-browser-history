@@ -48,11 +48,11 @@ export function askResultText(questions: AskOutcome["questions"], reply: unknown
 	if (err === undefined) {
 		const r = reply as Partial<AskOutcome> & { text?: unknown };
 		if (typeof r?.text === "string" && (r.status === "answered" || r.status === "no_answer")) return { content: [{ type: "text", text: r.text }] };
-		return { content: [{ type: "text", text: "Polycarp returned an unexpected reply to ask_user." }], isError: true };
+		return { content: [{ type: "text", text: "Tychicus returned an unexpected reply to ask_user." }], isError: true };
 	}
 	if (err instanceof BridgeRpcError) {
 		if (err.rpc.code === "not_found")
-			return { content: [{ type: "text", text: "This Polycarp extension doesn't support ask_user yet. Ask the user to update Polycarp, and ask your question in the chat instead." }], isError: true };
+			return { content: [{ type: "text", text: "This Tychicus extension doesn't support ask_user yet. Ask the user to update Tychicus, and ask your question in the chat instead." }], isError: true };
 		return { content: [{ type: "text", text: `${err.rpc.code}: ${err.rpc.message}` }], isError: true };
 	}
 	const message = err instanceof Error ? err.message : String(err);
@@ -68,7 +68,7 @@ export function registerAskUser(server: McpServer, client: BridgeClient): void {
 		{
 			title: "Ask the user",
 			description:
-				`${ASK_USER_DESCRIPTION} The question shows in the Polycarp side panel (the toolbar icon gets a badge when the panel is closed) and waits up to ` +
+				`${ASK_USER_DESCRIPTION} The question shows in the Tychicus side panel (the toolbar icon gets a badge when the panel is closed) and waits up to ` +
 				`${ASK_BRIDGE_TIMEOUT_MS / 60000} minutes, or until your client's own tool-call timeout if that is shorter. ` +
 				'Example: {"questions":[{"header":"Format","question":"Which format should the report use?","options":[{"label":"PDF (Recommended)","description":"One file that prints cleanly"},{"label":"Markdown","description":"Plain text you can edit"}]}]}',
 			inputSchema: askUserInputSchema,
@@ -95,7 +95,7 @@ export function registerAskUser(server: McpServer, client: BridgeClient): void {
 									params: {
 										progressToken: token,
 										progress: ++ticks,
-										message: `Waiting for the user's answer in the Polycarp side panel (${Math.max(0, Math.ceil((ASK_BRIDGE_TIMEOUT_MS - (Date.now() - startedAt)) / 60000))} min left)`,
+										message: `Waiting for the user's answer in the Tychicus side panel (${Math.max(0, Math.ceil((ASK_BRIDGE_TIMEOUT_MS - (Date.now() - startedAt)) / 60000))} min left)`,
 									},
 								})
 								.catch(() => undefined);

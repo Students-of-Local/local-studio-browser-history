@@ -361,7 +361,7 @@ async function askUpload(
 function guardedError(url: string): BridgeError {
 	return new BridgeError(
 		ERR.PERMISSION_DENIED,
-		`Not allowed to open ${hostOf(url) || url}: it is this computer's Polycarp approval address, and an agent never opens it. The owner approves a connector there themselves, outside the agent's browser.`,
+		`Not allowed to open ${hostOf(url) || url}: it is this computer's Tychicus approval address, and an agent never opens it. The owner approves a connector there themselves, outside the agent's browser.`,
 	);
 }
 
@@ -463,7 +463,7 @@ async function runRequest(state: ClientState, req: HostForwardedRequest, answer?
 			undefined,
 			new BridgeError(
 				ERR.NOT_SENT,
-				"Polycarp is installing an update and reloads in a few seconds. The request did not run; repeat it once the bridge reconnects.",
+				"Tychicus is installing an update and reloads in a few seconds. The request did not run; repeat it once the bridge reconnects.",
 			),
 		);
 		return;
@@ -479,7 +479,7 @@ async function runRequest(state: ClientState, req: HostForwardedRequest, answer?
 	let veiled: { session: BrowserSession; tabId: number | undefined; currentBefore: number | undefined } | undefined;
 	try {
 		if (!(await isBridgeEnabled())) {
-			throw new BridgeError(ERR.DISABLED, "The Polycarp bridge is disabled in Settings > Agents.");
+			throw new BridgeError(ERR.DISABLED, "The Tychicus bridge is disabled in Settings > Agents.");
 		}
 		if (gone()) return;
 
@@ -519,10 +519,10 @@ async function runRequest(state: ClientState, req: HostForwardedRequest, answer?
 					throw new BridgeError(
 						ERR.PERMISSION_DENIED,
 						isOwnExtensionUrl(url)
-							? "Not allowed to open Polycarp's own pages."
+							? "Not allowed to open Tychicus's own pages."
 							: `Not allowed to open ${hostOf(url) || url}. ` +
 									(mode === "ask"
-										? "The user can allow it in the Polycarp side panel under Settings > Agents, or answer the permission prompt."
+										? "The user can allow it in the Tychicus side panel under Settings > Agents, or answer the permission prompt."
 										: "Bridge navigation is blocked."),
 					);
 				}
@@ -728,12 +728,12 @@ async function runAsk(state: ClientState, req: HostForwardedRequest): Promise<vo
 				error: {
 					code: ERR.INTERNAL,
 					message:
-						"Polycarp is installing an update and reloads in a few seconds. Ask again once the bridge reconnects.",
+						"Tychicus is installing an update and reloads in a few seconds. Ask again once the bridge reconnects.",
 				},
 			});
 		if (!(await isBridgeEnabled()))
 			return respond({
-				error: { code: ERR.DISABLED, message: "The Polycarp bridge is disabled in Settings > Agents." },
+				error: { code: ERR.DISABLED, message: "The Tychicus bridge is disabled in Settings > Agents." },
 			});
 		// The client may have hung up during the awaits; its question would have nobody to answer to.
 		if (clients.get(state.clientId) !== state) return;
@@ -929,7 +929,7 @@ function onHostMessage(message: HostToExt): void {
 						.query({})
 						.then((groups) =>
 							groups
-								.filter((g) => g.title?.startsWith("Polycarp") || g.title?.startsWith("Tabkyra")) // product-name allowlist: legacy tab group title
+								.filter((g) => /^(?:Tychicus|Polycarp|Tabkyra)/.test(g.title ?? "")) // product-name allowlist: legacy tab group titles
 								.map((g) => ({ id: g.id, title: g.title, windowId: g.windowId })),
 						)
 						.catch(() => []),
@@ -1032,7 +1032,7 @@ function onHostMessage(message: HostToExt): void {
 					error: {
 						code: ERR.INTERNAL,
 						message:
-							"Polycarp is installing an update and reloads in a few seconds. Repeat the request once the bridge reconnects.",
+							"Tychicus is installing an update and reloads in a few seconds. Repeat the request once the bridge reconnects.",
 					},
 				});
 				return;

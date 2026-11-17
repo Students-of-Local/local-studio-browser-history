@@ -19,10 +19,10 @@ type Inner = (
 
 /** An inner stream that closed without a done or error event: its result() would never resolve. */
 export const CLOSED_MESSAGE =
-	"The model's connection closed before it answered, so Polycarp stopped waiting. Send your message again to retry.";
+	"The model's connection closed before it answered, so Tychicus stopped waiting. Send your message again to retry.";
 
 export function stalledMessage(idleMs: number): string {
-	return `The model sent nothing for ${Math.round(idleMs / 1000)} seconds, so Polycarp stopped waiting. Send your message again to retry, or pick another model.`;
+	return `The model sent nothing for ${Math.round(idleMs / 1000)} seconds, so Tychicus stopped waiting. Send your message again to retry, or pick another model.`;
 }
 
 function stalled(model: Model<any>, idleMs: number, last?: AssistantMessage): AssistantMessage {

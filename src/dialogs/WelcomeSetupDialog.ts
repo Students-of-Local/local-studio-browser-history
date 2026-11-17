@@ -3,7 +3,7 @@ import { DialogContent, DialogHeader } from "@mariozechner/mini-lit/dist/Dialog.
 import { DialogBase } from "@mariozechner/mini-lit/dist/DialogBase.js";
 import { html } from "lit";
 import { agentSetupPromptButton } from "../components/AgentSetupPrompt.js";
-import { polycarpMark } from "../components/PolycarpMark.js";
+import { tychicusMark } from "../components/TychicusMark.js";
 
 /**
  * Where the dialog sends the person: the provider keys, Connect (use Polycarp from claude.ai or ChatGPT), or straight to
@@ -90,8 +90,8 @@ export class WelcomeSetupDialog extends DialogBase {
 				className: "flex flex-col gap-4",
 				children: html`
 					<div class="flex items-center gap-3">
-						${polycarpMark(40, "tile", "rounded-[9px]")}
-						${DialogHeader({ title: "Welcome to Polycarp" })}
+						${tychicusMark(40, "tile", "rounded-[9px]")}
+						${DialogHeader({ title: "Welcome to Tychicus" })}
 					</div>
 					<p class="text-sm text-foreground">How do you want to use it?</p>
 					${this.mode === "local-studio" ? this.renderLocalStudio() : this.renderKeys()}

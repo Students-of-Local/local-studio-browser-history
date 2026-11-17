@@ -19,7 +19,7 @@ export interface Download {
 
 /** Said once beside the list: what the agent can and can't know about a download. */
 export const DOWNLOAD_NOTE =
-	"Saved by the browser in its download folder; the path isn't known. Polycarp doesn't open files. To read one, use files download with the link's ref.";
+	"Saved by the browser in its download folder; the path isn't known. Tychicus doesn't open files. To read one, use files download with the link's ref.";
 
 const byTab = new Map<number, Map<string, Download & { at: number }>>();
 let installed = false;

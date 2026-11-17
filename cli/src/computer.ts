@@ -227,7 +227,7 @@ export class ComputerClient {
 			return (await this.request("tools/call", { name: name.slice(PREFIX.length), arguments: args ?? {} }, CALL_TIMEOUT_MS)) as CallResult;
 		} catch (err) {
 			const late = err instanceof Error && err.message === "timeout";
-			const words = late ? "Polycarp didn't answer in time. The action may have landed: read the window back before you repeat it." : err instanceof Error ? err.message : String(err);
+			const words = late ? "Polycarp's Mac helper didn't answer in time. The action may have landed: read the window back before you repeat it." : err instanceof Error ? err.message : String(err);
 			return { content: [{ type: "text", text: words }], isError: true };
 		}
 	}

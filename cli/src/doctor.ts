@@ -33,7 +33,7 @@ function nodeCheck(): Check {
 				id: "node",
 				status: "fail",
 				label: `Node ${process.versions.node} is too old`,
-				detail: `Polycarp needs Node ${MIN_NODE_MAJOR} or newer.`,
+				detail: `Tychicus needs Node ${MIN_NODE_MAJOR} or newer.`,
 				fix: process.platform === "darwin" ? "brew install node" : "Install Node 20+ from https://nodejs.org",
 			};
 }
@@ -130,7 +130,7 @@ function hostChecks(live: readonly string[] = []): Check[] {
 				id: "host",
 				status: "fail",
 				label: "No Chromium browser found",
-				detail: "Polycarp works with Helium, Chrome, Chromium, Brave, Edge, Arc, Vivaldi and Opera.",
+				detail: "Tychicus works with Helium, Chrome, Chromium, Brave, Edge, Arc, Vivaldi and Opera.",
 				fix: `Install a Chromium browser, then run: ${COMMAND_NAME} setup`,
 			},
 		];
@@ -147,7 +147,7 @@ function hostChecks(live: readonly string[] = []): Check[] {
 		});
 		// A browser that was simply never connected is news, not a failure: one-browser Connect leaves the others alone.
 		if (!existsSync(file)) {
-			return { id: `host:${name}`, status: "warn", label: `${name}: not connected yet`, detail: "Polycarp isn't set up in this browser.", fix: installFix(name) };
+			return { id: `host:${name}`, status: "warn", label: `${name}: not connected yet`, detail: "Tychicus isn't set up in this browser.", fix: installFix(name) };
 		}
 		let manifest: { name?: string; path?: string; allowed_origins?: string[] };
 		try {
@@ -179,7 +179,7 @@ export interface DebugInfo {
 }
 
 const GRANT_STEPS =
-	`Open the Polycarp side panel > Settings > Agents > Page scripts and click Allow, then accept the browser's prompt. If doctor still warns, run ${COMMAND_NAME} reload.`;
+	`Open the Tychicus side panel > Settings > Agents > Page scripts and click Allow, then accept the browser's prompt. If doctor still warns, run ${COMMAND_NAME} reload.`;
 
 /** The "Allow user scripts" row of `polycarp browser doctor`, or undefined when there is nothing to say. */
 export function userScriptsCheck(info: DebugInfo): Check | undefined {
@@ -203,8 +203,8 @@ export function userScriptsCheck(info: DebugInfo): Check | undefined {
 					id: "user-scripts",
 					status: "warn",
 					label: "The userScripts permission is granted but the browser hides the API",
-					detail: `${slow} Either "Allow user scripts" is off on the extension's Details page, or Polycarp hasn't restarted since the permission was granted.`,
-					fix: `Check "Allow user scripts" at chrome://extensions > Polycarp > Details, then ${COMMAND_NAME} reload`,
+					detail: `${slow} Either "Allow user scripts" is off on the extension's Details page, or Tychicus hasn't restarted since the permission was granted.`,
+					fix: `Check "Allow user scripts" at chrome://extensions > Tychicus > Details, then ${COMMAND_NAME} reload`,
 				};
 			}
 			return {
@@ -212,7 +212,7 @@ export function userScriptsCheck(info: DebugInfo): Check | undefined {
 				status: "warn",
 				label: '"Allow user scripts" is off',
 				detail: `${slow} The permission is granted, but the browser refuses userScripts calls until the toggle is on.${status.error ? ` Browser said: ${status.error}` : ""}`,
-				fix: `Turn on "Allow user scripts" at chrome://extensions > Polycarp > Details, then ${COMMAND_NAME} reload`,
+				fix: `Turn on "Allow user scripts" at chrome://extensions > Tychicus > Details, then ${COMMAND_NAME} reload`,
 			};
 		case "probe_error":
 			return {
@@ -244,9 +244,9 @@ export async function connectionChecks(): Promise<{ checks: Check[]; holders: st
 		id: "connected",
 		status: "fail",
 		label: "Extension not connected",
-		detail: "No running browser has the Polycarp extension loaded, or it has not reached the native host yet.",
+		detail: "No running browser has the Tychicus extension loaded, or it has not reached the native host yet.",
 		// Not `setup`: it registers browsers, and registration isn't what is missing when the host never heard from the extension.
-		fix: `Open your browser and load the Polycarp extension (chrome://extensions > Load unpacked > ${extensionDir()}), then run ${COMMAND_NAME} doctor again`,
+		fix: `Open your browser and load the Tychicus extension (chrome://extensions > Load unpacked > ${extensionDir()}), then run ${COMMAND_NAME} doctor again`,
 	};
 	let sockets: string[];
 	try {
@@ -353,18 +353,18 @@ function harnessChecks(): Check[] {
 		.map((h): Check => {
 			const id = `mcp:${h.id}`;
 			if (h.configured === true) {
-				return { id, status: "ok", label: `${h.name}: Polycarp MCP server configured` };
+				return { id, status: "ok", label: `${h.name}: Tychicus MCP server configured` };
 			}
 			const replace = h.configured === "stale" || h.configured === "other";
 			let fix: string;
 			if (h.addCommand) fix = replace && h.removeCommand ? `${shellJoin(h.removeCommand)} && ${shellJoin(h.addCommand)}` : shellJoin(h.addCommand);
-			else if (h.snippet?.startsWith("{")) fix = `${replace ? "Replace the Polycarp entry in" : "Add this to"} ${h.configFile}:\n${h.snippet}`;
+			else if (h.snippet?.startsWith("{")) fix = `${replace ? "Replace the Tychicus entry in" : "Add this to"} ${h.configFile}:\n${h.snippet}`;
 			else fix = h.snippet ?? "";
 			if (h.configured === undefined) {
 				return {
 					id,
 					status: "warn",
-					label: `${h.name}: couldn't tell whether Polycarp is configured`,
+					label: `${h.name}: couldn't tell whether Tychicus is configured`,
 					detail: h.note ?? (h.configFile ? `${h.configFile} could not be parsed.` : `\`${h.id} mcp get ${MCP_NAME}\` failed or printed something unexpected.`),
 					fix: h.configFile ? `Check ${h.configFile}` : `${h.id} mcp get ${MCP_NAME}`,
 				};
@@ -381,7 +381,7 @@ function harnessChecks(): Check[] {
 				// A harness the user doesn't browse from shouldn't fail the run; Claude Code and
 				// Codex are fixed with one command, so those count.
 				status: h.id === "claude" || h.id === "codex" ? "fail" : "warn",
-				label: `${h.name}: Polycarp MCP server not configured`,
+				label: `${h.name}: Tychicus MCP server not configured`,
 				fix,
 			};
 		});

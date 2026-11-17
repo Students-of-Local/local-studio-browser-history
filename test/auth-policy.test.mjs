@@ -145,11 +145,11 @@ test("every auth.openai.com and github.com/login URL in shipped source is a docu
 	assert.deepEqual(bad, [], `Unexpected sign-in endpoints:\n${bad.join("\n")}`);
 });
 
-test("the only OAuth client ids are Polycarp's own: SIWC registers dynamically, Copilot uses Polycarp's OAuth App", () => {
+test("the only OAuth client ids are Tychicus's own: SIWC registers dynamically, Copilot uses Tychicus's OAuth App", () => {
 	const constants = readFileSync(join(repo, "src", "subscriptions", "constants.ts"), "utf8");
 	assert.match(constants, /dynamicClient: "dynamic_agent_client"/);
 	assert.match(constants, /clientId: "Ov23li1qDiu9lRXbvcFh"/);
-	assert.match(constants, /agentName: "Polycarp"/);
+	assert.match(constants, /agentName: "Tychicus"/);
 	// No client secret for either: the SIWC open-source flow and GitHub's device flow need none.
 	// serve's authorization server (D30) issues and checks secrets for clients that register with
 	// it; it never sends one. It is exempt only while it makes no outbound request at all.
@@ -198,7 +198,7 @@ test("the UI says API use is billed and offers only the sanctioned subscription 
 	const section = readFileSync(join(repo, "src", "subscriptions", "SubscriptionsSection.ts"), "utf8");
 	assert.match(section, /Continue with ChatGPT/, "OpenAI's UI guidelines name the button Continue with ChatGPT");
 	assert.match(section, /Sign in with GitHub Copilot/);
-	assert.match(section, /Use your Claude Code or Gemini CLI subscription by running it with Polycarp's MCP server/);
+	assert.match(section, /Use your Claude Code or Gemini CLI subscription by running it with Tychicus's MCP server/);
 	assert.doesNotMatch(section, /Sign in with Claude|Continue with Claude|Sign in with Gemini|Sign in with Google/);
 });
 

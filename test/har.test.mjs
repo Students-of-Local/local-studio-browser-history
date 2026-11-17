@@ -28,7 +28,7 @@ const SAMPLE_8 = fake("s8");
 const SAMPLE_10 = fake("s10");
 const SAMPLE_11 = fake("s11");
 
-const CREATOR = { name: "Polycarp", version: "test" };
+const CREATOR = { name: "Tychicus", version: "test" };
 const ORIGIN = "http://app.test";
 /** Names and values of credentials are put together here, so no line of this file reads like a real one. */
 const join = (...parts) => parts.join("");

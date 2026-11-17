@@ -33,8 +33,8 @@ export interface UserScriptsApi {
  * refuses a store copy (bridge.reload in src/bridge/native.ts), so a store copy gets a browser restart.
  */
 export function userScriptsHiddenHelp(fromStore: boolean, command: string): string {
-	const restart = fromStore ? "restart the browser" : `restart Polycarp (${command} reload; agent sessions reconnect)`;
-	return `The permission is granted, but the browser hides the API. Check "Allow user scripts" at chrome://extensions > Polycarp > Details, then ${restart}.`;
+	const restart = fromStore ? "restart the browser" : `restart Tychicus (${command} reload; agent sessions reconnect)`;
+	return `The permission is granted, but the browser hides the API. Check "Allow user scripts" at chrome://extensions > Tychicus > Details, then ${restart}.`;
 }
 
 /** The API the injection path uses, or undefined when `execute` is missing. */

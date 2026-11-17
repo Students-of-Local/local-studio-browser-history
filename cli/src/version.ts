@@ -21,4 +21,4 @@ function manifestVersion(): string {
 export const VERSION: string = BUILD?.version ?? manifestVersion();
 
 /** What the helper sends as User-Agent (GitHub, searches, scrapes). Before the rename it was `tabkyra-cli/<version>`. */
-export const USER_AGENT = `polycarp-browser/${VERSION}`;
+export const USER_AGENT = `tychicus/${VERSION}`;

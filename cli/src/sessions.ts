@@ -93,7 +93,7 @@ function printList(list: Described[]): void {
 	console.log();
 	console.log(c.dim(`${pad("NAME", 22)}${pad("AGENT", 9)}${pad("GROUP", 34)}${pad("TABS", 6)}${pad("STATE", 13)}LAST USED`));
 	for (const s of list) {
-		const group = s.group?.title ?? `Polycarp · ${s.label}`;
+		const group = s.group?.title ?? `Tychicus · ${s.label}`;
 		console.log(`${pad(c.bold(s.name), 22)}${pad(s.agent ?? (s.kind === "panel" ? "panel" : "-"), 9)}${pad(group, 34)}${pad(String(s.tabCount), 6)}${pad(state(s), 13)}${ago(s.lastUsedAt)}`);
 	}
 	console.log(c.dim(`\n${COMMAND_NAME} sessions show <name> lists a session's tabs; end, rename, focus, collapse and expand act on one.`));
@@ -192,7 +192,7 @@ export async function runSessions(args: string[], flags: { json: boolean; all: b
 		// "No match" and refusals from the extension are failures (exit 1), with what to do next.
 		if (err instanceof BridgeRpcError && err.rpc.code === "bad_params") throw new SessionsUsageError(err.rpc.message);
 		if (err instanceof BridgeRpcError && /^Unknown method sessions\./.test(err.rpc.message))
-			throw new Error(`The Polycarp extension in your browser is older than this CLI and has no sessions yet. Update it (${COMMAND_NAME} update) or reload it after a build (${COMMAND_NAME} reload).`);
+			throw new Error(`The Tychicus extension in your browser is older than this CLI and has no sessions yet. Update it (${COMMAND_NAME} update) or reload it after a build (${COMMAND_NAME} reload).`);
 		throw err instanceof BridgeRpcError ? new Error(err.rpc.message) : err;
 	}
 }

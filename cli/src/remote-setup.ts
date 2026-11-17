@@ -93,7 +93,7 @@ export function loadRemoteConfig(): RemoteConfig | undefined {
 	} catch {
 		throw new Error(`${remoteFile()} isn't valid JSON. Run ${COMMAND_NAME} remote off to remove it, then ${COMMAND_NAME} remote setup again.`);
 	}
-	if (!raw || typeof raw !== "object") throw new Error(`${remoteFile()} isn't a Polycarp remote file.`);
+	if (!raw || typeof raw !== "object") throw new Error(`${remoteFile()} isn't a Tychicus remote file.`);
 	if (typeof raw.publicUrl !== "string" || !raw.publicUrl) throw new Error(`${remoteFile()}: publicUrl is missing.`);
 	if (typeof raw.port !== "number" || !Number.isInteger(raw.port) || raw.port < 0 || raw.port > 65535) throw new Error(`${remoteFile()}: port must be a port number.`);
 	if (raw.route !== "funnel" && raw.route !== "custom" && raw.route !== "cloudflare") throw new Error(`${remoteFile()}: route must be funnel, custom or cloudflare.`);
@@ -520,7 +520,7 @@ async function waitForTailscale(ports: number[], first: FunnelPlan, say: (line: 
 }
 
 /** The step that writes the launcher without registering Polycarp with browsers the person never set up. */
-const launcherStep = () => `${COMMAND_NAME} install --browser <name> for the browser you use Polycarp in (it writes the launcher and registers only that browser; plain install registers every browser on this computer)`;
+const launcherStep = () => `${COMMAND_NAME} install --browser <name> for the browser you use Tychicus in (it writes the launcher and registers only that browser; plain install registers every browser on this computer)`;
 
 /**
  * In a terminal: the service runs the agent launcher, so setup writes that one file. Not `install`: that registers the native
@@ -563,7 +563,7 @@ async function waitForFunnel(bin: string, dns: string, port: number, first: Funn
 				say(`${sym.dot} Tailscale asks you to allow Funnel for this computer. ${started ? "Your browser opened" : "Open"} ${opened.url}`);
 				say("  Sign in if it asks, then press the button that enables Funnel (and HTTPS, if it asks) for this computer.");
 			} else {
-				say(`${sym.dot} Tailscale refused the change because your user isn't its operator. In another terminal, run this once (Polycarp never runs sudo):\n\n  ${TAILSCALE_OPERATOR_FIX}\n`);
+				say(`${sym.dot} Tailscale refused the change because your user isn't its operator. In another terminal, run this once (Tychicus never runs sudo):\n\n  ${TAILSCALE_OPERATOR_FIX}\n`);
 			}
 			say(`Waiting for Tailscale to allow Funnel, trying again every ${duration(every)} for up to ${duration(total)}. Ctrl-C stops; ${COMMAND_NAME} remote setup continues from here.`);
 		}
@@ -601,11 +601,11 @@ async function chooseRoute(say: (line: string) => void, port: number): Promise<"
 /** In a terminal: the hostname for a Cloudflare route, asked until it can be one. Undefined when input ends. */
 async function askCloudflareHost(say: (line: string) => void): Promise<string | undefined> {
 	for (;;) {
-		const answer = await ask("Connector hostname, on a domain in your Cloudflare account (for example polycarp.yourdomain.com): ");
+		const answer = await ask("Connector hostname, on a domain in your Cloudflare account (for example tychicus.yourdomain.com): ");
 		if (answer === undefined) return undefined;
 		const host = normalizeCloudflareHost(answer);
 		if (host) return host;
-		if (answer.trim()) say(`${answer.trim()} isn't a name a tunnel can have. Use one like polycarp.yourdomain.com.`);
+		if (answer.trim()) say(`${answer.trim()} isn't a name a tunnel can have. Use one like tychicus.yourdomain.com.`);
 	}
 }
 
@@ -678,7 +678,7 @@ async function runSetup(options: SetupOptions): Promise<number> {
 	if (cloudflareName === "") {
 		const typed = input ? await askCloudflareHost(say) : undefined;
 		if (!typed) {
-			return fail("problem", `The Cloudflare route needs a name on a domain in your Cloudflare account: ${COMMAND_NAME} remote setup --cloudflare polycarp.yourdomain.com. Nothing was changed.`, {
+			return fail("problem", `The Cloudflare route needs a name on a domain in your Cloudflare account: ${COMMAND_NAME} remote setup --cloudflare tychicus.yourdomain.com. Nothing was changed.`, {
 				code: "cloudflare_name",
 				next: { kind: "choose_name" },
 			});
@@ -686,7 +686,7 @@ async function runSetup(options: SetupOptions): Promise<number> {
 		cloudflareName = typed;
 	}
 	const cloudflareHost = cloudflareName === undefined ? undefined : normalizeCloudflareHost(cloudflareName);
-	if (cloudflareName !== undefined && !cloudflareHost) return fail("problem", `${cloudflareName} isn't a name a tunnel can have. Use one like polycarp.yourdomain.com.`, { code: "cloudflare_dns", next: { kind: "choose_name" } });
+	if (cloudflareName !== undefined && !cloudflareHost) return fail("problem", `${cloudflareName} isn't a name a tunnel can have. Use one like tychicus.yourdomain.com.`, { code: "cloudflare_dns", next: { kind: "choose_name" } });
 	if (previous?.route === "cloudflare" && !cloudflareHost) return fail("problem", `A Cloudflare tunnel from an earlier setup is on. Run ${COMMAND_NAME} remote off first.`);
 	if (cloudflareHost) {
 		if (previous?.route === "funnel" && !options.replaceFunnel) return fail("problem", `Funnel from an earlier setup is on. Run ${COMMAND_NAME} remote off first.`);
@@ -778,7 +778,7 @@ async function runSetup(options: SetupOptions): Promise<number> {
 		if (!restartsOurs) {
 			return fail(
 				"port_busy",
-				`Something already listens on 127.0.0.1:${port} and isn't Polycarp serve for ${publicUrl} (${probe.detail}). Nothing was changed. Stop it (a ${COMMAND_NAME} serve you started by hand, or another program), or pick another port with --port, then run ${COMMAND_NAME} remote setup again.`,
+				`Something already listens on 127.0.0.1:${port} and isn't Tychicus serve for ${publicUrl} (${probe.detail}). Nothing was changed. Stop it (a ${COMMAND_NAME} serve you started by hand, or another program), or pick another port with --port, then run ${COMMAND_NAME} remote setup again.`,
 				{ code: "local_port" },
 			);
 		}
@@ -793,7 +793,7 @@ async function runSetup(options: SetupOptions): Promise<number> {
 		say(`${sym.ok} Passcode, shown once:\n\n  ${madePasscode}\n`);
 		say(
 			c.dim(
-				`It re-approves an assistant you already approved. A new assistant needs a one-time connect code instead; ${codeSource}. Keep the passcode in a password manager, but not one the browser Polycarp drives can fill. ${COMMAND_NAME} token passcode replaces it.`,
+				`It re-approves an assistant you already approved. A new assistant needs a one-time connect code instead; ${codeSource}. Keep the passcode in a password manager, but not one the browser Tychicus drives can fill. ${COMMAND_NAME} token passcode replaces it.`,
 			),
 		);
 	}
@@ -960,7 +960,7 @@ async function runSetup(options: SetupOptions): Promise<number> {
 		}
 		const codeLines = connect
 			? `Connect code: ${c.bold(connect.code)}
-  Type it on the approval page when you add Polycarp to an assistant for the first time.
+  Type it on the approval page when you add Tychicus to an assistant for the first time.
   It works once, for 10 minutes. Each new assistant needs its own: ${COMMAND_NAME} token approval-code makes another.`
 			: connectProblem
 				? `Connect code: none made (${connectProblem}). Make one with ${COMMAND_NAME} token approval-code before you add an assistant.`
@@ -979,7 +979,7 @@ Add it to an assistant (paste the connector URL):
   claude.ai   Settings > Connectors > Add custom connector.
   ChatGPT     Settings > Apps & Connectors (turn on developer mode) > Create. Choose OAuth.
   grok.com    grok.com/connectors > New Connector > Custom.
-Each opens Polycarp's approval page: check the name, tick what it may do, type the connect code and press Allow.
+Each opens Tychicus's approval page: check the name, tick what it may do, type the connect code and press Allow.
 
 Check it with: ${COMMAND_NAME} remote status`);
 		return options.connectCode && !connect ? 1 : 0;
@@ -1116,7 +1116,7 @@ export async function preflight(seam: ProbeSeam = {}, read?: TailscaleReady, por
 	const plan = planFrom(read ?? (await tailscaleReadyAsync(seam)), [port]);
 	if (!plan.ok) return { state: plan.state, message: plan.message, ...(plan.code ? { code: plan.code } : {}) };
 	const probe = await probeLocal(port, `https://${plan.dns}:${FUNNEL_PORT}`);
-	if (probe.state === "other") return { state: "port_busy", message: `Something already listens on 127.0.0.1:${port} and isn't Polycarp serve (${probe.detail}).`, code: "local_port" };
+	if (probe.state === "other") return { state: "port_busy", message: `Something already listens on 127.0.0.1:${port} and isn't Tychicus serve (${probe.detail}).`, code: "local_port" };
 	return { state: "ready", message: "Ready to turn on." };
 }
 
@@ -1387,7 +1387,7 @@ export async function remoteOff(options: { json?: boolean } = {}): Promise<numbe
 			note(sym.ok, r.message);
 		} else if (stray.kind === "found") {
 			problem(
-				`Tailscale Funnel on port ${FUNNEL_PORT} forwards ${stray.paths.join(", ")} to a local port, but not everything there answers like Polycarp serve, so it was left on. If it is yours to close, run tailscale funnel --https=${FUNNEL_PORT} off.`,
+				`Tailscale Funnel on port ${FUNNEL_PORT} forwards ${stray.paths.join(", ")} to a local port, but not everything there answers like Tychicus serve, so it was left on. If it is yours to close, run tailscale funnel --https=${FUNNEL_PORT} off.`,
 			);
 			code = 1;
 		}

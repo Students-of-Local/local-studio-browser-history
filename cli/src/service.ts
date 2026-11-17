@@ -314,7 +314,7 @@ export function windowsScriptText(launcherName: string, env: Record<string, stri
 		"setlocal DisableDelayedExpansion",
 		"chcp 65001 >nul",
 		// The task runs with your logon, so Windows shows its console window; the title says what it is and that closing it stops it.
-		`title ${spec.label} (Polycarp; closing this window stops it until you log on again)`,
+		`title ${spec.label} (Tychicus; closing this window stops it until you log on again)`,
 		'for %%I in ("%~dp0..") do set "POLYCARP_HOME=%%~fI"',
 		...[...CONFIG_KEYS].filter((k) => k in env).map((k) => `set "${k}=%POLYCARP_HOME%"`),
 		...extra,
@@ -443,7 +443,7 @@ type StopStep = { run: [string, string[]] } | { sleep: number };
  */
 function* stopPlan(spec: ServiceSpec, taskWasRunning: boolean): Generator<StopStep, string | undefined, Answer | undefined> {
 	const file = windowsPidPath(spec);
-	const noRecord = `The ${spec.label} task was running, but its program left no record of its pid, so Polycarp can't tell whether it stopped: close the window titled ${spec.label} if it is open, or end its program in Task Manager, then run ${spec.off} again.`;
+	const noRecord = `The ${spec.label} task was running, but its program left no record of its pid, so Tychicus can't tell whether it stopped: close the window titled ${spec.label} if it is open, or end its program in Task Manager, then run ${spec.off} again.`;
 	// A record that names a process which is gone, or is now another one, means the program stopped.
 	const gone = () => {
 		rmSync(file, { force: true });
@@ -457,7 +457,7 @@ function* stopPlan(spec: ServiceSpec, taskWasRunning: boolean): Generator<StopSt
 		rmSync(file, { force: true });
 		return taskWasRunning ? noRecord : undefined;
 	}
-	const unconfirmed = `Polycarp couldn't confirm that pid ${pid} is still the ${image} its ${spec.label} task started, so it ended nothing: end that program in Task Manager (Details, PID ${pid}) if it is Polycarp's, then run ${spec.off} again.`;
+	const unconfirmed = `Tychicus couldn't confirm that pid ${pid} is still the ${image} its ${spec.label} task started, so it ended nothing: end that program in Task Manager (Details, PID ${pid}) if it is Tychicus's, then run ${spec.off} again.`;
 	const same = (seen: string | undefined) => seen !== undefined && seen !== "unknown" && seen.toLowerCase() === image.toLowerCase();
 	const look = function* (): Generator<StopStep, string | undefined | "unknown", Answer | undefined> {
 		return tasklistImage(pid, (yield { run: tasklistCall(pid) }) as Answer);
@@ -557,7 +557,7 @@ async function installWindows(spec: ServiceSpec, exec: Runner, binary: string, e
 			ok: false,
 			file: script,
 			// schtasks words its errors in the system's language, so every refusal gets the sentence, not just an English one.
-			message: `Windows didn't make a scheduled task for ${user} (${created.out}); Polycarp never asks for administrator rights, so if your organization blocks scheduled tasks, ask its admin to allow them, or ${keepRunning}.`,
+			message: `Windows didn't make a scheduled task for ${user} (${created.out}); Tychicus never asks for administrator rights, so if your organization blocks scheduled tasks, ask its admin to allow them, or ${keepRunning}.`,
 		};
 	}
 	// The task replaces a running copy itself (StopExisting), so /Run always starts the new script.

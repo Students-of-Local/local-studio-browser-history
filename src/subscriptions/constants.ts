@@ -27,8 +27,8 @@ export const SIWC = {
 	discoveryUrl: "https://auth.openai.com/.well-known/openid-configuration",
 	/** First-time registration entrypoint; never saved and never used for a token exchange. */
 	dynamicClient: "dynamic_agent_client",
-	/** Our app's name, sent only with a first registration. A host registered before the rename keeps its saved client, which OpenAI still lists as Tabkyra. */ // product-name allowlist: the name OpenAI lists for older sign-ins
-	agentName: "Polycarp",
+	/** Our app's name, sent only with a first registration. A host registered before the rename keeps its saved client, which OpenAI still lists as Polycarp or Tabkyra. */ // product-name allowlist: the name OpenAI lists for older sign-ins
+	agentName: "Tychicus",
 	scope: "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct",
 	/** The scope that allows ChatGPT plan usage; a valid ID token alone does not. */
 	planScope: "chatgpt.tokens.use.direct",
@@ -71,8 +71,8 @@ export const COPILOT = {
 /** The command that adds Polycarp to a coding CLI, under the helper's real name. */
 export function cliMcpSetup(cli: "claude" | "gemini", helper: string): string {
 	return cli === "claude"
-		? `claude mcp add --scope user polycarp -- ${helper} mcp`
-		: `gemini mcp add --scope user polycarp ${helper} mcp`;
+		? `claude mcp add --scope user tychicus -- ${helper} mcp`
+		: `gemini mcp add --scope user tychicus ${helper} mcp`;
 }
 
 /** Responses API fields the ChatGPT plan route rejects (preview limitations page, read 2026-10-28). */
@@ -136,7 +136,7 @@ export function siwcRequestBody(input: Json): Json {
 					{
 						type: "namespace",
 						name: SIWC_TOOL_NAMESPACE,
-						description: "Polycarp browser tools",
+						description: "Tychicus browser tools",
 						tools: functions,
 					},
 				]

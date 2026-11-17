@@ -109,7 +109,7 @@ function skillsLine(skills: LastUpdate["skills"]): string {
 /** Swallow the log lines of the terminal flow; the steps are reported as phases instead. */
 const quiet = (_line: string) => {};
 
-const WHEN_IDLE = "It installs when no agent is running, then Polycarp reloads.";
+const WHEN_IDLE = "It installs when no agent is running, then Tychicus reloads.";
 
 // ---- release mode -------------------------------------------------------------------------
 
@@ -279,7 +279,7 @@ export async function runHostAction(action: HostRunAction): Promise<number> {
 	try {
 		if (mode === "unmanaged") {
 			throw new UpdateError(
-				`This Polycarp runs from ${root}, which is neither a release install nor a git checkout, so it can't update itself from the side panel. Run ${COMMAND_NAME} update in a terminal.`,
+				`This Tychicus runs from ${root}, which is neither a release install nor a git checkout, so it can't update itself from the side panel. Run ${COMMAND_NAME} update in a terminal.`,
 			);
 		}
 		if (mode === "release") {
@@ -303,7 +303,7 @@ export async function runHostAction(action: HostRunAction): Promise<number> {
 				/* the next updater or host start repairs it; the mismatch banner shows meanwhile */
 			}
 			const extensionBuild = readBuildInfo(join(mode === "release" ? appDir() : root, "dist-chrome"))?.id;
-			emit({ phase: "failed", message: `${message} Reloading Polycarp to run what is installed.`, reload: true, extensionBuild });
+			emit({ phase: "failed", message: `${message} Reloading Tychicus to run what is installed.`, reload: true, extensionBuild });
 		} else emit({ phase: "failed", message });
 		return 1;
 	}

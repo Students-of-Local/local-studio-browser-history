@@ -230,7 +230,7 @@ export class CopilotTurns {
 		}));
 		conv.session = await client.createSession({
 			model: req.model,
-			clientName: "Polycarp",
+			clientName: "Tychicus",
 			streaming: true,
 			tools,
 			availableTools: tools.map((t) => t.name),

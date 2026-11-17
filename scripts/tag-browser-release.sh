@@ -1,7 +1,7 @@
 #!/bin/bash
-# Tags the commit a store upload came from as browser-v<version>, which the setup prompt builds the helper from.
-# Refuses until cli/src/install.ts has the id Google assigned: a helper built from a tag without it could never talk to
-# the store extension, and a tag doesn't move later. --check only says whether it would refuse.
+# Tags the commit a store upload came from as browser-v<version>. (The setup prompt installs the v<version> release, or
+# builds from that release tag.) Refuses until cli/src/install.ts has the id Google assigned: a helper built from a tag
+# without it could never talk to the store extension, and a tag doesn't move later. --check only says whether it would refuse.
 set -euo pipefail
 here="$(cd "$(dirname "$0")/.." && pwd)"
 if ! grep -Eq 'STORE_EXTENSION_ID: string = "[a-p]{32}"' "$here/cli/src/install.ts"; then

@@ -354,7 +354,7 @@ test("the payload the helper sends carries only Polycarp's section, and the pane
 
 test("the Appearance tab says which Polycarp theme is in use, how to change it, and keeps every control", () => {
 	const tab = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "src", "dialogs", "AppearanceTab.ts"), "utf8");
-	assert.match(tab, /Polycarp theme in use: \$\{polycarp\.title\}/);
+	assert.match(tab, /Polycarp app theme in use: \$\{polycarp\.title\}/);
 	assert.match(tab, /data-polycarp-theme=\$\{polycarp\.name\}/);
 	assert.match(tab, /polycarp theme set &lt;name&gt;/);
 	assert.match(tab, /onPolycarp\(\(\) => this\.requestUpdate\(\)\)/, "the tab redraws when the theme changes");
@@ -433,7 +433,7 @@ test("the base size from a Polycarp theme goes on the root element, so rem text 
 test("the Appearance tab shows the reason a Polycarp theme was refused, in one line, only when no theme is in use", () => {
 	const tab = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "src", "dialogs", "AppearanceTab.ts"), "utf8");
 	assert.match(tab, /refused && !polycarp/);
-	assert.match(tab, /data-polycarp-refused>The Polycarp theme was refused, so your saved preset is used: \$\{refused\}/);
+	assert.match(tab, /data-polycarp-refused>The Polycarp app's theme was refused, so your saved preset is used: \$\{refused\}/);
 });
 
 test("type.display reaches no panel heading, and browser/AGENTS.md says so; the day something uses font-serif, the note goes", () => {

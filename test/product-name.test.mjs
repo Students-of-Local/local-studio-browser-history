@@ -1,8 +1,11 @@
-// The product is called Polycarp. Fails when "Tabkyra" appears in text a person can see: the extension's source, its static
-// pages, the helper's source, and the manifest. What stays on purpose (MCP tool names, the manifest key, stored data, the
-// fallbacks that keep older installs working) is written in AGENTS.md ("Names that keep the old name") and is lowercase or
-// an identifier, which this scan leaves alone. The renamed identifiers (native host, socket folder, hub headers, User-Agent,
-// npm command) are guarded below so the old ones come back only as the named fallbacks.
+// The product is called Tychicus. Fails when "Polycarp" or "Tabkyra" appears in text a person can see: the extension's
+// source, its static pages, the helper's source, and the manifest. Polycarp is a separate Mac and Windows app, and some
+// text is genuinely about it: its Mac helper (polycarp-spaces) that the computer tools call, its theme, the commands and
+// folders Tychicus imports from or steps around. Those lines match KEPT below, or carry the marker comment. What stays
+// on purpose (MCP tool names, the manifest key, stored data, the fallbacks that keep older installs working) is written
+// in AGENTS.md ("Names that keep the old name") and is lowercase or an identifier, which this scan leaves alone. The
+// renamed identifiers (native host, socket folder, hub headers, User-Agent, npm command) are guarded below so the old
+// ones come back only as the named fallbacks.
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -39,7 +42,7 @@ const CAPITAL = /\bTabkyra\b/;
 // Lowercase in prose: "the tabkyra side panel", "the matching tabkyra command". The command, the MCP server name, the host
 // name and the folders are lowercase too, but none of them is followed by one of these words.
 const PROSE = /(?<![/\w.@-])tabkyra (?:side panel|panel|command|extension|helper|app|host|bridge|cli)\b/i;
-// "tabkyra setup" in text a person reads: the command to type is `polycarp browser setup`.
+// "tabkyra setup" in text a person reads: the command to type is `tychicus setup`.
 const COMMAND = /(?<![/\w.@-])tabkyra (?=(?:setup|doctor|install|update|reload|status|allow|deny|skill|theme|serve|hub|link|remote|token|threads|sessions|tabs|library|debug|host|pi-extension|copilot-sdk|completion|version|help|tunnel|sessions|reload)\b)/;
 
 // The old name inside a sentence a person reads: "Use tabkyra to open...", "through tabkyra mcp". Comment lines are not read by anyone.
@@ -62,7 +65,62 @@ test("no user-visible text says Tabkyra", () => {
 				});
 		}
 	}
-	assert.deepEqual(found, [], `say Polycarp, or \`polycarp browser <command>\`:\n${found.slice(0, 20).join("\n")}`);
+	assert.deepEqual(found, [], `say Tychicus, or \`tychicus <command>\`:\n${found.slice(0, 20).join("\n")}`);
+});
+
+/** Lines that may say Polycarp, by file, with the reason. Each file here names Polycarp only as an old name it still reads. */
+const POLYCARP_ALLOW = new Map([
+	// The compiled helper inside the Polycarp app calls itself `polycarp browser`, and a checkout linked before the rename
+	// answers to `polycarp-browser`: the name is shown as the helper was started.
+	["cli/src/self.ts", "the names the helper may have been started under"],
+	// The skill gate and its router read the old skill names, and the catalog is generated from skills/.
+	["cli/src/skill-lint.ts", "skill lint matches the install marker and the old command names"],
+	["cli/src/skill-router.ts", "router reads polycarp-browser and tabkyra as the browser skill"],
+	["cli/src/skills-catalog.ts", "generated from skills/, which keep their names"],
+]);
+
+/**
+ * Text that is about Polycarp the separate app, and stays: its Mac app and helper (polycarp-spaces, which the computer
+ * tools call), the theme the Polycarp app writes (`polycarp theme set`), the app's own update command, and the connector
+ * `remote import-polycarp` moves over.
+ */
+const KEPT = /Polycarp(?:'s)? (?:Mac )?app\b|Polycarp\.app|polycarp-spaces|Polycarp's computer-use helper|Polycarp's Mac helper|Tychicus or Polycarp serve|install Polycarp from its releases page|polycarp theme set|import-polycarp|part of Polycarp, which updates it|`polycarp update`/;
+
+// Capitalized in prose, also right after a "\n" escape in source.
+const POLYCARP = /\bPolycarp\b/;
+// The old command, the old repo and the old log prefixes in text a person reads: `polycarp browser setup`,
+// `polycarp-browser doctor`, github.com/baney75/polycarp, "[polycarp-host] ...".
+const POLYCARP_COMMAND =
+	/(?<![/\w.@-])polycarp(?: |-)browser (?=(?:setup|doctor|install|update|reload|status|allow|deny|skill|theme|serve|hub|link|remote|token|threads|sessions|tabs|library|debug|host|pi-extension|completion|version|help|tunnel|mcp)\b)|github\.com\/baney75\/polycarp\b|\[polycarp(?:-host)?\]|\bpolycarp\.(?:yourdomain|example)\.com|dbaney\.com\/polycarp/;
+
+test("no user-visible text says Polycarp, except about the Polycarp app", () => {
+	const found = [];
+	for (const dir of TEXT_DIRS) {
+		for (const file of walk(join(root, dir))) {
+			const rel = relative(root, file);
+			if (POLYCARP_ALLOW.has(rel)) continue;
+			readFileSync(file, "utf8")
+				.split("\n")
+				.forEach((raw, i) => {
+					if (COMMENT.test(raw)) return;
+					const line = raw.replace(/\\[nrt]/g, " ");
+					if (!POLYCARP.test(line) && !POLYCARP_COMMAND.test(line)) return;
+					if (raw.includes(MARKER) || KEPT.test(line)) return;
+					found.push(`${rel}:${i + 1}: ${raw.trim().slice(0, 100)}`);
+				});
+		}
+	}
+	assert.deepEqual(found, [], `say Tychicus, or \`tychicus <command>\` (${found.length} lines):\n${found.slice(0, 40).join("\n")}`);
+});
+
+test("the product-name scan catches the old name and lets the Polycarp app's own text through", () => {
+	const flagged = (line) => (POLYCARP.test(line) || POLYCARP_COMMAND.test(line)) && !KEPT.test(line);
+	for (const line of ['html`<h1>Welcome to Polycarp</h1>`', '"Run polycarp-browser doctor"', "`polycarp browser setup`", "https://github.com/baney75/polycarp", "[polycarp-host] bad frame", "polycarp.yourdomain.com", "Polycarp's helper isn't connected"])
+		assert.ok(flagged(line), line);
+	for (const line of ["Computer use needs Polycarp's Mac app on a Mac.", "through polycarp-spaces", "run polycarp theme set <name>", "the owner's approval in the Polycarp app", "remote import-polycarp", "PolycarpTheme", "polycarpMark(18)"])
+		assert.ok(!flagged(line), line);
+	// "approval" starts with "app", which must not pass as the Polycarp app.
+	assert.ok(flagged("this computer's Polycarp approval address"));
 });
 
 function manifests() {

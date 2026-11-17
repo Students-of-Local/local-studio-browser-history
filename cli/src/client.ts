@@ -16,7 +16,7 @@ import { envVar } from "./env.ts";
 
 /** What every tool says when no browser is reachable: the agent can only ask the user. */
 export const NOT_CONNECTED =
-	`Polycarp isn't connected. Ask the user to open Helium/Chrome with the Polycarp extension loaded, or run \`${COMMAND_NAME} doctor\`.`;
+	`Tychicus isn't connected. Ask the user to open Helium/Chrome with the Tychicus extension loaded, or run \`${COMMAND_NAME} doctor\`.`;
 
 export class BridgeRpcError extends Error {
 	constructor(readonly rpc: RpcError) {
@@ -44,7 +44,7 @@ const TOOL_NAMES: Record<string, string> = { evaluate: "run_js", dialog: "handle
 /** What an agent is told when a side-effecting call was cut off: it may have run. */
 export function interruptedMessage(method: string): string {
 	const tool = TOOL_NAMES[method] ?? method.replace(".", "_");
-	return `The browser connection dropped while ${tool} was running (the Polycarp extension reloaded or restarted), so it may have run. Check the page with read_page before you repeat it; Polycarp reconnects on your next call.`;
+	return `The browser connection dropped while ${tool} was running (the Tychicus extension reloaded or restarted), so it may have run. Check the page with read_page before you repeat it; Tychicus reconnects on your next call.`;
 }
 
 export interface ClientOptions {

@@ -49,7 +49,7 @@ describe("searx", () => {
 		process.env.SEARXNG_URL = `http://127.0.0.1:${port}`;
 		const out = await searxSearch("polycarp");
 		srv.close();
-		assert.match(agent, /^polycarp-browser\/\d/, "the helper names itself polycarp-browser, not tabkyra-cli");
+		assert.match(agent, /^tychicus\/\d/, "the helper names itself tychicus");
 		assert.equal(out.query, "polycarp");
 		assert.equal(out.results.length, 1);
 		assert.equal(out.results[0].url, "https://example.com/a");

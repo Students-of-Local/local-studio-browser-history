@@ -181,7 +181,7 @@ test("an install that failed after it may have changed files still reloads", asy
 	const before = ctx.reloads();
 	await ctx.ask({ type: "tabkyra-update", action: "rollback" }, panelUrl);
 	await sleep(400);
-	ctx.port.deliver({ type: "update_progress", action: "rollback", phase: "failed", message: "rename failed. Reloading Polycarp to run what is installed.", at: Date.now(), reload: true, extensionBuild: "x" });
+	ctx.port.deliver({ type: "update_progress", action: "rollback", phase: "failed", message: "rename failed. Reloading Tychicus to run what is installed.", at: Date.now(), reload: true, extensionBuild: "x" });
 	await sleep(400);
 	assert.equal(ctx.reloads(), before + 1);
 });

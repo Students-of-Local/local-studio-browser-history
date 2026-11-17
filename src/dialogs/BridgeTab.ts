@@ -128,7 +128,7 @@ export class BridgeTab extends SettingsTab {
 					${line("Turning this on makes agents' page scripts run faster.")}
 					<div>${Button({ size: "sm", variant: "secondary", children: "Allow", onClick: () => this.grantUserScripts() })}</div>
 					${details(
-						'Polycarp has not been granted the userScripts permission. The "Allow user scripts" toggle on the extension\'s Details page is not enough on its own. Without it, page scripts run through the debugger, which is slower.',
+						'Tychicus has not been granted the userScripts permission. The "Allow user scripts" toggle on the extension\'s Details page is not enough on its own. Without it, page scripts run through the debugger, which is slower.',
 					)}
 				`;
 				break;
@@ -137,7 +137,7 @@ export class BridgeTab extends SettingsTab {
 					${line("Page scripts are slower than they could be: one more switch is needed in the browser.")}
 					${details(
 						status.apiPresent
-							? 'The permission is granted, but "Allow user scripts" is off. Turn it on at chrome://extensions > Polycarp > Details.'
+							? 'The permission is granted, but "Allow user scripts" is off. Turn it on at chrome://extensions > Tychicus > Details.'
 							: userScriptsHiddenHelp(runningFromStore(), hostCommand()),
 					)}
 				`;
@@ -209,7 +209,7 @@ export class BridgeTab extends SettingsTab {
 					<h3 class="text-lg font-semibold text-foreground">Agents</h3>
 					<p class="text-sm text-muted-foreground">
 						Lets coding agents on this computer (Claude Code, Codex, omp, pi) drive the browser through
-						Polycarp. Each agent gets its own tab group and works in the background.
+						Tychicus. Each agent gets its own tab group and works in the background.
 					</p>
 				</div>
 				${agentSetupPromptButton()}
@@ -244,7 +244,7 @@ export class BridgeTab extends SettingsTab {
 							await setPermissionMode("allow_all");
 							await this.load();
 						}} />
-						Always allow: agents can open any site except Polycarp's own pages, its approval page and its local services
+						Always allow: agents can open any site except Tychicus's own pages, its approval page and its local services
 					</label>
 				</div>
 

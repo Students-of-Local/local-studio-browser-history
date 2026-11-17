@@ -19,5 +19,5 @@ export function installCopilotSdk(): { ok: boolean; message: string } {
 	const spec = `${COPILOT.sdkPackage}@${COPILOT.sdkVersion}`;
 	const run = spawnSync(npm, ["install", "--prefix", dir, "--save-exact", "--no-audit", "--no-fund", spec], { stdio: "inherit" });
 	if (run.status !== 0) return { ok: false, message: `npm install ${spec} failed (exit ${run.status ?? run.error?.message}).` };
-	return { ok: true, message: `Installed ${spec} in ${dir}. Sign in with GitHub Copilot in Polycarp's settings.` };
+	return { ok: true, message: `Installed ${spec} in ${dir}. Sign in with GitHub Copilot in Tychicus's settings.` };
 }

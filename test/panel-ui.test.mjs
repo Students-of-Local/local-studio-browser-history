@@ -167,7 +167,7 @@ test("Settings > Providers reads top to bottom: Free mode, API keys with their s
 test("subscription commands are copyable blocks, and a failed copy is a toast that can't overwrite or outlive the section's notice", () => {
 	const source = readFileSync(new URL("../src/subscriptions/SubscriptionsSection.ts", import.meta.url), "utf8");
 	assert.match(source, /this\.command\("Install the Copilot SDK", `\$\{hostCommand\(\)\} copilot-sdk install`\)/);
-	assert.match(source, /this\.command\("Set up Polycarp", `\$\{hostCommand\(\)\} setup`\)/);
+	assert.match(source, /this\.command\("Set up Tychicus", `\$\{hostCommand\(\)\} setup`\)/);
 	assert.doesNotMatch(source, /run <code>/, "no bare inline commands left");
 	const copy = source.slice(source.indexOf("private copy("), source.indexOf("private command("));
 	assert.match(copy, /Toast\.error\(/);
@@ -265,7 +265,7 @@ test("the / menu lists every skill: no cap drops any", async () => {
 	assert.equal(skillMenuItems("", site, new Set(), library).length, 190);
 });
 
-test("costs read as money, and the CORS proxy no longer names a sign-in Polycarp refuses", async () => {
+test("costs read as money, and the CORS proxy no longer names a sign-in Tychicus refuses", async () => {
 	const { formatCost } = await import("../src/utils/format-cost.ts");
 	assert.equal(formatCost(0), "$0.00");
 	assert.equal(formatCost(0.0042), "$0.0042");

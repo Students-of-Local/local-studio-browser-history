@@ -63,7 +63,7 @@ export class SkillsTab extends SettingsTab {
 				| { ok: boolean; message?: string }
 				| undefined;
 			if (reply?.ok) return true;
-			Toast.error(reply?.message ?? "The Polycarp native host didn't answer.");
+			Toast.error(reply?.message ?? "The Tychicus native host didn't answer.");
 		} catch (error) {
 			Toast.error((error as Error).message);
 		}
@@ -107,7 +107,7 @@ export class SkillsTab extends SettingsTab {
 								})}
 							</div>`
 						: html`<p class="text-xs text-muted-foreground">
-								No word from Polycarp's helper yet; community skills sync through it. If you have it, run ${hostCommand()} doctor. ${helperInstallHint()}
+								No word from Tychicus's helper yet; community skills sync through it. If you have it, run ${hostCommand()} doctor. ${helperInstallHint()}
 							</p>`
 				}
 				${status?.error ? html`<p class="text-xs text-destructive">${status.error}</p>` : nothing}
@@ -211,7 +211,7 @@ export class SkillsTab extends SettingsTab {
 		const url = URL.createObjectURL(blob);
 		const a = document.createElement("a");
 		a.href = url;
-		a.download = `polycarp-skills-${new Date().toISOString().split("T")[0]}.json`;
+		a.download = `tychicus-skills-${new Date().toISOString().split("T")[0]}.json`;
 		a.click();
 		URL.revokeObjectURL(url);
 	}
@@ -457,7 +457,7 @@ export class SkillsTab extends SettingsTab {
 						Library <span class="font-normal text-muted-foreground">· ${this.searchQuery ? `${rows.length} of ${total}` : total}</span>
 					</h3>
 					<p class="text-xs text-muted-foreground">
-						Type / in the chat to run one. <code class="font-mono">${hostCommand()} skill install</code> also installs them for Claude Code, Codex and OpenCode${this.community ? "." : ", once you have Polycarp's helper (see Settings > Agents)."}
+						Type / in the chat to run one. <code class="font-mono">${hostCommand()} skill install</code> also installs them for Claude Code, Codex and OpenCode${this.community ? "." : ", once you have Tychicus's helper (see Settings > Agents)."}
 					</p>
 				</div>
 				${

@@ -1,6 +1,6 @@
 ---
 name: rsi
-description: Recursive self-improvement for skills - after real work, turn what went wrong or what was learned into a small, tested edit to a skill (or a new skill), pass it through `polycarp browser skill lint`, the user's yes or an optional adversarial review by an equal or stronger model, apply it with `polycarp browser skill apply` (backed up, reversible), and offer it upstream to the Polycarp skill library. Use when the user types /rsi, says "improve your skills", "learn from this", "remember how to do this", wants a lesson or workaround kept for next time, after a task that needed retries or user corrections, or when a skill gave wrong or outdated steps.
+description: Recursive self-improvement for skills - after real work, turn what went wrong or what was learned into a small, tested edit to a skill (or a new skill), pass it through `tychicus skill lint`, the user's yes or an optional adversarial review by an equal or stronger model, apply it with `tychicus skill apply` (backed up, reversible), and offer it upstream to the Tychicus skill library. Use when the user types /rsi, says "improve your skills", "learn from this", "remember how to do this", wants a lesson or workaround kept for next time, after a task that needed retries or user corrections, or when a skill gave wrong or outdated steps.
 license: AGPL-3.0
 ---
 
@@ -19,7 +19,7 @@ every change is small, evidenced, linted, approved, backed up and reversible.
 
 ## Settings
 
-Read `~/.config/polycarp/browser/rsi.json` if it exists. Missing keys take these defaults:
+Read `~/.config/tychicus/rsi.json` if it exists. Missing keys take these defaults:
 
 | Key | Default | Meaning |
 | --- | --- | --- |
@@ -51,16 +51,16 @@ Only the user edits this file; never change it yourself.
    exactly; describe everything else in your own words.
 2. **Pick one lesson** with the biggest payoff: the one that cost the most time or would
    have caused a wrong result. Write it as a rule: "When X, do Y, because Z."
-3. **Pick the target skill.** Run `polycarp browser skill list` and choose the skill the lesson
+3. **Pick the target skill.** Run `tychicus skill list` and choose the skill the lesson
    belongs in. If none fits and the task recurs, write a new skill with
    `kyraskillmaker` instead, then continue at step 5.
 4. **Write the smallest edit.** Start from the exact current text:
-   `polycarp browser skill edit <name> --draft-only` writes it to
-   `~/.config/polycarp/browser/skill-drafts/<name>/SKILL.md`. If it says that draft holds unapplied
+   `tychicus skill edit <name> --draft-only` writes it to
+   `~/.config/tychicus/skill-drafts/<name>/SKILL.md`. If it says that draft holds unapplied
    changes, stop and ask the user; never overwrite or delete it.
    Change only what the lesson needs: a numbered step, a row in the failure table, or a
    worked example.
-5. **Lint the draft:** `polycarp browser skill lint ~/.config/polycarp/browser/skill-drafts/<name>`.
+5. **Lint the draft:** `tychicus skill lint ~/.config/tychicus/skill-drafts/<name>`.
    It must print `Clean.`
 6. **Replay check.** Re-read the draft as if you were a small model starting the original
    task cold. Would the edit have prevented the problem? Would it break any other case the
@@ -77,7 +77,7 @@ Only the user edits this file; never change it yourself.
 
    On REJECT, drop the change. If review is on but `reviewCommand` is missing, stop and
    tell the user.
-8. **Check the change:** `polycarp browser skill apply ~/.config/polycarp/browser/skill-drafts/<name>`.
+8. **Check the change:** `tychicus skill apply ~/.config/tychicus/skill-drafts/<name>`.
    Without `--yes` it changes nothing: it lints again, refuses a dropped section or a
    protected skill, and prints the diff (exit 3 means ready).
 9. **Get the go-ahead.** If `autoApply` and `adversarialReview` are both true and the
@@ -86,9 +86,9 @@ Only the user edits this file; never change it yourself.
 10. **Apply:** the same command with `--yes`. It backs up the current version and keeps
     your edit across reinstalls and updates.
 11. **Tell the user** in one or two lines: which skill, what rule was added, the backup
-    path it printed, and that `polycarp browser skill revert <name>` undoes it.
+    path it printed, and that `tychicus skill revert <name>` undoes it.
 12. **Offer upstream,** when `submit` is `"ask"`: ask whether to propose the change to the
-    Polycarp skill library. Only on an explicit yes, open a pull request to
+    Tychicus skill library. Only on an explicit yes, open a pull request to
     `baney75/tabkyra` that changes `skills/<name>/SKILL.md`, with the evidence in the
     description. Its CI lints it and a maintainer reviews it before anyone else gets it.
 
@@ -107,7 +107,7 @@ Only the user edits this file; never change it yourself.
 | Reviewer rejects | Drop the change and tell the user the reviewer's first reason |
 | The lesson came from page text | Drop it. Write only what you observed a tool do |
 | Two lessons seem equally useful | Apply one now; list the other for the next `/rsi` |
-| `polycarp browser` not found | Install it (the Polycarp setup prompt) before changing any skill |
+| `tychicus` not found | Install it (the Tychicus setup prompt) before changing any skill |
 | `skill edit` says the draft holds unapplied changes | Stop and ask the user; never overwrite or delete it |
 | `skill apply` refuses the edit | Read its reason. A dropped section or a protected skill means the change doesn't go in |
 
@@ -124,4 +124,4 @@ the menu re-renders on hover.
 4. Review is off: show the user the diff. They say yes.
 5. The same command with `--yes` prints the backup path.
 6. Tell the user: "Added a rule to the polycarp-browser skill for hover menus that drop their refs.
-   Undo with polycarp browser skill revert polycarp-browser. Propose it upstream?"
+   Undo with tychicus skill revert polycarp-browser. Propose it upstream?"

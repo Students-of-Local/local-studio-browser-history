@@ -256,7 +256,7 @@ test("a frame on a host not allowed for agents is placed but not entered, and a 
 	assert.deepEqual(frames.map((f) => [f.frameId, !!f.blocked]), [["PAY", true]], "nothing inside it is placed");
 	assert.ok(!sent.some((c) => c.method === "DOM.getFrameOwner" && c.params.frameId === "IN"));
 	const err = await frameForRef(6, `${frameTag("PAY")}e3`, rule).catch((e) => e);
-	assert.match(err.message, /^Not allowed to open pay\.example: ref \S+ is in a frame .*polycarp browser allow pay\.example/);
+	assert.match(err.message, /^Not allowed to open pay\.example: ref \S+ is in a frame .*tychicus allow pay\.example/);
 	assert.equal(classify(err, "click").error.code, "permission_denied");
 });
 

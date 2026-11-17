@@ -113,7 +113,7 @@ export function normalizePublicUrl(raw: string): string {
 	try {
 		url = new URL(raw);
 	} catch {
-		throw new Error(`--public-url must be a URL like https://polycarp.example.com (got ${raw}).`);
+		throw new Error(`--public-url must be a URL like https://tychicus.example.com (got ${raw}).`);
 	}
 	const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
 	if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) throw new Error("--public-url must use https.");
@@ -129,7 +129,7 @@ export const resourceMetadataUrl = (config: OAuthConfig) => `${config.publicUrl}
 function load(): State {
 	if (!existsSync(stateFile())) return { version: 1, key: b64(), clients: {}, tokens: {} };
 	const raw = JSON.parse(readFileSync(stateFile(), "utf8")) as Partial<State>;
-	if (raw.version !== 1 || typeof raw.key !== "string") throw new Error(`${stateFile()} is not a Polycarp OAuth file. Move it aside; every client will need to connect again.`);
+	if (raw.version !== 1 || typeof raw.key !== "string") throw new Error(`${stateFile()} is not a Tychicus OAuth file. Move it aside; every client will need to connect again.`);
 	return { version: 1, key: raw.key, passcode: raw.passcode, clients: raw.clients ?? {}, tokens: raw.tokens ?? {} };
 }
 
@@ -342,7 +342,7 @@ export function protectedResourceMetadata(config: OAuthConfig) {
 		authorization_servers: [config.publicUrl],
 		bearer_methods_supported: ["header"],
 		scopes_supported: Object.keys(config.scopes),
-		resource_name: "Polycarp",
+		resource_name: "Tychicus",
 	};
 }
 
@@ -597,7 +597,7 @@ export async function approveAuthorize(config: OAuthConfig, form: URLSearchParam
 		throw new OAuthError(
 			401,
 			"access_denied",
-			`This is a new connector, so your passcode alone does not approve it. On the computer that runs Polycarp, run: ${COMMAND_NAME} token approval-code, and enter that one-time connect code here. Only do this if you added this connector yourself, just now.`,
+			`This is a new connector, so your passcode alone does not approve it. On the computer that runs Tychicus, run: ${COMMAND_NAME} token approval-code, and enter that one-time connect code here. Only do this if you added this connector yourself, just now.`,
 		);
 	}
 	// A live approval code stands in for the passcode. It is checked first (a file read), and used up only once the scopes are valid.
@@ -798,12 +798,12 @@ export function consentPage(config: OAuthConfig, d: ConsentDetails, error?: stri
 				`<label class="scope"><input type="checkbox" name="scope" value="${escape(scope)}"${(d.ticked ?? DEFAULT_GRANT).includes(scope) ? " checked" : ""}><span><b>${escape(scope)}</b> ${escape(what)}</span></label>`,
 		)
 		.join("");
-	const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Approve Polycarp access</title>
+	const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Approve Tychicus access</title>
 <style>${pageCss()}</style></head>
-<body><main><h1>Allow ${escape(d.clientName)} to use your browser through Polycarp?</h1>
+<body><main><h1>Allow ${escape(d.clientName)} to use your browser through Tychicus?</h1>
 <p>It will work in its own tab group in your signed-in browser and, only if you tick computer use, on your agent workspace, with the permissions you tick. After you approve, you go back to <strong>${escape(d.redirectHost)}</strong>.</p>
 <p>Only approve a connection you started yourself, just now, in your own account. A link someone sent you could connect their account to your browser. This connection registered ${escape(d.registeredAgo)} and returns to <code>${escape(d.redirectUri)}</code>.</p>
-${d.newClient ? `<p><strong>This is a new connector.</strong> Your passcode will not approve it. On the computer that runs Polycarp, run <code>${COMMAND_NAME} token approval-code</code> and enter the one-time connect code it prints.</p>` : ""}
+${d.newClient ? `<p><strong>This is a new connector.</strong> Your passcode will not approve it. On the computer that runs Tychicus, run <code>${COMMAND_NAME} token approval-code</code> and enter the one-time connect code it prints.</p>` : ""}
 ${error ? `<p class="error">${escape(error)}</p>` : ""}${d.passcodeSet || d.newClient ? "" : `<p class="error">No passcode is set yet. Run ${COMMAND_NAME} token passcode on the computer that runs serve, or ${COMMAND_NAME} token approval-code for a one-time connect code.</p>`}
 <form method="post" action="/authorize"><input type="hidden" name="request" value="${escape(d.signed)}">
 <fieldset><legend>Permissions</legend>${boxes}</fieldset>

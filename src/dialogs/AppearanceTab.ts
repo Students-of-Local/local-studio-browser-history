@@ -18,7 +18,7 @@ import { accentToSave, effectiveAccent } from "../appearance/tokens.js";
 import { connectSetTheme } from "../connect/client.js";
 
 const PRESET_LABELS: Record<string, string> = {
-	tabkyra: "Polycarp",
+	tabkyra: "Tychicus",
 	slate: "Slate",
 	forest: "Forest",
 	rose: "Rose",
@@ -154,25 +154,25 @@ export class AppearanceTab extends SettingsTab {
 			<div class="flex flex-col gap-6">
 				<div class="space-y-1">
 					<h3 class="text-lg font-semibold text-foreground">Appearance</h3>
-					<p class="text-sm text-muted-foreground">Colors for this panel and for the approval and hub pages Polycarp serves from your computer.</p>
+					<p class="text-sm text-muted-foreground">Colors for this panel and for the approval and hub pages Tychicus serves from your computer.</p>
 				</div>
 
 				${
 					refused && !polycarp
-						? html`<p class="text-xs text-muted-foreground" role="status" data-polycarp-refused>The Polycarp theme was refused, so your saved preset is used: ${refused}.</p>`
+						? html`<p class="text-xs text-muted-foreground" role="status" data-polycarp-refused>The Polycarp app's theme was refused, so your saved preset is used: ${refused}.</p>`
 						: ""
 				}
 				${
 					polycarp
 						? html`<div class="rounded-lg border border-border bg-secondary/60 p-3 space-y-1" role="status" data-polycarp-theme=${polycarp.name}>
-								<div class="text-sm font-medium text-foreground">Polycarp theme in use: ${polycarp.title}</div>
+								<div class="text-sm font-medium text-foreground">Polycarp app theme in use: ${polycarp.title}</div>
 								<p class="text-xs text-muted-foreground">
 									It sets this panel's colors, corners, fonts and motion${modeOverridden ? `, and keeps it ${polycarp.mode}` : ""}, so the controls below are overridden. They still save, for when the theme is gone. To change it, run <code class="font-mono">polycarp theme set &lt;name&gt;</code>.
 								</p>
 								${
 									polycarpUnconfirmed()
 										? html`<p class="text-xs text-muted-foreground" data-polycarp-unconfirmed>
-												Polycarp's helper isn't answering, so this is the last theme it sent.
+												Tychicus's helper isn't answering, so this is the last theme it sent.
 												<button type="button" class="ml-1 rounded px-1 font-medium text-foreground underline outline-none focus-visible:ring-2 focus-visible:ring-ring" @click=${() => void forgetPolycarp()}>Stop using it</button>
 											</p>`
 										: ""
@@ -270,7 +270,7 @@ export class AppearanceTab extends SettingsTab {
 					)}
 				</div>
 
-				${this.shared ? "" : html`<p class="text-xs text-muted-foreground">Saved for this panel. Polycarp's helper isn't connected, so the approval and hub pages keep their colors.</p>`}
+				${this.shared ? "" : html`<p class="text-xs text-muted-foreground">Saved for this panel. Tychicus's helper isn't connected, so the approval and hub pages keep their colors.</p>`}
 			</div>
 		`;
 	}

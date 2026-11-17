@@ -136,7 +136,7 @@ export async function routeSubscriptionModel(
 	const status = await trySubscriptionStatus(true);
 	if (!status)
 		throw new Error(
-			`Polycarp's native host isn't connected, so subscription sign-ins can't run. Run ${hostCommandText("doctor")}.`,
+			`Tychicus's native host isn't connected, so subscription sign-ins can't run. Run ${hostCommandText("doctor")}.`,
 		);
 	const next: SimpleStreamOptions = { ...(options ?? {}), apiKey: status.proxy.secret };
 	if (model.provider === CHATGPT_PROVIDER) {

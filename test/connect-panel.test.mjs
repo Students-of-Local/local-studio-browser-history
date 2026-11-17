@@ -40,7 +40,7 @@ test("countdown and last-seen read as a person would say them", () => {
 	assert.equal(lastSeen("2026-11-02T09:00:00Z", now), "3 hours ago");
 	assert.equal(lastSeen("2026-11-01T11:00:00Z", now), "1 day ago");
 	assert.equal(connectorUrl("https://h.example.com"), "https://h.example.com/mcp");
-	assert.equal(linkCommand("https://h.example.com", "TK-ABCD-EFGH"), "polycarp browser link https://h.example.com --code TK-ABCD-EFGH");
+	assert.equal(linkCommand("https://h.example.com", "TK-ABCD-EFGH"), "tychicus link https://h.example.com --code TK-ABCD-EFGH");
 });
 
 test("Settings has seven tabs, with Connect under Agents and Costs under About", () => {
@@ -99,7 +99,7 @@ test("Privacy keeps one sentence visible and every long explanation in a named d
 		"The side panel agent then runs only OpenRouter models, sent with zero data retention required and no",
 		"Ollama cloud model) is still a cloud service: don't use one in private mode.",
 		"Prefer names over IPs (for example mac.example.ts.net): a listed IP is trusted on every network, including one where it belongs to someone else.",
-		"Keeps a copy of your side panel chats in ~/.local/share/polycarp/browser/threads (readable only by your user), so",
+		"Keeps a copy of your side panel chats in ~/.local/share/tychicus/threads (readable only by your user), so",
 		"Nothing is sent: you review the report here, copy it, and paste it into a GitHub issue yourself.",
 	]) {
 		assert.ok(text.includes(kept), `missing: ${kept}`);
@@ -109,10 +109,10 @@ test("Privacy keeps one sentence visible and every long explanation in a named d
 test("Page scripts reads as one plain sentence with the old wording under Details", () => {
 	const text = read("src/dialogs/BridgeTab.ts");
 	assert.match(text, /Turning this on makes agents' page scripts run faster\./);
-	assert.match(text, /Polycarp has not been granted the userScripts permission\./);
+	assert.match(text, /Tychicus has not been granted the userScripts permission\./);
 	assert.match(text, /<summary class="cursor-pointer text-foreground">Details<\/summary>/);
 	// The jargon is no longer a visible line.
-	assert.doesNotMatch(text, /line\(\s*['"]Off: Polycarp has not been granted/);
+	assert.doesNotMatch(text, /line\(\s*['"]Off: Tychicus has not been granted/);
 });
 
 // ---------- round-1 review fixes ----------
@@ -200,7 +200,7 @@ test("a request the helper never answers fails with no_reply after 20 s (30 s fo
 	const err = await status;
 	assert.ok(err instanceof client.ConnectRequestError);
 	assert.equal(err.code, "no_reply");
-	assert.equal(err.message, "Polycarp's helper didn't answer. Update it: polycarp browser update (or polycarp-browser update if you built the helper yourself)");
+	assert.equal(err.message, "Tychicus's helper didn't answer. Update it: tychicus update");
 	assert.equal(client.isNoHost(err), false);
 	// A late answer for the forgotten request is ignored.
 	port.listener({ id: port.posted[0].id, result: { route: "none" } });
@@ -250,7 +250,7 @@ test("Join a hub asks for a Device code from Add a device, takes an optional nam
 	assert.doesNotMatch(tab, /<span>Connect code<\/span>/);
 	assert.match(tab, /<span>Device name \(optional\)<\/span>/);
 	assert.match(tab, /this\.joinName\.trim\(\) \|\| undefined/);
-	assert.match(tab, /Polycarp may have linked this device\. Reopen Settings to check\./);
+	assert.match(tab, /Tychicus may have linked this device\. Reopen Settings to check\./);
 	assert.match(tab, /linkWritten && err instanceof ConnectRequestError && err\.code === "no_reply"/);
 });
 
@@ -413,7 +413,7 @@ test("first-F1: the panel's client mints a gesture only while the click is live,
 	for (const text of [relay, gate]) assert.doesNotMatch(text.replace(/\/\*[\s\S]*?\*\//g, ""), /TEST|process\.env|__TABKYRA|allowTab|globalThis/i);
 });
 
-test("first-F1: the bridge never opens Polycarp's own pages, in any permission mode, and never asks the user about them", async () => {
+test("first-F1: the bridge never opens Tychicus's own pages, in any permission mode, and never asks the user about them", async () => {
 	const { installFakeChrome } = await import("./fake-chrome.mjs");
 	const fake = installFakeChrome?.();
 	void fake;
@@ -439,7 +439,7 @@ test("first-F1: the bridge never opens Polycarp's own pages, in any permission m
 	// native.ts checks before it asks the user, and says why.
 	const native = read("src/bridge/native.ts");
 	assert.match(native, /async function askPermission\([^)]*\): Promise<boolean> \{\s*if \(isOwnExtensionUrl\(url\)\) return false;/);
-	assert.match(native, /isOwnExtensionUrl\(url\)\s*\? "Not allowed to open Polycarp's own pages\."/);
+	assert.match(native, /isOwnExtensionUrl\(url\)\s*\? "Not allowed to open Tychicus's own pages\."/);
 });
 
 test("first-F2: joining shows the hub's host, the warning and the scopes, and sends nothing until Confirm; success lists the scopes", () => {
@@ -470,7 +470,7 @@ test("hubHost names the host as typed, a pasted connector URL included", async (
 	assert.equal(hubHost("a b"), undefined);
 });
 
-test("sol-F4: join progress and the outcome render outside the join form, and a service failure says to run polycarp browser link status", () => {
+test("sol-F4: join progress and the outcome render outside the join form, and a service failure says to run tychicus link status", () => {
 	const tab = read("src/dialogs/ConnectTab.ts");
 	const form = /private joinForm\([\s\S]*?\n\t\}\n/.exec(tab)[0];
 	assert.doesNotMatch(form, /joinMessage|this\.joining\b[^)]*role="status"/, "the message is still drawn inside the form that the route change removes");
@@ -486,7 +486,7 @@ test("second-S2: on the link route the connector URL is the hub's own, shown onc
 
 test("first-F3/second-G2: a helper that lists no scopes in {id, what} form gets no Confirm; the confirm lists descriptions, never 'the hub's choice'", async () => {
 	const { joinScopesOf, helperOutOfDateMessage } = await import("../src/connect/format.ts");
-	assert.equal(helperOutOfDateMessage(), "Polycarp's helper is out of date. Run polycarp browser update (or polycarp-browser update if you built the helper yourself), then try again.");
+	assert.equal(helperOutOfDateMessage(), "Tychicus's helper is out of date. Run tychicus update, then try again.");
 	const rows = [{ id: "browser.read", what: "See the agent's own tabs and read pages" }];
 	assert.deepEqual(joinScopesOf({ joinScopes: rows }), rows);
 	for (const bad of [undefined, [], ["browser.read"], [{ id: "a" }], [{ id: "", what: "x" }], [rows[0], null], "browser.read"]) assert.equal(joinScopesOf({ joinScopes: bad }), undefined, JSON.stringify(bad));
@@ -501,15 +501,15 @@ test("second-G3: a confirm is dropped when a route or problem appears, and when 
 	for (const field of ["hubUrl", "joinCode", "joinName"]) assert.match(tab, new RegExp(`this\\.${field} = \\(e\\.target as HTMLInputElement\\)\\.value;\\s*this\\.confirming = undefined;`), field);
 });
 
-test("a helper that hasn't said its name gets both commands, and the one name once it has", async () => {
-	const { builtHelperCommand, hostCommandText } = await import("../src/bridge/host-command.ts");
+test("a helper that hasn't said its name gets tychicus, and the name it reports once it has", async () => {
+	const { hostCommand, hostCommandText } = await import("../src/bridge/host-command.ts");
 	// Tests run with no extension storage, so the helper never reports here.
-	assert.equal(builtHelperCommand("setup"), "polycarp-browser setup");
-	assert.equal(hostCommandText("setup"), "polycarp browser setup (or polycarp-browser setup if you built the helper yourself)");
-	const panel = readFileSync(new URL("../src/dialogs/ConnectTab.ts", import.meta.url), "utf8");
-	assert.match(panel, /builtHelperCommand\("setup"\) \? this\.command\("If you built the helper yourself"/);
+	assert.equal(hostCommand(), "tychicus");
+	assert.equal(hostCommandText("setup"), "tychicus setup");
 	const host = readFileSync(new URL("../src/bridge/host-command.ts", import.meta.url), "utf8");
-	assert.match(host, /known = true/, "reporting a name ends the two-name text");
+	assert.match(host, /named === "tychicus" \|\| named === "polycarp-browser" \|\| named === "tabkyra"/, "an older helper's own name is shown as it reports it");
+	const panel = readFileSync(new URL("../src/dialogs/ConnectTab.ts", import.meta.url), "utf8");
+	assert.doesNotMatch(panel, /builtHelperCommand|If you built the helper yourself/);
 });
 
 // ---------- Set up with Cloudflare ----------
@@ -536,7 +536,7 @@ test("the one-button flow (with its Cloudflare form) shows for route none, Funne
 	assert.equal(remoteFlowFor({ ...base, route: "link" }), false);
 	assert.equal(remoteFlowFor({ ...base, route: "none", problem: "remote.json is unreadable." }), false);
 	const flow = read("src/dialogs/RemoteFlow.ts");
-	assert.match(flow, /placeholder="polycarp\.yourdomain\.com"/);
+	assert.match(flow, /placeholder="tychicus\.yourdomain\.com"/);
 	assert.match(flow, /<span>Address<\/span>/);
 	assert.match(flow, /aria-live="polite" data-tunnel-steps/);
 	assert.match(read("src/dialogs/ConnectTab.ts"), /<tabkyra-remote-flow \.status=\$\{s\}/);

@@ -1,4 +1,4 @@
-// `polycarp browser doctor`'s user-scripts row against a fake native host that answers bridge.debug
+// `tychicus doctor`'s user-scripts row against a fake native host that answers bridge.debug
 // with each status the extension can report. The row must name the real cause and its fix:
 // a missing permission is not "the toggle is off", and an old extension still gets a row.
 import assert from "node:assert/strict";
@@ -118,7 +118,7 @@ test("granted but hidden: names both causes and the restart, not just the toggle
 	const row = await userScriptsRow(status("toggle_off", { apiPresent: false }));
 	assert.match(row.label, /granted but the browser hides/);
 	assert.match(row.detail, /hasn't restarted/);
-	assert.match(row.fix, /polycarp-browser reload/);
+	assert.match(row.fix, /tychicus reload/);
 });
 
 test("probe_error: shows the error text", async () => {

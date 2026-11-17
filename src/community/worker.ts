@@ -24,7 +24,7 @@ function onPanelMessage(
 	else
 		sendResponse({
 			ok: false,
-			message: `The Polycarp native host isn't connected. Run ${hostCommandText("doctor")} in a terminal.`,
+			message: `The Tychicus native host isn't connected. Run ${hostCommandText("doctor")} in a terminal.`,
 		});
 	return undefined;
 }

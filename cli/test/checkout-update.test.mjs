@@ -317,7 +317,7 @@ test("mode detection: a copy that is neither a release nor a checkout refuses", 
 	const r = await runHost(join(loose, "index.js"));
 	assert.equal(r.code, 1);
 	assert.match(r.last.message, /neither a release install nor a git checkout/);
-	assert.match(r.last.message, /polycarp-browser update in a terminal/);
+	assert.match(r.last.message, /tychicus update in a terminal/);
 });
 
 test("skill refresh replaces unedited copies and reports edited ones", () => {

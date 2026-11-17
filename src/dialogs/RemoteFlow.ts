@@ -377,7 +377,7 @@ export class RemoteFlow extends LitElement {
 		this.minting = true;
 		try {
 			const made = await connectApprovalCode();
-			if (!validApprovalCode(made)) throw new Error("The helper sent a code this page can't read. Update Polycarp.");
+			if (!validApprovalCode(made)) throw new Error("The helper sent a code this page can't read. Update Tychicus.");
 			this.code = { code: made.code, expiresAt: made.expiresAt };
 			this.codeProblem = undefined;
 			this.now = Date.now();
@@ -587,10 +587,10 @@ export class RemoteFlow extends LitElement {
 			${this.stepHeader(signedIn ? 3 : 2)}
 			<div class="flex flex-col gap-2" data-tunnel-form>
 				<p class="text-sm font-medium text-foreground">Pick this computer's address</p>
-				<p class="text-xs text-foreground">Any name on a domain in your Cloudflare account. Polycarp gets cloudflared for you (Cloudflare's own release, fingerprint checked) and opens Cloudflare's sign-in in a new tab.</p>
+				<p class="text-xs text-foreground">Any name on a domain in your Cloudflare account. Tychicus gets cloudflared for you (Cloudflare's own release, fingerprint checked) and opens Cloudflare's sign-in in a new tab.</p>
 				<label class="flex flex-col gap-1 text-xs text-muted-foreground">
 					<span>Address</span>
-					<input class=${INPUT_CLASS} placeholder="polycarp.yourdomain.com" autocomplete="off" spellcheck="false" ?disabled=${running} .value=${this.tunnelHost} @input=${(
+					<input class=${INPUT_CLASS} placeholder="tychicus.yourdomain.com" autocomplete="off" spellcheck="false" ?disabled=${running} .value=${this.tunnelHost} @input=${(
 						e: Event,
 					) => {
 						this.tunnelHost = (e.target as HTMLInputElement).value;

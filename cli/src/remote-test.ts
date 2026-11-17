@@ -113,7 +113,7 @@ function publicRequest(url: URL, address: string, init: { method: string; header
 				port: url.port || 443,
 				path: `${url.pathname}${url.search}`,
 				method: init.method,
-				headers: { "user-agent": `polycarp-browser/${VERSION} (remote test)`, ...init.headers },
+				headers: { "user-agent": `tychicus/${VERSION} (remote test)`, ...init.headers },
 				servername: isIP(url.hostname) ? undefined : url.hostname,
 				lookup: pinned(address) as never,
 				agent: false,
@@ -184,7 +184,7 @@ export function tlsFailure(err: NodeJS.ErrnoException, url: URL, address: string
 	// covers one level below the domain, not a.b.example.com). OpenSSL names some alerts without ALERT_ (unrecognized_name, sent
 	// for a name the server has no certificate for) and TLS 1.3 ones as TLSV13.
 	if (/^ERR_SSL_(SSLV3|TLSV1(_\d|3)?)_(ALERT_|UNRECOGNIZED_NAME$)/.test(code)) {
-		return { name: "tls", status: "fail", detail: `${address}:${port} refused the TLS handshake for ${url.hostname}, so it has no certificate for that name: ${why}`, next: `Give the front door a certificate for ${url.hostname}. On Cloudflare, use a name one level below your domain, such as polycarp.example.com.` };
+		return { name: "tls", status: "fail", detail: `${address}:${port} refused the TLS handshake for ${url.hostname}, so it has no certificate for that name: ${why}`, next: `Give the front door a certificate for ${url.hostname}. On Cloudflare, use a name one level below your domain, such as tychicus.example.com.` };
 	}
 	if (/^(ERR_SSL_|ERR_TLS_|EPROTO$)/.test(code)) {
 		return { name: "tls", status: "fail", detail: `${address}:${port} answers, but not with HTTPS: ${why}`, next: `Something on ${url.host} speaks plain HTTP or another protocol. Point the name at an HTTPS front door, or run ${COMMAND_NAME} remote fix on Tailscale or Cloudflare.` };

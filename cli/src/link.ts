@@ -404,7 +404,7 @@ export async function enrollDevice(options: Omit<EnrollOptions, "json">, hooks: 
 	try {
 		reservation = await takeJoinReservation();
 	} catch (err) {
-		if (err instanceof LockTimeoutError) return failed("Another Polycarp join is starting on this computer. Try again in a moment. Nothing was changed.", { type: "busy" });
+		if (err instanceof LockTimeoutError) return failed("Another Tychicus join is starting on this computer. Try again in a moment. Nothing was changed.", { type: "busy" });
 		throw err;
 	}
 	if (!reservation) return failed("Another join is already running on this computer. Wait for it, or try again in a few minutes. Nothing was changed.", { type: "busy" });
@@ -426,7 +426,7 @@ export async function enrollDevice(options: Omit<EnrollOptions, "json">, hooks: 
 		const body = result.body;
 		if (typeof body.deviceId !== "string" || typeof body.secret !== "string" || typeof body.name !== "string") return failed(`The hub refused: ${describe(body, result.status)}`, { type: "malformed" });
 		// The hub chooses the name; it ends up in link.json, the service and the panel, so it must be a plain one.
-		if (!validDeviceName(body.name)) return failed("The hub answered with a device name Polycarp won't use, so nothing was linked.", { type: "malformed" });
+		if (!validDeviceName(body.name)) return failed("The hub answered with a device name Tychicus won't use, so nothing was linked.", { type: "malformed" });
 		deviceId = body.deviceId;
 		name = body.name;
 		config = { hubUrl: options.hubUrl, deviceId, secret: body.secret, name, manage: body.manage === true, scopes };
@@ -446,7 +446,7 @@ export async function enrollDevice(options: Omit<EnrollOptions, "json">, hooks: 
 				);
 			} catch (err) {
 				if (err instanceof LinkError) return failed(err.message, { type: "linked" });
-				if (err instanceof LockTimeoutError) return failed("Another Polycarp window is writing link.json. Try again in a moment.", { type: "busy" });
+				if (err instanceof LockTimeoutError) return failed("Another Tychicus window is writing link.json. Try again in a moment.", { type: "busy" });
 				throw err;
 			}
 		}
@@ -957,7 +957,7 @@ export async function linkOff(): Promise<number> {
 		);
 	} catch (err) {
 		if (!(err instanceof LockTimeoutError)) throw err;
-		console.error(`${sym.fail} ${linkFile()} is locked by another Polycarp window. The service is stopped; run ${COMMAND_NAME} link off again in a moment to remove it.`);
+		console.error(`${sym.fail} ${linkFile()} is locked by another Tychicus window. The service is stopped; run ${COMMAND_NAME} link off again in a moment to remove it.`);
 		return 1;
 	}
 	console.log(config || removed ? `${sym.ok} Removed ${c.dim(linkFile())}.${config ? ` The hub still lists ${config.name} until you run: ${COMMAND_NAME} hub remove ${config.name}` : ""}` : `${sym.dot} No link.json; nothing else to remove.`);
@@ -1062,7 +1062,7 @@ export async function linkScopes(options: { add?: string; remove?: string; json:
 			return out(true, `${sym.ok} Added ${scope}. This device allows: ${scopes.join(", ")}. ${await restartForCap()}`, scopes);
 		}
 	} catch (err) {
-		if (err instanceof LockTimeoutError) return out(false, "Another Polycarp window is writing link.json. Try again in a moment.");
+		if (err instanceof LockTimeoutError) return out(false, "Another Tychicus window is writing link.json. Try again in a moment.");
 		if (err instanceof LinkError) return out(false, err.message);
 		throw err;
 	}

