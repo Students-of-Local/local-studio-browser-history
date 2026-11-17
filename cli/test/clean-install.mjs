@@ -16,7 +16,7 @@
 // never reached.
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readSync, rmSync, writeSync, closeSync, statSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readSync, rmSync, writeSync, closeSync, statSync, realpathSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -145,7 +145,8 @@ try {
 	assert.ok(step2.stdout.includes(extension), `the installer did not print the folder to load (${extension}):\n${step2.stdout}`);
 	const manifest = JSON.parse(readFileSync(hostManifest(u.home), "utf8"));
 	assert.deepEqual(manifest.allowed_origins, [`chrome-extension://${extensionId.id}/`]);
-	assert.equal(manifest.path, join(root, "tychicus"));
+	// The host is the current version's program: each release install rewrites the manifest, and the pointer names the same file.
+	assert.equal(realpathSync(manifest.path), realpathSync(join(root, "tychicus")));
 
 	// Step 3: Load unpacked, pointed at the folder the installer printed.
 	browser = spawn(
