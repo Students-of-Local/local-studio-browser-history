@@ -321,7 +321,7 @@ test("the panel refuses a Polycarp theme that is not exactly right", () => {
 		null: null,
 		string: "x",
 		array: [],
-		"schema 2": edit((f) => { f.schema = 2; }),
+		"schema 3": edit((f) => { f.schema = 3; }),
 		"no browser": edit((f) => { delete f.surfaces.browser; }),
 		"bad color": edit((f) => { f.surfaces.browser.light.muted = "grey"; }),
 		"radius -1": edit((f) => { f.surfaces.browser.shape.radius = -1; }),
@@ -342,6 +342,22 @@ test("the panel refuses a Polycarp theme that is not exactly right", () => {
 	assert.equal(isEasing("cubic-bezier(0.2, 0, 0, 1)"), true);
 	assert.equal(isEasing("cubic-bezier(0.2, 0, 1.5, 1)"), false);
 	assert.equal(isEasing("cubic-bezier(0.2, 0, 0)"), false);
+});
+
+test("a schema 2 theme reads like schema 1: terminal, syntax and diff blocks and unknown keys are ignored (tychicus#21)", () => {
+	const one = fixtureFile("evening");
+	const two = structuredClone(one);
+	two.schema = 2;
+	two.future = { anything: true };
+	for (const mode of ["light", "dark"]) {
+		two.surfaces.browser[mode].terminal = { black: "#000000", red: "#ff0000" };
+		two.surfaces.browser[mode].syntax = { keyword: "#0000ff" };
+		two.surfaces.browser[mode].diff = { added: "#00ff00", removed: "#ff0000" };
+	}
+	assert.ok(parsePolycarpTheme(two), "schema 2 is read");
+	assert.deepEqual(parsePolycarpTheme(two), parsePolycarpTheme(one));
+	assert.equal(polycarpPayload(two).schema, 1, "the helper still sends schema 1, so an older panel reads it");
+	assert.deepEqual(parsePolycarpTheme(polycarpPayload(two)), parsePolycarpTheme(one));
 });
 
 test("the payload the helper sends carries only Polycarp's section, and the panel parses it back to the same theme", () => {
