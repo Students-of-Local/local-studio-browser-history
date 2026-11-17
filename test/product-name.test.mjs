@@ -25,6 +25,11 @@ const ALLOW = new Map([
 	["cli/src/skill-router.ts", "router reads tabkyra as the polycarp-browser skill's old name"],
 	["cli/src/skills-catalog.ts", "generated from skills/, which keep their names"],
 ]);
+/**
+ * Files whose subject is the Polycarp app itself, so "Polycarp" in their prose is right. They are still held to the
+ * old-command check: `remote import-polycarp` moves Polycarp's connector over and says what it found of Polycarp's.
+ */
+const ABOUT_POLYCARP = new Set(["cli/src/import-polycarp.ts"]);
 const MARKER = "product-name allowlist";
 
 function* walk(dir) {
@@ -104,7 +109,8 @@ test("no user-visible text says Polycarp, except about the Polycarp app", () => 
 				.forEach((raw, i) => {
 					if (COMMENT.test(raw)) return;
 					const line = raw.replace(/\\[nrt]/g, " ");
-					if (!POLYCARP.test(line) && !POLYCARP_COMMAND.test(line)) return;
+					const prose = POLYCARP.test(line) && !ABOUT_POLYCARP.has(rel);
+					if (!prose && !POLYCARP_COMMAND.test(line)) return;
 					if (raw.includes(MARKER) || KEPT.test(line)) return;
 					found.push(`${rel}:${i + 1}: ${raw.trim().slice(0, 100)}`);
 				});
