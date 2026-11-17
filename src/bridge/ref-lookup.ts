@@ -62,8 +62,16 @@ export interface NamedNode {
  * person acts on wins over text that only describes the page.
  */
 export function matchByName<T extends NamedNode>(nodes: readonly T[], query: string): T[] {
+	return lookUpName(nodes, query).hits;
+}
+
+/**
+ * matchByName, and whether the controls were named exactly that. A control found only by whole words ("Delete" for
+ * "Delete account") is a guess: the bridge names it and asks instead of acting on it.
+ */
+export function lookUpName<T extends NamedNode>(nodes: readonly T[], query: string): { hits: T[]; exact: boolean } {
 	const raw = norm(query);
-	if (!raw) return [];
+	if (!raw) return { hits: [], exact: false };
 	let roles: string[] = [];
 	let q = raw;
 	for (const [re, rs] of ROLE_WORDS)
@@ -73,18 +81,25 @@ export function matchByName<T extends NamedNode>(nodes: readonly T[], query: str
 		}
 	q = norm(q.replace(/^(the|a|an)\s+/, "").replace(/\s+(the|a|an)$/, ""));
 	const named = nodes.filter((n) => n.name.trim());
-	let hits = named.filter((n) => norm(n.name) === raw);
-	if (!hits.length && q) hits = named.filter((n) => norm(n.name) === q);
-	if (!hits.length && q) {
-		const word = new RegExp(`(^|[^\\p{L}\\p{N}])${escapeRe(q)}($|[^\\p{L}\\p{N}])`, "u");
-		hits = named.filter((n) => word.test(norm(n.name)));
+	const word = q ? new RegExp(`(^|[^\\p{L}\\p{N}])${escapeRe(q)}($|[^\\p{L}\\p{N}])`, "u") : undefined;
+	// Exact names first, then whole words. Each stage keeps a control a person acts on over text that only describes
+	// the page, so a heading named "Delete" never stands in for the button "Delete account".
+	const stages: Array<{ hits: T[]; exact: boolean }> = [
+		{ hits: named.filter((n) => norm(n.name) === raw), exact: true },
+		{ hits: q ? named.filter((n) => norm(n.name) === q) : [], exact: true },
+		{ hits: word ? named.filter((n) => word.test(norm(n.name))) : [], exact: false },
+	].map(({ hits, exact }) => {
+		if (roles.length) {
+			const typed = hits.filter((n) => roles.includes(n.role));
+			if (typed.length) hits = typed;
+		}
+		return { hits, exact };
+	});
+	for (const stage of stages) {
+		const acting = stage.hits.filter((n) => !DESCRIBES.has(n.role));
+		if (acting.length) return { hits: acting, exact: stage.exact };
 	}
-	if (roles.length) {
-		const typed = hits.filter((n) => roles.includes(n.role));
-		if (typed.length) hits = typed;
-	}
-	const acting = hits.filter((n) => !DESCRIBES.has(n.role));
-	return acting.length ? acting : hits;
+	return stages.find((stage) => stage.hits.length) ?? { hits: [], exact: false };
 }
 
 /** One control line, as read_page shows it. */

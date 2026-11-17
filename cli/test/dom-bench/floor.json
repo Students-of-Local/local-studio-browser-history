@@ -48,7 +48,10 @@
 		"stale-ref-ambiguous",
 		"name-as-ref",
 		"new-tab-click",
-		"no-effect-click"
+		"no-effect-click",
+		"name-partial-refused",
+		"name-past-read-cap",
+		"stale-ref-search-cut"
 	],
 	"failing": {},
 	"calls": {
@@ -100,7 +103,10 @@
 		"stale-ref-ambiguous": 6,
 		"name-as-ref": 6,
 		"new-tab-click": 7,
-		"no-effect-click": 6
+		"no-effect-click": 6,
+		"name-partial-refused": 2,
+		"name-past-read-cap": 2,
+		"stale-ref-search-cut": 5
 	},
 	"ms": {
 		"react-input": 2000,
@@ -151,6 +157,9 @@
 		"stale-ref-ambiguous": 2235,
 		"name-as-ref": 2000,
 		"new-tab-click": 2319,
-		"no-effect-click": 2379
+		"no-effect-click": 2379,
+		"name-partial-refused": 2000,
+		"name-past-read-cap": 2000,
+		"stale-ref-search-cut": 2004
 	}
 }

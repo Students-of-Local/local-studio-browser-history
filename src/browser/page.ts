@@ -461,15 +461,23 @@ function resolveRef(ref: string, live: (el: Element) => boolean, print: (el: Ele
 	const meta = w.__tabkyraRefMeta instanceof Map ? (w.__tabkyraRefMeta as Map<string, RefMeta>).get(ref) : undefined;
 	const findLike =
 		typeof w.__tabkyraFindLike === "function"
-			? (w.__tabkyraFindLike as (role: string, name: string) => Element[])
+			? (w.__tabkyraFindLike as (role: string, name: string) => Element[] & { cut?: boolean })
 			: undefined;
 	const refOfMap = w.__tabkyraRefOf instanceof WeakMap ? (w.__tabkyraRefOf as WeakMap<Element, string>) : undefined;
-	const lookAlikes = (): { same: Element[]; other: Element[] } | undefined => {
+	const lookAlikes = (): { same: Element[]; other: Element[]; cut: boolean } | undefined => {
 		if (!refs || !meta?.name || !findLike || acted.has(ref)) return undefined;
-		const hits = findLike(meta.role, meta.name).filter((x) => x !== el && live(x));
-		return { same: hits.filter((x) => ctx(x) === meta.ctx), other: hits.filter((x) => ctx(x) !== meta.ctx) };
+		const all = findLike(meta.role, meta.name);
+		const hits = all.filter((x) => x !== el && live(x));
+		return {
+			same: hits.filter((x) => ctx(x) === meta.ctx),
+			other: hits.filter((x) => ctx(x) !== meta.ctx),
+			cut: !!all.cut,
+		};
 	};
 	const canTake = !!meta && !meta.alike && !twins.has(ref) && !acted.has(ref);
+	// Only a search that saw every match proves the one in the same row is the only one.
+	const heals = (found: { same: Element[]; cut: boolean } | undefined): found is { same: Element[]; cut: boolean } =>
+		!!found && canTake && !found.cut && found.same.length === 1;
 	const take = (found: Element): Element => {
 		refs?.set(ref, found);
 		prints?.set(ref, print(found));
@@ -502,13 +510,13 @@ function resolveRef(ref: string, live: (el: Element) => boolean, print: (el: Ele
 			.slice(0, 5)
 			.map((x) => `${refFor(x)} in "${ctx(x).slice(0, 60)}"`)
 			.join("; ") + (xs.length > 5 ? `; ${xs.length - 5} more` : "");
-	const candidates = (found: { same: Element[]; other: Element[] } | undefined): string => {
+	const candidates = (found: { same: Element[]; other: Element[]; cut: boolean } | undefined): string => {
 		if (!found || !meta) return "";
 		const what = `${meta.role} "${meta.name.slice(0, 60)}"`;
 		if (found.same.length > 1)
 			return ` ${found.same.length} controls now match its role, name and row (${what}): ${list(found.same)}. Use one of those refs.`;
 		if (found.same.length === 1)
-			return ` One control now matches its role, name and row (${what}): ${list(found.same)}, but the read showed another like it, so nothing proves it is the same. Use that ref if it is.`;
+			return ` One control now matches its role, name and row (${what}): ${list(found.same)}, but ${found.cut ? "the search stopped before it saw every control" : "the read showed another like it"}, so nothing proves it is the same. Use that ref if it is.`;
 		if (found.other.length)
 			return ` In other rows, ${found.other.length === 1 ? "one control has" : `${found.other.length} controls have`} its role and name (${what}): ${list(found.other)}. Check the row before you use one.`;
 		return "";
@@ -517,7 +525,7 @@ function resolveRef(ref: string, live: (el: Element) => boolean, print: (el: Ele
 		if (prints?.get(ref) === print(el)) return el;
 		// The same node, showing something else: never healed onto it. The control it showed may be elsewhere now.
 		const found = lookAlikes();
-		if (found && canTake && found.same.length === 1) return take(found.same[0]);
+		if (heals(found)) return take(found.same[0]);
 		throw new Error(
 			`Ref ${ref} now shows something else: the page reused it.${candidates(found)} Call read_page for fresh refs.`,
 		);
@@ -551,7 +559,7 @@ function resolveRef(ref: string, live: (el: Element) => boolean, print: (el: Ele
 		}
 	}
 	const found = lookAlikes();
-	if (found && canTake && found.same.length === 1) return take(found.same[0]);
+	if (heals(found)) return take(found.same[0]);
 	if (acted.has(ref))
 		throw new Error(
 			`Ref ${ref} not found: the element it named is gone from the page, so the action may already have happened. Call read_page to see the page now, and use its refs.`,
@@ -1115,12 +1123,19 @@ export function pageSnapshot(
 	// Page side, for resolveRef: the visible controls (this read's kinds) with a role and name, in the document, its
 	// open shadow roots and same-origin frames, at most 50.
 	w.__tabkyraFindLike = (role: string, name: string): Element[] => {
-		const out: Element[] = [];
+		const out: Element[] & { cut?: boolean } = [];
 		const sel = `${interactiveSel},${headingSel}`;
+		// cut: the search stopped at its count or depth limit, so a control it did not reach may match as well.
 		const walk = (root: Document | ShadowRoot, depth: number) => {
-			if (depth > 6 || out.length >= 50) return;
+			if (depth > 6 || out.length >= 50) {
+				out.cut = true;
+				return;
+			}
 			for (const el of Array.from(root.querySelectorAll(sel))) {
-				if (out.length >= 50) return;
+				if (out.length >= 50) {
+					out.cut = true;
+					return;
+				}
 				if (roleOf(el) === role && nameOf(el).slice(0, 120) === name && isVisible(el)) out.push(el);
 			}
 			for (const el of Array.from(root.querySelectorAll("*"))) {

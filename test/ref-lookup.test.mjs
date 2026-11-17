@@ -43,3 +43,15 @@ test("a role word picks between controls with the same name, and two left are bo
 	assert.deepEqual(refs("Checkout"), []);
 	assert.deepEqual(refs(""), []);
 });
+
+test("only an exact name is exact: a whole-word match is a guess the bridge asks about", async () => {
+	const { lookUpName } = await import("../src/bridge/ref-lookup.ts");
+	const acct = [
+		{ ref: "e1", role: "heading", name: "Delete" },
+		{ ref: "e2", role: "button", name: "Delete account" },
+	];
+	assert.deepEqual(lookUpName(acct, "Delete"), { hits: [acct[1]], exact: false });
+	assert.equal(lookUpName(page, "Save").exact, true);
+	assert.equal(lookUpName(page, "the Email field").exact, true);
+	assert.equal(lookUpName(page, "Remember").exact, false);
+});

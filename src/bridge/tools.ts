@@ -99,7 +99,7 @@ import {
 } from "./paging.js";
 import { getAllowedHosts, getPermissionMode } from "./permissions.js";
 import { ERR } from "./protocol.js";
-import { cleanRef, matchByName, nodeLine, REF_RE } from "./ref-lookup.js";
+import { cleanRef, lookUpName, nodeLine, REF_RE } from "./ref-lookup.js";
 
 export { BridgeError, detachedError };
 
@@ -1493,6 +1493,9 @@ export const handlers: Record<string, Handler> = {
 
 const MOUSE_BUTTONS = new Set(["left", "right", "middle"]);
 
+/** How many controls a name lookup reads; a read that fills it may have missed a control with the same name. */
+const NAME_LOOKUP_NODES = 600;
+
 /**
  * Before a ref-taking action (D52): the ref in whatever spelling it came ("@e12", "[ref=e12]"), or, when it is not a
  * ref at all, the one control named that. click's mouse button is `mouseButton`; `button` still works, and a `button`
@@ -1515,10 +1518,27 @@ async function refByName(
 	const ref = cleanRef(p.ref);
 	if (REF_RE.test(ref) || !/\p{L}/u.test(ref)) return { params: ref === p.ref ? p : { ...p, ref } };
 	const tabId = await resolveTab(ctx, p, false);
-	const snap = await snapshot(tabId, { filter: "all", maxNodes: 600, maxTextChars: 0, skip: skipFor(ctx, tabId) });
-	const hits = matchByName(snap.nodes, ref);
+	const snap = await snapshot(tabId, {
+		filter: "all",
+		maxNodes: NAME_LOOKUP_NODES,
+		maxTextChars: 0,
+		skip: skipFor(ctx, tabId),
+	});
+	const { hits, exact } = lookUpName(snap.nodes, ref);
 	const asked = JSON.stringify(ref.slice(0, 80));
-	if (hits.length === 1) return { params: { ...p, ref: hits[0].ref }, lookedUp: `${asked} is ${nodeLine(hits[0])}` };
+	// One answer proves nothing when the read stopped at its cap: another control with that name may sit past it.
+	const whole = snap.nodes.length < NAME_LOOKUP_NODES;
+	if (hits.length === 1 && exact && whole)
+		return { params: { ...p, ref: hits[0].ref }, lookedUp: `${asked} is ${nodeLine(hits[0])}` };
+	if (hits.length === 1)
+		throw new BridgeError(
+			ERR.BAD_PARAMS,
+			`${asked} is not a ref (refs look like e12), and ${
+				whole
+					? `no control is named exactly that; the closest is ${nodeLine(hits[0])}`
+					: `the page has more controls than one read holds, so another may share the name; one is ${nodeLine(hits[0])}`
+			}. Nothing was done. Use its ref if it is the one you mean.`,
+		);
 	if (!hits.length)
 		throw new BridgeError(
 			ERR.NOT_FOUND,
