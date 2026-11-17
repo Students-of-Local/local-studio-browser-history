@@ -33,8 +33,9 @@ asks before it opens a site you haven't allowed. Tychicus also ships agent skill
 a security lint, a verified source library, and a side panel agent of its own for when you
 want to chat with a page directly.
 
-*Tabkyra* is *tab* plus *kyra*, from Greek *kybernētēs*, "helmsman". You steer, and it
-works the tabs.
+*Tychicus* is Paul's courier in the New Testament (Ephesians 6:21-22, Colossians 4:7-8), the
+trusted one who carries the letters and does the errands. You send the work, and it carries it
+out in your browser.
 
 <p align="center">
   <a href="media/demo.mp4"><img src="media/demo-poster.jpg" alt="Tychicus demo video: the agent asks before a new site, works in its own tab group, fills a form, checks sources and lints skills" width="760"></a>
@@ -419,7 +420,7 @@ tychicus remote status  # is it up and reachable from the internet?
 Setup prints the connector URL. Paste it into claude.ai (Settings > Connectors > Add custom
 connector), ChatGPT or grok.com. Each one opens Tychicus's approval page, where you pick the
 permissions and enter your passcode. Without Tailscale, a free Cloudflare named tunnel on
-your own domain works too: `tychicus remote setup --public-url https://polycarp.<your domain>`.
+your own domain works too: `tychicus remote setup --public-url https://tychicus.<your domain>`.
 [docs/remote.md](docs/remote.md) has both routes, revoking and the security notes.
 
 Several computers with a browser? Run `tychicus hub setup --public-url https://host` on an always-on box and

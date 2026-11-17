@@ -12,8 +12,8 @@ You need Node 20+, git and a Chromium 141+ browser. Clone into a folder of its o
 because the build puts two sibling repositories beside the clone:
 
 ```bash
-mkdir tabkyra-src && cd tabkyra-src
-git clone https://github.com/baney75/tabkyra && cd tabkyra
+mkdir tychicus-src && cd tychicus-src
+git clone https://github.com/baney75/tychicus && cd tychicus
 ./scripts/setup-siblings.sh               # clones pi-mono and mini-lit, pins and patches them, installs
 (cd cli && npm install && npm run build && npm link)
 tychicus setup                    # builds the extension, registers the host, connects
