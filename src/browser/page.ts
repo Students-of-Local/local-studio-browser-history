@@ -11,6 +11,7 @@ import {
 	bounded,
 	crossOriginFrames,
 	evaluateInFrame,
+	FRAME_CALL_MS,
 	FRAMES_CLOSED,
 	type FrameRule,
 	frameForRef,
@@ -1809,10 +1810,12 @@ export async function locate(
 	act: "click" | "hover" | "fill" | "type" = "click",
 	/** The ref's frame, when the action already found it (its change report's first look). */
 	found?: { frame: PageFrame; inner: string },
-): Promise<{ x: number; y: number; width: number; height: number }> {
+): Promise<{ x: number; y: number; width: number; height: number; aim?: Aim }> {
 	// What the errors call the action: "a click can't reach it", "which would take the click".
 	const aAct = act === "type" ? "typing" : `a ${act}`;
 	const theAct = act === "type" ? "the typing" : `the ${act}`;
+	// Names this call's record of where the pointer went, in a frame (aimInFrame, pressLanded).
+	const aimId = crypto.randomUUID();
 	const code = (r: string | undefined, inFrame: boolean) => `(async () => {
 		delete window.__tabkyraRefound;
 		let el = null;
@@ -1865,6 +1868,35 @@ export async function locate(
 			const on = (e) => { if (e.composedPath().includes(el)) { (${refActed.toString()})(ref); off(); } };
 			for (const t of types) win.addEventListener(t, on, true);
 			const timer = setTimeout(off, 10000);
+		}
+		// In a cross-origin frame, where the input goes out at a point in the tab and the browser routes it: what the
+		// pointer reached, for aimInFrame (a move before the press) and pressLanded (the press itself).
+		if (${JSON.stringify(inFrame && act !== "fill")}) {
+			const win = el.ownerDocument.defaultView || window;
+			if (window.__tabkyraAim && window.__tabkyraAim.off) window.__tabkyraAim.off();
+			const aim = { id: ${JSON.stringify(aimId)}, moved: false, pressed: "" };
+			const what = (t) => {
+				const n = t && t.nodeType === 1 ? t : t && t.parentElement;
+				if (!n) return "the frame's page";
+				const label = String(n.getAttribute("aria-label") || n.textContent || "").replace(/\\s+/g, " ").trim().slice(0, 40);
+				return n.tagName.toLowerCase() + (label ? ' "' + label + '"' : "");
+			};
+			const move = (e) => { if (e.composedPath().includes(el)) aim.moved = true; };
+			const down = (e) => { if (!aim.pressed) aim.pressed = e.composedPath().includes(el) ? "el" : what(e.composedPath()[0] || e.target); };
+			const moves = ["pointermove", "mousemove"];
+			// Every event of the press, the first one counting: a page that stops one before it reaches this world (a
+			// capture listener of its own on the window) still lets the others through, so a press that worked is never
+			// taken for one that missed.
+			const downs = ["pointerdown", "mousedown", "pointerup", "mouseup", "click"];
+			aim.off = () => {
+				for (const t of moves) win.removeEventListener(t, move, true);
+				for (const t of downs) win.removeEventListener(t, down, true);
+				clearTimeout(aim.timer);
+			};
+			for (const t of moves) win.addEventListener(t, move, true);
+			for (const t of downs) win.addEventListener(t, down, true);
+			aim.timer = setTimeout(aim.off, 10000);
+			window.__tabkyraAim = aim;
 		}
 		let x = spot.x;
 		let y = spot.y;
@@ -1925,7 +1957,73 @@ export async function locate(
 		throw new Error(
 			`Ref ${target.ref} is covered by something over its frame, which would take ${theAct}. Close or dismiss it, then call read_page.`,
 		);
-	return at;
+	if (act === "fill") return at;
+	const aim = { frame: now, id: aimId };
+	await aimInFrame(tabId, aim, at, `Ref ${target.ref}`, theAct);
+	return { ...at, aim };
+}
+
+/** Where locate left its record of what the pointer reached in a cross-origin frame: the frame, and the record's id. */
+export interface Aim {
+	frame: PageFrame;
+	id: string;
+}
+
+/** The most aimInFrame tries before it refuses: the browser takes up to a second to route input to a frame that moved. */
+export const AIM_MS = 2500;
+
+/** The aim record's fields, read in the frame's world; null when this call's record isn't there (a new document). */
+function readAim(tabId: number, aim: Aim): Promise<{ moved: boolean; pressed: string } | null | undefined> {
+	const code = `(() => { const a = window.__tabkyraAim; return a && a.id === ${JSON.stringify(aim.id)} ? { moved: a.moved, pressed: a.pressed } : null; })()`;
+	return bounded(runInFrame<{ moved: boolean; pressed: string } | null>(tabId, aim.frame, code));
+}
+
+/**
+ * Before a press into a cross-origin frame: move the pointer to the point and make sure the frame's element got the
+ * move. The browser sends input to an out-of-process frame by where the frame was when the tab last drew, not by
+ * the layout, and an agent's tab is in the background, where it may draw once a second: a press sent right after a
+ * scroll brought the frame into view goes to the <iframe> element in the page around it, and nothing in the frame
+ * sees it. A move is the same routing with no effect of its own, so it is sent again, a drawn frame apart, until it
+ * lands. One that never does refuses, with nothing pressed.
+ */
+async function aimInFrame(tabId: number, aim: Aim, at: { x: number; y: number }, who: string, theAct: string) {
+	const end = Date.now() + AIM_MS;
+	for (;;) {
+		// Its reply is waited for a second at most: a move to where the pointer already is may get none in a background
+		// tab. A failure still fails the call: a debugger that detached, and the handler attaches again and tries once more.
+		const moved = cdpSend(tabId, "Input.dispatchMouseEvent", { type: "mouseMoved", x: at.x, y: at.y });
+		moved.catch(() => undefined);
+		await Promise.race([moved, new Promise((r) => setTimeout(r, FRAME_CALL_MS))]);
+		const got = await readAim(tabId, aim);
+		if (got?.moved) return;
+		if (got === null)
+			throw new Error(
+				`${who} not found: its frame loaded another page. Nothing was pressed. Call read_page for fresh refs.`,
+			);
+		if (Date.now() >= end)
+			throw new Error(
+				got
+					? `${who} is in a frame the browser does not send input to yet (it was just scrolled into view), so ${theAct} would miss it. Nothing was pressed. Try again.`
+					: `${who}: its frame did not answer, so ${theAct} was not sent. Try again, or call read_page.`,
+			);
+		await framePainted(tabId);
+	}
+}
+
+/**
+ * After a press into a cross-origin frame (locate's aim): "el" when it reached the ref's element, else where it went
+ * ("" when nothing in the frame got it: the page around the frame did). Undefined when the frame gave no answer, as
+ * when the press navigated it: then nothing is known, and nothing is claimed.
+ */
+export async function pressLanded(tabId: number, aim: Aim): Promise<string | undefined> {
+	// The press's ack can come before the frame has run its listeners: an empty record is asked again, briefly.
+	const end = Date.now() + 300;
+	for (;;) {
+		const got = await readAim(tabId, aim);
+		if (!got) return undefined;
+		if (got.pressed || Date.now() >= end) return got.pressed;
+		await new Promise((r) => setTimeout(r, 50));
+	}
 }
 
 /** Set a form control's value the way frameworks expect (native setter + input/change). */

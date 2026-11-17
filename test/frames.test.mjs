@@ -76,6 +76,7 @@ test("a click on a frame ref waits for the page to draw before measuring where t
 		if (method === "DOM.resolveNode") return { object: { type: "object", objectId: "o11" } };
 		if (method === "Runtime.callFunctionOn") return { result: { value: "shown" } };
 		if (method === "Page.getLayoutMetrics") return { cssLayoutViewport: { clientWidth: 1280, clientHeight: 800 } };
+		if (method === "Runtime.evaluate" && params.contextId === 7 && aimRead(params.expression)) return { result: { value: { ok: true, value: LANDED } } };
 		if (method === "Runtime.evaluate" && params.contextId === 7) return { result: { value: { ok: true, value: { x: 10, y: 10, width: 4, height: 4 } } } };
 		return {};
 	};
@@ -115,7 +116,13 @@ test("a box a cross-origin frame opens is answered in that frame's session; one 
 // A fake debugger for a tab: `trees` maps a session ("" for the tab's) to its frame tree, `kids` are the
 // out-of-process frames auto-attach announces (targetId to { sessionId, parent }), `contexts` the frame
 // each isolated world belongs to, and `holds` which frame's document holds each frame's <iframe>.
-function fakeTab(tabId, { trees, kids = {}, holds = {}, owners = {}, box = {}, shown = {}, quads = {}, evaluate, hang = new Set(), fail = new Set(), delay = {} }) {
+/** Locate's read of what the pointer reached in a frame (aimInFrame, pressLanded), told from its other page code. */
+const aimRead = (expression) => /__tabkyraAim/.test(expression) && !/resolveRef/.test(expression);
+/** What a frame's pointer record says by default: the move and the press reached the ref's element. */
+const LANDED = { moved: true, pressed: "el" };
+
+// `aim` answers locate's read of the frame's pointer record (LANDED unless set).
+function fakeTab(tabId, { trees, kids = {}, holds = {}, owners = {}, box = {}, shown = {}, quads = {}, evaluate, aim = () => LANDED, hang = new Set(), fail = new Set(), delay = {} }) {
 	const sent = [];
 	const worlds = new Map();
 	// The hit test answers with the <iframe> last asked about in that session: the point lands on the frame itself.
@@ -155,6 +162,7 @@ function fakeTab(tabId, { trees, kids = {}, holds = {}, owners = {}, box = {}, s
 			const q = quads[byNode];
 			return { model: q ? { content: [q[0], q[1]], border: [q[0], q[1]], width: q[2] - q[0] } : { content: [103, 53], border: [100, 50], ...box } };
 		}
+		if (method === "Runtime.evaluate" && params.contextId && aimRead(params.expression)) return { result: { value: { ok: true, value: aim() } } };
 		// Page code: `evaluate` gets the frame whose isolated world it runs in (none: the tab's page) and its expression.
 		if (method === "Runtime.evaluate" && evaluate) {
 			const value = await evaluate(params.contextId ? worlds.get(params.contextId) : undefined, params.expression);
@@ -230,7 +238,7 @@ test("a frame drawn at half size: its points are scaled into the tab's", async (
 	const [frame] = await crossOriginFrames(5, open);
 	assert.equal(frame.scale, 0.5);
 	const at = await locate(5, { ref: `${frameTag("PAY")}e5` }, open);
-	assert.deepEqual(at, { x: 103 + 20, y: 53 + 10, width: 5, height: 4 });
+	assert.deepEqual({ x: at.x, y: at.y, width: at.width, height: at.height }, { x: 103 + 20, y: 53 + 10, width: 5, height: 4 });
 	assert.ok(sent.length > 0);
 });
 
@@ -485,6 +493,84 @@ test("hover and type name their own action when a frame ref can't be reached", a
 	};
 	const err = await handlers.hover(ctx, { ref: `${frameTag("PAY")}e5` }).catch((e) => e);
 	assert.match(String(err?.message), /covered by something over its frame, which would take the hover\./);
+});
+
+/** A click on a frame ref in tab `tabId`, through the tool handler, as one step of a batch (no change report). */
+async function clickInFrame(tabId, aim) {
+	const { handlers } = await import("../src/bridge/tools.ts");
+	chrome.webNavigation.getAllFrames = async () => [{}, {}];
+	const sent = fakeTab(tabId, {
+		trees: { "": node("TOP", "https://shop.example", [node("PAY", "https://pay.example")]) },
+		holds: { PAY: "TOP" },
+		owners: { PAY: 11 },
+		evaluate: () => ({ x: 10, y: 10, width: 4, height: 4 }),
+		aim,
+	});
+	const tab = { id: tabId, url: "https://shop.example/" };
+	const ctx = {
+		session: { tabIds: [tabId], setCurrent: async () => {}, attachedCurrentTab: async () => tab, requireCurrentTab: async () => tab },
+		isGuarded: () => false,
+		guardedHosts: [],
+		batch: true,
+		aborted: () => false,
+		delivered: () => {},
+	};
+	const result = await handlers.click(ctx, { ref: `${frameTag("PAY")}e5` }).catch((e) => e);
+	return { result, sent };
+}
+
+test("a click into a cross-origin frame that the browser sent elsewhere fails: it never reads as a click that worked", async () => {
+	// The browser routes a press into an out-of-process frame by where the frame was when the tab last drew: right after
+	// a scroll it went to the <iframe> in the page around it, and the click said it worked (e2e xo-far, 3 runs in 8).
+	const missed = await clickInFrame(40, () => ({ moved: true, pressed: "" }));
+	assert.ok(missed.result instanceof Error, `a press nothing in the frame got is an error, not ${JSON.stringify(missed.result)}`);
+	assert.match(missed.result.message, /did not reach ref f\w+e5: nothing in its frame got it/);
+	const elsewhere = await clickInFrame(41, () => ({ moved: true, pressed: 'button "Cancel"' }));
+	assert.match(String(elsewhere.result?.message), /did not reach ref f\w+e5: it landed on button "Cancel" in the frame/);
+	const hit = await clickInFrame(42, () => ({ moved: true, pressed: "el" }));
+	assert.ok(!(hit.result instanceof Error), `a press that reached the element is a click: ${hit.result?.message}`);
+	assert.deepEqual(hit.result.clicked, { x: 113, y: 63 });
+});
+
+test("a press into a cross-origin frame goes out only once a move reached the ref's element there", async () => {
+	// Until the tab draws, the browser sends input at the frame's new place to the page around it: the move is sent
+	// again until the frame's element gets it, and only then the press.
+	let reads = 0;
+	const { result, sent } = await clickInFrame(43, () => (++reads < 3 ? { moved: false, pressed: "" } : { moved: true, pressed: "el" }));
+	assert.ok(!(result instanceof Error), String(result?.message));
+	const mouse = sent.filter((c) => c.method === "Input.dispatchMouseEvent").map((c) => c.params.type);
+	const press = mouse.indexOf("mousePressed");
+	assert.ok(press > 0, `a press went out: ${mouse.join(", ")}`);
+	// Three moves, the last one landed; the press adds none of its own to the point the pointer is at (one could wait forever).
+	assert.equal(mouse.slice(0, press).filter((t) => t === "mouseMoved").length, 3, `moved until it landed, then pressed: ${mouse.join(", ")}`);
+	assert.ok(!mouse.slice(press).includes("mouseMoved"), `no move after the press: ${mouse.join(", ")}`);
+	// One that never lands is refused with nothing pressed.
+	const never = await clickInFrame(44, () => ({ moved: false, pressed: "" }));
+	assert.match(String(never.result?.message), /does not send input to yet .* Nothing was pressed/);
+	assert.ok(!never.sent.some((c) => c.method === "Input.dispatchMouseEvent" && c.params.type === "mousePressed"), "no press went out");
+});
+
+test("a hover on a frame ref is the move that landed: no second move to the same point, which may never be answered", async () => {
+	const { handlers } = await import("../src/bridge/tools.ts");
+	chrome.webNavigation.getAllFrames = async () => [{}, {}];
+	const sent = fakeTab(45, {
+		trees: { "": node("TOP", "https://shop.example", [node("PAY", "https://pay.example")]) },
+		holds: { PAY: "TOP" },
+		owners: { PAY: 11 },
+		evaluate: () => ({ x: 10, y: 10, width: 4, height: 4 }),
+	});
+	const tab = { id: 45, url: "https://shop.example/" };
+	const ctx = {
+		session: { tabIds: [45], setCurrent: async () => {}, attachedCurrentTab: async () => tab, requireCurrentTab: async () => tab },
+		isGuarded: () => false,
+		guardedHosts: [],
+		batch: true,
+		aborted: () => false,
+	};
+	const r = await handlers.hover(ctx, { ref: `${frameTag("PAY")}e5` });
+	assert.deepEqual(r, { hovered: { x: 113, y: 63 } });
+	const moves = sent.filter((c) => c.method === "Input.dispatchMouseEvent");
+	assert.equal(moves.length, 1, `one move: ${JSON.stringify(moves.map((c) => c.params))}`);
 });
 
 test("no rule given, no frame is read or acted in: guarded hosts hold without every caller remembering them", async () => {

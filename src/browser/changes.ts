@@ -14,7 +14,7 @@ import { CHANGES_MAX_CHARS, fitChanges } from "../bridge/fit-changes.js";
 import { openDialog } from "./cdp.js";
 import { FRAMES_CLOSED, type FrameRule, frameForRef, splitFrameRef } from "./frames.js";
 import { maskUrl } from "./mask-body.js";
-import { type ChangeLook, changeLook, type FrameLook } from "./page.js";
+import { type ChangeLook, changeLook, FRAME_STATES, type FrameLook } from "./page.js";
 
 /** Controls compared on each side; a page with more is compared on its first this many. */
 const MAX_NODES = 400;
@@ -92,6 +92,12 @@ export type EffectKind = "navigation" | "value" | "dom" | "newTab" | "tabClosed"
 /** States that are a control's value (a checkbox ticked, an option picked), not the page changing around it. */
 const VALUE_STATE = /^(checked|selected|pressed|mixed)$/;
 
+/**
+ * A cross-origin frame's line saying it is out of view or in view: a scroll, which every action on a ref may make on
+ * its way to the element, never what the action did. A frame hidden or shown again is a change.
+ */
+const VIEW_STATES: ReadonlySet<string> = new Set([FRAME_STATES.away, FRAME_STATES.shown]);
+
 /** The kinds one changed control shows: its value (or a value state), or anything else about it. */
 function deltaKinds(a: Node, b: Node, kinds: Set<EffectKind>): void {
 	if ((a.value ?? "") !== (b.value ?? "")) kinds.add("value");
@@ -99,7 +105,7 @@ function deltaKinds(a: Node, b: Node, kinds: Set<EffectKind>): void {
 	const sa = new Set(a.states ?? []);
 	const sb = new Set(b.states ?? []);
 	for (const st of [...sa].filter((x) => !sb.has(x)).concat([...sb].filter((x) => !sa.has(x))))
-		kinds.add(VALUE_STATE.test(st) ? "value" : "dom");
+		if (!VIEW_STATES.has(st)) kinds.add(VALUE_STATE.test(st) ? "value" : "dom");
 }
 
 async function look(

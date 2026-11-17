@@ -902,6 +902,28 @@ test("D50: the effect field names what an action changed, and says nothing only 
 	assert.deepEqual(effectFields(r, kinds), { effect: ["unknown"] });
 });
 
+test("a cross-origin frame the action only scrolled into view or out of it is no change it made: never dom", async () => {
+	// A click on a frame ref below the fold scrolls the frame into view first: its line goes from out of view to shown
+	// whether or not the press reached the frame, so that alone read as "dom" and passed a missed click for one that worked.
+	const { fake, beforeAction, afterAction, effectFields } = await load();
+	const { FRAME_STATES } = await import("../src/browser/page.ts");
+	const tabId = fake.addTab({ url: "https://shop.example/", status: "complete" });
+	const run = async (first, second) => {
+		let n = 0;
+		recordCommands((method, params) => (method === "Runtime.evaluate" && isLook(params) ? says(n++ ? second : first) : undefined));
+		const kinds = new Set();
+		const b = await beforeAction(tabId, [tabId], undefined, GUARDED);
+		const r = await afterAction(b, [tabId], async () => "https://shop.example/", () => false, kinds);
+		return effectFields(r, kinds);
+	};
+	const frame = (state) => look([node("e1", "", { role: "iframe", states: [FRAME_STATES[state]] })]);
+	assert.deepEqual(await run(frame("away"), frame("shown")), { effect: ["nothing"] }, "scrolled into view");
+	assert.deepEqual(await run(frame("shown"), frame("away")), { effect: ["nothing"] }, "scrolled out of view");
+	// A frame the page hid or showed again is the page changing.
+	assert.deepEqual(await run(frame("hidden"), frame("shown")), { effect: ["dom"] }, "shown again");
+	assert.deepEqual(await run(frame("shown"), frame("hidden")), { effect: ["dom"] }, "hidden");
+});
+
 test("D50: a tab the action opened is listed as newTabs, and unknown gives way to a kind that was seen", async () => {
 	const { effectFields } = await load();
 	const opened = [{ tabId: 7, url: "https://help.example/" }];

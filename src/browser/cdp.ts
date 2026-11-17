@@ -744,6 +744,11 @@ export async function click(
 		/** Called just before the click's first mousePressed is sent. */
 		beforeFirstPress?: () => void;
 		/**
+		 * The pointer is already at the point, and what is there got the move (a cross-origin frame's aimInFrame): no
+		 * move is sent. A second move to the same point can wait forever for its reply in a background tab.
+		 */
+		pointerThere?: boolean;
+		/**
 		 * Called just before the click's last mouse event is sent. If it throws (the call ended), the button is let go
 		 * off the page: the element at the spot gets no mouseup or click and no button stays held (second-S3 of the review
 		 * of PR 216). A best effort only: a document-level or click-outside handler may still see that release (D48).
@@ -760,7 +765,9 @@ export async function click(
 	// take every queued move first, so the move still lands before the press (docs/verification/speed-trace.md).
 	// A click that arms an answer for its box (on_dialog) still waits: nothing is armed until its input is going out,
 	// so a box the page opens on its own meanwhile never takes the answer (sol-F2 in test/dialog-preset.test.mjs).
-	const moved = cdpSend(tabId, "Input.dispatchMouseEvent", { type: "mouseMoved", x, y, modifiers });
+	const moved = options.pointerThere
+		? Promise.resolve()
+		: cdpSend(tabId, "Input.dispatchMouseEvent", { type: "mouseMoved", x, y, modifiers });
 	moved.catch(() => undefined);
 	if (options.beforeFirstPress) await moved;
 	for (let i = 1; i <= clickCount; i++) {
