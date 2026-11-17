@@ -146,6 +146,30 @@ test("on a Mac, restarting a stale serve keeps the plist and its own config fold
 	assert.doesNotMatch(readFileSync(launcher, "utf8"), new RegExp(OLD));
 });
 
+test("on a Mac, install --restart-services restarts a serve that ps names by the moved pointer, read back by lsof", async () => {
+	const l = layout("mac-pointer");
+	const { config, launcher } = customFolder(l);
+	writeFileSync(join(l.home, "Library", "LaunchAgents", `${SERVE_SERVICE.label}.plist`), plistText(launcher, { POLYCARP_BROWSER_CONFIG_DIR: config }, join(l.home, "serve.log"), SERVE_SERVICE));
+	// ps names the program by the path it was started through, the pointer, before and after the restart; lsof names the folder.
+	let restarted = false;
+	setServiceSeamForTests({
+		platform: "darwin",
+		exec: (cmd, args) => {
+			const pid = restarted ? 4343 : 4242;
+			if (cmd === "launchctl" && args[0] === "print") return args[1].endsWith(SERVE_SERVICE.label) ? { code: 0, out: `\tpid = ${pid}\n` } : { code: 113, out: "" };
+			if (cmd === "launchctl" && (args[0] === "kickstart" || args[0] === "bootstrap")) restarted = true;
+			if (cmd === "/usr/sbin/lsof") return { code: 0, out: `p${pid}\nn${join(restarted ? l.current : l.old, "tychicus")}\n` };
+			if (cmd === "/bin/ps") return { code: 0, out: `${join(l.root, "tychicus")}\n` };
+			return { code: 0, out: "" };
+		},
+	});
+	const said = [];
+	const code = await asShell(l.home, () => restartStaleServices(l.root, join(l.root, "tychicus"), (line) => said.push(line)));
+	assert.equal(code, 0, said.join("\n"));
+	assert.match(said.join("\n"), /Restarted com\.tychicus\.serve: 1\.0\.0 -> 2\.0\.0 .*pid 4343/);
+	assert.equal(restarted, true, "launchd was asked to restart serve");
+});
+
 test("on Linux, restarting a serve keeps its unit and config folder, and only runs systemctl restart", async () => {
 	const l = layout("linux-restart");
 	const { config, launcher } = customFolder(l);
