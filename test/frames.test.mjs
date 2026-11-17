@@ -162,7 +162,7 @@ function fakeTab(tabId, { trees, kids = {}, holds = {}, owners = {}, box = {}, s
 			const q = quads[byNode];
 			return { model: q ? { content: [q[0], q[1]], border: [q[0], q[1]], width: q[2] - q[0] } : { content: [103, 53], border: [100, 50], ...box } };
 		}
-		if (method === "Runtime.evaluate" && params.contextId && aimRead(params.expression)) return { result: { value: { ok: true, value: aim() } } };
+		if (method === "Runtime.evaluate" && params.contextId && aimRead(params.expression)) return { result: { value: { ok: true, value: aim(sent) } } };
 		// Page code: `evaluate` gets the frame whose isolated world it runs in (none: the tab's page) and its expression.
 		if (method === "Runtime.evaluate" && evaluate) {
 			const value = await evaluate(params.contextId ? worlds.get(params.contextId) : undefined, params.expression);
@@ -496,7 +496,7 @@ test("hover and type name their own action when a frame ref can't be reached", a
 });
 
 /** A click on a frame ref in tab `tabId`, through the tool handler, as one step of a batch (no change report). */
-async function clickInFrame(tabId, aim) {
+async function clickInFrame(tabId, aim, tool = "click", extra = {}) {
 	const { handlers } = await import("../src/bridge/tools.ts");
 	chrome.webNavigation.getAllFrames = async () => [{}, {}];
 	const sent = fakeTab(tabId, {
@@ -515,7 +515,7 @@ async function clickInFrame(tabId, aim) {
 		aborted: () => false,
 		delivered: () => {},
 	};
-	const result = await handlers.click(ctx, { ref: `${frameTag("PAY")}e5` }).catch((e) => e);
+	const result = await handlers[tool](ctx, { ref: `${frameTag("PAY")}e5`, ...extra }).catch((e) => e);
 	return { result, sent };
 }
 
@@ -541,8 +541,9 @@ test("a press into a cross-origin frame goes out only once a move reached the re
 	const mouse = sent.filter((c) => c.method === "Input.dispatchMouseEvent").map((c) => c.params.type);
 	const press = mouse.indexOf("mousePressed");
 	assert.ok(press > 0, `a press went out: ${mouse.join(", ")}`);
-	// Three moves, the last one landed; the press adds none of its own to the point the pointer is at (one could wait forever).
-	assert.equal(mouse.slice(0, press).filter((t) => t === "mouseMoved").length, 3, `moved until it landed, then pressed: ${mouse.join(", ")}`);
+	// Three rounds of two moves (a pixel aside, then the point), the last one landed; the press adds none of its own
+	// to the point the pointer is at (one could wait forever).
+	assert.equal(mouse.slice(0, press).filter((t) => t === "mouseMoved").length, 6, `moved until it landed, then pressed: ${mouse.join(", ")}`);
 	assert.ok(!mouse.slice(press).includes("mouseMoved"), `no move after the press: ${mouse.join(", ")}`);
 	// One that never lands is refused with nothing pressed.
 	const never = await clickInFrame(44, () => ({ moved: false, pressed: "" }));
@@ -570,7 +571,8 @@ test("a hover on a frame ref is the move that landed: no second move to the same
 	const r = await handlers.hover(ctx, { ref: `${frameTag("PAY")}e5` });
 	assert.deepEqual(r, { hovered: { x: 113, y: 63 } });
 	const moves = sent.filter((c) => c.method === "Input.dispatchMouseEvent");
-	assert.equal(moves.length, 1, `one move: ${JSON.stringify(moves.map((c) => c.params))}`);
+	// The aim's pair (a pixel aside, then the point) and nothing after it: no second move to the point the pointer is at.
+	assert.deepEqual(moves.map((c) => [c.params.x, c.params.y]), [[112, 63], [113, 63]], `one aim, no more: ${JSON.stringify(moves.map((c) => c.params))}`);
 });
 
 test("no rule given, no frame is read or acted in: guarded hosts hold without every caller remembering them", async () => {
@@ -1382,4 +1384,28 @@ test("PR 240 leftovers: a refind tells a removed frame from one that did not ans
 	} finally {
 		chrome.tabs.get = getTab;
 	}
+});
+
+test("review r1 first-F1: a second click on the same frame ref lands, though a move to where the pointer is gets no event", async () => {
+	// A move to the point the pointer already rests on reaches no listener in a background tab. The frame's element
+	// counts a move only when it goes somewhere new; with only moves to the same point, a second action never lands.
+	const movedSomewhere = (sent) => {
+		const moves = sent.filter((c) => c.method === "Input.dispatchMouseEvent" && c.params.type === "mouseMoved").map((c) => `${c.params.x},${c.params.y}`);
+		return new Set(moves).size > 1;
+	};
+	const { result } = await clickInFrame(46, (sent) => ({ moved: movedSomewhere(sent), pressed: "el" }));
+	assert.ok(!(result instanceof Error), `the click lands: ${result?.message}`);
+});
+
+test("review r1 second-S1: a press read after the frame's listeners expired is unknown, never a miss that invites a second press", async () => {
+	const { result } = await clickInFrame(47, () => ({ moved: true, pressed: "", expired: true }));
+	assert.ok(!(result instanceof Error), `an expired record claims no miss: ${result?.message}`);
+});
+
+test("review r1 first-F3: type into a frame ref refuses before any key when its focusing press went elsewhere", async () => {
+	const { result, sent } = await clickInFrame(48, () => ({ moved: true, pressed: 'input "Card name"' }), "type", { text: "secret words" });
+	assert.match(String(result?.message), /focuses ref f\w+e5 did not reach it: it landed on input "Card name" in the frame\. Nothing was typed/);
+	assert.ok(!sent.some((c) => c.method === "Input.dispatchKeyEvent" || c.method === "Input.insertText"), "no key or text went out");
+	const pasted = await clickInFrame(49, () => ({ moved: true, pressed: "" }), "type", { text: "secret words", paste: true });
+	assert.match(String(pasted.result?.message), /did not reach it: nothing in its frame got it .* Nothing was pasted/);
 });

@@ -1892,10 +1892,17 @@ export async function locate(
 				for (const t of moves) win.removeEventListener(t, move, true);
 				for (const t of downs) win.removeEventListener(t, down, true);
 				clearTimeout(aim.timer);
+				// A record whose listeners are gone can no longer see a press: it reads as unknown, never as a miss.
+				aim.expired = true;
+			};
+			// Every read keeps the listeners on 10 s more: aiming and pressing can outlast a timer that started here.
+			aim.arm = () => {
+				clearTimeout(aim.timer);
+				aim.timer = setTimeout(aim.off, 10000);
 			};
 			for (const t of moves) win.addEventListener(t, move, true);
 			for (const t of downs) win.addEventListener(t, down, true);
-			aim.timer = setTimeout(aim.off, 10000);
+			aim.arm();
 			window.__tabkyraAim = aim;
 		}
 		let x = spot.x;
@@ -1972,10 +1979,16 @@ export interface Aim {
 /** The most aimInFrame tries before it refuses: the browser takes up to a second to route input to a frame that moved. */
 export const AIM_MS = 2500;
 
-/** The aim record's fields, read in the frame's world; null when this call's record isn't there (a new document). */
-function readAim(tabId: number, aim: Aim): Promise<{ moved: boolean; pressed: string } | null | undefined> {
-	const code = `(() => { const a = window.__tabkyraAim; return a && a.id === ${JSON.stringify(aim.id)} ? { moved: a.moved, pressed: a.pressed } : null; })()`;
-	return bounded(runInFrame<{ moved: boolean; pressed: string } | null>(tabId, aim.frame, code));
+/**
+ * The aim record's fields, read in the frame's world; null when this call's record isn't there (a new document).
+ * `expired`: its listeners turned off before this read, so an empty `pressed` proves nothing. A read re-arms them.
+ */
+function readAim(
+	tabId: number,
+	aim: Aim,
+): Promise<{ moved: boolean; pressed: string; expired?: boolean } | null | undefined> {
+	const code = `(() => { const a = window.__tabkyraAim; if (!a || a.id !== ${JSON.stringify(aim.id)}) return null; if (!a.expired && a.arm) a.arm(); return { moved: a.moved, pressed: a.pressed, expired: !!a.expired }; })()`;
+	return bounded(runInFrame<{ moved: boolean; pressed: string; expired?: boolean } | null>(tabId, aim.frame, code));
 }
 
 /**
@@ -1991,9 +2004,13 @@ async function aimInFrame(tabId: number, aim: Aim, at: { x: number; y: number },
 	for (;;) {
 		// Its reply is waited for a second at most: a move to where the pointer already is may get none in a background
 		// tab. A failure still fails the call: a debugger that detached, and the handler attaches again and tries once more.
-		const moved = cdpSend(tabId, "Input.dispatchMouseEvent", { type: "mouseMoved", x: at.x, y: at.y });
-		moved.catch(() => undefined);
-		await Promise.race([moved, new Promise((r) => setTimeout(r, FRAME_CALL_MS))]);
+		// A pixel aside first: a move to where the pointer already is (a second action on the same ref, a hover before
+		// a click) may get no reply and no event, so it could never land. The point aside is inside the element too.
+		for (const p of [{ x: at.x - 1, y: at.y }, at]) {
+			const moved = cdpSend(tabId, "Input.dispatchMouseEvent", { type: "mouseMoved", x: p.x, y: p.y });
+			moved.catch(() => undefined);
+			await Promise.race([moved, new Promise((r) => setTimeout(r, FRAME_CALL_MS))]);
+		}
 		const got = await readAim(tabId, aim);
 		if (got?.moved) return;
 		if (got === null)
@@ -2021,7 +2038,10 @@ export async function pressLanded(tabId: number, aim: Aim): Promise<string | und
 	for (;;) {
 		const got = await readAim(tabId, aim);
 		if (!got) return undefined;
-		if (got.pressed || Date.now() >= end) return got.pressed;
+		if (got.pressed) return got.pressed;
+		// Listeners that turned off before the press could not see it: nothing is known, and nothing is claimed.
+		if (got.expired) return undefined;
+		if (Date.now() >= end) return got.pressed;
 		await new Promise((r) => setTimeout(r, 50));
 	}
 }

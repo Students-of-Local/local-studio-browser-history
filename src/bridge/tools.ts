@@ -519,6 +519,22 @@ export function normalizeStep(step: Params, i: number): [string, Params] {
 }
 
 /**
+ * After the focusing press of type or paste into a cross-origin frame: refuse before any key or text goes out when
+ * the press reached something else, since the keys would go wherever the focus is.
+ */
+async function focusLanded(tabId: number, aim: Aim | undefined, ref: string | undefined, act: string): Promise<void> {
+	if (!aim) return;
+	const landed = await pressLanded(tabId, aim);
+	if (landed === undefined || landed === "el") return;
+	throw new BridgeError(
+		ERR.NOT_ACTIONABLE,
+		`The press that focuses ref ${ref} did not reach it: ${
+			landed ? `it landed on ${landed} in the frame` : "nothing in its frame got it (the page around the frame did)"
+		}. Nothing was ${act}. Call read_page to see the page, then try again.`,
+	);
+}
+
+/**
  * type with paste:true: the text arrives as one paste, as the page sees a paste (pasteInto), never through the
  * user's clipboard. Text no handler takes goes in at the focus as one insertion. Retried as type is.
  */
@@ -534,6 +550,7 @@ const pasteText: Handler = async (ctx, params) => {
 		if (t.ref || t.selector) {
 			const rect = await locate(tabId, t, skipFor(ctx, tabId), "type", before?.frame.hit);
 			await click(tabId, rect.x, rect.y, { stop: () => stopIfAborted(ctx), pointerThere: !!rect.aim });
+			await focusLanded(tabId, rect.aim, t.ref, "pasted");
 		}
 		stopIfAborted(ctx);
 		handed = true;
@@ -1118,6 +1135,7 @@ export const handlers: Record<string, Handler> = {
 			if (t.ref || t.selector) {
 				const rect = await locate(tabId, t, skipFor(ctx, tabId), "type", before?.frame.hit);
 				await click(tabId, rect.x, rect.y, { stop: () => stopIfAborted(ctx), pointerThere: !!rect.aim });
+				await focusLanded(tabId, rect.aim, t.ref, "typed");
 			}
 			stopIfAborted(ctx);
 			await typeText(tabId, text, ctx.aborted, () => {
