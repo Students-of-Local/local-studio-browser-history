@@ -38,7 +38,7 @@ export interface Repointed {
 
 export interface Finished {
 	name: string;
-	/** "removed" when a tychicus entry already runs the same command. */
+	/** "removed" when a tychicus entry is the same in every field. */
 	action: "renamed" | "removed";
 }
 

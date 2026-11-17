@@ -208,7 +208,7 @@ function printPlan(plan: FilePlan, binary: string): void {
 			console.log(`    ${r.name}: ${r.from} -> ${binary} mcp${alias}`);
 		}
 		for (const f of plan.finished) {
-			console.log(`    ${f.name}: ${f.action === "renamed" ? `renamed to ${MCP_NAME}` : `removed: the ${MCP_NAME} entry already runs the same command`}`);
+			console.log(`    ${f.name}: ${f.action === "renamed" ? `renamed to ${MCP_NAME}` : `removed: the ${MCP_NAME} entry is the same in every field`}`);
 		}
 		for (const line of unifiedDiff(plan.file, plan.before ?? "", plan.after ?? "").split("\n")) {
 			const color = line.startsWith("+") && !line.startsWith("+++") ? c.green : line.startsWith("-") && !line.startsWith("---") ? c.red : c.dim;
