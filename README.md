@@ -8,8 +8,9 @@ and an MCP server. Claude Code, Codex, pi or any MCP client drives your real bro
 in background tabs of its own, while you keep working. The computer-use tools reach desktop apps
 through a platform driver.
 
-Tychicus is becoming a Local Studio plugin. The side panel already chats through Local Studio's
-Eukhe daemon when it runs, on your local models and the subscriptions you signed in to there,
+Tychicus works with or without Local Studio and ships three ways: as Local Studio's default
+plugin, as this Chrome extension, and as a standalone app. When Local Studio runs, the side panel
+chats through its Eukhe daemon, on your local models and the subscriptions you signed in to there,
 without the extension holding any API key (see below). The rest of the CLI and the outside-agent
 tools work as they did in Polycarp.
 

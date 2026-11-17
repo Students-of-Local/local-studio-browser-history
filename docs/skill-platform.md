@@ -64,17 +64,17 @@ How a task names a skill ("<name> skill") decides what the name does:
   "skip", "avoid", or "not the osint skill". That skill is never returned for the task. A
   "no" or "not" elsewhere ("no rush, use the osint skill", "why not use the osint skill",
   "I have no idea who runs this, so use the osint skill") rules nothing out.
-- **The CLI:** `polycarp browser skill install` (or another subcommand, or the same after
-  `polycarp-browser` or the old `tabkyra`) is the Polycarp CLI, read as "polycarpbrowser cli",
+- **The CLI:** `tychicus skill install` (or another subcommand, or the same after the older
+  `polycarp browser`, `polycarp-browser` or `tabkyra`) is the Tychicus CLI, read as "polycarpbrowser cli",
   not a request for the polycarp-browser skill.
-- **The browser skill's other names:** "Polycarp", "polycarp browser" and its old name
-  "tabkyra" read as `polycarp-browser`, in tasks and in skill text alike, so "the polycarp
+- **The browser skill's other names:** "Tychicus", its earlier names "Polycarp" and "polycarp browser", and the
+  skill's old name "tabkyra" read as `polycarp-browser`, in tasks and in skill text alike, so "the polycarp
   skill" and "the tabkyra skill" ask for it.
 - **A subject, not a skill:** nothing points the mention at a skill: no "the", "this" or
   "that" before a singular mention, no use, edit or negation verb, no slash command and no
   backticks. "My biology skill", "what chemistry skills do employers want" and "improve my
   writing skill" (improve or refine with no determiner is about a person) score for no skill.
-  "A Polycarp skill" (a kind of skill to make) keeps its words but asks for no skill. A plural
+  "A Tychicus skill" (a kind of skill to make) keeps its words but asks for no skill. A plural
   with one name ("the chemistry skills employers want") is a subject too.
 - **Lists:** several names before one "skills" ("use the osint and dorks skills", "the maps,
   osint or dorks skills", spaced or hyphenated) are read together, and the verb before the
@@ -107,14 +107,14 @@ the 608 case texts is that "a Tabkyra skill" no longer asks for the tabkyra skil
 `polycarp-browser`).
 
 The router indexes the skills in use: the bundled skills and the user's applied local
-copies (`polycarp browser skill apply`). The index is built once per process and rebuilt only when
-`~/.config/polycarp/browser/skills-local` changes: each file's inode, change time, modification time
+copies (`tychicus skill apply`). The index is built once per process and rebuilt only when
+`~/.config/tychicus/skills-local` changes: each file's inode, change time, modification time
 and size, plus a hash of `index.json`, so two same-size edits within one timestamp tick
 still rebuild it.
 
 ### Using it
 
-- `polycarp browser skill match "<task>" [--json] [--top N]` prints the best skills with their scores
+- `tychicus skill match "<task>" [--json] [--top N]` prints the best skills with their scores
   and one-line descriptions, or `none`.
 - MCP `skill_match {"task": "..."}` returns the same in a few lines, ending with the
   `skill_read` call to make. `skill_read {"name": "..."}` returns one SKILL.md: the user's
@@ -122,7 +122,7 @@ still rebuild it.
   order: first `skill_match` with the user's task (it needs no browser), then `skill_read`
   only for the chosen skill, so only one skill enters the context; `status` comes before any
   browser tool, and a missing browser stops browser work only.
-- Remote sessions (`polycarp browser serve`) see both tools only with the `skills.read` token scope.
+- Remote sessions (`tychicus serve`) see both tools only with the `skills.read` token scope.
   They match and read the bundled skills only, never the user's local skills or edits: a
   remote session can be a cloud agent off the user's devices, and personal skills stay on
   them (D6). Any session created with a tool scope (`allowedTools`) gets the same, whether
@@ -150,7 +150,7 @@ were tuned against `router-cases.jsonl`. Its gates measure regression on a tuned
 true accuracy on new phrasings. The held-out figures are the closer estimate of that, and
 they have lower floors.
 
-`polycarp browser skill eval [--json] [--cases <file>]` runs every case against the bundled skills and
+`tychicus skill eval [--json] [--cases <file>]` runs every case against the bundled skills and
 checks seven gates. It exits 1 when any fails.
 
 | Gate | Requirement |
@@ -164,7 +164,7 @@ checks seven gates. It exits 1 when any fails.
 | held-out none | 10% or fewer of held-out `none` cases route to a skill |
 
 Cases that name a skill the catalog doesn't have are skipped and listed, so cases can land
-before or after their skill. `polycarp browser skill eval --update-baseline` rewrites `baseline.json`
+before or after their skill. `tychicus skill eval --update-baseline` rewrites `baseline.json`
 from the current results. Commit it in the same pull request as the change that moved the
 numbers.
 
@@ -218,12 +218,12 @@ top-1 88.5% (85 of 96) and false invokes 0% (0 of 14). The top-1 gate needs 376 
 The `skill-regression` job in `.github/workflows/ci.yml` builds the CLI without install
 scripts and runs:
 
-1. `polycarp browser skill lint skills`, which includes the `budget` rule: every SKILL.md is 150
-   lines and 8,000 characters or fewer. `polycarp browser skill apply` runs the same lint, so a local
+1. `tychicus skill lint skills`, which includes the `budget` rule: every SKILL.md is 150
+   lines and 8,000 characters or fewer. `tychicus skill apply` runs the same lint, so a local
    edit can't grow a skill past the budget either. A local edit applied before the budget
-   existed is still used when it's over; `polycarp browser skill list` and `install` warn, naming the
+   existed is still used when it's over; `tychicus skill list` and `install` warn, naming the
    file and the rule, until it is trimmed and applied again.
-2. `polycarp browser skill eval`, the seven gates above. `--router <script>` runs a router built
+2. `tychicus skill eval`, the seven gates above. `--router <script>` runs a router built
    from `cli/src/router-worker.ts` (`dist/router-worker.js`) in a child process instead of
    this one.
 3. `cli/test/skill-router.test.mjs`, `cli/test/skill-platform.test.mjs` and
@@ -249,7 +249,7 @@ router runs only inside the judge's sandboxed child process.
    again. Both decide with `.github/scripts/judge-label.mjs`, which fails closed when a push
    can't be compared.
 5. On every pull request, the judge job runs
-   `polycarp browser skill eval --base <base files> --router <script>`.
+   `tychicus skill eval --base <base files> --router <script>`.
 
    | From the pull request (what is judged) | From the base branch (the judge) |
    | --- | --- |
@@ -307,26 +307,26 @@ router runs only inside the judge's sandboxed child process.
 A skill's version is the first 12 hex digits of the SHA-256 of its SKILL.md, so the same
 text has the same version wherever it is stored.
 
-- `polycarp browser skill list --json` gives each skill's name, description, version and source
+- `tychicus skill list --json` gives each skill's name, description, version and source
   (`bundled` or `local`).
-- `polycarp browser skill versions <name> [--json]` lists the bundled version, the applied local
-  version and every version in `~/.config/polycarp/browser/skill-history/<name>/` with the time it
+- `tychicus skill versions <name> [--json]` lists the bundled version, the applied local
+  version and every version in `~/.config/tychicus/skill-history/<name>/` with the time it
   was kept and why (`backup` before an apply, `reverted`, or `<harness>-replaced`).
 
 ## Rollback
 
-`polycarp browser skill rollback <name> --to <version|time> [--yes]` restores a version from
+`tychicus skill rollback <name> --to <version|time> [--yes]` restores a version from
 skill-history. `--to` takes 6 to 12 hex digits of a version or the time `versions` prints.
-The text goes through the same checks as `polycarp browser skill apply`: lint, the protected skills
+The text goes through the same checks as `tychicus skill apply`: lint, the protected skills
 (`rsi`, `kyraskillmaker`) and the protected sections. Without `--yes` it prints the diff,
 changes nothing and exits 3. An unknown or ambiguous version is refused. A target that is
-the bundled text removes the local edit, as `polycarp browser skill revert <name>` does, instead of
+the bundled text removes the local edit, as `tychicus skill revert <name>` does, instead of
 pinning a local copy that would stop bundled updates.
 
 ## Editor
 
-`polycarp browser skill edit <name> [--yes]` copies the exact source in use (`print --raw`) to
-`~/.config/polycarp/browser/skill-drafts/<name>/SKILL.md` and records the version it was taken from
+`tychicus skill edit <name> [--yes]` copies the exact source in use (`print --raw`) to
+`~/.config/tychicus/skill-drafts/<name>/SKILL.md` and records the version it was taken from
 in `skill-drafts/.bases/<name>`. An unfinished draft taken from the current version is
 resumed. A draft taken from an older version (an apply or rollback happened since) would
 undo those changes, so it is moved to `skill-drafts/.backups/<name>/`, with a warning, and a

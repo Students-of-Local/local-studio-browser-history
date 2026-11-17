@@ -290,7 +290,7 @@ audio length: under 1 is faster than speech.
 | Moonshine tiny (English) | processor | 28 MB | 10.0% | 0.08 |
 | Whisper tiny | processor | 41 MB | 14.8% | 0.32 |
 
-The strong models missed one word, the name "Polycarp" ("TabKara", "Tabgira"). Clean synthetic
+The strong models missed one word, the name "Tabkyra" ("TabKara", "Tabgira"). Clean synthetic
 speech doesn't separate them; turbo's lead (large-v3 accuracy) shows on accents, noise and other
 languages, which these clips don't test. Turbo's first load took 177 s, almost all of it the
 download.

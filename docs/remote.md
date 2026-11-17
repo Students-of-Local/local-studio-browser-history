@@ -1,11 +1,10 @@
-# Use Polycarp from claude.ai, ChatGPT and grok.com
+# Use Tychicus from claude.ai, ChatGPT and grok.com
 
-Web assistants can drive your own signed-in browser through Polycarp and, if you tick it when you
+Web assistants can drive your own signed-in browser through Tychicus and, if you tick it when you
 approve one, apps on your Mac's agent workspace ([Computer use](#computer-use)). It runs on your computer and
-through your own free account with Tailscale or Cloudflare: no account with us, no relay, no cost. The commands below
-also run as `polycarp browser`, for example `polycarp browser remote setup`.
+through your own free account with Tailscale or Cloudflare: no account with us, no relay, no cost.
 
-**In the Polycarp app, use Settings > Browser > "Use Polycarp from Claude, ChatGPT and Grok".** It
+**In the Tychicus side panel, use Settings > Agents > "Use Tychicus from Claude, ChatGPT and Grok".** It
 walks you through the same steps with buttons. The rest of this page is the terminal.
 
 ## Quick start
@@ -13,7 +12,7 @@ walks you through the same steps with buttons. The rest of this page is the term
 One command:
 
 ```bash
-polycarp browser remote setup
+tychicus remote setup
 ```
 
 What you will see, in order:
@@ -25,9 +24,9 @@ What you will see, in order:
    again continues from where it was.
 3. `From the internet, as an assistant sees it:` and one line per check (public DNS, the certificate, the OAuth
    metadata, the sign-in challenge, a streaming probe). All ok means an assistant can connect now. A brand-new name
-   can take a few minutes to reach public DNS; then run `polycarp browser remote test` again in a few minutes.
+   can take a few minutes to reach public DNS; then run `tychicus remote test` again in a few minutes.
 4. The connector URL, `https://<this-computer>.<your-tailnet>.ts.net:8443/mcp`.
-5. A connect code (`TK-XXXX-XXXX`). It works once, for 10 minutes. `polycarp browser token approval-code` makes another.
+5. A connect code (`TK-XXXX-XXXX`). It works once, for 10 minutes. `tychicus token approval-code` makes another.
 6. The passcode, only in the run that made it. Keep it: it re-approves an assistant you already approved.
 
 Then add the connector URL in each assistant you use:
@@ -36,29 +35,29 @@ Then add the connector URL in each assistant you use:
 - **ChatGPT**: Settings > Apps & Connectors, turn on developer mode, then Create. Paste the URL and choose OAuth.
 - **grok.com**: grok.com/connectors > New Connector > Custom. Paste the URL.
 
-Each opens Polycarp's approval page. Check the name, tick the permissions, type the connect code and press Allow.
+Each opens Tychicus's approval page. Check the name, tick the permissions, type the connect code and press Allow.
 
 To prove it works from outside at any time, and to repair it:
 
 ```bash
-polycarp browser remote test   # what an assistant sees: DNS, TLS, OAuth, sign-in, streaming
-polycarp browser remote fix    # repairs what test or status found, asking before each step
+tychicus remote test   # what an assistant sees: DNS, TLS, OAuth, sign-in, streaming
+tychicus remote fix    # repairs what test or status found, asking before each step
 ```
 
 ## Mac, Linux and Windows
 
 **Mac.** Install Tailscale from the App Store or tailscale.com and sign in; setup finds the app's own `tailscale` at
 `/Applications/Tailscale.app/Contents/MacOS/Tailscale` when it isn't on PATH. Services run under launchd
-(`~/Library/LaunchAgents/com.polycarp.serve.plist`), and the Mac must stay on and awake.
+(`~/Library/LaunchAgents/com.tychicus.serve.plist`), and the Mac must stay on and awake.
 
-**Linux.** Two one-time steps that Polycarp prints and never runs for you, because both need root or a session change:
+**Linux.** Two one-time steps that Tychicus prints and never runs for you, because both need root or a session change:
 
 ```bash
 sudo tailscale set --operator=$USER   # lets your user open Funnel
 loginctl enable-linger $USER          # keeps your user services running after you log out
 ```
 
-Services run as systemd user units (`~/.config/systemd/user/polycarp-serve.service`). `remote status` and `remote fix`
+Services run as systemd user units (`~/.config/systemd/user/tychicus-serve.service`). `remote status` and `remote fix`
 warn when either step is missing.
 
 **Windows.** Both routes work without administrator rights. Each service is a Task Scheduler task for your account,
@@ -67,7 +66,7 @@ language, so `remote status` and `remote fix` treat an installed tunnel task as 
 
 ## Troubleshooting
 
-Run `polycarp browser remote fix` first: it repairs what it can, one step at a time, and names the rest. `remote test`
+Run `tychicus remote fix` first: it repairs what it can, one step at a time, and names the rest. `remote test`
 and `remote status --json` give the `state` or check name in the first column.
 
 | State or check | What it means | Do this |
@@ -88,7 +87,7 @@ and `remote status --json` give the `state` or check name in the first column.
 | `auth_challenge` | `/mcp` doesn't answer a sign-in challenge. | `remote fix`. |
 | `streaming` | The stream's first bytes take over 5 seconds, so assistants time out. | Use Tailscale Funnel or a Cloudflare named tunnel, not a quick tunnel or a buffering proxy. |
 | `probe_cleanup` | `remote test` couldn't delete its probe token. It stops working by itself two minutes after it was made. | The `token revoke <id>` command in `next`. |
-| `passcode` | No passcode is set. | `polycarp browser token passcode` (shown once). |
+| `passcode` | No passcode is set. | `tychicus token passcode` (shown once). |
 | `linger`, `tailscale user` | Linux one-time steps. | The command in [Mac, Linux and Windows](#mac-linux-and-windows). |
 
 `remote fix` restarts the `serve` and `cloudflared` services, opens Funnel, downloads cloudflared after you say yes, and
@@ -101,8 +100,8 @@ no `--yes` it changes nothing and exits 3 with the list.
 ## Check it
 
 ```bash
-polycarp browser remote status   # fast checks from this computer
-polycarp browser remote test     # the proof, from outside
+tychicus remote status   # fast checks from this computer
+tychicus remote test     # the proof, from outside
 ```
 
 `remote status` checks `remote.json`, the passcode, whether `serve` answers on this computer, public DNS and a public
@@ -118,18 +117,18 @@ uses a token made for it alone, with the narrowest scope (`skills.read`, no brow
 every token check enforces, and deleted when the probe ends, also on Ctrl-C. If the delete fails, the run fails with a
 `probe_cleanup` check naming the token's id; the token still stops working at its expiry. Its secret is never printed,
 logged or in `--json`. Every request has an absolute deadline, so a proxy that trickles bytes can't stretch it. `remote setup` runs the same checks at its end. The
-computer must stay on, awake and signed in to the browser with Polycarp loaded.
+computer must stay on, awake and signed in to the browser with Tychicus loaded.
 
 ## Setup in detail
 
 `remote setup` turns on Tailscale Funnel for this computer, sets an approval passcode (shown once), writes
-`remote.json` and installs a user service that keeps `polycarp browser serve` running.
+`remote.json` and installs a user service that keeps `tychicus serve` running.
 
 In a terminal it waits instead of stopping. With no route flag it uses whichever of Tailscale and Cloudflare is ready,
 and asks when both or neither is. If Tailscale isn't installed it prints the download link and waits; if it's signed
 out it waits for the sign-in; if Funnel isn't allowed yet it opens Tailscale's page, says what to click and tries again
 every 5 seconds for up to 10 minutes; if the service has no launcher yet it writes one (only the launcher; run
-`polycarp browser install` yourself to register browsers). `--no-wait` makes it stop and say what to do instead, and
+`tychicus install` yourself to register browsers). `--no-wait` makes it stop and say what to do instead, and
 `--no-input` never asks a question (it needs `--tailscale`, `--cloudflare <name>` or `--public-url`). `--json`, or a
 run with no terminal, never waits or asks. A connect code is made for a person at a terminal, or with `--connect-code`.
 
@@ -139,7 +138,7 @@ run with no terminal, never waits or asks. A connect code is made for a person a
 
 ## Tailscale or Cloudflare
 
-Both are free and run on your own account. Polycarp never makes an account. It installs neither tool, and downloads cloudflared only when you say yes.
+Both are free and run on your own account. Tychicus never makes an account. It installs neither tool, and downloads cloudflared only when you say yes.
 
 - **Tailscale** needs no domain, so it's the quickest. The address is `https://<computer>.<tailnet>.ts.net:8443`.
 - **Cloudflare** puts the address on a domain you have on your Cloudflare account, because a Cloudflare tunnel with a
@@ -148,35 +147,37 @@ Both are free and run on your own account. Polycarp never makes an account. It i
 From the terminal:
 
 ```bash
-polycarp browser remote cloudflare login                        # your browser opens Cloudflare; pick the domain
-polycarp browser remote setup --cloudflare polycarp.example.com
+tychicus remote cloudflare login                        # your browser opens Cloudflare; pick the domain
+tychicus remote setup --cloudflare tychicus.example.com
 ```
 
-`setup` makes a tunnel named `polycarp-<this computer>`, or reuses it, adds the DNS record and keeps both `serve` and
+`setup` makes a tunnel named `tychicus-<this computer>-<4 hex>` (kept in `~/.config/tychicus/cloudflare-tunnel-name`), or reuses it, adds the DNS record and keeps both `serve` and
 `cloudflared` running as services. It never overwrites or deletes a DNS record: a name already in use is refused, in
 Cloudflare's own words. Before it makes anything it asks public DNS which zone the name is in, and refuses a zone public
-DNS shows is served somewhere other than Cloudflare, or a name outside the zone an earlier sign-in proved. Polycarp never
+DNS shows is served somewhere other than Cloudflare, or a name outside the zone an earlier sign-in proved. Tychicus never
 reads cloudflared's sign-in file, so with several zones on your account and no earlier setup it can't tell which one the
 sign-in covers. If Cloudflare then puts the record in another zone, setup stops, names the record it made, and says you
-can delete it in the Cloudflare dashboard (DNS, Records); Polycarp never deletes DNS records. It remembers the zone, so
+can delete it in the Cloudflare dashboard (DNS, Records); Tychicus never deletes DNS records. It remembers the zone, so
 the next name outside it is refused with nothing made.
 
 In a terminal, `remote setup --cloudflare` does the rest inline: with no `cloudflared` it offers the download below
 (y/N; `--yes` accepts, and it never downloads without one of those), signs you in to Cloudflare and waits, asks for the
 name if you gave none, and after the tunnel starts checks the public address for up to 5 minutes, with a line while it waits.
 `remote off` stops the tunnel and leaves the tunnel and its record on your account, so turning it on again reuses them;
-`cloudflared tunnel delete polycarp-<this computer>` removes the tunnel for good.
+`cloudflared tunnel delete` with the name in `~/.config/tychicus/cloudflare-tunnel-name` removes the tunnel for good.
+Delete only that name. After `remote import-polycarp` it is the tunnel Polycarp made, now Tychicus's; any other
+`polycarp-...` tunnel is the Polycarp app's and still serves it.
 
 Settings > Agents does the same with buttons; see "From the side panel" below. If no `cloudflared` is installed it
 downloads its own (pinned release 2026.10.7, SHA-256 checked before anything is unpacked or run) to
-`~/.config/polycarp/browser/bin/cloudflared`; one on your PATH or in Homebrew's folders is used first. When Funnel is on,
+`~/.config/tychicus/bin/cloudflared`; one on your PATH or in Homebrew's folders is used first. When Funnel is on,
 choosing Cloudflare turns Funnel off only after the tunnel is ready; in a terminal that is
 `remote setup --cloudflare <name> --replace-funnel`.
 
 ## From the side panel
 
-Settings > Agents > "Use Polycarp from Claude, ChatGPT and Grok" turns it on without a terminal, on Mac, Linux and
-Windows. It asks Polycarp's helper through the native host, so the helper must be installed; nothing the page holds
+Settings > Agents > "Use Tychicus from Claude, ChatGPT and Grok" turns it on without a terminal, on Mac, Linux and
+Windows. It asks Tychicus's helper through the native host, so the helper must be installed; nothing the page holds
 reaches a command line (the remote methods take no parameters, and the Cloudflare address is checked before use).
 
 1. **Choose a way.** Tailscale (no domain; recommended when it is installed) or Cloudflare (a domain on your account).
@@ -212,9 +213,9 @@ being published, and brings no connect code.
 The Linux desktop app has no remote screen; on Linux, use the side panel or the terminal. On Windows the helper finds
 `tailscale.exe` and `cloudflared.exe` in their installers' folders as well as on PATH ("Windows" below).
 
-`polycarp browser tunnel cloudflare` is a quick tunnel for local testing with a token, with no account: a temporary
+`tychicus tunnel cloudflare` is a quick tunnel for local testing with a token, with no account: a temporary
 `*.trycloudflare.com` address that changes each time it starts. claude.ai, ChatGPT and grok.com can't use it, because a
-quick tunnel doesn't carry their event stream. For them, use `polycarp browser remote setup`. It finds `cloudflared` the
+quick tunnel doesn't carry their event stream. For them, use `tychicus remote setup`. It finds `cloudflared` the
 same way setup does, including the copy setup downloaded.
 
 ## Computer use
@@ -230,14 +231,14 @@ below is about remote callers only.
 A connector is held to Default whatever else is on. Full Access in Settings is for agents on your Mac:
 with it on, a connector still sees only the agent workspace and apps you lend, and starts only apps on
 the short list. It can't lend itself anything and can't drive an Open or Save panel in any window. An
-app Polycarp starts for it can't show a document from outside the handoff folder. Read Only stops it
+app Tychicus starts for it can't show a document from outside the handoff folder. Read Only stops it
 acting too. An app you lend is lent with what it shows, to every agent and connector with these
 permissions, until you take it back or the time runs out. If the Polycarp app or `polycarp-spaces` on
 this Mac is too old to enforce all this, the connector gets no computer tools.
 
 The agent's apps run as you. Those window rules keep it out of your other windows, but an app can reach
 what you can, so tick this only for an assistant you'd let sit at your keyboard. Revoke a connector with
-`polycarp browser token revoke` and everything it was granted ends.
+`tychicus token revoke` and everything it was granted ends.
 
 ## For an app
 
@@ -318,16 +319,16 @@ app behave the same.
 
 ## What you need
 
-- Polycarp installed and connected (`polycarp browser setup`, then `polycarp browser install` so the service has a
+- Tychicus installed and connected (`tychicus setup`, then `tychicus install` so the service has a
   launcher to start).
 - Tailscale on this computer, signed in. Free plan is enough. If Funnel isn't allowed for your
-  tailnet yet, `polycarp browser remote setup` opens the Tailscale page that allows it and waits while you
+  tailnet yet, `tychicus remote setup` opens the Tailscale page that allows it and waits while you
   allow it (with `--no-wait`, `--json` or no terminal it prints the page and stops; run setup again after).
 
 On Linux, two more things:
 
 - Tailscale refuses changes from a user who isn't its operator, with "Access denied" and its own advice. Setup
-  prints the fix and waits for you to run it once; Polycarp never runs sudo:
+  prints the fix and waits for you to run it once; Tychicus never runs sudo:
 
   ```bash
   sudo tailscale set --operator=$USER
@@ -341,46 +342,46 @@ you serve on 443 stays private.
 
 ## If Funnel won't work
 
-`polycarp browser remote setup` stops, without changing anything, when:
+`tychicus remote setup` stops, without changing anything, when:
 
 - Tailscale isn't installed (in a terminal it waits for you to install it instead).
 - The tailnet has Tailnet Lock on. Funnel doesn't work on a Tailnet Lock tailnet.
 - Port 8443 on this computer already serves something else, or forwards plain TCP.
-- A `remote.json` or a service from an earlier setup is in the way (`polycarp browser remote off` clears it).
+- A `remote.json` or a service from an earlier setup is in the way (`tychicus remote off` clears it).
 
 The free way out is your own HTTPS front door. A Cloudflare named tunnel costs nothing (an
 account includes 1,000) and needs a domain on Cloudflare:
 
 ```bash
 cloudflared tunnel login
-cloudflared tunnel create polycarp
-cloudflared tunnel route dns polycarp polycarp.<your domain>
+cloudflared tunnel create tychicus
+cloudflared tunnel route dns tychicus tychicus.<your domain>
 ```
 
-Point the tunnel at Polycarp in `~/.cloudflared/config.yml`:
+Point the tunnel at Tychicus in `~/.cloudflared/config.yml`:
 
 ```yaml
-tunnel: polycarp
+tunnel: tychicus
 credentials-file: /home/<you>/.cloudflared/<tunnel id>.json
 ingress:
-  - hostname: polycarp.<your domain>
+  - hostname: tychicus.<your domain>
     service: http://127.0.0.1:8787
   - service: http_status:404
 ```
 
-Run it (`cloudflared tunnel run polycarp`, or as a service with `cloudflared service install`),
-then tell Polycarp the address:
+Run it (`cloudflared tunnel run tychicus`, or as a service with `cloudflared service install`),
+then tell Tychicus the address:
 
 ```bash
-polycarp browser remote setup --public-url https://polycarp.<your domain>
+tychicus remote setup --public-url https://tychicus.<your domain>
 ```
 
 `--public-url` takes an origin only (`https://host`, no path). Any HTTPS front door that forwards
 to `127.0.0.1:8787` works the same way. `--port N` changes the port; `--no-service` skips the
-service, and you start `polycarp browser serve` yourself. Quick tunnels (`trycloudflare.com`) won't do:
+service, and you start `tychicus serve` yourself. Quick tunnels (`trycloudflare.com`) won't do:
 the name changes on every start.
 
-If you switch from Funnel to your own front door, run `polycarp browser remote off` first so Funnel closes;
+If you switch from Funnel to your own front door, run `tychicus remote off` first so Funnel closes;
 setup refuses to switch while Funnel from an earlier setup is on.
 
 ## Add the connector
@@ -391,29 +392,30 @@ Paste `<public URL>/mcp` in each:
 - **ChatGPT**: Settings > Apps & Connectors (turn on developer mode) > Create. Choose OAuth.
 - **grok.com**: grok.com/connectors > New Connector > Custom.
 
-Each opens Polycarp's approval page. Check the name and the site you return to, tick the
+Each opens Tychicus's approval page. Check the name and the site you return to, tick the
 permissions, enter the connect code setup printed and press Allow. A new assistant needs a connect
-code; the passcode alone is refused for one (D34). Code used or expired? `polycarp browser token approval-code`
+code; the passcode alone is refused for one (D34). Code used or expired? `tychicus token approval-code`
 makes another. Later approvals of an assistant you already approved take the passcode. Only approve a connection
-you just started. Lost the passcode? `polycarp browser token passcode` makes a new one; approvals you already
+you just started. Lost the passcode? `tychicus token passcode` makes a new one; approvals you already
 gave keep working.
 
 ## Windows
 
-Both routes work on Windows without administrator rights, and Polycarp runs no installer. Install Tailscale or
-cloudflared yourself as usual, or let the Cloudflare route offer Polycarp's own copy of cloudflared (Windows on x64 only;
-it asks first, as on the Mac, and checks the download's SHA-256 before using it). Polycarp finds `tailscale.exe` and
+Both routes work on Windows without administrator rights, and Tychicus runs no installer. Install Tailscale or
+cloudflared yourself as usual, or let the Cloudflare route offer Tychicus's own copy of cloudflared (Windows on x64 only;
+it asks first, as on the Mac, and checks the download's SHA-256 before using it). Tychicus finds `tailscale.exe` and
 `cloudflared.exe` on PATH, then in the installers' folders (`C:\Program Files\Tailscale`, `C:\Program Files\cloudflared`,
 `C:\Program Files (x86)\cloudflared`), then its own copy, `bin\cloudflared.exe` in the helper's config folder.
 
 Windows has no user service like launchd or systemd, so each service is a Task Scheduler task for your account alone:
-`com.polycarp.serve`, plus `com.polycarp.cloudflared` on the Cloudflare route (`com.polycarp.hub` and `com.polycarp.link`
+`com.tychicus.serve`, plus `com.tychicus.cloudflared` on the Cloudflare route (`com.tychicus.hub` and `com.tychicus.link`
 for a hub and a device). Each starts when you log on, runs with your own limited rights, stores no password, and runs a
 small script that starts the program again 10 seconds after it stops. They live in the helper's config folder, the same one
-it uses everywhere else: `%USERPROFILE%\.config\polycarp\browser`, or `POLYCARP_BROWSER_CONFIG_DIR` when you set it.
+it uses everywhere else: `%USERPROFILE%\.config\tychicus`, or `TYCHICUS_CONFIG_DIR` when you set it. Tasks named
+`com.polycarp.*` are the Polycarp app's; leave them to it.
 
-- The scripts the tasks run: `services\com.polycarp.serve.cmd` and the others beside it.
-- The logs: `logs\polycarp-serve.log`, `logs\polycarp-cloudflared.log` and so on (Windows has no journal). When the
+- The scripts the tasks run: `services\com.tychicus.serve.cmd` and the others beside it.
+- The logs: `logs\tychicus-serve.log`, `logs\tychicus-cloudflared.log` and so on (Windows has no journal). When the
   program starts again, a log past 10 MB becomes `<name>.log.1`, replacing the one before; a program that runs for weeks
   keeps writing to the same log until then.
 
@@ -421,15 +423,15 @@ The scripts name no folder: each finds the config folder from its own place, so 
 ASCII works.
 
 Each task shows a command window while it runs, titled with its name. Closing that window stops the service until you
-log on again or run setup again. `schtasks /Query /TN com.polycarp.serve /V /FO LIST` shows a task.
+log on again or run setup again. `schtasks /Query /TN com.tychicus.serve /V /FO LIST` shows a task.
 
-`polycarp browser remote off` removes it: it ends the tasks, ends the programs they started with `taskkill /T` and checks
+`tychicus remote off` removes it: it ends the tasks, ends the programs they started with `taskkill /T` and checks
 they are gone, then deletes the tasks and their scripts, and keeps the logs. Each program records its pid and start time
 when it starts and marks the record `exited` when it exits; a pid is ended only while Windows (`Get-Process`) reports the same
 start time, so a pid Windows has since given to another program is never touched. A program that won't stop, one whose
 start time can't be read, or a running task with no record leaves its task in place and says what to end in Task Manager.
 If Windows refuses to make a task, in any language, setup says your organization may block scheduled tasks and how to run
-`polycarp browser serve` yourself instead.
+`tychicus serve` yourself instead.
 
 When setup asks you to allow Funnel, it opens the page in your default browser (on Windows through `rundll32.exe
 url.dll,FileProtocolHandler`, so no command line parses the address) and prints the address either way.
@@ -437,14 +439,14 @@ url.dll,FileProtocolHandler`, so no command line parses the address) and prints 
 ## Revoke
 
 ```bash
-polycarp browser token clients   # connectors and their grants
-polycarp browser token revoke tkc_...  # remove one client and every grant it holds
-polycarp browser remote off      # close Funnel, stop the service, delete remote.json
+tychicus token clients   # connectors and their grants
+tychicus token revoke tkc_...  # remove one client and every grant it holds
+tychicus remote off      # close Funnel, stop the service, delete remote.json
 ```
 
 `remote off` leaves approvals in `oauth.json`. They can't be used while the URL is gone, but they
-become usable again if you set up later with the same URL. `polycarp browser token clients` lists them and
-`polycarp browser token revoke <client id>` ends them for good.
+become usable again if you set up later with the same URL. `tychicus token clients` lists them and
+`tychicus token revoke <client id>` ends them for good.
 
 On a custom route (`--public-url`), `remote off` can't close your front door: your own tunnel
 keeps forwarding to this computer. Stop it there, for example by stopping `cloudflared`.
@@ -453,7 +455,7 @@ keeps forwarding to this computer. Stop it there, for example by stopping `cloud
 
 - Anyone on the internet can reach the URL. Two things stand between them and your browser: the
   connect code or passcode on the approval page (a new assistant needs the one-time code; five wrong tries per
-  connection, then a 15-minute wait) and the per-permission consent. Keep the passcode in a password manager the browser Polycarp drives can't fill, and don't reuse it.
+  connection, then a 15-minute wait) and the per-permission consent. Keep the passcode in a password manager the browser Tychicus drives can't fill, and don't reuse it.
 - An approval carries only the permissions you ticked; there is no wildcard. `browser.script`
   (run code in a page as you) and `threads.read` (your past chats) start unticked. Leave them off
   unless you need them.
@@ -467,44 +469,44 @@ keeps forwarding to this computer. Stop it there, for example by stopping `cloud
 
 One connector URL for claude.ai, ChatGPT and grok.com, and any number of your own computers behind
 it. The hub runs on an always-on box (a small server, a Raspberry Pi) and needs no browser. Each
-computer that has a browser with Polycarp dials in. It is still your own server, with no relay and
+computer that has a browser with Tychicus dials in. It is still your own server, with no relay and
 no cost (D32).
 
 On the always-on box, with an HTTPS front door pointing at `127.0.0.1:8787` (a free Cloudflare
 named tunnel works, as in "If Funnel won't work" above):
 
 ```bash
-polycarp browser hub setup --public-url https://polycarp.<your domain>  # hub.json, a passcode (shown once), a service
-polycarp browser hub code                                      # a one-time code, valid 10 minutes
+tychicus hub setup --public-url https://tychicus.<your domain>  # hub.json, a passcode (shown once), a service
+tychicus hub code                                      # a one-time code, valid 10 minutes
 ```
 
 On each computer with a browser:
 
 ```bash
-polycarp browser link https://polycarp.<your domain> --code TK-XXXX-XXXX [--name laptop] [--scope browser.read,browser.act]
+tychicus link https://tychicus.<your domain> --code TK-XXXX-XXXX [--name laptop] [--scope browser.read,browser.act]
 ```
 
-`link` enrolls the computer and installs a user service (`com.polycarp.link` or
-`polycarp-link.service`) that runs `polycarp browser link run`. `--scope` is what this computer allows at
+`link` enrolls the computer and installs a user service (`com.tychicus.link` or
+`tychicus-link.service`) that runs `tychicus link run`. `--scope` is what this computer allows at
 most; without it, the default grant (no `browser.script`, no `threads.read`). Then add
-`https://polycarp.<your domain>/mcp` once in each assistant, as above. Approve with your passcode,
-or with a one-time code from `polycarp browser token approval-code` (or `polycarp browser link approval-code` on a
+`https://tychicus.<your domain>/mcp` once in each assistant, as above. Approve with your passcode,
+or with a one-time code from `tychicus token approval-code` (or `tychicus link approval-code` on a
 manager device): the field reads "Passcode or connect code". A connector you have not approved
 before (a new client) needs the one-time code; the passcode alone is refused for it, so a link
 someone else sends you cannot be approved by typing the passcode (D34). Once a client is approved,
 later approvals for it take the passcode as before.
 
 ```bash
-polycarp browser hub devices         # online, extension, sessions, busy, last seen
-polycarp browser hub prefer laptop,desktop  # who wins a tie
-polycarp browser link busy on        # on a device: new sessions go elsewhere first
-polycarp browser hub status          # hub.json, passcode, local answer, public DNS and fetch, devices
+tychicus hub devices         # online, extension, sessions, busy, last seen
+tychicus hub prefer laptop,desktop  # who wins a tie
+tychicus link busy on        # on a device: new sessions go elsewhere first
+tychicus hub status          # hub.json, passcode, local answer, public DNS and fetch, devices
 ```
 
 Settings > Agents in the side panel does the same from the browser: it shows the connector URL,
 makes a one-time code for the approval page, lists the devices (on the hub's computer), makes a
-connect code for another device, and joins a hub from a code. It asks Polycarp's helper, so it needs
-`polycarp browser setup` first. See D33 in [decisions.md](decisions.md).
+connect code for another device, and joins a hub from a code. It asks Tychicus's helper, so it needs
+`tychicus setup` first. See D33 in [decisions.md](decisions.md).
 
 ### What a device allows
 
@@ -512,9 +514,9 @@ A device's cap lives in its own `link.json`, and only that computer changes it. 
 sends can write it.
 
 ```bash
-tabkyra link scopes                          # what this device allows
-tabkyra link scopes --remove browser.script  # narrower: the next call that needs it is refused
-tabkyra link scopes --add browser.script     # wider: applies once link run starts again
+tychicus link scopes                         # what this device allows
+tychicus link scopes --remove browser.script # narrower: the next call that needs it is refused
+tychicus link scopes --add browser.script    # wider: applies once link run starts again
 ```
 
 A narrower cap applies to the very next call, also on sessions already open: that call gets
@@ -524,7 +526,7 @@ so the check judges the call that runs. It counts arguments too: `read_network` 
 needs `browser.script`, and `session_info` with `label` needs `browser.navigate`. In front of the
 local server, a body on an open session that doesn't parse as UTF-8 JSON is refused, and the
 content-type the server sees is always `application/json`. The last scope can't be removed;
-`tabkyra link off` stops serving. A wider cap needs a new link token, so `link scopes --add`
+`tychicus link off` stops serving. A wider cap needs a new link token, so `link scopes --add`
 restarts the link service when there is one, and open sessions start over.
 
 Computer use (`computer.read`, `computer.act`) is not available over a link yet. Granting it needs
@@ -591,29 +593,29 @@ on that device for this session (once, then reused, and closed when this session
 ### Revoke
 
 ```bash
-polycarp browser hub remove laptop  # the credential stops working, the live link closes within a second
-polycarp browser link off    # on a device: stop the service, forget the hub, revoke its link token
-polycarp browser hub off     # stop the hub service and remove hub.json (devices stay enrolled)
+tychicus hub remove laptop  # the credential stops working, the live link closes within a second
+tychicus link off    # on a device: stop the service, forget the hub, revoke its link token
+tychicus hub off     # stop the hub service and remove hub.json (devices stay enrolled)
 ```
 
-`hub code --manage` makes the device a manager: it can run `polycarp browser link code` and
-`polycarp browser link approval-code`, which ask the hub for codes over HTTPS with the device credential.
+`hub code --manage` makes the device a manager: it can run `tychicus link code` and
+`tychicus link approval-code`, which ask the hub for codes over HTTPS with the device credential.
 Use it only for a computer you would trust with the passcode.
 
 ### Security notes
 
 - Callers reach a device only through the hub. The hub sets the caller's scopes itself and drops
-  any `x-tabkyra-hub-*` header a public client sends. A device narrows them by its own cap; it never
+  any `x-polycarp-hub-*` or `x-tabkyra-hub-*` header a public client sends (the hub headers keep their old names). A device narrows them by its own cap; it never
   widens. A device's link token works only on the loopback server `link run` starts.
 - A device credential is 32 random bytes, stored on the hub only as a SHA-256 hash; connect codes
   and approval codes are single-use, last 10 minutes and are stored only as hashes. Wrong connect
   codes are limited (five per source, 20 in all, per 15 minutes, so anyone can pause enrollment, and
   only enrollment, for 15 minutes); wrong approval codes count toward the passcode's limit and
   15-minute lockout. A valid device credential is never refused because of other people's failures.
-- Only one `polycarp browser link run` can run on a device; a second refuses to start. When the link drops,
+- Only one `tychicus link run` can run on a device; a second refuses to start. When the link drops,
   the device closes the sessions it carried, and assistants simply start new ones.
 - The hub listens on loopback and answers only its public host. A device removed with
-  `polycarp browser hub remove` loses its link within a second.
+  `tychicus hub remove` loses its link within a second.
 - Cost: free. Nothing here runs on anyone else's server.
 
 See D30, D31 and D32 in [decisions.md](decisions.md) for why each install is its own server.
