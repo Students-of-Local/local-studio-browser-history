@@ -10,6 +10,6 @@ if ! grep -Eq 'STORE_EXTENSION_ID: string = "[a-p]{32}"' "$here/cli/src/install.
 fi
 [ "${1:-}" = "--check" ] && exit 0
 version="$(node -p "require('$here/static/manifest.chrome.json').version")"
-git -C "$here" tag -a "browser-v$version" -m "Polycarp browser $version"
+git -C "$here" tag -a "browser-v$version" -m "Tychicus browser $version"
 git -C "$here" push origin "browser-v$version"
 echo "Tagged browser-v$version"
