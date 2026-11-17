@@ -1,43 +1,44 @@
-# Tabkyra brand
+# Tychicus brand
 
-**Tabkyra** is *tab* + *kyra*, from Greek *kybernētēs*, "helmsman", the root of
-"cybernetics". You steer and it works the tabs. The brand should feel calm and capable,
-with the human in command. It is not an "autonomous AI agent".
+**Tychicus** is Paul's courier in the New Testament (Ephesians 6:21-22, Colossians 4:7-8): the
+trusted one who carries the letters and does the errands. You send the work and it carries it out
+in your browser. The brand should feel calm and capable, with the human in command. It is not an
+"autonomous AI agent".
 
-Line: **You steer. Your agents work the tabs.** Inside the extension, where Tabkyra itself
-is the agent, the line is **You steer. Tabkyra works the tabs.**
+## Icon
 
-## Mark
-
-A ship's helm with eight turned pegs, and a pointer on the hub, standing for the user's
-hand on the wheel. The app icon sets it in ink on a brass tile.
+A sealed letter on an olive tile, with an agent's pointer pressed into the wax seal: Tychicus the
+letter-carrier, acting for you. It is drawn by hand, not generated.
 
 | File | Use |
 | --- | --- |
-| `icon.svg` | App icon: brass tile, ink helm. Use at 32 px and up. |
-| `icon-16.svg` | 16 px icon on its own grid, with six pegs and a solid hub, because the pointer doesn't read at that size. |
-| `mark.svg` | Bare helm in ink, for light backgrounds. |
-| `mark-brass.svg` | Bare helm in brass, for dark backgrounds. |
-| `hero.png` | README hero on ink, for dark themes and the default (1280×400 @2x). |
-| `hero-light.png` | README hero on paper, for light themes. The line is set in brass deep (1280×400 @2x). |
-| `social.png` | GitHub social preview (1280×640). Upload it in the repository's Settings > General > Social preview. |
+| `icon.svg` | App icon on a 64 grid: olive tile (`#4b5935`), paper envelope (`#f6f3e8`), rust seal (`#b8642e`) with the pointer cut out. Use at 32 px and up. |
+| `icon-16.svg` | 16 px icon on its own grid, with a plain seal, because the pointer doesn't read at that size. |
 
-Everything is generated from the geometry in `build.mjs`. To change the mark, edit that
-file and run `node media/brand/build.mjs`. It rewrites the SVGs, `static/icon-{16,32,48,128}.png`,
-`src/components/helm-svg.ts`, both heroes, the GitHub social preview and the site's
-social card (`site/src/frontend/public/img/og.png`, same layout at 1200×630). Don't edit
-the outputs by hand.
+The same two SVGs, trimmed, are `TYCHICUS_ICON` and `TYCHICUS_ICON_16` in
+`src/components/tychicus-svg.ts`, with `TYCHICUS_MARK`, a one-color outline of the letter and seal in
+`currentColor` for the side panel. Copies live at `media/video/public/brand/icon.svg` and
+`site/src/frontend/public/img/icon.svg`. The extension icons come from them with
+`rsvg-convert -w N -h N`: `static/icon-16.png` from `icon-16.svg`, and `icon-32`, `icon-48` and
+`icon-128` from `icon.svg`. `test/tychicus-logo.test.mjs` fails when any copy drifts from these files
+or a PNG isn't the size it claims. To change the icon, edit both SVGs here, copy them to those
+places and make the PNGs again.
 
 Rules:
 
-- Keep the tile corner radius at 15/64 of the side (3.75 px at 16 px). Don't add outlines, gradients or shadows
-  to the mark itself (a soft brass glow under the tile in the UI is fine).
-- Give the mark clear space of at least one peg length on every side.
-- Don't rotate the mark. The pointer always points up and to the left. The one exception
-  is the background watermark on the heroes and social cards: the bare brass helm turned
-  11° and cropped off the edge, at 7% opacity on ink and 14% on paper (where 7% disappears).
-- Never pair it with the Sitegeist orb or badlogic's marks. Tabkyra credits them in words,
-  not in pictures.
+- Keep the tile, envelope and seal as they are: no outlines, gradients or shadows on the icon itself.
+- Don't rotate it. The pointer in the seal always points up and to the left.
+- Never pair it with the Sitegeist orb, badlogic's marks or Polycarp's helm. Tychicus credits them in
+  words, not in pictures.
+
+## Old helm art, still to redo
+
+`mark.svg`, `mark-brass.svg`, `hero.png`, `hero-light.png`, `social.png`, the site's social card
+(`site/src/frontend/public/img/og.png`) and the video in `media/video` still show the Tabkyra helm, and
+the heroes and cards still say Tabkyra. `build.mjs` draws them (`node media/brand/build.mjs`); it no
+longer writes the icon files above. The palette and type below are the helm brand's. The side panel
+uses its own olive palette instead (`src/app.css`, accent `--tk-brass: #59693f`), which the icon's
+tile matches.
 
 ## Palette
 
@@ -64,8 +65,8 @@ Brass appears sparingly: the mark, the tutorial pills and the user's own message
 
 All three fonts are OFL-licensed and come from `@fontsource` packages in `site/`.
 
-The wordmark is "Tabkyra" with a capital T, set in Instrument Sans semibold at -0.035em
-tracking. Write the name as Tabkyra in prose and as `tabkyra` for the command.
+The wordmark is "Tychicus" with a capital T, set in Instrument Sans semibold at -0.035em
+tracking. Write the name as Tychicus in prose and as `tychicus` for the command.
 
 ## Voice
 

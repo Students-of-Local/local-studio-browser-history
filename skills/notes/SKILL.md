@@ -16,7 +16,7 @@ Obsidian notes are Markdown files on disk; Notion lives in the browser. Archive,
 - Notion pages, checklists and databases.
 
 For Google Docs, Word or Sheets, use `office-docs`. For paper citations, use
-`polycarp browser library obsidian` (`academic-research`).
+`tychicus library obsidian` (`academic-research`).
 
 ## Obsidian basics
 

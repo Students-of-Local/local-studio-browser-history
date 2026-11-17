@@ -1,6 +1,6 @@
 # Weak-model eval
 
-Can a small model finish real tasks with Polycarp's browser and computer tools, from a plain prompt, with no skill
+Can a small model finish real tasks with Tychicus's browser and computer tools, from a plain prompt, with no skill
 named and no tool hints? This harness answers that with numbers, so a tool change is kept only when it measurably
 helps.
 

@@ -12,7 +12,7 @@ not a repository):
 |---|---|---|
 | `site/`, `fixtures/`, `server.mjs`, `tasks.mjs` | same paths | none |
 | `solves.mjs` | `solves.mjs` | none |
-| `lib.mjs` | `adapters/polycarp.mjs`, `lib/drivers.mjs` | runs this repo's e2e harness (`cli/test/e2e-harness.mjs`) instead of an installed Polycarp; `clickNewTab` takes the tab from the click's `newTabs` (D50) instead of `tabs_context` |
+| `lib.mjs` | `adapters/polycarp.mjs`, `lib/drivers.mjs` | runs this repo's e2e harness (`cli/test/e2e-harness.mjs`) instead of an installed Tychicus; `clickNewTab` takes the tab from the click's `newTabs` (D50) instead of `tabs_context` |
 | `run.mjs` | `run.mjs` | scripted mode and this tool only |
 | `speed.mjs` | `lib/latency.mjs` | the same verbs and page; fails over the limits below |
 
