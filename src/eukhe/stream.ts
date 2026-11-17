@@ -212,13 +212,23 @@ export function streamLocalStudio(
 				turn.finish(true);
 				return;
 			}
-			let session = (await chatSession(conversation, model.id)).session;
-			if (turn.ended) return;
-			// Stopped while the session was being made: the abort listener below would never hear it.
-			if (options?.signal?.aborted) {
+			// Stopped while a session was being made: the abort listener would never hear it, so no prompt goes out. A new
+			// session that never got a prompt is ended and dropped, so the chat's next turn starts over with its earlier turns.
+			const stoppedBeforePrompt = (made: { session: ChatSession; fresh: boolean }): boolean => {
+				if (!options?.signal?.aborted && !turn.aborting) return false;
+				if (made.fresh) {
+					sessions.delete(conversation);
+					void eukheRequest("command", conversation, { type: "kill", activeSessionId: made.session.id }).catch(
+						() => undefined,
+					);
+				}
 				turn.finish(true);
-				return;
-			}
+				return true;
+			};
+			const first = await chatSession(conversation, model.id);
+			let session = first.session;
+			if (turn.ended) return;
+			if (stoppedBeforePrompt(first)) return;
 			const abort = () => {
 				turn.aborting = true;
 				void eukheRequest("command", conversation, { type: "abort", activeSessionId: session.id }).catch(
@@ -228,9 +238,12 @@ export function streamLocalStudio(
 			};
 			options?.signal?.addEventListener("abort", abort, { once: true });
 			stream.push({ type: "start", partial: turn.output });
-			const prompt = async (retry: boolean): Promise<void> => {
-				const { session: current, fresh } = await chatSession(conversation, model.id);
+			/** False when the run was stopped before a prompt went out. */
+			const prompt = async (retry: boolean): Promise<boolean> => {
+				const made = await chatSession(conversation, model.id);
+				const { session: current, fresh } = made;
 				session = current;
+				if (stoppedBeforePrompt(made)) return false;
 				prompted = true;
 				try {
 					await eukheRequest("command", conversation, {
@@ -244,10 +257,14 @@ export function streamLocalStudio(
 					if (fresh || !retry || turn.ended) throw err;
 					sessions.delete(conversation);
 					prompted = false;
-					await prompt(false);
+					return prompt(false);
 				}
+				return true;
 			};
-			await prompt(true);
+			if (!(await prompt(true))) {
+				options?.signal?.removeEventListener("abort", abort);
+				return;
+			}
 			await ended;
 			options?.signal?.removeEventListener("abort", abort);
 			if (options?.signal?.aborted && turn.output.stopReason !== "aborted") turn.output.stopReason = "aborted";
