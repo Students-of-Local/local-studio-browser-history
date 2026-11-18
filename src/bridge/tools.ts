@@ -1039,8 +1039,6 @@ export const handlers: Record<string, Handler> = {
 	},
 
 	click: async (ctx, params) => {
-		// DELIBERATE REGRESSION (PR #34 gate proof): reverted in the next commit.
-		await new Promise((r) => setTimeout(r, 200));
 		const tabId = await resolveTab(ctx, params, true);
 		// The look first: the point is found right before the input goes out, so a layout that
 		// moved during the look can't misplace the click.
