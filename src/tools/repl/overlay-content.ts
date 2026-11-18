@@ -10,8 +10,8 @@ const BAR_CSS = `
 	--fg: #2b2e26;
 	--muted: #5c6152;
 	--border: #d5d0bf;
-	--mark: #59693f;
-	--ring: #59693f;
+	--mark: #1b4ed8;
+	--ring: #1b4ed8;
 	--danger: #a33a2a;
 	--on-danger: #ffffff;
 	--shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 8px 24px -4px rgb(0 0 0 / 0.18);
@@ -22,8 +22,8 @@ const BAR_CSS = `
 		--fg: #f6f3e8;
 		--muted: #cdcfbf;
 		--border: #464a3d;
-		--mark: #a9bb8a;
-		--ring: #a9bb8a;
+		--mark: #7c9cff;
+		--ring: #7c9cff;
 		--danger: #e58a76;
 		--on-danger: #000000;
 		--shadow: 0 8px 24px -4px rgb(0 0 0 / 0.45);

@@ -1,6 +1,5 @@
-// The extension's logo is Tychicus's sealed letter: the code matches the source files in media/brand, each manifest icon is
-// a real PNG of its size, and nothing of the old helm or its amber and navy is left. The icon differs from Polycarp's on
-// purpose, so there is no comparison with a Polycarp checkout.
+// The extension's logo is Tychicus's pointer mark in Local Studio's blue: the code matches the source files in media/brand,
+// each manifest icon is a real PNG of its size, and nothing of the old helm, the sealed letter or Polycarp's olive is left.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -18,6 +17,7 @@ test("the logo in the code is the one in media/brand", () => {
 	// The site and the video use the same drawing.
 	assert.equal(read("site/src/frontend/public/img/icon.svg").trim(), TYCHICUS_ICON);
 	assert.equal(read("media/video/public/brand/icon.svg").trim(), TYCHICUS_ICON);
+	assert.equal(read("site/src/frontend/public/img/favicon.svg").trim(), TYCHICUS_ICON_16);
 	assert.match(TYCHICUS_MARK, /currentColor/);
 	assert.doesNotMatch(TYCHICUS_MARK, /#[0-9a-f]{3,6}\b/i, "the mark takes its color from the text around it");
 });
@@ -29,11 +29,15 @@ test("the old helm and the olive branch are gone from the extension", () => {
 	for (const svg of [TYCHICUS_ICON, TYCHICUS_ICON_16, TYCHICUS_MARK]) assert.doesNotMatch(svg, /Polycarp/);
 });
 
-test("the default colors keep the moss accent, without the old amber and navy", () => {
+test("the default colors are Local Studio's blue, without Polycarp's olive or the old amber and navy", () => {
 	const css = read("src/app.css");
-	assert.match(css, /--tk-brass: #59693f;/);
-	for (const text of [css, TYCHICUS_ICON, TYCHICUS_ICON_16, read("media/brand/icon.svg"), read("media/brand/icon-16.svg")])
-		assert.doesNotMatch(text, /#e3a93b|#0f1b24/i, "the old amber and navy");
+	assert.match(css, /--tk-brass: #1b4ed8;/);
+	assert.match(TYCHICUS_ICON, /#5b84ff/, "the icon is in Local Studio's glass gradient");
+	const files = [css, TYCHICUS_ICON, TYCHICUS_ICON_16, read("media/brand/icon.svg"), read("media/brand/icon-16.svg")];
+	for (const text of files) assert.doesNotMatch(text, /#e3a93b|#0f1b24/i, "the old amber and navy");
+	// palettes.ts names the old brass once, in a comment on the contrast math, so only the olive is checked there.
+	for (const text of [...files, read("src/appearance/palettes.ts")])
+		assert.doesNotMatch(text, /#59693f|#4b5935|#a9bb8a|#b8642e/i, "Polycarp's olive and the sealed letter's rust");
 });
 
 test("each manifest icon is a real PNG of its size", () => {

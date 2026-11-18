@@ -22,27 +22,28 @@ export interface Preset {
 }
 
 export const PRESETS: Record<string, Preset> = {
-	// Polycarp's own colors (brand/README.md, themes/polycarp.toml). The id stays, because saved settings name it.
+	// Local Studio's default theme (baney75/local-studio, BuiltInThemeData.swift): Tychicus is its plugin and wears its blue
+	// (media/brand/BRAND.md). The id stays, because saved settings name it.
 	tabkyra: {
 		light: {
-			bg: "#f6f3e8",
-			panel: "#fffdf6",
-			text: "#2b2e26",
-			muted: "#5c6152",
-			border: "#d5d0bf",
-			accent: "#59693f",
-			accentText: "#f6f3e8",
-			danger: "#a33a2a",
+			bg: "#fcfcfc",
+			panel: "#ffffff",
+			text: "#27272a",
+			muted: "#6d6d77",
+			border: "#e4e4e7",
+			accent: "#1b4ed8",
+			accentText: "#ffffff",
+			danger: "#dc2626",
 		},
 		dark: {
-			bg: "#1f211b",
-			panel: "#2b2e26",
-			text: "#f6f3e8",
-			muted: "#cdcfbf",
-			border: "#464a3d",
-			accent: "#a9bb8a",
-			accentText: "#20231a",
-			danger: "#e58a76",
+			bg: "#0a0a0a",
+			panel: "#111111",
+			text: "#f5f5f5",
+			muted: "#a1a1aa",
+			border: "#27272a",
+			accent: "#346bf1",
+			accentText: "#ffffff",
+			danger: "#f87171",
 		},
 	},
 	slate: {
