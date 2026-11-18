@@ -74,7 +74,8 @@
 	--tk-tide: #8ebdb9;
 	--ring: var(--tk-brass);
 	--accent-foreground: var(--foreground);
-	--tk-brass-text: var(--tk-brass);
+	/* 6.3:1 on the card under the ask chip's 12% tint. */
+	--tk-brass-text: #7c9cff;
 	color-scheme: dark;
 	accent-color: var(--tk-brass);
 }
@@ -278,7 +279,8 @@ agent-interface .overflow-y-auto:has(.welcome-container) {
 }
 
 .dark .tk-ask-chip {
-	color: var(--tk-brass);
+	/* The lifted accent text: the raw accent is under 4.5:1 on the chip's tinted fill. */
+	color: var(--tk-brass-text);
 	background: color-mix(in srgb, var(--tk-brass) 12%, transparent);
 }
 

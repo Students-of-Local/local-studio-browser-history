@@ -7,7 +7,7 @@
 //   site/src/frontend/public/img/og.png    the site's social card
 // Run after changing the geometry or the palette: node media/brand/build.mjs (--svg writes only the SVGs).
 // Rendering uses the CLI's Playwright Chromium (or TYCHICUS_CHROMIUM), headless, with a mock keychain.
-// src/components/tychicus-svg.ts holds the same icon strings; test/tychicus-logo.test.mjs fails when they drift.
+//   src/components/tychicus-svg.ts         the same icons as strings for the side panel
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -182,6 +182,19 @@ function writeSvgs() {
 	writeFileSync(join(repo, "site", "src", "frontend", "public", "img", "icon.svg"), `${SVG.icon}\n`);
 	writeFileSync(join(repo, "site", "src", "frontend", "public", "img", "favicon.svg"), `${SVG["icon-16"]}\n`);
 	writeFileSync(join(repo, "media", "video", "public", "brand", "icon.svg"), `${SVG.icon}\n`);
+	writeFileSync(join(repo, "src", "components", "tychicus-svg.ts"), tychicusSvgModule());
+}
+
+/** src/components/tychicus-svg.ts, as biome formats it. */
+function tychicusSvgModule() {
+	return `// Written by media/brand/build.mjs; edit that script and run it, never this file.
+// The extension's logo: a pointer cut from a disc, in Local Studio's blue glass gradient. test/tychicus-logo.test.mjs fails
+// when these drift from media/brand. The 16 px icon is the flat accent with a rounder pointer, which would wash out in the
+// gradient. The mark is the same shape in currentColor. TYCHICUS_ICON's gradient id is made unique per copy by uniqueSvgIds.
+export const TYCHICUS_ICON = \`${SVG.icon}\`;
+export const TYCHICUS_ICON_16 = \`${SVG["icon-16"]}\`;
+export const TYCHICUS_MARK = \`${SVG["mark-current"]}\`;
+`;
 }
 
 async function main() {
