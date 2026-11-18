@@ -34,23 +34,38 @@ if (!adapter) {
 }
 
 const site = await startSite();
-const t0 = Date.now();
 const fixtures = join(here, "..", "tasks", "fixtures");
-const ctx = await adapter.start({ fixtures, mode: "scripted", site });
-const result = { tool, at: new Date().toISOString(), startMs: Date.now() - t0, scores: {}, speed_ms: {}, detail: {} };
-console.error(`${tool}: started in ${result.startMs} ms; site ${site.origin}`);
-const makeDriver = () => (tool === "tychicus" ? tychicusDriver(ctx) : drivers[tool](ctx));
+const result = { tool, at: new Date().toISOString(), scores: {}, speed_ms: {}, detail: {} };
+// Each part gets its own tool session: a rival whose session a task broke (Playwright MCP 0.0.85 hangs every call
+// after t10's confirm() once a second tab exists; tasks/README.md in the study) still gets its speed measured.
+async function session(part, f) {
+	const t0 = Date.now();
+	const ctx = await adapter.start({ fixtures, mode: "scripted", site });
+	result.startMs ??= Date.now() - t0;
+	console.error(`${tool} (${part}): started in ${Date.now() - t0} ms; site ${site.origin}`);
+	try {
+		await f(ctx, () => (tool === "tychicus" ? tychicusDriver(ctx) : drivers[tool](ctx)));
+	} catch (e) {
+		result.detail[`${part}Error`] = String(e.message ?? e).split("\n")[0];
+		console.error(`${part} failed: ${result.detail[`${part}Error`]}`);
+	} finally {
+		await adapter.stop(ctx).catch((e) => console.error(`stop: ${e.message}`));
+	}
+}
 try {
-	const rows = await runTasks({ site, makeDriver, repeat, only: opt("--only")?.split(","), between: () => adapter.between?.(ctx) });
-	result.scores.tasks = { pass: rows.filter((r) => r.pass).length, of: rows.length };
-	result.detail.tasks = rows;
+	await session("tasks", async (ctx, makeDriver) => {
+		const rows = await runTasks({ site, makeDriver, repeat, only: opt("--only")?.split(","), between: () => adapter.between?.(ctx) });
+		result.scores.tasks = { pass: rows.filter((r) => r.pass).length, of: rows.length };
+		result.detail.tasks = rows;
+	});
 	if (!argv.includes("--no-speed")) {
-		const s = await measureSpeed({ site, makeDriver, N: speedN });
-		result.speed_ms = { click: s.median_ms.click, fill: s.median_ms.fill, firstText: s.median_ms.firstText };
-		result.detail.speed = s;
+		await session("speed", async (_ctx, makeDriver) => {
+			const s = await measureSpeed({ site, makeDriver, N: speedN });
+			result.speed_ms = { click: s.median_ms.click, fill: s.median_ms.fill, firstText: s.median_ms.firstText };
+			result.detail.speed = s;
+		});
 	}
 } finally {
-	await adapter.stop(ctx).catch((e) => console.error(`stop: ${e.message}`));
 	await site.stop();
 }
 mkdirSync(dirname(out), { recursive: true });
