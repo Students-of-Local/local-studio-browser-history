@@ -1,6 +1,9 @@
 // The floor check and the ratchet for the market eval (README.md, "Floors"). Imports nothing outside Node, so CI
 // can run the base branch's copy of this file against a pull request's floors.
-//   node evals/market/check.mjs [results.json]          scores vs floors.json; exits 1 below a floor
+//   node evals/market/check.mjs [--require-all] [results.json]
+//                                                        scores vs floors.json; exits 1 below a floor. With
+//                                                        --require-all (CI), a part floors.json scores that the run
+//                                                        left out fails too
 //   node evals/market/check.mjs --ratchet <base-ref>     exits 1 when floors.json or cli/test/dom-bench/floor.json
 //                                                        is lower than at <base-ref>, unless FLOOR_LOWERED=1 (CI sets
 //                                                        it when the pull request has the floor-lowered label)
@@ -15,14 +18,33 @@ const here = dirname(fileURLToPath(import.meta.url));
 const floorsPath = join(here, "floors.json");
 const SCORE_PART = { tasks: "tasks", domBench: "dom-bench" };
 
-/** What in `results` (from run.mjs) is below `floors`. Only the parts that ran are checked. */
-export function checkScores(results, floors) {
-	const problems = [];
+const isCount = (v) => Number.isInteger(v) && v >= 0;
+const isMs = (v) => typeof v === "number" && Number.isFinite(v) && v >= 0;
+
+/** Every floor is a number: a floor that isn't one would compare false and pass anything. */
+export function malformed(floors) {
+	const out = [];
+	for (const [k, f] of Object.entries(floors?.scores ?? {})) if (!isCount(f?.pass) || !isCount(f?.of)) out.push(`floors.json: score ${k} needs whole-number pass and of`);
+	for (const [k, c] of Object.entries(floors?.ceilings_ms ?? {})) if (!isMs(c)) out.push(`floors.json: speed ceiling ${k} is not a number of ms`);
+	if (floors && "tolerance_pct" in floors && !isMs(floors.tolerance_pct)) out.push("floors.json: tolerance_pct is not a number");
+	return out;
+}
+
+/** The parts run.mjs must run for `floors` to be checked whole. */
+export const requiredParts = (floors) => [...Object.keys(floors.scores ?? {}).map((k) => SCORE_PART[k] ?? k), ...(Object.keys(floors.ceilings_ms ?? {}).length ? ["speed"] : [])];
+
+/**
+ * What in `results` (from run.mjs) is below `floors`. Only the parts that ran are checked, unless `requireAll`: then a
+ * part the floors score that the run left out fails too (CI, so a changed default part list can't skip a floor).
+ */
+export function checkScores(results, floors, { requireAll = false } = {}) {
+	const problems = malformed(floors);
 	const ran = new Set(results.parts ?? []);
+	if (requireAll) for (const part of requiredParts(floors)) if (!ran.has(part)) problems.push(`${part}: did not run, and floors.json scores it`);
 	for (const [k, f] of Object.entries(floors.scores ?? {})) {
 		if (!ran.has(SCORE_PART[k] ?? k)) continue;
 		const s = results.scores?.[k];
-		if (!s) problems.push(`${k}: no score in the results`);
+		if (!s || !isCount(s.pass)) problems.push(`${k}: no score in the results`);
 		else if (s.pass < f.pass) problems.push(`${k}: ${s.pass}/${s.of} passed, under its floor of ${f.pass}/${f.of}`);
 	}
 	if (ran.has("dom-bench") && results.domBenchRatchet === false) {
@@ -33,7 +55,7 @@ export function checkScores(results, floors) {
 		for (const [k, ceiling] of Object.entries(floors.ceilings_ms ?? {})) {
 			const v = results.speed_ms?.[k];
 			const limit = ceiling * (1 + tol / 100);
-			if (typeof v !== "number") problems.push(`speed ${k}: not measured`);
+			if (!isMs(v)) problems.push(`speed ${k}: not measured`);
 			else if (v > limit) problems.push(`speed ${k}: median ${v} ms, over its ceiling of ${ceiling} ms plus ${tol}% (${Math.round(limit)} ms)`);
 		}
 	}
@@ -42,18 +64,18 @@ export function checkScores(results, floors) {
 
 /** Each way `head` is lower than `base`. Both are { floors, dom } (floors.json and dom-bench's floor.json). */
 export function lowered(base, head) {
-	const out = [];
+	const out = malformed(head.floors);
 	for (const [k, f] of Object.entries(base.floors?.scores ?? {})) {
 		const h = head.floors?.scores?.[k];
 		if (!h) out.push(`floors.json: score ${k} was removed`);
-		else if (h.pass < f.pass) out.push(`floors.json: ${k} floor went from ${f.pass} to ${h.pass}`);
+		else if (isCount(h.pass) && h.pass < f.pass) out.push(`floors.json: ${k} floor went from ${f.pass} to ${h.pass}`);
 	}
 	for (const [k, c] of Object.entries(base.floors?.ceilings_ms ?? {})) {
 		const h = head.floors?.ceilings_ms?.[k];
-		if (typeof h !== "number") out.push(`floors.json: speed ceiling ${k} was removed`);
-		else if (h > c) out.push(`floors.json: speed ceiling ${k} went from ${c} ms to ${h} ms`);
+		if (h === undefined) out.push(`floors.json: speed ceiling ${k} was removed`);
+		else if (isMs(h) && h > c) out.push(`floors.json: speed ceiling ${k} went from ${c} ms to ${h} ms`);
 	}
-	if (base.floors && (head.floors?.tolerance_pct ?? 0) > (base.floors.tolerance_pct ?? 0)) {
+	if (base.floors && isMs(head.floors?.tolerance_pct ?? 0) && (head.floors?.tolerance_pct ?? 0) > (base.floors.tolerance_pct ?? 0)) {
 		out.push(`floors.json: tolerance_pct went from ${base.floors.tolerance_pct ?? 0} to ${head.floors.tolerance_pct}`);
 	}
 	// A first floors.json lowers nothing; after that, a new localOnly entry takes a part out of the gate.
@@ -150,8 +172,11 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 		process.stdout.write(text);
 		process.exit(0);
 	}
-	const results = readJson(argv[0] ?? join(here, "results", "last.json"));
-	const problems = checkScores(results, readJson(floorsPath));
+	const requireAll = argv.includes("--require-all");
+	const file = argv.find((a) => !a.startsWith("--"));
+	// The checkout's floors, not this file's folder's: CI runs the base branch's copy from outside the checkout.
+	const results = readJson(file ?? join(root(), "evals", "market", "results", "last.json"));
+	const problems = checkScores(results, readJson(join(root(), "evals", "market", "floors.json")), { requireAll });
 	if (problems.length) {
 		console.error(`below the floor:\n${formatProblems(problems)}`);
 		process.exit(1);

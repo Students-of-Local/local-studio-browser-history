@@ -33,8 +33,9 @@ a score is under its floor or a median is more than `tolerance_pct` (10%) over i
 (`cli/test/dom-bench/floor.json`: each passing case by id, within its tool-call ceiling), and the run fails when that
 breaks too.
 
-The ratchet: a floor only goes up and a ceiling only goes down. CI's `market-evals` job compares both floor files with
-the base branch, using the base branch's `check.mjs`, and fails when a pull request lowers a score, raises a ceiling,
+The ratchet: a floor only goes up and a ceiling only goes down. CI's `market-evals` job judges with the base
+branch's `check.mjs`: it compares both floor files with the base branch, then checks the run with `--require-all`, so
+every part `floors.json` scores must have run. The ratchet fails when a pull request lowers a score, raises a ceiling,
 removes a case from dom-bench's `passing`, raises `tolerance_pct` or moves anything into `localOnly`. A drop that is right (a case was wrong,
 not the tool) needs the reason written beside it and a maintainer's `floor-lowered` label.
 

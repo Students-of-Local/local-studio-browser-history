@@ -456,22 +456,31 @@ jobs:
         with:
           node-version: 22
 
-      # A floor only goes up. The base branch's check.mjs compares the floor files, so a pull request that changes
-      # the check can't approve its own lower floor.
+      # The judge: on a pull request, the base branch's check.mjs (when it has one), copied out of the checkout, so a
+      # pull request that changes the check can't approve its own lower floor or skip a part of the gate.
+      - name: Pick the judge
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          judge="$RUNNER_TEMP/judge/check.mjs"
+          mkdir -p "$RUNNER_TEMP/judge"
+          cp evals/market/check.mjs "$judge"
+          if [ -n "$BASE_SHA" ]; then
+            git fetch --no-tags --depth 1 origin "$BASE_SHA"
+            if git cat-file -e "$BASE_SHA:evals/market/check.mjs" 2>/dev/null; then
+              git show "$BASE_SHA:evals/market/check.mjs" > "$judge"
+              echo "Judging with the base branch's check.mjs."
+            fi
+          fi
+          echo "MARKET_JUDGE=$judge" >> "$GITHUB_ENV"
+
+      # A floor only goes up.
       - name: No floor lower than on the base branch
         if: github.event_name == 'pull_request'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           FLOOR_LOWERED: ${{ contains(github.event.pull_request.labels.*.name, 'floor-lowered') && '1' || '0' }}
-        run: |
-          git fetch --no-tags --depth 1 origin "$BASE_SHA"
-          check=evals/market/check.mjs
-          if git cat-file -e "$BASE_SHA:evals/market/check.mjs" 2>/dev/null; then
-            mkdir -p "$RUNNER_TEMP/base/evals/market"
-            git show "$BASE_SHA:evals/market/check.mjs" > "$RUNNER_TEMP/base/evals/market/check.mjs"
-            check="$RUNNER_TEMP/base/evals/market/check.mjs"
-          fi
-          node "$check" --ratchet "$BASE_SHA"
+        run: node "$MARKET_JUDGE" --ratchet "$BASE_SHA"
 
       - name: Check out the pinned siblings and install
         run: ./scripts/setup-siblings.sh
@@ -491,8 +500,12 @@ jobs:
       - name: Let Chromium's sandbox start
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
-      - name: Market eval against its floors
-        run: npm run evals:market
+      - name: Market eval
+        run: node evals/market/run.mjs --no-check
+
+      # --require-all: every part floors.json scores must have run.
+      - name: Every score at its floor, every speed under its ceiling
+        run: node "$MARKET_JUDGE" --require-all evals/market/results/last.json
 
       - name: Keep the run's numbers
         if: always()

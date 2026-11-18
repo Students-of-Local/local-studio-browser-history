@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { checkScores, lowered, raise } from "../evals/market/check.mjs";
+import { checkScores, lowered, malformed, raise } from "../evals/market/check.mjs";
 
 const floors = {
 	scores: { tasks: { pass: 30, of: 30 }, domBench: { pass: 54, of: 54 } },
@@ -87,4 +87,21 @@ test("the committed floors are whole and hold every part the eval runs", () => {
 	assert.ok(f.ceilings_ms.fill * (1 + f.tolerance_pct / 100) < 100);
 	assert.ok(f.tolerance_pct <= 10, "the tolerance stays at or under 10%");
 	for (const [k, why] of Object.entries(f.localOnly ?? {})) assert.ok(String(why).length > 20, `localOnly ${k} needs its reason`);
+});
+
+test("CI requires every part the floors score: a run that skipped one fails", () => {
+	const skipped = run({ parts: ["tasks", "dom-bench"] });
+	assert.deepEqual(checkScores(skipped, floors), []);
+	assert.match(checkScores(skipped, floors, { requireAll: true }).join(), /speed: did not run, and floors.json scores it/);
+	assert.deepEqual(checkScores(run(), floors, { requireAll: true }), []);
+});
+
+test("a floor that is not a number is lowered and fails the check, instead of comparing false", () => {
+	for (const bad of [{ scores: { ...floors.scores, tasks: {} } }, { ceilings_ms: { ...floors.ceilings_ms, click: "x" } }, { tolerance_pct: "x" }]) {
+		const head = { ...structuredClone(floors), ...bad };
+		assert.ok(malformed(head).length, JSON.stringify(bad));
+		assert.ok(lowered({ floors, dom }, { floors: head, dom }).length, JSON.stringify(bad));
+		assert.ok(checkScores(run(), head).length, JSON.stringify(bad));
+	}
+	assert.deepEqual(malformed(floors), []);
 });
