@@ -1,30 +1,30 @@
 import { TYCHICUS_MARK } from "../../components/tychicus-svg.js";
 
 /**
- * The bar's look: the side panel's own tokens, the Polycarp preset's light and dark palettes (src/appearance/palettes.ts),
+ * The bar's look: the side panel's own tokens, the default preset's light and dark palettes (src/appearance/palettes.ts),
  * mini-lit's type and radii, and its small danger button. The page has no panel tokens, so they are copied here.
  */
 const BAR_CSS = `
 .bar {
-	--bg: #fffdf6;
-	--fg: #2b2e26;
-	--muted: #5c6152;
-	--border: #d5d0bf;
-	--mark: #59693f;
-	--ring: #59693f;
-	--danger: #a33a2a;
+	--bg: #ffffff;
+	--fg: #27272a;
+	--muted: #6d6d77;
+	--border: #e4e4e7;
+	--mark: #1b4ed8;
+	--ring: #1b4ed8;
+	--danger: #dc2626;
 	--on-danger: #ffffff;
 	--shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 8px 24px -4px rgb(0 0 0 / 0.18);
 }
 @media (prefers-color-scheme: dark) {
 	.bar {
-		--bg: #2b2e26;
-		--fg: #f6f3e8;
-		--muted: #cdcfbf;
-		--border: #464a3d;
-		--mark: #a9bb8a;
-		--ring: #a9bb8a;
-		--danger: #e58a76;
+		--bg: #111111;
+		--fg: #f5f5f5;
+		--muted: #a1a1aa;
+		--border: #27272a;
+		--mark: #7c9cff;
+		--ring: #7c9cff;
+		--danger: #f87171;
 		--on-danger: #000000;
 		--shadow: 0 8px 24px -4px rgb(0 0 0 / 0.45);
 	}

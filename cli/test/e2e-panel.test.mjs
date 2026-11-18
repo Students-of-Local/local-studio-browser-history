@@ -121,8 +121,8 @@ async function settings(tab, theme = "light", width = 400) {
 	return page;
 }
 
-// The selected Settings tab used to be a solid chip held to 3:1 against the page. The redesigned tab is the accent at 25%
-// over the page (SettingsPage.ts), which measures 1.4:1 to 1.9:1 across the presets. This floor is the lowest measured
+// The selected Settings tab used to be a solid chip held to 3:1 against the page. The redesigned tab is the accent text
+// color (--tk-brass-text, the accent lifted to 4.5:1) at 25% over the page (SettingsPage.ts), which measures 1.4:1 to 1.9:1 across the presets. This floor is the lowest measured
 // value, so the tint can get no fainter; raising the tint to 3:1 is a design decision, tracked in the PR that added this.
 const CHIP_ON_PAGE_FLOOR = 1.3;
 
