@@ -80,7 +80,7 @@ From the 2026-11-17 competitor study. Each Check fails on fa4bf63 and passes on 
 | ID | Item | Label | Evidence or gap |
 | --- | --- | --- | --- |
 | S-1 | dom-bench green, ratchet clean | verified | 49/49 (44 plus 5 new), floor 49 passing and 0 failing. shadow-input was a harness error (an outside port scanner's `/v1/models` request counted as a page miss); infinite-scroll a product bug (no frame drew in the hidden tab, D50) |
-| S-2 | Median click under 150 ms, fill under 100 ms | verified | `evals/tasks/speed.mjs`: median click 73 ms and fill 76 ms (fa4bf63: 552 and 518). Trace in [speed-trace.md](speed-trace.md) |
+| S-2 | Median click under 150 ms, fill under 100 ms | verified | `evals/market/tasks/speed.mjs` (was `evals/tasks/speed.mjs`): median click 73 ms and fill 76 ms (fa4bf63: 552 and 518); CI now holds them under the ceilings in `evals/market/floors.json`. Trace in [speed-trace.md](speed-trace.md) |
 | S-3 | Stale ref found again by role, name and row; ambiguity refused with candidates | verified | dom-bench stale-ref-rebuilt, stale-ref-ambiguous (D51) |
 | S-4 | Name as ref, `mouseButton` with `button` alias, small profile for local models | verified | dom-bench name-as-ref, `test/ref-lookup.test.mjs`, `cli/test/small-profile.test.mjs` D53 (D52, D53) |
 | S-5 | Click results list new tabs | verified | dom-bench new-tab-click; task set t03 takes the tab from `newTabs` |

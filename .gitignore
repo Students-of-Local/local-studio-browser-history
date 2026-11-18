@@ -22,3 +22,7 @@ cli/dist
 
 # Pinned upstream checkouts (scripts/setup-siblings.sh): pi-mono and mini-lit.
 vendor/
+
+# The market eval: its run output and the rival tools installed by hand (evals/market/README.md).
+evals/market/results/
+evals/market/rivals/tools/

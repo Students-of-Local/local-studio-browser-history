@@ -1,0 +1,13 @@
+{
+	"$comment": "The market eval's floors (README.md, Floors). Scores are pass counts and only go up; speed ceilings are median ms and only go down. Measured on CI's own runner: the market-floors workflow runs the eval 3 times and check.mjs --raise takes the worst. A change that lowers anything here or in cli/test/dom-bench/floor.json fails CI unless the pull request has the floor-lowered label.",
+	"scores": {
+		"tasks": { "pass": 30, "of": 30 },
+		"domBench": { "pass": 54, "of": 54 }
+	},
+	"ceilings_ms": {
+		"click": 150,
+		"fill": 100,
+		"firstText": 1000
+	},
+	"localOnly": {}
+}

@@ -1,0 +1,70 @@
+# Market eval
+
+The numbers behind "best on the market" (#30): Tychicus's scores and speeds, measured the same way on every pull
+request and held by floors that only go up. Rival tools are measured by the same code, by hand.
+
+| Part | What it measures | Score | Source |
+|---|---|---|---|
+| `tasks` | The study's ten browser tasks, solved by script through the MCP tools, checked by what each page received | passes out of 30 (10 tasks x 3 reps) | [`tasks/`](tasks/README.md) |
+| `speed` | Median ms on t02's form over 9 runs: `click` (the Phone radio), `fill` (the Full name box), `firstText` (navigate plus the first `get_page_text`) | ms, lower is better | `tasks/loop.mjs`, `measureSpeed` |
+| `dom-bench` | 54 hand-written hard pages (frames, shadow roots, stale refs, drag and drop, ...) | passes out of 54, plus its own per-case floor | [`cli/test/dom-bench`](../../cli/test/dom-bench) |
+
+The e2e suites stay in CI's `e2e` job: they prove the bridge works, and score nothing.
+
+## Run
+
+Build first, as CI does: `TABKYRA_NO_BUMP=1 npm run build` at the root, `npm run build` in `cli/`, and Playwright's
+Chromium (`cd cli && npx playwright-core install chromium`). Node 22.
+
+```sh
+npm run evals:market                                  # everything, then the floor check; exits 1 below a floor
+node evals/market/run.mjs --only tasks,speed          # some parts; only those are checked
+node evals/market/check.mjs                           # check the last run (results/last.json) again
+node evals/market/check.mjs --ratchet origin/main     # is any floor lower than on main?
+```
+
+A run writes `results/last.json` (gitignored): the scores, the speed medians and every row.
+
+## Floors
+
+[`floors.json`](floors.json) holds a pass count for each score and a ceiling in ms for each speed. The run fails when
+a score is under its floor or a median is over its ceiling. dom-bench also keeps its own per-case floor
+(`cli/test/dom-bench/floor.json`: each passing case by id, within its tool-call ceiling), and the run fails when that
+breaks too.
+
+The ratchet: a floor only goes up and a ceiling only goes down. CI's `market-evals` job compares both floor files with
+the base branch, using the base branch's `check.mjs`, and fails when a pull request lowers a score, raises a ceiling,
+removes a case from dom-bench's `passing` or moves anything into `localOnly`. A drop that is right (a case was wrong,
+not the tool) needs the reason written beside it and a maintainer's `floor-lowered` label.
+
+The numbers come from CI's own runner, never a laptop: the `market-floors` workflow runs the eval 3 times on separate
+runners and `check.mjs --raise` takes the worst of the 3, raising floors only. To raise them after a speedup:
+
+```sh
+gh workflow run market-floors.yml --ref <branch>      # or push the branch as floors/<name>
+gh run download <run id> -n market-floors             # floors.json and the 3 runs
+```
+
+then copy that `floors.json` over this one in a pull request.
+
+`localOnly` lists what is measured but kept out of the CI gate, with the reason. Today: the rivals (below), and
+dom-bench's per-case wall time (`--time`), because a shared runner's clock swings several fold.
+
+## Rivals, by hand
+
+[`rivals/`](rivals/) runs the same task set and speed check against Playwright MCP, agent-browser and browse, the
+versions the 2026-11-17 study measured. They never run in CI: CI scores Tychicus only.
+
+```sh
+evals/market/rivals/install.sh                                     # into evals/market/rivals/tools (gitignored)
+node evals/market/rivals/run.mjs --tool playwright-mcp --repeat 3  # or agent-browser, browse, tychicus
+```
+
+Each writes `results/rival-<tool>.json` in the format above. `MARKET_RIVALS_DIR` points at another install, and
+`MARKET_CHROMIUM` at another Chromium. Model-driven runs (a local model given each tool's own MCP tools) and Browser
+Use's own agent are the weak-model track in #30 and still live in the study's runner.
+
+## Risky actions
+
+[`risky-actions/`](risky-actions/README.md) is the place for #33's labeled list of risky agent actions, scored for
+recall. It holds the format and a scorer, no cases and no rules yet, and is not gated.

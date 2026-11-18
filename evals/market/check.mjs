@@ -1,0 +1,155 @@
+// The floor check and the ratchet for the market eval (README.md, "Floors"). Imports nothing outside Node, so CI
+// can run the base branch's copy of this file against a pull request's floors.
+//   node evals/market/check.mjs [results.json]          scores vs floors.json; exits 1 below a floor
+//   node evals/market/check.mjs --ratchet <base-ref>     exits 1 when floors.json or cli/test/dom-bench/floor.json
+//                                                        is lower than at <base-ref>, unless FLOOR_LOWERED=1 (CI sets
+//                                                        it when the pull request has the floor-lowered label)
+//   node evals/market/check.mjs --raise a.json b.json c.json [--write]
+//                                                        the floors those runs support (worst of them), raised only
+import { execFileSync } from "node:child_process";
+import { readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const floorsPath = join(here, "floors.json");
+const SCORE_PART = { tasks: "tasks", domBench: "dom-bench" };
+
+/** What in `results` (from run.mjs) is below `floors`. Only the parts that ran are checked. */
+export function checkScores(results, floors) {
+	const problems = [];
+	const ran = new Set(results.parts ?? []);
+	for (const [k, f] of Object.entries(floors.scores ?? {})) {
+		if (!ran.has(SCORE_PART[k] ?? k)) continue;
+		const s = results.scores?.[k];
+		if (!s) problems.push(`${k}: no score in the results`);
+		else if (s.pass < f.pass) problems.push(`${k}: ${s.pass}/${s.of} passed, under its floor of ${f.pass}/${f.of}`);
+	}
+	if (ran.has("dom-bench") && results.domBenchRatchet === false) {
+		problems.push("domBench: a case in cli/test/dom-bench/floor.json failed or went over its tool-call ceiling (its table is above)");
+	}
+	if (ran.has("speed")) {
+		for (const [k, ceiling] of Object.entries(floors.ceilings_ms ?? {})) {
+			const v = results.speed_ms?.[k];
+			if (typeof v !== "number") problems.push(`speed ${k}: not measured`);
+			else if (v > ceiling) problems.push(`speed ${k}: median ${v} ms, over its ceiling of ${ceiling} ms`);
+		}
+	}
+	return problems;
+}
+
+/** Each way `head` is lower than `base`. Both are { floors, dom } (floors.json and dom-bench's floor.json). */
+export function lowered(base, head) {
+	const out = [];
+	for (const [k, f] of Object.entries(base.floors?.scores ?? {})) {
+		const h = head.floors?.scores?.[k];
+		if (!h) out.push(`floors.json: score ${k} was removed`);
+		else if (h.pass < f.pass) out.push(`floors.json: ${k} floor went from ${f.pass} to ${h.pass}`);
+	}
+	for (const [k, c] of Object.entries(base.floors?.ceilings_ms ?? {})) {
+		const h = head.floors?.ceilings_ms?.[k];
+		if (typeof h !== "number") out.push(`floors.json: speed ceiling ${k} was removed`);
+		else if (h > c) out.push(`floors.json: speed ceiling ${k} went from ${c} ms to ${h} ms`);
+	}
+	// A first floors.json lowers nothing; after that, a new localOnly entry takes a part out of the gate.
+	for (const k of base.floors ? Object.keys(head.floors?.localOnly ?? {}) : []) {
+		if (!(k in (base.floors.localOnly ?? {}))) out.push(`floors.json: ${k} was moved out of the CI gate (localOnly)`);
+	}
+	const headPassing = new Set(head.dom?.passing ?? []);
+	for (const id of base.dom?.passing ?? []) if (!headPassing.has(id)) out.push(`dom-bench floor.json: ${id} left passing`);
+	for (const field of ["calls", "ms"]) {
+		for (const [id, v] of Object.entries(base.dom?.[field] ?? {})) {
+			const h = head.dom?.[field]?.[id];
+			if (headPassing.has(id) && (typeof h !== "number" || h > v)) out.push(`dom-bench floor.json: ${id} ${field} ceiling went from ${v} to ${h ?? "none"}`);
+		}
+	}
+	return out;
+}
+
+/** The floors a set of runs supports: each score's worst pass count, each speed's worst median, never lower. */
+export function raise(floors, runs) {
+	const next = structuredClone(floors);
+	next.scores ??= {};
+	next.ceilings_ms ??= {};
+	for (const k of new Set(runs.flatMap((r) => Object.keys(r.scores ?? {})))) {
+		const got = runs.map((r) => r.scores?.[k]);
+		if (got.some((s) => !s)) continue;
+		const worst = Math.min(...got.map((s) => s.pass));
+		const of = Math.max(...got.map((s) => s.of));
+		const cur = next.scores[k];
+		if (!cur || worst > cur.pass) next.scores[k] = { pass: worst, of };
+		else if (of > cur.of) next.scores[k] = { ...cur, of };
+	}
+	for (const k of new Set(runs.flatMap((r) => Object.keys(r.speed_ms ?? {})))) {
+		const got = runs.map((r) => r.speed_ms?.[k]);
+		if (got.some((v) => typeof v !== "number")) continue;
+		const worst = Math.max(...got);
+		const cur = next.ceilings_ms[k];
+		if (typeof cur !== "number" || worst < cur) next.ceilings_ms[k] = worst;
+	}
+	return next;
+}
+
+export const formatProblems = (p) => p.map((x) => `  ${x}`).join("\n");
+const readJson = (p) => JSON.parse(readFileSync(p, "utf8"));
+
+// The checkout being judged: the git root of the working directory, not this file's folder, because CI runs the base
+// branch's copy of this file from outside the checkout.
+const root = () => execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8" }).trim();
+
+function atRef(ref, path) {
+	try {
+		return JSON.parse(execFileSync("git", ["show", `${ref}:${path}`], { cwd: root(), encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }));
+	} catch {
+		return undefined;
+	}
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+	const argv = process.argv.slice(2);
+	if (argv[0] === "--ratchet") {
+		const ref = argv[1];
+		if (!ref) {
+			console.error("--ratchet needs a base ref");
+			process.exit(2);
+		}
+		const base = { floors: atRef(ref, "evals/market/floors.json"), dom: atRef(ref, "cli/test/dom-bench/floor.json") };
+		const head = { floors: readJson(join(root(), "evals", "market", "floors.json")), dom: readJson(join(root(), "cli", "test", "dom-bench", "floor.json")) };
+		if (!base.floors) console.log(`${ref} has no evals/market/floors.json yet: only dom-bench's floor is compared`);
+		const drops = lowered(base, head);
+		if (!drops.length) {
+			console.log(`no floor is lower than at ${ref}`);
+			process.exit(0);
+		}
+		if (process.env.FLOOR_LOWERED === "1") {
+			console.log(`floors lowered, accepted by the floor-lowered label:\n${formatProblems(drops)}`);
+			process.exit(0);
+		}
+		console.error(`this change lowers a floor, and a floor only goes up:\n${formatProblems(drops)}\nIf the drop is right (a case was wrong, not the tool), write why in floors.json or floor.json and have a maintainer add the floor-lowered label.`);
+		process.exit(1);
+	}
+	if (argv[0] === "--raise") {
+		const files = argv.slice(1).filter((a) => !a.startsWith("--"));
+		if (!files.length) {
+			console.error("--raise needs one or more results files");
+			process.exit(2);
+		}
+		const runs = files.map(readJson);
+		const next = raise(readJson(floorsPath), runs);
+		next.measured = {
+			rule: `worst of ${runs.length} runs; a score only goes up and a ceiling only goes down`,
+			runs: runs.map((r) => ({ at: r.at, commit: r.commit, runner: r.runner, scores: r.scores, speed_ms: r.speed_ms })),
+		};
+		const text = `${JSON.stringify(next, null, "\t")}\n`;
+		if (argv.includes("--write")) writeFileSync(floorsPath, text);
+		process.stdout.write(text);
+		process.exit(0);
+	}
+	const results = readJson(argv[0] ?? join(here, "results", "last.json"));
+	const problems = checkScores(results, readJson(floorsPath));
+	if (problems.length) {
+		console.error(`below the floor:\n${formatProblems(problems)}`);
+		process.exit(1);
+	}
+	console.log("every score is at or above its floor and every speed at or under its ceiling");
+}

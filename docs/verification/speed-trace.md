@@ -1,11 +1,11 @@
 # Why click and fill were slow, and what fixed them
 
 The 2026-11-17 study measured Tychicus at a median of 808 ms per click and 532 ms per fill on its form page
-(`evals/tasks/site/t02-form`), where the rival tools took under 100 ms. This is the trace behind D50.
+(`evals/market/tasks/site/t02-form`), where the rival tools took under 100 ms. This is the trace behind D50.
 
 ## How it was measured
 
-`evals/tasks/speed.mjs` runs the study's latency script against this repo's build: a throwaway headless Chromium
+`evals/market/tasks/speed.mjs` runs the study's latency script against this repo's build: a throwaway headless Chromium
 with the built extension, the native host and the MCP server (`cli/test/e2e-harness.mjs`). Each of 5 runs opens the
 form, reads it, fills Full name and clicks the Phone radio; the median of the 5 is reported. To find where the time
 went, timestamps were logged temporarily in `fillElement`, `click` (cdp.ts) and `settleAfter` (tools.ts) and read from
@@ -60,7 +60,7 @@ After the fixes, one click: resolve 2 ms, point 3 ms, input 6 ms, settle 60 ms.
 
 ## Results
 
-`node evals/tasks/speed.mjs 5`, same machine, same build steps, 2026-11-17 (runs: click 72, 73, 70, 73, 75; fill 81,
+`node evals/market/tasks/speed.mjs 5`, same machine, same build steps, 2026-11-17 (runs: click 72, 73, 70, 73, 75; fill 81,
 76, 71, 75, 76):
 
 | Verb | fa4bf63 median | This branch median | Limit |

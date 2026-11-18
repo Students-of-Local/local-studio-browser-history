@@ -1871,3 +1871,29 @@ that has both; moving them is its own change.
 **Proof.** `cli/test/release-install.test.mjs` (a changed archive or extension zip, an unlisted archive, no SHA256SUMS, gh refusing and
 verifying, idempotence, the pinned ID), `test/native-host-name.test.mjs`, `cli/test/local-studio-plugins.test.mjs`,
 `scripts/validate-local-studio-plugins.sh`, and CI's `clean-install` (`cli/test/clean-install.mjs`).
+
+## D55. The market eval holds Tychicus's scores and speeds with floors measured on CI (Claude, 2026-11-18)
+
+**Problem.** "Best on the market" (#30) was a claim from one study on one machine. The task set and the speed check ran
+in CI, but the speed gate was two fixed numbers (150 ms click, 100 ms fill) far above what Tychicus measures (about
+75 ms), so a regression to twice as slow passed. dom-bench had its own floor, and nothing stopped a pull request from
+lowering either.
+
+**Decision.**
+- `evals/market` holds the task set (moved from `evals/tasks`), the speed check and a runner that also runs dom-bench,
+  in one command, `npm run evals:market`, scored against `evals/market/floors.json`: a pass count per score and a
+  ceiling per median speed (click, fill, and the first page text after a load).
+- The floors are measured on GitHub's own runner, never a laptop: the `market-floors` workflow runs the eval on 3
+  runners, and `check.mjs --raise` takes the worst of the 3 and only raises.
+- The ratchet: CI's `market-evals` job fails a pull request that lowers a score, raises a ceiling, drops a dom-bench
+  case from `passing` or moves a part to `localOnly`, unless it has the `floor-lowered` label. It runs the base
+  branch's `check.mjs`, so a pull request can't change the judge and the floor together.
+- Rivals run through the same task loop and speed loop (`evals/market/tasks/loop.mjs`) by hand, never in CI, so CI
+  never installs or runs third-party tools.
+
+**Limits.** A shared runner's clock is noisy; medians of 9 and worst of 3 keep the speed gate from flaking, and a
+real slowdown under about 20% can pass. dom-bench's per-case wall time stays out of the gate (`localOnly`). The weak
+model track, Browser Use and computer use are not in it yet (#30).
+
+**Proof.** `test/market-floors.test.mjs` (the check, the ratchet and raise), and the pull request that added this:
+a 200 ms sleep in click failed `market-evals`, and its revert passed.

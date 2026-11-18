@@ -13,8 +13,8 @@ not a repository):
 | `site/`, `fixtures/`, `server.mjs`, `tasks.mjs` | same paths | none |
 | `solves.mjs` | `solves.mjs` | none |
 | `lib.mjs` | `adapters/polycarp.mjs`, `lib/drivers.mjs` | runs this repo's e2e harness (`cli/test/e2e-harness.mjs`) instead of an installed Tychicus; `clickNewTab` takes the tab from the click's `newTabs` (D50) instead of `tabs_context` |
-| `run.mjs` | `run.mjs` | scripted mode and this tool only |
-| `speed.mjs` | `lib/latency.mjs` | the same verbs and page; fails over the limits below |
+| `run.mjs`, `loop.mjs` | `run.mjs` | scripted mode; the loop is shared with `../rivals/run.mjs` |
+| `speed.mjs`, `loop.mjs` | `lib/latency.mjs` | the same verbs and page, plus the first page text; `../floors.json` holds the ceilings |
 
 ## Tasks
 
@@ -39,10 +39,12 @@ Build first: `TABKYRA_NO_BUMP=1 npm run build` at the root and `npm run build` i
 Chromium (`cd cli && npx playwright-core install chromium`).
 
 ```sh
-node evals/tasks/run.mjs --repeat 3        # all ten, three times; exits 1 unless every run passes
-node evals/tasks/run.mjs --only t08-stale  # one task
-node evals/tasks/speed.mjs 5               # median ms per verb on t02's form; exits 1 at click >= 150 or fill >= 100
-node evals/tasks/server.mjs                # just the site, to look at it
+node evals/market/tasks/run.mjs --repeat 3        # all ten, three times; exits 1 unless every run passes
+node evals/market/tasks/run.mjs --only t08-stale  # one task
+node evals/market/tasks/speed.mjs 5               # median ms per verb on t02's form, as JSON
+node evals/market/tasks/server.mjs                # just the site, to look at it
 ```
 
-CI runs both on every pull request (the `tasks` job in `.github/workflows/ci.yml`).
+CI runs the task set and the speed check through the market eval (`../README.md`), gated on `../floors.json`, in
+the `market-evals` job of `.github/workflows/ci.yml`. The task loop and the speed loop are `loop.mjs`, shared with the
+rival runner (`../rivals/`), so every tool is measured by the same code.
