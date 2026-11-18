@@ -3,7 +3,7 @@
 // push's changed files, tested here; the API calls around it aren't.
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { COMPARE_FILE_LIMIT, hasPush, pushChangesJudge } from "../../.github/scripts/judge-label.mjs";
+import { COMPARE_FILE_LIMIT, hasPush, JUDGES, pushChangesJudge } from "../../.github/scripts/judge-label.mjs";
 
 test("a push that changes, renames or deletes a judge file voids the approval", () => {
 	assert.equal(pushChangesJudge({ files: [{ filename: "cli/src/skill-eval.ts", status: "modified" }] }), true);
@@ -31,4 +31,14 @@ test("only a synchronize push with two real SHAs is compared", () => {
 	assert.equal(hasPush("0".repeat(40), b), false);
 	assert.equal(hasPush(undefined, b), false);
 	assert.equal(hasPush(a, "main"), false);
+});
+
+test("the market judge and the floor files void their own labels, and only theirs", () => {
+	assert.equal(pushChangesJudge({ files: ["evals/market/check.mjs"] }, JUDGES.market.files), true);
+	assert.equal(pushChangesJudge({ files: ["evals/market/run.mjs"] }, JUDGES.market.files), false);
+	assert.equal(pushChangesJudge({ files: ["evals/market/floors.json"] }, JUDGES.floors.files), true);
+	assert.equal(pushChangesJudge({ files: [{ filename: "cli/test/dom-bench/floor.json" }] }, JUDGES.floors.files), true);
+	assert.equal(pushChangesJudge({ files: ["evals/market/check.mjs"] }), false);
+	assert.equal(JUDGES.floors.label, "floor-lowered");
+	assert.equal(JUDGES.market.label, "market-judge-change");
 });

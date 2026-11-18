@@ -474,13 +474,56 @@ jobs:
           fi
           echo "MARKET_JUDGE=$judge" >> "$GITHUB_ENV"
 
-      # A floor only goes up.
+      # The judge judges every later pull request, so a change to it needs a maintainer: the market-judge-change label,
+      # which a push that changes the judge again voids (the base branch's .github/scripts/judge-label.mjs).
+      - name: Changes to the market judge need a maintainer's label
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          LABELED: ${{ contains(github.event.pull_request.labels.*.name, 'market-judge-change') }}
+          ACTION: ${{ github.event.action }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.event.after }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          if ! git cat-file -e "$BASE_SHA:evals/market/check.mjs" 2>/dev/null || git diff --quiet "$BASE_SHA" HEAD -- evals/market/check.mjs; then
+            echo "No change to an existing evals/market/check.mjs."
+            exit 0
+          fi
+          if [ "$LABELED" != "true" ]; then
+            echo "::error::This pull request changes evals/market/check.mjs, the market eval's judge. CI can't judge a change to its own judge: a maintainer must review it and add the market-judge-change label."
+            exit 1
+          fi
+          if [ "$ACTION" = "synchronize" ]; then
+            git show "$BASE_SHA:.github/scripts/judge-label.mjs" > "$RUNNER_TEMP/judge/judge-label.mjs"
+            node "$RUNNER_TEMP/judge/judge-label.mjs" check market
+          fi
+
+      # A floor only goes up. The floor-lowered label approves one version of the floor files: a push that changes
+      # them again voids it.
       - name: No floor lower than on the base branch
         if: github.event_name == 'pull_request'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           FLOOR_LOWERED: ${{ contains(github.event.pull_request.labels.*.name, 'floor-lowered') && '1' || '0' }}
-        run: node "$MARKET_JUDGE" --ratchet "$BASE_SHA"
+          ACTION: ${{ github.event.action }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.event.after }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$FLOOR_LOWERED" = 1 ] && [ "$ACTION" = "synchronize" ]; then
+            git show "$BASE_SHA:.github/scripts/judge-label.mjs" > "$RUNNER_TEMP/judge/judge-label.mjs"
+            if ! grep -q '"floor-lowered"' "$RUNNER_TEMP/judge/judge-label.mjs"; then
+              echo "::error::This push may change the floors, and the base branch can't check that yet. A maintainer must review it and add the floor-lowered label again."
+              exit 1
+            fi
+            node "$RUNNER_TEMP/judge/judge-label.mjs" check floors || FLOOR_LOWERED=0
+          fi
+          FLOOR_LOWERED="$FLOOR_LOWERED" node "$MARKET_JUDGE" --ratchet "$BASE_SHA"
 
       - name: Check out the pinned siblings and install
         run: ./scripts/setup-siblings.sh

@@ -46,8 +46,11 @@ export function checkScores(results, floors, { requireAll = false } = {}) {
 		const s = results.scores?.[k];
 		if (!s || !isCount(s.pass)) problems.push(`${k}: no score in the results`);
 		else if (s.pass < f.pass) problems.push(`${k}: ${s.pass}/${s.of} passed, under its floor of ${f.pass}/${f.of}`);
+		// Failures are held too, so new cases can't hide a broken old one: 33/36 is over a 30/30 floor's 0 failures.
+		else if (s.of - s.pass > f.of - f.pass) problems.push(`${k}: ${s.of - s.pass} failed of ${s.of}, more than its floor's ${f.of - f.pass} (${f.pass}/${f.of})`);
 	}
-	if (ran.has("dom-bench") && results.domBenchRatchet === false) {
+	// Exactly true: a run that left the flag out did not show dom-bench's own floor held.
+	if (ran.has("dom-bench") && results.domBenchRatchet !== true) {
 		problems.push("domBench: a case in cli/test/dom-bench/floor.json failed or went over its tool-call ceiling (its table is above)");
 	}
 	if (ran.has("speed")) {
@@ -101,11 +104,13 @@ export function raise(floors, runs) {
 	for (const k of new Set(runs.flatMap((r) => Object.keys(r.scores ?? {})))) {
 		const got = runs.map((r) => r.scores?.[k]);
 		if (got.some((s) => !s)) continue;
-		const worst = Math.min(...got.map((s) => s.pass));
 		const of = Math.max(...got.map((s) => s.of));
 		const cur = next.scores[k];
-		if (!cur || worst > cur.pass) next.scores[k] = { pass: worst, of };
-		else if (of > cur.of) next.scores[k] = { ...cur, of };
+		// The worst run's failures, and the failure allowance (of - pass) never grows.
+		const worstFailed = Math.max(...got.map((s) => s.of - s.pass));
+		const failed = cur ? Math.min(worstFailed, cur.of - cur.pass) : worstFailed;
+		const pass = Math.max(cur?.pass ?? 0, of - failed);
+		if (!cur || pass !== cur.pass || of !== cur.of) next.scores[k] = { pass, of };
 	}
 	for (const k of new Set(runs.flatMap((r) => Object.keys(r.speed_ms ?? {})))) {
 		const got = runs.map((r) => r.speed_ms?.[k]);

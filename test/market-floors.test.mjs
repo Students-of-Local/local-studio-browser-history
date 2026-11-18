@@ -27,6 +27,8 @@ test("a run at its floors passes, and one case or one slow verb fails it", () =>
 	assert.deepEqual(checkScores(run({ speed_ms: { click: 99, fill: 70, firstText: 350 } }), tol), []);
 	assert.match(checkScores(run({ speed_ms: { click: 100, fill: 70, firstText: 350 } }), tol).join(), /plus 10% \(99 ms\)/);
 	assert.match(checkScores(run({ domBenchRatchet: false }), floors).join(), /dom-bench\/floor.json/);
+	// A run that left the flag out did not show dom-bench's floor held.
+	assert.match(checkScores(run({ domBenchRatchet: undefined }), floors).join(), /dom-bench\/floor.json/);
 	assert.match(checkScores(run({ speed_ms: { click: 80, fill: 70 } }), floors).join(), /firstText: not measured/);
 });
 
@@ -72,7 +74,8 @@ test("raise takes the worst of the runs and never lowers a floor", () => {
 	const runs = [run(), run({ speed_ms: { click: 85, fill: 60, firstText: 380 } }), run({ scores: { tasks: { pass: 30, of: 30 }, domBench: { pass: 55, of: 55 } } })];
 	const next = raise(floors, runs);
 	assert.deepEqual(next.ceilings_ms, { click: 85, fill: 70, firstText: 380 });
-	assert.deepEqual(next.scores.domBench, { pass: 54, of: 55 });
+	// No run failed a case, so the floor is all 55.
+	assert.deepEqual(next.scores.domBench, { pass: 55, of: 55 });
 	// A slow set of runs leaves the ceilings where they were.
 	assert.deepEqual(raise(floors, [run({ speed_ms: { click: 200, fill: 200, firstText: 900 } })]).ceilings_ms, floors.ceilings_ms);
 	assert.deepEqual(lowered({ floors, dom }, { floors: next, dom }), []);
@@ -104,4 +107,12 @@ test("a floor that is not a number is lowered and fails the check, instead of co
 		assert.ok(checkScores(run(), head).length, JSON.stringify(bad));
 	}
 	assert.deepEqual(malformed(floors), []);
+});
+
+test("new cases can't hide a broken old one: failures are held as well as passes", () => {
+	const more = run({ scores: { tasks: { pass: 33, of: 36 }, domBench: { pass: 54, of: 54 } } });
+	assert.match(checkScores(more, floors).join(), /tasks: 3 failed of 36, more than its floor's 0 \(30\/30\)/);
+	assert.deepEqual(checkScores(run({ scores: { tasks: { pass: 36, of: 36 }, domBench: { pass: 54, of: 54 } } }), floors), []);
+	// raise never grows the failure allowance: those runs give a floor they fail.
+	assert.deepEqual(raise(floors, [more]).scores.tasks, { pass: 36, of: 36 });
 });
