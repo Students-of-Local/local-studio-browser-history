@@ -3,15 +3,24 @@
 // at the new judge and add the label again. This script decides from the GitHub API alone and
 // never checks out or runs pull request code.
 //
-//   node judge-label.mjs check   exit 1 if this push changed the judge (CI, on synchronize)
-//   node judge-label.mjs remove  remove the label if this push changed the judge
-//                                (pull_request_target, on synchronize)
+//   node judge-label.mjs check [judge]   exit 1 if this push changed the judge (CI, on synchronize)
+//   node judge-label.mjs remove [judge]  remove the label if this push changed the judge
+//                                        (pull_request_target, on synchronize)
+//
+// [judge] is one of JUDGES: `skill` (the default, above), `market` (the market-judge-change label approves one
+// version of the market eval's judge, evals/market/check.mjs) or `floors` (the floor-lowered label approves one
+// version of the floor files, evals/market/floors.json and cli/test/dom-bench/floor.json).
 //
 // Environment: GITHUB_TOKEN, REPO (owner/name), PR (number), BEFORE and AFTER (the push's SHAs).
 import { pathToFileURL } from "node:url";
 
 export const LABEL = "skill-judge-change";
 export const JUDGE_FILES = ["cli/src/skill-eval.ts", "cli/src/skill-router.ts"];
+export const JUDGES = {
+	skill: { label: LABEL, files: JUDGE_FILES },
+	market: { label: "market-judge-change", files: ["evals/market/check.mjs"] },
+	floors: { label: "floor-lowered", files: ["evals/market/floors.json", "cli/test/dom-bench/floor.json"] },
+};
 /** GitHub's compare API lists at most this many files; a full list may be cut short. */
 export const COMPARE_FILE_LIMIT = 300;
 
@@ -19,11 +28,11 @@ export const COMPARE_FILE_LIMIT = 300;
  * Whether a push voids the approval. Fails closed: when the comparison failed or may be
  * incomplete, the answer is yes.
  */
-export function pushChangesJudge({ files = [], failed = false }) {
+export function pushChangesJudge({ files = [], failed = false }, judgeFiles = JUDGE_FILES) {
 	if (failed || files.length >= COMPARE_FILE_LIMIT) return true;
 	return files.some((f) => {
 		const names = typeof f === "string" ? [f] : [f.filename, f.previous_filename];
-		return names.some((n) => JUDGE_FILES.includes(n));
+		return names.some((n) => judgeFiles.includes(n));
 	});
 }
 
@@ -51,13 +60,19 @@ async function compare(repo, before, after) {
 	}
 }
 
-async function main(mode) {
+async function main(mode, judgeName = "skill") {
+	const judge = JUDGES[judgeName];
+	if (!judge) {
+		console.log(`Unknown judge ${judgeName}: one of ${Object.keys(JUDGES).join(", ")}`);
+		return 2;
+	}
+	const { label: LABEL, files: JUDGE_FILES } = judge;
 	const { REPO: repo, PR: pr, BEFORE: before, AFTER: after } = process.env;
 	if (!hasPush(before, after)) {
 		console.log("No push to compare; the label stands as it is.");
 		return 0;
 	}
-	const changed = pushChangesJudge(await compare(repo, before, after));
+	const changed = pushChangesJudge(await compare(repo, before, after), JUDGE_FILES);
 	if (!changed) {
 		console.log(`This push doesn't change ${JUDGE_FILES.join(" or ")}; an earlier ${LABEL} approval still holds.`);
 		return 0;
@@ -79,4 +94,4 @@ async function main(mode) {
 	return 2;
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) process.exitCode = await main(process.argv[2]);
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) process.exitCode = await main(process.argv[2], process.argv[3]);

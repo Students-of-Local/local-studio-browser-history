@@ -21,12 +21,15 @@
 #                     changes the judge voids it (skill-judge-label.yml removes it).
 #   check:            the full build, format, type and test pass that a release runs.
 #   cli-windows:      the CLI's Windows cases, on Windows.
-#   e2e:              the built extension in headless Chromium: bridge and MCP end to end, side panel, DOM benchmark.
+#   e2e:              the built extension in headless Chromium: bridge and MCP end to end, side panel.
 #   clean-install:    the Linux release packaged as release.yml packages it, installed from an empty home folder by
 #                     README.md's own steps to the first page text: fails over 3 steps, over 60 s, or when a
 #                     tampered or unattested artifact is accepted (cli/test/clean-install.mjs).
-#   tasks:            the same build: the ten-task set (evals/tasks) three times, every run must pass, then the
-#                     speed check, which fails at a median click of 150 ms or fill of 100 ms.
+#   market-evals:     the same build: the market eval (evals/market), which runs the ten-task set three times,
+#                     the speed check (median click, fill and first page text) and the DOM benchmark, and fails
+#                     below evals/market/floors.json or cli/test/dom-bench/floor.json. On a pull request it also
+#                     fails when either floor file is lower than on the base branch, unless a maintainer adds the
+#                     floor-lowered label (the base branch's check.mjs judges, so a pull request can't weaken it).
 # Nothing here gets a write token or a secret, so a pull request from a fork can't use CI
 # to reach anything.
 name: CI
@@ -343,8 +346,7 @@ jobs:
           node --experimental-strip-types --test test/hub-devices.test.mjs test/file-rules.test.mjs
 
   # The suites that drive the built extension in a real Chromium: the extension, native host and MCP server end to end
-  # (test:e2e) and the 44-page DOM benchmark held by cli/test/dom-bench/floor.json (bench:dom, gated on tool calls;
-  # --time stays off because a shared runner's clock is too noisy to gate on). Playwright's Chromium runs in the new
+  # (test:e2e) and the side panel. The DOM benchmark runs in market-evals. Playwright's Chromium runs in the new
   # headless mode, which loads extensions, so no display server is needed.
   e2e:
     runs-on: ubuntu-24.04
@@ -385,10 +387,6 @@ jobs:
       - name: End-to-end side panel test
         working-directory: cli
         run: npm run test:e2e:panel
-
-      - name: DOM benchmark against the floor
-        working-directory: cli
-        run: npm run bench:dom
 
   # A user's install, end to end: package the Linux release, then cli/test/clean-install.mjs installs it from an empty
   # home folder with README.md's own command, loads the extension the installer printed and reads a page through
@@ -441,9 +439,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: node test/clean-install.mjs --release "$RUNNER_TEMP/release"
 
-  tasks:
+  # The market eval (evals/market/README.md): the scores and speeds "best on the market" is measured by (#30). The
+  # DOM benchmark gates on tool calls, not wall time (a shared runner's clock is too noisy for per-case time); the
+  # speed ceilings are medians measured on this runner (the market-floors workflow).
+  market-evals:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - name: Check out
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -454,6 +455,75 @@ jobs:
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
+
+      # The judge: on a pull request, the base branch's check.mjs (when it has one), copied out of the checkout, so a
+      # pull request that changes the check can't approve its own lower floor or skip a part of the gate.
+      - name: Pick the judge
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          judge="$RUNNER_TEMP/judge/check.mjs"
+          mkdir -p "$RUNNER_TEMP/judge"
+          cp evals/market/check.mjs "$judge"
+          if [ -n "$BASE_SHA" ]; then
+            git fetch --no-tags --depth 1 origin "$BASE_SHA"
+            if git cat-file -e "$BASE_SHA:evals/market/check.mjs" 2>/dev/null; then
+              git show "$BASE_SHA:evals/market/check.mjs" > "$judge"
+              echo "Judging with the base branch's check.mjs."
+            fi
+          fi
+          echo "MARKET_JUDGE=$judge" >> "$GITHUB_ENV"
+
+      # The judge judges every later pull request, so a change to it needs a maintainer: the market-judge-change label,
+      # which a push that changes the judge again voids (the base branch's .github/scripts/judge-label.mjs).
+      - name: Changes to the market judge need a maintainer's label
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          LABELED: ${{ contains(github.event.pull_request.labels.*.name, 'market-judge-change') }}
+          ACTION: ${{ github.event.action }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.event.after }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          if ! git cat-file -e "$BASE_SHA:evals/market/check.mjs" 2>/dev/null || git diff --quiet "$BASE_SHA" HEAD -- evals/market/check.mjs; then
+            echo "No change to an existing evals/market/check.mjs."
+            exit 0
+          fi
+          if [ "$LABELED" != "true" ]; then
+            echo "::error::This pull request changes evals/market/check.mjs, the market eval's judge. CI can't judge a change to its own judge: a maintainer must review it and add the market-judge-change label."
+            exit 1
+          fi
+          if [ "$ACTION" = "synchronize" ]; then
+            git show "$BASE_SHA:.github/scripts/judge-label.mjs" > "$RUNNER_TEMP/judge/judge-label.mjs"
+            node "$RUNNER_TEMP/judge/judge-label.mjs" check market
+          fi
+
+      # A floor only goes up. The floor-lowered label approves one version of the floor files: a push that changes
+      # them again voids it.
+      - name: No floor lower than on the base branch
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          FLOOR_LOWERED: ${{ contains(github.event.pull_request.labels.*.name, 'floor-lowered') && '1' || '0' }}
+          ACTION: ${{ github.event.action }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.event.after }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$FLOOR_LOWERED" = 1 ] && [ "$ACTION" = "synchronize" ]; then
+            git show "$BASE_SHA:.github/scripts/judge-label.mjs" > "$RUNNER_TEMP/judge/judge-label.mjs"
+            if ! grep -q '"floor-lowered"' "$RUNNER_TEMP/judge/judge-label.mjs"; then
+              echo "::error::This push may change the floors, and the base branch can't check that yet. A maintainer must review it and add the floor-lowered label again."
+              exit 1
+            fi
+            node "$RUNNER_TEMP/judge/judge-label.mjs" check floors || FLOOR_LOWERED=0
+          fi
+          FLOOR_LOWERED="$FLOOR_LOWERED" node "$MARKET_JUDGE" --ratchet "$BASE_SHA"
 
       - name: Check out the pinned siblings and install
         run: ./scripts/setup-siblings.sh
@@ -469,11 +539,21 @@ jobs:
         working-directory: cli
         run: npx playwright-core install --with-deps chromium
 
+      # Ubuntu 24.04 blocks the unprivileged user namespaces Chromium's sandbox needs; the tests launch Chromium directly.
       - name: Let Chromium's sandbox start
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
-      - name: Task set, 10 tasks x 3
-        run: node evals/tasks/run.mjs --repeat 3
+      - name: Market eval
+        run: node evals/market/run.mjs --no-check
 
-      - name: Speed check (median of 5)
-        run: node evals/tasks/speed.mjs 5
+      # --require-all: every part floors.json scores must have run.
+      - name: Every score at its floor, every speed under its ceiling
+        run: node "$MARKET_JUDGE" --require-all evals/market/results/last.json
+
+      - name: Keep the run's numbers
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: market-evals
+          path: evals/market/results/last.json
+          if-no-files-found: ignore

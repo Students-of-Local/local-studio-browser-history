@@ -2,7 +2,7 @@
 // throwaway headless Chromium) and the driver verbs solves.mjs is written against. Adapted from the study's
 // adapters/polycarp.mjs and lib/drivers.mjs (README.md, "Origin").
 import { execFileSync } from "node:child_process";
-import { startHarness } from "../../cli/test/e2e-harness.mjs";
+import { startHarness } from "../../../cli/test/e2e-harness.mjs";
 
 /** Start the harness with the two task hosts allowed, as a person allows them in the side panel. */
 export async function startTychicus() {
