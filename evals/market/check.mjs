@@ -29,10 +29,12 @@ export function checkScores(results, floors) {
 		problems.push("domBench: a case in cli/test/dom-bench/floor.json failed or went over its tool-call ceiling (its table is above)");
 	}
 	if (ran.has("speed")) {
+		const tol = floors.tolerance_pct ?? 0;
 		for (const [k, ceiling] of Object.entries(floors.ceilings_ms ?? {})) {
 			const v = results.speed_ms?.[k];
+			const limit = ceiling * (1 + tol / 100);
 			if (typeof v !== "number") problems.push(`speed ${k}: not measured`);
-			else if (v > ceiling) problems.push(`speed ${k}: median ${v} ms, over its ceiling of ${ceiling} ms`);
+			else if (v > limit) problems.push(`speed ${k}: median ${v} ms, over its ceiling of ${ceiling} ms plus ${tol}% (${Math.round(limit)} ms)`);
 		}
 	}
 	return problems;
@@ -50,6 +52,9 @@ export function lowered(base, head) {
 		const h = head.floors?.ceilings_ms?.[k];
 		if (typeof h !== "number") out.push(`floors.json: speed ceiling ${k} was removed`);
 		else if (h > c) out.push(`floors.json: speed ceiling ${k} went from ${c} ms to ${h} ms`);
+	}
+	if (base.floors && (head.floors?.tolerance_pct ?? 0) > (base.floors.tolerance_pct ?? 0)) {
+		out.push(`floors.json: tolerance_pct went from ${base.floors.tolerance_pct ?? 0} to ${head.floors.tolerance_pct}`);
 	}
 	// A first floors.json lowers nothing; after that, a new localOnly entry takes a part out of the gate.
 	for (const k of base.floors ? Object.keys(head.floors?.localOnly ?? {}) : []) {

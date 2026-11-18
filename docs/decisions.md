@@ -1891,8 +1891,8 @@ lowering either.
 - Rivals run through the same task loop and speed loop (`evals/market/tasks/loop.mjs`) by hand, never in CI, so CI
   never installs or runs third-party tools.
 
-**Limits.** A shared runner's clock is noisy; medians of 9 and worst of 3 keep the speed gate from flaking, and a
-real slowdown under about 20% can pass. dom-bench's per-case wall time stays out of the gate (`localOnly`). The weak
+**Limits.** A shared runner's clock is noisy: medians of 9 moved about 7% between three runners (click 74 to 79 ms),
+so a median fails only past its ceiling plus `tolerance_pct` (10%), and a real slowdown smaller than that can pass. dom-bench's per-case wall time stays out of the gate (`localOnly`). The weak
 model track, Browser Use and computer use are not in it yet (#30).
 
 **Proof.** `test/market-floors.test.mjs` (the check, the ratchet and raise), and the pull request that added this:

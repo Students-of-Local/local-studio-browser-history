@@ -21,7 +21,11 @@ const dom = { passing: ["a", "b"], calls: { a: 3, b: 5 }, ms: { a: 2000, b: 2000
 test("a run at its floors passes, and one case or one slow verb fails it", () => {
 	assert.deepEqual(checkScores(run(), floors), []);
 	assert.match(checkScores(run({ scores: { tasks: { pass: 29, of: 30 }, domBench: { pass: 54, of: 54 } } }), floors).join(), /tasks: 29\/30 passed, under its floor of 30\/30/);
-	assert.match(checkScores(run({ speed_ms: { click: 91, fill: 70, firstText: 350 } }), floors).join(), /speed click: median 91 ms, over its ceiling of 90 ms/);
+	assert.match(checkScores(run({ speed_ms: { click: 91, fill: 70, firstText: 350 } }), floors).join(), /speed click: median 91 ms, over its ceiling of 90 ms plus 0%/);
+	// The tolerance: 10% over a 90 ms ceiling is 99 ms.
+	const tol = { ...floors, tolerance_pct: 10 };
+	assert.deepEqual(checkScores(run({ speed_ms: { click: 99, fill: 70, firstText: 350 } }), tol), []);
+	assert.match(checkScores(run({ speed_ms: { click: 100, fill: 70, firstText: 350 } }), tol).join(), /plus 10% \(99 ms\)/);
 	assert.match(checkScores(run({ domBenchRatchet: false }), floors).join(), /dom-bench\/floor.json/);
 	assert.match(checkScores(run({ speed_ms: { click: 80, fill: 70 } }), floors).join(), /firstText: not measured/);
 });
@@ -38,12 +42,14 @@ test("the ratchet: no change passes, and every way down is named", () => {
 	down.ceilings_ms.click = 91;
 	delete down.ceilings_ms.fill;
 	down.localOnly.speed = "too noisy";
+	down.tolerance_pct = 25;
 	const domDown = { passing: ["a"], calls: { a: 4 }, ms: { a: 2000 } };
 	const drops = lowered({ floors, dom }, { floors: down, dom: domDown }).join("\n");
 	assert.match(drops, /tasks floor went from 30 to 29/);
 	assert.match(drops, /click went from 90 ms to 91 ms/);
 	assert.match(drops, /fill was removed/);
 	assert.match(drops, /speed was moved out of the CI gate/);
+	assert.match(drops, /tolerance_pct went from 0 to 25/);
 	assert.match(drops, /b left passing/);
 	assert.match(drops, /a calls ceiling went from 3 to 4/);
 });
@@ -77,7 +83,8 @@ test("the committed floors are whole and hold every part the eval runs", () => {
 	assert.deepEqual(Object.keys(f.scores).sort(), ["domBench", "tasks"]);
 	assert.deepEqual(Object.keys(f.ceilings_ms).sort(), ["click", "fill", "firstText"]);
 	// #30's targets: the ceilings never sit above them.
-	assert.ok(f.ceilings_ms.click < 150 || f.ceilings_ms.click === 150);
-	assert.ok(f.ceilings_ms.fill <= 100);
+	assert.ok(f.ceilings_ms.click * (1 + f.tolerance_pct / 100) < 150);
+	assert.ok(f.ceilings_ms.fill * (1 + f.tolerance_pct / 100) < 100);
+	assert.ok(f.tolerance_pct <= 10, "the tolerance stays at or under 10%");
 	for (const [k, why] of Object.entries(f.localOnly ?? {})) assert.ok(String(why).length > 20, `localOnly ${k} needs its reason`);
 });

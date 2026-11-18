@@ -28,13 +28,14 @@ A run writes `results/last.json` (gitignored): the scores, the speed medians and
 ## Floors
 
 [`floors.json`](floors.json) holds a pass count for each score and a ceiling in ms for each speed. The run fails when
-a score is under its floor or a median is over its ceiling. dom-bench also keeps its own per-case floor
+a score is under its floor or a median is more than `tolerance_pct` (10%) over its ceiling: medians of 9 moved about
+7% between GitHub runners, and a gate that flakes gets ignored. dom-bench also keeps its own per-case floor
 (`cli/test/dom-bench/floor.json`: each passing case by id, within its tool-call ceiling), and the run fails when that
 breaks too.
 
 The ratchet: a floor only goes up and a ceiling only goes down. CI's `market-evals` job compares both floor files with
 the base branch, using the base branch's `check.mjs`, and fails when a pull request lowers a score, raises a ceiling,
-removes a case from dom-bench's `passing` or moves anything into `localOnly`. A drop that is right (a case was wrong,
+removes a case from dom-bench's `passing`, raises `tolerance_pct` or moves anything into `localOnly`. A drop that is right (a case was wrong,
 not the tool) needs the reason written beside it and a maintainer's `floor-lowered` label.
 
 The numbers come from CI's own runner, never a laptop: the `market-floors` workflow runs the eval 3 times on separate
@@ -47,8 +48,9 @@ gh run download <run id> -n market-floors             # floors.json and the 3 ru
 
 then copy that `floors.json` over this one in a pull request.
 
-`localOnly` lists what is measured but kept out of the CI gate, with the reason. Today: the rivals (below), and
-dom-bench's per-case wall time (`--time`), because a shared runner's clock swings several fold.
+`localOnly` lists what is kept out of the CI gate, with the reason: the rivals (below), dom-bench's per-case wall
+time (`--time`), because a shared runner's clock swings several fold per case, and #33's risky-action set until it
+has cases.
 
 ## Rivals, by hand
 
