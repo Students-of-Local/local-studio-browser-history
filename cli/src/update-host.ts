@@ -284,6 +284,8 @@ export async function computeStatus(force = false): Promise<HostUpdateStatus> {
 			staged = stagedVersion && isNewer(stagedVersion, installedVersion(root)) ? stagedVersion : undefined;
 			canRollback = existsSync(previousDir());
 			rollbackTo = canRollback ? installedVersion(previousDir()) : undefined;
+			// "Update now" and the automatic install would only fail on a release with no signed archive.
+			if (check.available && check.unsigned) blocked = check.unsigned;
 		} else {
 			blocked = `This Tychicus runs from ${root}, which is neither a release install nor a git checkout. Run ${COMMAND_NAME} update in a terminal.`;
 		}

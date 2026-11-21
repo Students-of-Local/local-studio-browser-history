@@ -344,6 +344,9 @@ jobs:
         run: |
           node --test test/windows-service.test.mjs test/cli.test.mjs test/legacy-socket.test.mjs test/cloudflare-tunnel.test.mjs test/release-upgrade-windows.test.mjs
           node --experimental-strip-types --test test/hub-devices.test.mjs test/file-rules.test.mjs
+      # install.ps1 against a local stand-in for the release pages (the test uses only Node's own modules).
+      - name: The one-command installer for Windows
+        run: node --test ../test/install-script.test.mjs
 
   # The suites that drive the built extension in a real Chromium: the extension, native host and MCP server end to end
   # (test:e2e) and the side panel. The DOM benchmark runs in market-evals. Playwright's Chromium runs in the new
@@ -389,8 +392,9 @@ jobs:
         run: npm run test:e2e:panel
 
   # A user's install, end to end: package the Linux release, then cli/test/clean-install.mjs installs it from an empty
-  # home folder with README.md's own command, loads the extension the installer printed and reads a page through
-  # MCP. The token lets gh check that a build no release workflow attested is refused.
+  # home folder with README.md's one command (install.sh, served from a local copy of the release), loads the extension
+  # the installer printed and reads a page through MCP; it runs the by-hand steps too. The token lets gh check that a
+  # build no release workflow attested is refused.
   clean-install:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -412,6 +416,10 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.3.14
+
+      # Plain POSIX sh: it runs under dash on Debian and Ubuntu, and under macOS's sh.
+      - name: Lint install.sh
+        run: shellcheck --shell=sh scripts/install.sh
 
       - name: Check out the pinned siblings and install
         run: ./scripts/setup-siblings.sh

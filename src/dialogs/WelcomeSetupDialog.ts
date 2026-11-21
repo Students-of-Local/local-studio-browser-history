@@ -3,6 +3,7 @@ import { DialogContent, DialogHeader } from "@mariozechner/mini-lit/dist/Dialog.
 import { DialogBase } from "@mariozechner/mini-lit/dist/DialogBase.js";
 import { html } from "lit";
 import { agentSetupPromptButton } from "../components/AgentSetupPrompt.js";
+import "../components/HelperSetup.js";
 import { tychicusMark } from "../components/TychicusMark.js";
 
 /**
@@ -17,6 +18,7 @@ export type WelcomeMode = "keys" | "local-studio";
 /**
  * Shown on first launch when no API keys are configured.
  * Blocks until the person picks one of two ways in: add a provider key, or use Polycarp from claude.ai or ChatGPT. Pairs with a third, copying a prompt for their own agent.
+ * Above that prompt sits the helper's state: the one command that installs it when no helper answers, connected once it does.
  */
 export class WelcomeSetupDialog extends DialogBase {
 	private resolvePromise?: (choice: WelcomeChoice) => void;
@@ -95,6 +97,7 @@ export class WelcomeSetupDialog extends DialogBase {
 					</div>
 					<p class="text-sm text-foreground">How do you want to use it?</p>
 					${this.mode === "local-studio" ? this.renderLocalStudio() : this.renderKeys()}
+					<helper-setup></helper-setup>
 					<div class="flex flex-col gap-1.5">
 						${agentSetupPromptButton("Claude Code, Codex and other agents can drive this browser. Paste this prompt into yours.")}
 					</div>

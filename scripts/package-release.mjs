@@ -2,7 +2,8 @@
 //   tychicus-<version>-<os>-<arch>.tar.gz (.zip for Windows): the `tychicus` executable (the CLI, MCP server and native
 //     host in one, compiled by Bun, cli/scripts/compile.mjs), with extension/ and plugins/ beside it
 //   tychicus-<version>-extension.zip: the unpacked extension (dist-chrome), the same folder as extension/ above
-//   SHA256SUMS: one line per artifact, what `tychicus install --release` checks
+//   install.sh, install.ps1: the one-command installers (scripts/), which fetch the archive above and SHA256SUMS
+//   SHA256SUMS: one line per artifact, what `tychicus install --release` and both installers check
 // The release workflow (.github/workflows/release.yml) runs this for every target and attests each artifact; CI's
 // clean-install job runs it for linux-x64 and installs the result the way a user would.
 //   node scripts/package-release.mjs --out <dir> [--targets linux-x64,darwin-arm64,win-x64]
@@ -102,6 +103,12 @@ try {
 	rmSync(join(outDir, extZip), { force: true });
 	run("zip", ["-qrX", join(outDir, extZip), "."], { cwd: extension });
 	artifacts.push(extZip);
+	// The one-command installers, published beside the archives so `releases/latest/download/install.sh` always
+	// fetches the script that matches the release it installs.
+	for (const script of ["install.sh", "install.ps1"]) {
+		copyFileSync(join(root, "scripts", script), join(outDir, script));
+		artifacts.push(script);
+	}
 } finally {
 	rmSync(work, { recursive: true, force: true });
 }

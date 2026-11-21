@@ -2,7 +2,9 @@
 #   tychicus-<version>-linux-x64.tar.gz, -darwin-arm64.tar.gz, -win-x64.zip: the `tychicus` program (CLI, MCP server
 #     and native host, compiled by Bun) with extension/, plugins/ and LICENSE beside it
 #   tychicus-<version>-extension.zip: the unpacked extension on its own
-#   SHA256SUMS: one line per artifact
+#   install.sh, install.ps1: the one-command installers (scripts/), so releases/latest/download/install.sh installs the
+#     latest release
+#   SHA256SUMS: one line per artifact, the installers included
 # Every artifact gets a build provenance attestation, so `tychicus install --release <folder>` (and anyone with gh)
 # can check it was built here: gh attestation verify <file> --repo baney75/tychicus
 #   --signer-workflow baney75/tychicus/.github/workflows/release.yml
@@ -108,6 +110,8 @@ jobs:
           subject-path: |
             release/tychicus-*.tar.gz
             release/tychicus-*.zip
+            release/install.sh
+            release/install.ps1
             release/SHA256SUMS
 
       - name: Upload to the release
@@ -116,6 +120,6 @@ jobs:
           GH_REPO: ${{ github.repository }}
         run: |
           if ! gh release view "$TAG" > /dev/null 2>&1; then
-            gh release create "$TAG" --verify-tag --title "Tychicus ${TAG#v}" --notes "See CHANGELOG.md for what changed. Install: README.md, Install from a release."
+            gh release create "$TAG" --verify-tag --title "Tychicus ${TAG#v}" --notes "See CHANGELOG.md for what changed. Install: README.md, Install."
           fi
-          gh release upload "$TAG" release/tychicus-* release/SHA256SUMS --clobber
+          gh release upload "$TAG" release/tychicus-* release/install.sh release/install.ps1 release/SHA256SUMS --clobber

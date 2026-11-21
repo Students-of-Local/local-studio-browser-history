@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Package a built checkout as a release: tabkyra-<version>.zip and SHA256SUMS.
+// Package a built checkout as a signed in-place update: tychicus-<version>.zip and SHA256SUMS (the archive
+// cli/src/update.ts installs; .github/workflows/release.yml does not publish it yet).
 //   node scripts/release/package.mjs --version 1.2.0 --out release/
 // Needs `npm run build` (dist-chrome) and `cd cli && npm run build` first. The release
 // workflow signs SHA256SUMS afterwards; docs/updates.md describes the whole flow.
@@ -67,7 +68,7 @@ try {
 files.push({ name: "release.json", data: Buffer.from(`${JSON.stringify({ version, commit }, null, 2)}\n`) });
 
 mkdirSync(out, { recursive: true });
-const zipName = `tabkyra-${version}.zip`;
+const zipName = `tychicus-${version}.zip`;
 const zip = createZip(files);
 writeFileSync(join(out, zipName), zip);
 const sum = createHash("sha256").update(zip).digest("hex");

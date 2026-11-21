@@ -47,6 +47,7 @@ import {
 } from "./dialogs.js";
 import { BridgeError, classify, handlerLimit, withTimeout } from "./errors.js";
 import { dropAllTransfers, dropTransfersForClient } from "./files.js";
+import { HOST_CONNECTED_KEY } from "./host-state.js";
 import {
 	addPendingRequest,
 	allowHost,
@@ -1114,6 +1115,19 @@ function scheduleReconnect(now = false): void {
 	}, delay);
 }
 
+/** What chrome.storage.session last said about the helper; each change is written once (host-state.ts). */
+let reportedConnected: boolean | undefined;
+
+function reportHostConnected(connected: boolean): void {
+	if (reportedConnected === connected) return;
+	reportedConnected = connected;
+	try {
+		chrome.storage.session.set({ [HOST_CONNECTED_KEY]: connected }).catch(() => undefined);
+	} catch {
+		/* no session storage (a test's stub) */
+	}
+}
+
 function connect(): void {
 	if (port) return;
 	let next: chrome.runtime.Port;
@@ -1130,6 +1144,7 @@ function connect(): void {
 		// Reset the backoff only once a host actually talks, so a host that exits at once
 		// (crash loop) is retried ever more slowly instead of every second.
 		reconnectDelay = RECONNECT_MIN_MS;
+		if (!talked && port === next) reportHostConnected(true);
 		talked = true;
 		onHostMessage(message);
 	});
@@ -1137,7 +1152,10 @@ function connect(): void {
 		const reason = chrome.runtime.lastError?.message ?? "closed";
 		// "Specified native messaging host not found" means the CLI installer has not run yet.
 		console.debug("[Bridge] native host disconnected:", reason);
-		if (port === next) port = undefined;
+		if (port === next) {
+			port = undefined;
+			reportHostConnected(false);
+		}
 		// No host registered under this name (or not for this extension): try the next name, the old one straight away. A host
 		// that starts and dies keeps its name, so a crash loop still backs off.
 		const unregistered = !talked && /not found|forbidden/i.test(reason);
@@ -1329,6 +1347,8 @@ export function startBridge(): void {
 		send(message);
 		return true;
 	});
+	// A new worker has no port yet; what an earlier worker wrote is stale until a host talks on this one.
+	reportHostConnected(false);
 	connect();
 }
 

@@ -4,10 +4,14 @@
  *   ~/.local/share/polycarp/browser/app/        the installed release (dist-chrome/, cli/dist/index.js, release.json)
  *   ~/.local/share/polycarp/browser/previous/   the release before it, for `polycarp browser update --rollback`
  *
- * A release has three assets: tabkyra-<version>.zip, SHA256SUMS and SHA256SUMS.minisig.
+ * Releases come from baney75/tychicus (REPO, the same repository release.ts installs from; the repository archived at
+ * the rename is never read). A release is Tychicus's when it carries a `tychicus-<version>` asset; any other is skipped. Updating in
+ * place needs three of them: tychicus-<version>.zip, SHA256SUMS and SHA256SUMS.minisig.
  * The signature over SHA256SUMS is checked against keys/tabkyra-release.pub (bundled into
  * the CLI at build time), its trusted comment must name the version, and the zip must
  * match its checksum. Any mismatch stops the update before a file is touched.
+ * release.yml publishes per-OS archives with build attestations and no minisign signature yet, so for such a release
+ * the check still reports it, and the update names the one install command instead (#13).
  * docs/updates.md describes the flow and the key handling.
  */
 
@@ -26,11 +30,13 @@ import { USER_AGENT } from "./version.ts";
 import { extractZip } from "./zip.ts";
 import { COMMAND_NAME } from "./self.ts";
 import { envVar } from "./env.ts";
+import { installCommandFor } from "../../src/install-command.ts";
 import { configDir, dataDir } from "./files.ts";
 
 export { configDir };
 
-export const REPO = "baney75/tabkyra";
+/** Where releases are read from: release.ts installs from the same repository (RELEASE_REPO). */
+export const REPO = "baney75/tychicus";
 export type Channel = "stable" | "nightly";
 /** `polycarp browser update --check` exit code when a newer release exists (as `dnf check-update`). */
 export const EXIT_UPDATE_AVAILABLE = 100;
@@ -142,6 +148,8 @@ export interface UpdateStatus {
 	available: boolean;
 	url?: string;
 	error?: string;
+	/** The latest release has no signed update archive: why it can't install in place, and the command that installs it. */
+	unsigned?: string;
 	/** Absent in files written before checkout mode: a release check. */
 	mode?: InstallMode;
 	/** Checkout mode: HEAD and origin/main when the check ran. */
@@ -236,14 +244,28 @@ interface GitHubRelease {
 	assets: ReleaseAsset[];
 }
 
+/** The three assets an in-place update needs (scripts/release/package.mjs, signed). */
+export interface SignedAssets {
+	zip: ReleaseAsset;
+	sums: ReleaseAsset;
+	signature: ReleaseAsset;
+}
+
 export interface Release {
 	version: string;
 	url: string;
 	/** The GitHub release body (scripts/release/notes.mjs writes it from CHANGELOG.md). */
 	notes?: string;
-	zip: ReleaseAsset;
-	sums: ReleaseAsset;
-	signature: ReleaseAsset;
+	/** Absent when the release has only release.yml's attested archives; downloadVerified then refuses (#13). */
+	signed?: SignedAssets;
+}
+
+/** The signed archive's name for a version. */
+export const updateZipName = (version: string) => `tychicus-${version}.zip`;
+
+/** True when a release carries a Tychicus asset for its version: the signed archive or one of release.yml's. */
+function isTychicusRelease(release: GitHubRelease, version: string): boolean {
+	return release.assets.some((a) => a.name === updateZipName(version) || a.name.startsWith(`tychicus-${version}-`));
 }
 
 /** Only https, except loopback (the test server). */
@@ -292,19 +314,26 @@ export async function latestRelease(channel: Channel): Promise<Release | undefin
 		const version = parseVersion(release.tag_name);
 		if (!version) continue;
 		if (channel === "stable" && (release.prerelease || version.pre.length > 0)) continue;
+		if (!isTychicusRelease(release, version.text)) continue;
 		if (!best || compareVersions(version, best.version) > 0) best = { release, version };
 	}
 	if (!best) return undefined;
 	const find = (name: string) => best?.release.assets.find((a) => a.name === name);
-	const zip = find(`tabkyra-${best.version.text}.zip`);
+	const zip = find(updateZipName(best.version.text));
 	const sums = find("SHA256SUMS");
 	const signature = find("SHA256SUMS.minisig");
-	if (!zip || !sums || !signature) {
-		throw new UpdateError(`Release ${best.release.tag_name} is missing its zip, SHA256SUMS or SHA256SUMS.minisig; not installing it`);
-	}
 	const body = typeof best.release.body === "string" ? best.release.body.trim() : "";
 	const notes = body ? releaseSummary(body) : undefined;
-	return { version: best.version.text, url: best.release.html_url, notes, zip, sums, signature };
+	const signed = zip && sums && signature ? { zip, sums, signature } : undefined;
+	return { version: best.version.text, url: best.release.html_url, notes, signed };
+}
+
+/** Why a release without the signed archive can't update in place, and the command that installs it instead. */
+export function unsignedReleaseMessage(release: Pick<Release, "version" | "url">): string {
+	const command = installCommandFor(process.platform)?.command;
+	return `Tychicus ${release.version} has no signed update archive (${updateZipName(release.version)} and SHA256SUMS.minisig), so it can't be installed in place. ${
+		command ? `Install it with: ${command}` : `Install it from ${release.url}`
+	}`;
 }
 
 // ---- check -----------------------------------------------------------------
@@ -318,6 +347,7 @@ export async function checkForUpdate(channel: Channel): Promise<UpdateStatus> {
 			status.latest = release.version;
 			status.url = release.url;
 			status.available = isNewer(release.version, current);
+			if (!release.signed) status.unsigned = unsignedReleaseMessage(release);
 		}
 	} catch (err) {
 		status.error = err instanceof Error ? err.message : String(err);
@@ -338,6 +368,8 @@ export async function downloadVerified(
 	log: (line: string) => void,
 	phase: (phase: UpdatePhase, message: string) => void = () => {},
 ): Promise<Buffer> {
+	const signed = release.signed;
+	if (!signed) throw new UpdateError(unsignedReleaseMessage(release));
 	let key: ReturnType<typeof parsePublicKey>;
 	try {
 		key = parsePublicKey(releaseKeyText());
@@ -345,8 +377,8 @@ export async function downloadVerified(
 		throw new UpdateError("This build has no release signing key (keys/tabkyra-release.pub), so it can't verify a release. Updates stay off until one is published.");
 	}
 	phase("downloading", `Downloading the checksums for ${release.version}`);
-	const sums = await fetchBytes(release.sums.browser_download_url, MAX_SUMS_BYTES);
-	const signature = (await fetchBytes(release.signature.browser_download_url, MAX_SUMS_BYTES)).toString("utf8");
+	const sums = await fetchBytes(signed.sums.browser_download_url, MAX_SUMS_BYTES);
+	const signature = (await fetchBytes(signed.signature.browser_download_url, MAX_SUMS_BYTES)).toString("utf8");
 	phase("verifying", "Checking the minisign signature");
 	let trusted: string;
 	try {
@@ -355,8 +387,8 @@ export async function downloadVerified(
 		throw new UpdateError(`Signature check failed: ${err instanceof SignatureError ? err.message : String(err)}`);
 	}
 	// The trusted comment is signed: it pins the version, so an old signed release can't pose as a new one.
-	if (!new RegExp(`(^|\\s)tabkyra ${release.version.replace(/\./g, "\\.")}(\\s|$)`).test(trusted)) {
-		throw new UpdateError(`Signature check failed: it was made for "${trusted}", not tabkyra ${release.version}`);
+	if (!new RegExp(`(^|\\s)tychicus ${release.version.replace(/\./g, "\\.")}(\\s|$)`).test(trusted)) {
+		throw new UpdateError(`Signature check failed: it was made for "${trusted}", not tychicus ${release.version}`);
 	}
 	log(`${sym.ok} Signature verified ${c.dim(`(${trusted})`)}`);
 
@@ -364,13 +396,13 @@ export async function downloadVerified(
 		.toString("utf8")
 		.split(/\r?\n/)
 		.map((l) => /^([0-9a-f]{64})\s+\*?(.+)$/.exec(l.trim()))
-		.find((m) => m && m[2] === release.zip.name)?.[1];
-	if (!expected) throw new UpdateError(`SHA256SUMS has no entry for ${release.zip.name}`);
-	phase("downloading", `Downloading ${release.zip.name}`);
-	const zip = await fetchBytes(release.zip.browser_download_url, MAX_ZIP_BYTES, 300000);
+		.find((m) => m && m[2] === signed.zip.name)?.[1];
+	if (!expected) throw new UpdateError(`SHA256SUMS has no entry for ${signed.zip.name}`);
+	phase("downloading", `Downloading ${signed.zip.name}`);
+	const zip = await fetchBytes(signed.zip.browser_download_url, MAX_ZIP_BYTES, 300000);
 	phase("verifying", "Checking the archive's checksum");
 	const actual = sha256(zip);
-	if (actual !== expected) throw new UpdateError(`Checksum mismatch for ${release.zip.name}: expected ${expected}, got ${actual}`);
+	if (actual !== expected) throw new UpdateError(`Checksum mismatch for ${signed.zip.name}: expected ${expected}, got ${actual}`);
 	log(`${sym.ok} Checksum verified ${c.dim(`(sha256 ${actual.slice(0, 16)}...)`)}`);
 	return zip;
 }
@@ -592,6 +624,7 @@ export async function runUpdate(options: UpdateOptions): Promise<number> {
 			return 1;
 		}
 		if (!status.latest) log(`${sym.ok} No ${channel} release is published yet. ${c.dim(`(installed ${status.current})`)}`);
+		else if (status.available && status.unsigned) log(`${sym.warn} Update available: ${c.bold(status.latest)} ${c.dim(`(installed ${status.current})`)}. ${status.unsigned}`);
 		else if (status.available) log(`${sym.warn} Update available: ${c.bold(status.latest)} ${c.dim(`(installed ${status.current})`)} ${sym.arrow} ${c.bold(`${COMMAND_NAME} update`)}`);
 		else log(`${sym.ok} Up to date ${c.dim(`(${status.current}, latest ${channel} ${status.latest})`)}`);
 		return status.error ? 1 : status.available ? EXIT_UPDATE_AVAILABLE : 0;
@@ -607,6 +640,8 @@ export async function runUpdate(options: UpdateOptions): Promise<number> {
 		log(`${sym.ok} Up to date ${c.dim(`(${status.current})`)}`);
 		return 0;
 	}
+	// Say so before any prompt: downloadVerified would refuse it after the question.
+	if (status.unsigned) throw new UpdateError(status.unsigned);
 	if (!managed) {
 		// A source checkout (or npm link) is not replaced; the release goes to its own folder.
 		const target = appDir();
