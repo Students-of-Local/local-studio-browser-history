@@ -23,7 +23,7 @@ export const ACTION_SETTLE = { quietMs: 300, capMs: 2500, longMs: 2000 };
 /**
  * After a click or fill the page showed no sign of reacting to: no DOM change, request, navigation or loader since the
  * action began. Waiting out the whole quiet window then only adds its 300 ms to every such action (D50). A sign that
- * comes within this time keeps the quiet window.
+ * comes within this time keeps the quiet window. 60 ms until D56, which drains the page's queued tasks before it looks.
  */
 export const IDLE_MS = 20;
 /**
