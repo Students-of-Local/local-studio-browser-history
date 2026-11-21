@@ -12,7 +12,6 @@ const root = join(import.meta.dirname, "..");
 const OLD_ID = "kenehmggpggpiolepbjojeenmeapgfoc";
 const readme = readFileSync(join(root, "README.md"), "utf8");
 const changelog = readFileSync(join(root, "CHANGELOG.md"), "utf8");
-const unreleased = changelog.slice(changelog.indexOf("## [Unreleased]"), changelog.search(/\n## \[\d/));
 
 test("the README never claims stored data carried over, and says what the ID change does to it", () => {
 	assert.doesNotMatch(readme, /Stored data did not change/i);
@@ -23,8 +22,9 @@ test("the README never claims stored data carried over, and says what the ID cha
 });
 
 test("the changelog's ID entry warns that the new ID starts empty", () => {
-	const entry = unreleased.split("\n").find((l) => l.includes(extensionId.id));
-	assert.ok(entry, "an Unreleased entry names the new ID");
+	// Newest first: the entry sits under [Unreleased] until a release moves it under its version.
+	const entry = changelog.split("\n").find((l) => l.startsWith("- ") && l.includes(extensionId.id));
+	assert.ok(entry, "a changelog entry names the new ID");
 	assert.match(entry, new RegExp(OLD_ID));
 	assert.match(entry, /starts? (with )?empty/i);
 	assert.doesNotMatch(entry, /must be loaded again\.$/);

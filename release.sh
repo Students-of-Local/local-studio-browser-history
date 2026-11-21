@@ -39,6 +39,9 @@ manifest.version = '$NEW_VERSION';
 fs.writeFileSync('$MANIFEST', JSON.stringify(manifest, null, '\t') + '\n');
 "
 
+# package.json carries it too: the store build refuses a manifest version that differs from it
+npm version "$NEW_VERSION" --no-git-tag-version --allow-same-version > /dev/null
+
 # The Local Studio plugins carry the same version (cli/test/local-studio-plugins.test.mjs checks it)
 node scripts/plugin-version.mjs "$NEW_VERSION"
 
@@ -55,7 +58,7 @@ echo "Running checks..."
 ./check.sh
 
 # Commit, tag, push
-git add "$MANIFEST" CHANGELOG.md plugins/*/plugin.toml plugins/*/skills/*/SKILL.md
+git add "$MANIFEST" package.json package-lock.json CHANGELOG.md plugins/*/plugin.toml plugins/*/skills/*/SKILL.md
 git commit -m "Release v$NEW_VERSION"
 git tag "$TAG"
 git push origin main
@@ -64,4 +67,4 @@ git push origin "$TAG"
 echo ""
 echo "Released v$NEW_VERSION"
 echo "GitHub Actions will build and create the release at:"
-echo "  https://github.com/baney75/tabkyra/releases/tag/$TAG"
+echo "  https://github.com/baney75/tychicus/releases/tag/$TAG"
