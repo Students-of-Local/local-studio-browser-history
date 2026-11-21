@@ -1,5 +1,5 @@
 /**
- * Joining Local Studio's tunnel (docs/decisions.md, D57; baney75/local-studio docs/tunnel.md). Local Studio owns a machine's one
+ * Joining Local Studio's tunnel (docs/decisions.md, D59; baney75/local-studio docs/tunnel.md). Local Studio owns a machine's one
  * public route on every route (hosted, cloudflare, tailnet) and writes the route record; Tychicus reads it and serves on its port.
  *
  * - `remote join`: read the record, save remote.json on the custom route (`https://<hostname>`, plus the record's aliases), move serve

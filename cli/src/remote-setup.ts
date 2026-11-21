@@ -593,7 +593,7 @@ async function askCloudflareHost(say: (line: string) => void): Promise<string | 
 
 export async function remoteSetup(options: SetupOptions): Promise<number> {
 	try {
-		// One tunnel per machine (D57): where Local Studio runs the tunnel, Tychicus joins it. --public-url is the person's own front door.
+		// One tunnel per machine (D59): where Local Studio runs the tunnel, Tychicus joins it. --public-url is the person's own front door.
 		if (options.publicUrl) return await runSetup(options);
 		const via = await setupThroughLocalStudio(options);
 		if (typeof via === "number") return via;

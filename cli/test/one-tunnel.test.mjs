@@ -1,4 +1,4 @@
-// One tunnel per machine (docs/decisions.md, D57). Local Studio owns it on every route and writes the route record; Tychicus only
+// One tunnel per machine (docs/decisions.md, D59). Local Studio owns it on every route and writes the route record; Tychicus only
 // reads the record and joins (`remote join`), and `remote setup` defers to `local-studio tunnel setup` where Local Studio is. Without
 // Local Studio, Tychicus keeps its own route with the same exact paths: a Cloudflare ingress of its nine paths, or the tailnet route.
 // Serve answers OAuth on each alias host as its own address. tailscale, cloudflared, local-studio, launchctl and systemctl are stubs in

@@ -319,7 +319,7 @@ export function topLevelValue(text: string, key: string): string | undefined {
 }
 
 /**
- * The ingress for Tychicus's own Cloudflare route, on a machine without Local Studio (docs/decisions.md, D57): exactly Tychicus's
+ * The ingress for Tychicus's own Cloudflare route, on a machine without Local Studio (docs/decisions.md, D59): exactly Tychicus's
  * nine paths to serve, then 404 for everything else, the root included. Local Studio's route carries these same paths.
  */
 export function cloudflareIngress(host: string, port: number): string[] {

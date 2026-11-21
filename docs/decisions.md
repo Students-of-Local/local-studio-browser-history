@@ -1964,7 +1964,7 @@ Issue #45. Three defaults:
 - The wait guidance lives in the `tabs_show` description, not the MCP instructions, so the instructions stay inside their
   3,210-byte budget. The tools/list budget in `cli/test/mcp.test.mjs` rises to 33,832 bytes for the two new parameters.
 
-## D57. One tunnel per machine, shared with Local Studio (Claude, 2026-11-21)
+## D59. One tunnel per machine, shared with Local Studio (Claude, 2026-11-21)
 
 **Decision.** Local Studio owns the one tunnel on a computer, on every route (hosted, Cloudflare, tailnet), and writes the
 route record. Tychicus only reads the record and joins (`remote join`); `remote setup` joins where a record exists and

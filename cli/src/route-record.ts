@@ -1,5 +1,5 @@
 /**
- * One public route per machine (docs/decisions.md, D57; baney75/local-studio docs/tunnel.md). Local Studio owns it on every route
+ * One public route per machine (docs/decisions.md, D59; baney75/local-studio docs/tunnel.md). Local Studio owns it on every route
  * (hosted, cloudflare, tailnet): it carries Tychicus's nine paths to serve and Local Studio's two to local-studio-serve, and anything
  * else is a 404. Local Studio writes the route record, `<Local Studio data dir>/tunnel/route.json`; Tychicus only reads it, to join
  * that route (`remote join`). A machine without Local Studio keeps Tychicus's own route, with the same exact paths.
