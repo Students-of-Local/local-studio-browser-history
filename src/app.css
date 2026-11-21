@@ -754,3 +754,177 @@ button[role="switch"]:disabled {
 [data-tk-reduced-motion] .tutorial-pill:hover {
 	transform: none;
 }
+
+/* ---- Runs view (src/runs/panel.ts): each run, its status and its step timeline ---- */
+.tk-run {
+	border: 1px solid var(--color-border);
+	border-radius: var(--radius);
+	background: var(--color-card);
+	color: var(--color-card-foreground);
+}
+
+.tk-run[data-status="waiting"] {
+	border-left: 3px solid var(--tk-brass);
+}
+
+.tk-run-head {
+	display: flex;
+	align-items: flex-start;
+	gap: 0.375rem;
+	width: 100%;
+	padding: 0.5rem 0.625rem;
+	text-align: left;
+	cursor: pointer;
+	border-radius: var(--radius);
+}
+
+.tk-run-head:hover {
+	background: var(--color-secondary);
+}
+
+.tk-run-head:focus-visible,
+.tk-run-step-row:focus-visible {
+	outline: 2px solid var(--color-ring);
+	outline-offset: -2px;
+}
+
+.tk-run-chevron {
+	display: inline-flex;
+	margin-top: 0.1875rem;
+	color: var(--color-muted-foreground);
+	transition: transform var(--tk-motion-fast, 0.08s);
+}
+
+.tk-run-head[aria-expanded="true"] .tk-run-chevron {
+	transform: rotate(90deg);
+}
+
+.tk-run-who {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 0.8125rem;
+	font-weight: 600;
+}
+
+.tk-run-status {
+	flex-shrink: 0;
+	margin-left: auto;
+	font-size: 0.6875rem;
+	font-weight: 600;
+	padding: 0.0625rem 0.4375rem;
+	border-radius: 999px;
+	color: var(--color-muted-foreground);
+	background: var(--color-secondary);
+}
+
+.tk-run-status[data-status="running"] {
+	color: var(--color-primary);
+	background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+}
+
+.tk-run-status[data-status="waiting"] {
+	color: var(--tk-brass-text);
+	background: color-mix(in srgb, var(--tk-brass) 22%, transparent);
+}
+
+.tk-run-status[data-status="failed"] {
+	color: var(--color-destructive);
+	background: color-mix(in srgb, var(--color-destructive) 14%, transparent);
+}
+
+.tk-run-meta {
+	display: flex;
+	gap: 0.375rem;
+	min-width: 0;
+	margin-top: 0.125rem;
+	font-size: 0.75rem;
+	color: var(--color-muted-foreground);
+}
+
+.tk-run-steps {
+	margin: 0 0.625rem 0.5rem 1.625rem;
+	padding-left: 0.625rem;
+	border-left: 1px solid var(--color-border);
+}
+
+.tk-run-dropped {
+	padding: 0.25rem 0;
+	font-size: 0.75rem;
+	color: var(--color-muted-foreground);
+}
+
+.tk-run-step-row {
+	display: grid;
+	grid-template-columns: auto auto minmax(0, 1fr) auto;
+	align-items: center;
+	gap: 0.375rem;
+	width: 100%;
+	padding: 0.25rem 0.25rem 0 0;
+	text-align: left;
+	font-size: 0.75rem;
+	border-radius: var(--tk-radius-sm, 4px);
+}
+
+.tk-run-step-row:not(:disabled) {
+	cursor: pointer;
+}
+
+.tk-run-step-row:not(:disabled):hover {
+	background: var(--color-secondary);
+}
+
+.tk-run-step-mark {
+	display: inline-flex;
+	color: var(--color-primary);
+}
+
+.tk-run-step[data-ok="false"] .tk-run-step-mark {
+	color: var(--color-destructive);
+}
+
+.tk-run-step-tool {
+	font-family: var(--font-mono, ui-monospace, monospace);
+	font-weight: 600;
+}
+
+.tk-run-step-target {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--color-muted-foreground);
+}
+
+.tk-run-step-ms {
+	font-variant-numeric: tabular-nums;
+	color: var(--color-muted-foreground);
+}
+
+.tk-run-step-result {
+	padding: 0 0 0.25rem 1.125rem;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 0.75rem;
+	color: var(--color-muted-foreground);
+}
+
+.tk-run-report {
+	margin: 0 0 0.375rem 1.125rem;
+	padding: 0.5rem;
+	max-height: 14rem;
+	overflow: auto;
+	white-space: pre-wrap;
+	word-break: break-word;
+	font-family: var(--font-mono, ui-monospace, monospace);
+	font-size: 0.6875rem;
+	border-radius: var(--tk-radius-sm, 4px);
+	background: var(--color-secondary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.tk-run-chevron {
+		transition: none;
+	}
+}

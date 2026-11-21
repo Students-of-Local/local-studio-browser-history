@@ -15,6 +15,8 @@ import { releaseAgentViewport } from "../browser/cdp.js";
 import type { BrowserSession } from "../browser/session.js";
 import { onVeilContinue, veilWait } from "../browser/veil.js";
 import { veilViewFor } from "../browser/veil-state.js";
+import { runName } from "../runs/log.js";
+import { recordStep, runWaiting } from "../runs/worker.js";
 import {
 	CONTINUE_KEY_PREFIX,
 	cleanReason,
@@ -110,12 +112,26 @@ export async function handleHandback(
 	waiting.set(pending.id, { pending, session, waitId, settle });
 	await editPending((list) => [...list.filter((p) => p.id !== pending.id), pending]);
 	void veilWait(session, tabId, reason);
+	runWaiting(session.id, true);
+	const t0 = Date.now();
+	let outcome: HandbackOutcome | undefined;
 	try {
-		const end = await ended;
-		return handbackOutcome(end, tabId, reason, limit);
+		outcome = handbackOutcome(await ended, tabId, reason, limit);
+		return outcome;
 	} finally {
 		waiting.delete(pending.id);
 		void veilWait(session, tabId, undefined);
+		runWaiting(session.id, false);
+		// The hand-back is a step of the run: its reason, and how it ended.
+		recordStep(session.id, {
+			who: runName(view),
+			tool: "handback",
+			params: { reason },
+			tabId,
+			ok: outcome?.status === "continued",
+			result: { status: outcome?.status ?? "aborted" },
+			ms: Date.now() - t0,
+		});
 		await editPending((list) => list.filter((p) => p.id !== pending.id)).catch(() => undefined);
 	}
 }

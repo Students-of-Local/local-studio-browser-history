@@ -29,8 +29,11 @@ import { setCdpMessageHandler } from "../browser/inject.js";
 import { BrowserSession, listSessions, pruneSessions, type SessionMeta, sanitizeLabel } from "../browser/session.js";
 import { probeUserScripts } from "../browser/userscripts-status.js";
 import { veilBegin, veilEnd, veilSessionGone } from "../browser/veil.js";
+import { veilViewFor } from "../browser/veil-state.js";
 import { COMMUNITY_STATUS_KEY } from "../community/status.js";
 import { cancelHandback, cancelHandbacksFor, handleHandback, startHandback } from "../handback/worker.js";
+import { isRunStep, runName } from "../runs/log.js";
+import { recordStep, runEnded, runWaiting } from "../runs/worker.js";
 import { handleThreads } from "../threads/bridge.js";
 import { resyncMirror, startThreadMirror } from "../threads/mirror.js";
 import { asBuildInfo, BUILD, type BuildInfo } from "../update/build.js";
@@ -278,6 +281,7 @@ async function onClientDisconnected(clientId: string): Promise<void> {
 	if (state?.session && successors.length === 0) {
 		// Nobody is working in its tabs any more.
 		veilSessionGone(state.session.id);
+		runEnded(state.session.id);
 		// A session that never opened a tab has nothing to re-adopt; drop it instead of piling up.
 		if (!(await state.session.closeIfEmpty())) await state.session.suspend();
 	}
@@ -481,6 +485,23 @@ async function runRequest(state: ClientState, req: HostForwardedRequest, answer?
 	let work: Promise<unknown> | undefined;
 	/** The session and the tab the in-use veil counted this call on (src/browser/veil.ts). */
 	let veiled: { session: BrowserSession; tabId: number | undefined; currentBefore: number | undefined } | undefined;
+	/** The session this call ran in, for its step in the Runs view (src/runs/). */
+	let runSession: BrowserSession | undefined;
+	const tRun = performance.now();
+	const step = (ok: boolean, result?: unknown, error?: BridgeError) => {
+		if (!runSession || !isRunStep(req.method)) return;
+		recordStep(runSession.id, {
+			who: runName(veilViewFor(runSession.record)),
+			tool: req.method,
+			params: req.params,
+			tabId: veiled?.tabId ?? runSession.currentTabId,
+			ok,
+			result,
+			error: error?.message,
+			ms: performance.now() - tRun,
+		});
+		if (ok && req.method === "session.end") runEnded(runSession.id);
+	};
 	try {
 		if (!(await isBridgeEnabled())) {
 			throw new BridgeError(ERR.DISABLED, "The Tychicus bridge is disabled in Settings > Agents.");
@@ -499,6 +520,7 @@ async function runRequest(state: ClientState, req: HostForwardedRequest, answer?
 		const t0 = performance.now();
 		const session = await withTimeout(getSession(state), 15000, "session open");
 		const tSession = Math.round(performance.now() - t0);
+		runSession = session;
 		// The session can take seconds to open; the host may have gone meanwhile.
 		if (gone()) return;
 		const ctx: HandlerContext = {
@@ -674,6 +696,7 @@ async function runRequest(state: ClientState, req: HostForwardedRequest, answer?
 		);
 		trace(`${state.name} ${req.method} session=${tSession}ms total=${Math.round(performance.now() - t0)}ms`);
 		reply(result);
+		step(true, result);
 	} catch (err) {
 		state.lastError = `${req.method}: ${err instanceof Error ? err.message : String(err)}`;
 		console.warn("[Bridge]", state.lastError);
@@ -681,6 +704,7 @@ async function runRequest(state: ClientState, req: HostForwardedRequest, answer?
 		// The trace is for whoever debugs Polycarp (polycarp browser debug), not for the agent.
 		if (stack) trace(`${req.method} ${error.code}: ${stack.split("\n").slice(0, 6).join(" | ")}`);
 		reply(undefined, error);
+		step(false, undefined, error);
 	} finally {
 		// For good (sol-F2, first-F1 of the review of PR 200): a handler still running after a timeout arms nothing and
 		// sends no more input.
@@ -744,10 +768,14 @@ async function runAsk(state: ClientState, req: HostForwardedRequest): Promise<vo
 		// A box on the session's tab may wait for the person's answer too (dialog-guard.ts).
 		const asker = state.sessionKey;
 		dialogAsk(asker, true);
+		// The agent's run waits on the user while the question is open (the Runs view).
+		const run = state.session?.id;
+		if (run) runWaiting(run, true);
 		try {
 			respond(await handleBridgeAsk(state, req.params ?? {}));
 		} finally {
 			dialogAsk(asker, false);
+			if (run) runWaiting(run, false);
 		}
 	} catch (err) {
 		respond({ error: { code: ERR.INTERNAL, message: err instanceof Error ? err.message : String(err) } });
@@ -1214,6 +1242,7 @@ function connect(): void {
 		dropAllTransfers();
 		for (const state of clients.values()) {
 			if (state.session) veilSessionGone(state.session.id);
+			if (state.session) runEnded(state.session.id);
 			void state.session?.suspend();
 		}
 		clients.clear();

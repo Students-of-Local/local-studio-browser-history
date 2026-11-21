@@ -10,6 +10,7 @@ import { startCommunityWorker } from "./community/worker.js";
 import { startConnectRelay } from "./connect/relay.js";
 import { startEukheRelay } from "./eukhe/relay.js";
 import { startHandoff } from "./handoff/worker.js";
+import { startRuns } from "./runs/worker.js";
 import { startSiteEdits } from "./site-edits/apply.js";
 import { startSubscriptionRelay } from "./subscriptions/relay.js";
 import { runningFromStore } from "./update/store-install.js";
@@ -45,6 +46,8 @@ startSubscriptionRelay();
 startEukheRelay();
 // The side panel's page tools (read_page, act, ...) run here, on the same handlers as the bridge.
 startPanelPageTools();
+// The Runs view's log: every run's steps, from the bridge and the panel (src/runs/).
+startRuns();
 startConnectRelay();
 
 // "Update now", the reload after an update (only when no agent runs), automatic updates. A copy

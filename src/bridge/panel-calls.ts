@@ -18,6 +18,8 @@
 
 import { cdpMemoryReady, hasScreenshotScale, openDialog, type PageDialog } from "../browser/cdp.js";
 import { BrowserSession } from "../browser/session.js";
+import { panelRunName } from "../runs/log.js";
+import { recordStep } from "../runs/worker.js";
 import { type Delivered, dialogError, isDialogSafe, raceDialogs } from "./dialogs.js";
 import { BridgeError, classify, HANDLER_TIMEOUT_MS, withTimeout } from "./errors.js";
 import {
@@ -214,13 +216,28 @@ export function startPanelPageTools(
 				const session = typeof sessionId === "string" ? await BrowserSession.existing(sessionId) : undefined;
 				if (!session)
 					throw new BridgeError(ERR.NO_TAB, "Your browser session has ended. navigate to start a new one.");
-				const result = await runPanelCall(
-					{ session, handlers },
-					name,
-					isObject(params) ? params : {},
-					call.abort.signal,
-				);
-				call.reply({ ok: true, result });
+				const args = isObject(params) ? params : {};
+				const t0 = performance.now();
+				// The Runs view's timeline (src/runs/): every page tool call of the panel's chat, as it answered.
+				const step = (ok: boolean, result?: unknown, error?: string) =>
+					recordStep(session.id, {
+						who: panelRunName(session.record.label),
+						tool: name,
+						params: args,
+						tabId: session.currentTabId,
+						ok,
+						result,
+						error,
+						ms: performance.now() - t0,
+					});
+				try {
+					const result = await runPanelCall({ session, handlers }, name, args, call.abort.signal);
+					step(true, result);
+					call.reply({ ok: true, result });
+				} catch (err) {
+					step(false, undefined, panelError(err, name).message);
+					throw err;
+				}
 			} catch (err) {
 				call.reply({ ok: false, message: panelError(err, name).message });
 			}
