@@ -184,6 +184,37 @@ test("install is idempotent: a second run writes no file", () => {
 	assert.equal(statSync(file).mtimeMs, before);
 });
 
+test("install --release with --restart-services installs the release and its services restart on it; --dry-run with them writes nothing", { skip: process.platform === "win32" }, () => {
+	// No service file in this HOME: nothing asks this computer's service manager about a real service.
+	const home = freshHome();
+	const { dir } = makeRelease();
+	const dry = run(home, ["install", "--release", dir, "--restart-services", "--dry-run"]);
+	assert.equal(dry.status, 0, dry.out);
+	assert.match(dry.out, /Would unpack/);
+	assert.deepEqual(readdirSync(home).sort(), [".config", "sock"], "the dry run wrote nothing");
+	const r = run(home, ["install", "--release", dir, "--restart-services"]);
+	assert.equal(r.status, 0, r.out);
+	assert.ok(existsSync(join(releaseRoot(home), "extension", "manifest.json")), "--release was installed, not ignored");
+	assert.equal(readFileSync(join(releaseRoot(home), "ran-with"), "utf8").trim(), "install", "the release's install isn't asked to restart again");
+	// Later, alone: it lists what it would restart and restarts nothing.
+	const later = run(home, ["install", "--restart-services", "--dry-run"]);
+	assert.equal(later.status, 0, later.out);
+	assert.match(later.out, /Every running Tychicus service runs 9\.9\.9/);
+});
+
+test("install --restart-services refuses --no-restart, and alone refuses the flags that belong to an install", () => {
+	const home = freshHome();
+	for (const args of [["--restart-services", "--no-restart"], ["--restart-services", "--force"], ["--restart-services", "--local-studio"], ["--restart-services", "--skip-attestation"]]) {
+		const r = run(home, ["install", ...args]);
+		assert.equal(r.status, 2, `${args.join(" ")}: ${r.out}`);
+		assert.match(r.out, args[1] === "--no-restart" ? /opposite things/ : /only restarts services/);
+	}
+	const { dir } = makeRelease();
+	const both = run(home, ["install", "--release", dir, "--restart-services", "--no-restart"]);
+	assert.equal(both.status, 2, both.out);
+	assert.deepEqual(readdirSync(home).sort(), [".config", "sock"], "nothing was written");
+});
+
 test("install --dry-run on a clean HOME writes nothing and names each manifest", () => {
 	const home = freshHome();
 	const r = run(home, ["install", "--dry-run"]);

@@ -252,6 +252,42 @@ export function ensureLauncherIsSelf(path: string = cliLauncherPath()): boolean 
 	return true;
 }
 
+/**
+ * True when `text` is a launcher writeScript wrote, in either shape: `#!/bin/sh` with an optional compile-cache line and one
+ * `exec "<program>" ["<script>"] "$@"`, or `@echo off` with one `"<program>" ["<script>"] %*` line. Anything else is a
+ * program or a script the person wrote, which Tychicus never rewrites.
+ */
+export function isTychicusLauncherText(text: string): boolean {
+	return (
+		/^#!\/bin\/sh\n(?:: "\$\{NODE_COMPILE_CACHE:=[^"\n]*\}"\nexport NODE_COMPILE_CACHE\n)?exec "[^"\n]+"(?: "[^"\n]+")? (?:host )?"\$@"\n$/.test(text) ||
+		/^@echo off\r\n"[^"\r\n]+"(?: "[^"\r\n]+")? (?:host )?%\*\r\n$/.test(text)
+	);
+}
+
+/**
+ * Point the agent launcher at `path` to `program`, a release's own program, whatever program this process is: a service
+ * restarted onto a release must run that release, not a checkout or an older `tychicus` that ran the restart. A `.cmd` or
+ * `.bat` path gets the Windows shape. Returns true when it wrote.
+ */
+export function ensureLauncherRuns(path: string, program: string): boolean {
+	const named = absolutePathsIn(path);
+	const same = (a: string, b: string) => {
+		try {
+			return realpathSync(a) === realpathSync(b);
+		} catch {
+			return a === b;
+		}
+	};
+	if (named?.length === 1 && same(named[0], program)) return false;
+	mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+	if (/\.(cmd|bat)$/i.test(path)) writeFileSync(path, `@echo off\r\n"${program}" %*\r\n`);
+	else {
+		writeFileSync(path, `#!/bin/sh\nexec "${program}" "$@"\n`);
+		chmodSync(path, 0o755);
+	}
+	return true;
+}
+
 function writeLauncher(): string {
 	mkdirSync(configDir(), { recursive: true, mode: 0o700 });
 	writeScript(cliLauncherPath(), "", { compileCache: true });

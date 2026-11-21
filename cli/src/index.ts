@@ -26,6 +26,7 @@ import { loadHubConfig } from "./hub-state.ts";
 import { linkBusy, linkEnroll, linkMintCode, linkOff, linkRun, linkScopes, linkStatus, normalizeHubUrl, printCode } from "./link.ts";
 import { runTheme } from "./theme.ts";
 import { remoteFix } from "./remote-fix.ts";
+import { remoteReset } from "./remote-reset.ts";
 import { importHint, importPolycarp } from "./import-polycarp.ts";
 import { loadRemoteConfig, remoteFile, remoteOff, remoteSetup, remoteStatus, remoteTest } from "./remote-setup.ts";
 import { interactiveTerminal } from "./remote-guide.ts";
@@ -392,11 +393,17 @@ async function main(): Promise<void> {
 				if (!match) throw new UsageError(`Unknown browser "${only}". Use one of: ${known.map((b) => b.name).join(", ")}.`);
 				if (!existsSync(match.dir)) throw new UsageError(`${only} has no profile folder on this computer (${match.dir}). Open it once, then run this again.`);
 			}
-			if (flag("--restart-services")) {
-				process.exitCode = await restartStaleServices(releaseRoot(), releaseProgram());
-				return;
-			}
 			const release = option("--release");
+			if (flag("--restart-services")) {
+				if (flag("--no-restart")) throw new UsageError("--restart-services and --no-restart say opposite things: use one.");
+				// With --release, the release's install restarts the services on it once its pointer moved (the default after --release).
+				if (release === undefined) {
+					const ignored = ["--force", "--local-studio", "--browser", "--skip-attestation"].filter((f) => flag(f) || option(f) !== undefined);
+					if (ignored.length) throw new UsageError(`--restart-services only restarts services; ${ignored.join(", ")} belong${ignored.length === 1 ? "s" : ""} to an install. Run them separately.`);
+					process.exitCode = await restartStaleServices(releaseRoot(), releaseProgram(), console.log, { dryRun });
+					return;
+				}
+			}
 			if (release !== undefined) {
 				process.exitCode = await installFromRelease(release, { dryRun, skipAttestation: flag("--skip-attestation"), noRestart: flag("--no-restart"), passOn: argv.slice(1) });
 				return;
@@ -712,7 +719,7 @@ async function main(): Promise<void> {
 			throw new UsageError(`Usage: ${COMMAND_NAME} token create <name> --scope a,b | list | revoke <id|name|client id|grant id> | scopes | passcode | approval-code | clients`);
 		}
 		case "remote": {
-			const sub = argv.slice(1).find((a) => !a.startsWith("-") && a !== option("--public-url") && a !== option("--port") && a !== option("--cloudflare"));
+			const sub = argv.slice(1).find((a) => !a.startsWith("-") && a !== option("--public-url") && a !== option("--port") && a !== option("--cloudflare") && a !== option("--new-passcode-file"));
 			if (sub === "cloudflare") {
 				const step = argv.slice(1).filter((a) => !a.startsWith("-"))[1];
 				if (step === "login") {
@@ -788,12 +795,16 @@ async function main(): Promise<void> {
 				process.exitCode = await remoteOff({ json: flag("--json") });
 				return;
 			}
+			if (sub === "reset") {
+				process.exitCode = await remoteReset({ passcodeFile: option("--new-passcode-file"), json: flag("--json"), yes: flag("--yes") });
+				return;
+			}
 			if (sub === "import-polycarp") {
 				process.exitCode = await importPolycarp({ dryRun: flag("--dry-run"), force: flag("--force") });
 				return;
 			}
 			throw new UsageError(
-				`Usage: ${COMMAND_NAME} remote setup [--tailscale | --cloudflare [name.yourdomain.com] | --public-url https://host] [--replace-funnel] [--port N] [--no-service] [--no-passcode] [--no-wait] [--no-input] [--yes] [--connect-code] [--json] | cloudflare login [--json] | status [--json] | test [--json] | fix [--yes] [--dry-run] [--json] | off [--json] | import-polycarp [--dry-run] [--force]`,
+				`Usage: ${COMMAND_NAME} remote setup [--tailscale | --cloudflare [name.yourdomain.com] | --public-url https://host] [--replace-funnel] [--port N] [--no-service] [--no-passcode] [--no-wait] [--no-input] [--yes] [--connect-code] [--json] | cloudflare login [--json] | status [--json] | test [--json] | fix [--yes] [--dry-run] [--json] | off [--json] | reset --new-passcode-file <path> [--yes] [--json] | import-polycarp [--dry-run] [--force]`,
 			);
 		}
 		case "hub": {

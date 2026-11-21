@@ -14,9 +14,9 @@ import { askYes, closeInput, interactiveTerminal } from "./remote-guide.ts";
 import { FUNNEL_PORT, lingerWarning, loadRemoteConfig, openFunnel, operatorWarning, probeLocal, proofLines, type RemoteConfig, saveRemoteConfig, serveWaitMs, tailscaleReady, waitForServe } from "./remote-setup.ts";
 import { CLOUDFLARED_DOWNLOAD_URL, EXIT_FAILED, EXIT_NEEDS_PERSON, EXIT_ON, printReport, type RemoteState, TAILSCALE_OPERATOR_FIX } from "./remote-state.ts";
 import { type ProofCheck, publicChecks } from "./remote-test.ts";
-import { releaseRoot } from "./paths.ts";
+import { releaseProgram, releaseRoot } from "./paths.ts";
 import { COMMAND_NAME } from "./self.ts";
-import { currentRelease, staleServices } from "./service-version.ts";
+import { currentRelease, restartOnRelease, staleServices } from "./service-version.ts";
 import { installService, SERVE_SERVICE, type ServiceSpec, serviceFile, serviceLogHint, serviceRunning, sleep } from "./service.ts";
 import { c, sym } from "./ui.ts";
 
@@ -40,7 +40,8 @@ export interface FixAdvice {
 }
 
 interface Diagnosis {
-	actions: { kind: FixKind; what: string; oldUrl?: string; newUrl?: string }[];
+	/** `stale`: the service runs and answers, on a version other than the release; it restarts onto the release, keeping its file and config folder. */
+	actions: { kind: FixKind; what: string; oldUrl?: string; newUrl?: string; stale?: true }[];
 	advice: FixAdvice[];
 	/** Nothing here can move without the person (or a fault fix doesn't touch). */
 	blocked?: { state: RemoteState; code?: string; message: string; command?: string; url?: string };
@@ -88,13 +89,13 @@ async function diagnose(config: RemoteConfig): Promise<Diagnosis> {
 	const stale = new Map(staleServices(release, { root: releaseRoot() }, config.route === "cloudflare" ? [SERVE_SERVICE, CLOUDFLARE_SERVICE] : [SERVE_SERVICE]).map((s) => [s.spec.label, s]));
 	const oldCloudflared = stale.get(CLOUDFLARE_SERVICE.label);
 	if (oldCloudflared && !actions.some((a) => a.kind === "restart_cloudflared")) {
-		actions.push({ kind: "restart_cloudflared", what: `Restart the Cloudflare tunnel's service: it runs ${oldCloudflared.running}, and release is ${oldCloudflared.release}` });
+		actions.push({ kind: "restart_cloudflared", what: `Restart the Cloudflare tunnel's service: it runs ${oldCloudflared.running}, and release is ${oldCloudflared.release}`, stale: true });
 	}
 
 	const local = await probeLocal(config.port, expected, 3000);
 	const oldServe = stale.get(SERVE_SERVICE.label);
 	if (local.state === "match" && oldServe) {
-		actions.push({ kind: "restart_serve", what: `Restart ${COMMAND_NAME} serve's service: it runs ${oldServe.running}, and release is ${oldServe.release}` });
+		actions.push({ kind: "restart_serve", what: `Restart ${COMMAND_NAME} serve's service: it runs ${oldServe.running}, and release is ${oldServe.release}`, stale: true });
 	} else if (local.state !== "match") {
 		const file = serveFile();
 		if (file && existsSync(file)) actions.push({ kind: "restart_serve", what: `Restart ${COMMAND_NAME} serve's service, so 127.0.0.1:${config.port} answers for ${expected}` });
@@ -133,6 +134,19 @@ async function serviceUp(spec: ServiceSpec): Promise<boolean> {
 	}
 }
 
+/**
+ * Restart a service that runs an older version onto the release, the way `install --restart-services` does: in place, keeping
+ * its plist, unit or task and the config folder it was set up with (installService would write this shell's folder into it).
+ * A service no longer stale needs nothing.
+ */
+async function restartStale(spec: ServiceSpec): Promise<{ ok: true; pid?: number } | { ok: false; why: string }> {
+	const root = releaseRoot();
+	const current = currentRelease(root);
+	const stale = current ? staleServices(current, { root }, [spec])[0] : undefined;
+	if (!current || !stale) return { ok: true };
+	return restartOnRelease(stale, current, root, releaseProgram(root));
+}
+
 async function perform(action: Diagnosis["actions"][number], config: RemoteConfig, funnelFor: () => { bin: string; dns: string } | undefined): Promise<Done> {
 	switch (action.kind) {
 		case "download_cloudflared": {
@@ -145,13 +159,22 @@ async function perform(action: Diagnosis["actions"][number], config: RemoteConfi
 			return { ok: true, detail: `remote.json now names ${action.newUrl}` };
 		}
 		case "restart_serve": {
-			const r = await installService(SERVE_SERVICE);
-			if (!r.ok) return { ok: false, detail: r.message };
+			if (action.stale) {
+				const r = await restartStale(SERVE_SERVICE);
+				if (!r.ok) return { ok: false, detail: r.why };
+			} else {
+				const r = await installService(SERVE_SERVICE);
+				if (!r.ok) return { ok: false, detail: r.message };
+			}
 			const current = loadRemoteConfig() ?? config;
 			if (!(await waitForServe(current.port, current.publicUrl, serveWaitMs()))) return { ok: false, detail: `the service restarted, but 127.0.0.1:${current.port} still doesn't answer for ${current.publicUrl} after ${Math.round(serveWaitMs() / 1000)} seconds` };
 			return { ok: true, detail: `127.0.0.1:${current.port} answers for ${current.publicUrl}` };
 		}
 		case "restart_cloudflared": {
+			if (action.stale) {
+				const r = await restartStale(CLOUDFLARE_SERVICE);
+				return r.ok ? { ok: true, detail: `the tunnel's service runs the release (pid ${r.pid})` } : { ok: false, detail: r.why };
+			}
 			const r = await installService(CLOUDFLARE_SERVICE);
 			if (!r.ok) return { ok: false, detail: r.message };
 			// launchd and systemd can take a moment to run what they were just given ("spawn scheduled", "activating").

@@ -129,6 +129,19 @@ export function removeDevice(nameOrId: string): DeviceRecord | undefined {
 	});
 }
 
+/**
+ * Remove every enrolled device (`remote reset`): each credential stops working at once, and a running hub closes its link within
+ * a second. Nothing is written when there is no hub here. An unreadable file throws: it is never taken for an empty list.
+ */
+export function removeAllDevices(): DeviceRecord[] {
+	if (!existsSync(hubFile()) && !existsSync(devicesFile())) return [];
+	return withFileLock(devicesFile(), () => {
+		const data = loadDevicesForUpdate();
+		saveDevices({ devices: [], prefer: [] });
+		return data.devices;
+	});
+}
+
 export function setPrefer(names: string[]): void {
 	withFileLock(devicesFile(), () => saveDevices({ ...loadDevicesForUpdate(), prefer: names }));
 }
@@ -182,6 +195,21 @@ function loadConnectCodes(): ConnectCode[] {
 	} catch {
 		return [];
 	}
+}
+
+/** End every device connect code still waiting (`remote reset`; a hub's codes travel through its tunnel too). Returns how many were live. */
+export function clearConnectCodes(): number {
+	if (!existsSync(codesFile())) return 0;
+	return withFileLock(codesFile(), () => {
+		const live = liveCodes(loadConnectCodes(), Date.now()).length;
+		writeJsonPrivate(codesFile(), { codes: [] });
+		return live;
+	});
+}
+
+/** Device connect codes a fresh read finds still live. */
+export function liveConnectCodes(): number {
+	return liveCodes(loadConnectCodes(), Date.now()).length;
 }
 
 /** A new connect code, shown once. `lockMs` is how long to wait for the lock (a request handler passes a short one). */

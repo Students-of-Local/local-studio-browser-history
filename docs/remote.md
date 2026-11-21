@@ -451,6 +451,53 @@ become usable again if you set up later with the same URL. `tychicus token clien
 On a custom route (`--public-url`), `remote off` can't close your front door: your own tunnel
 keeps forwarding to this computer. Stop it there, for example by stopping `cloudflared`.
 
+### After a tunnel token leaked
+
+Someone who runs a second connector with your tunnel token receives some of the requests meant for
+you, including approval page submissions, which carry your passcode. Before the tunnel comes back:
+
+```bash
+umask 077; printf '%s\n' '<new passcode>' > ~/new-passcode   # owner-only, at least 20 characters
+tychicus remote reset --new-passcode-file ~/new-passcode [--yes] [--json]
+```
+
+`remote reset` reads the new passcode from that file (never the command line or the environment)
+and refuses a file group or others can read or write, a link, an empty file, or a passcode shorter
+than 20 characters (the random part of one `token passcode` makes) or longer than 200. Then it
+sets the passcode the way `token passcode` does, and ends every OAuth grant (access and refresh
+tokens), every client registration, every waiting connect code (approval codes, and a hub's device
+codes) and the signing key, so an approval form or authorization code issued before is refused too.
+Every assistant connects again with a new connect code: `tychicus token approval-code` makes one.
+
+An agent can run the reset for you. At a terminal it asks before it changes anything. Without a
+terminal, and always with `--json`, it never asks: it needs `--yes`, and without it refuses with
+code `confirmation_required` and exit 2, changing nothing. The JSON report gives `state` (`done`,
+`failed` or `refused`), a `code` when refused (`usage`, `passcode_file`, `config_folder`,
+`confirmation_required`, `declined`), what was ended and kept, and `next`, the command to run:
+`chmod 600` for a file others can read, the same reset in the service's folder or with `--yes`,
+the reset again after a failure, and `token approval-code` once it is done.
+
+It also revokes every static `tkr_` token from `token create`. A static token never passes through
+`/authorize`, so the passcode leak doesn't reach it, but any `/mcp` request relayed through the
+second connector carried its bearer token, and Tychicus can't tell which tokens were used through
+the tunnel. Make new ones with `tychicus token create`.
+
+On a hub (this folder has `hub.json` or `hub-devices.json`) it also removes every enrolled device, for
+the same reason: a manager device sends its credential over the same tunnel, and Tychicus can't tell
+which credentials crossed it. A running hub refuses them at once and closes their links within a
+second. The report lists the removed devices, and `next.relink` gives the `hub code` command for
+each; run it here, then `tychicus link <hub url> --code <code>` on that device. Link tokens stay: a serve with a public
+route refuses them, so none that works ever went through a tunnel, and a hub link keeps working.
+
+A running serve refuses the old tokens on the next request and closes their open sessions within
+a second. The command reads every file back and exits 0 only when the passcode is the new one and
+no grant, client, connect code or static token is left; 1 when a step or the read-back failed (the
+report names what is left; run it again); 2 when it refused the file or the folder, or wasn't
+confirmed, and changed nothing. When a serve or hub service reads another config folder than this shell (its own, or the default
+`~/.config/tychicus` when it was set up with none while this shell sets `TYCHICUS_CONFIG_DIR`), the
+reset is refused with that folder's name: run the command with `TYCHICUS_CONFIG_DIR` set to it. On Windows the file's permissions
+aren't checked, since NTFS access lists aren't in its mode bits.
+
 ## Security notes
 
 - Anyone on the internet can reach the URL. Two things stand between them and your browser: the

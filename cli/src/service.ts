@@ -8,8 +8,8 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathS
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve, win32 } from "node:path";
 import { launcherBinary } from "./harness.ts";
-import { cliLauncherPath, ensureLauncherIsSelf } from "./install.ts";
-import { configDir, configDirOverride } from "./files.ts";
+import { cliLauncherPath, ensureLauncherIsSelf, ensureLauncherRuns, isTychicusLauncherText } from "./install.ts";
+import { CLI_LAUNCHER_NAME, configDir, configDirOverride } from "./files.ts";
 import { releaseRoot } from "./paths.ts";
 import { COMMAND_NAME } from "./self.ts";
 import { envVar } from "./env.ts";
@@ -816,37 +816,49 @@ const realDir = (path: string): string | undefined => {
 };
 
 /**
- * Restart an installed service on this program, keeping its file. A service whose file starts a launcher (the way setup makes
- * them) or the `release` pointer only needs its process restarted: the launcher is pointed at this program first, in whatever
- * config folder it is, and the plist, unit or task keeps the folders it was set up with. Only a file that names a version
- * folder's program directly is written again, with the folders it had saved. Blocks while the service manager runs.
+ * Restart an installed service on `release` (a release's own program, in its version folder), keeping its file. A service whose
+ * file starts a launcher (the way setup makes them) or the `release` pointer only needs its process restarted: the launcher is
+ * pointed at `release` first, in whatever config folder it is, and the plist, unit or task keeps the folders it was set up
+ * with. Only a launcher Tychicus wrote is rewritten (isTychicusLauncherText, or the one in this shell's or the service's own
+ * config folder): a script the person wrote is never touched, so the service restarts as it is and `kept` names it. Only a
+ * file that names a version folder's program directly is written again, with the folders it had saved. Blocks while the
+ * service manager runs.
  */
-export async function restartService(spec: ServiceSpec): Promise<InstallResult> {
+export async function restartService(spec: ServiceSpec, release: string): Promise<InstallResult & { kept?: string }> {
 	const exec: Runner = seam.exec ?? run;
 	const program = serviceProgram(spec);
 	if (!program || basename(dirname(dirname(program))) === "versions") {
-		ensureLauncherIsSelf();
+		const launcher = seam.launcher ?? launcherBinary();
+		ensureLauncherRuns(launcher, release);
 		return installFresh(spec, exec, savedFolders(spec));
 	}
 	const viaPointer = realDir(dirname(program)) !== undefined && realDir(dirname(program)) === realDir(releaseRoot());
-	// Only a launcher script Tychicus wrote is rewritten: never a program (or a link to one) the person put there.
-	if (!viaPointer && /^(#!\/bin\/sh|@echo off)/.test(readIfFile(program) ?? "")) ensureLauncherIsSelf(program);
+	let kept: string | undefined;
+	if (!viaPointer) {
+		const text = readIfFile(program);
+		const saved = savedFolders(spec).config;
+		const same = (a: string, b: string) => resolve(a) === resolve(b);
+		// A regular file in a Tychicus config folder is the launcher install writes there; anywhere else only its exact shape counts.
+		const ours = text !== undefined && (isTychicusLauncherText(text) || same(program, cliLauncherPath()) || (saved !== undefined && same(program, join(saved, CLI_LAUNCHER_NAME))));
+		if (ours) ensureLauncherRuns(program, release);
+		else kept = program;
+	}
 	const file = serviceFile(spec);
 	if (platform() === "darwin") {
 		const r = await exec("launchctl", ["kickstart", "-k", launchdTarget(spec)]);
-		return { ok: r.code === 0, file, message: r.code === 0 ? `Restarted ${spec.label}.` : `launchctl kickstart -k ${launchdTarget(spec)} failed: ${r.out}` };
+		return { ok: r.code === 0, file, kept, message: r.code === 0 ? `Restarted ${spec.label}.` : `launchctl kickstart -k ${launchdTarget(spec)} failed: ${r.out}` };
 	}
 	if (platform() === "linux") {
 		const r = await exec("systemctl", ["--user", "restart", spec.unit]);
-		return { ok: r.code === 0, file, message: r.code === 0 ? `Restarted ${spec.unit}.` : `systemctl --user restart ${spec.unit} failed: ${r.out}` };
+		return { ok: r.code === 0, file, kept, message: r.code === 0 ? `Restarted ${spec.unit}.` : `systemctl --user restart ${spec.unit} failed: ${r.out}` };
 	}
 	if (platform() === "win32") {
 		// /End exits 0 only when it ended a running task; the program is confirmed gone before the task starts it again.
 		const ended = await exec(schtasksPath(), ["/End", "/TN", spec.label]);
 		const stuck = await stopWindows(spec, ended.code === 0, exec);
-		if (stuck) return { ok: false, file, message: stuck };
+		if (stuck) return { ok: false, file, kept, message: stuck };
 		const r = await exec(schtasksPath(), ["/Run", "/TN", spec.label]);
-		return { ok: r.code === 0, file, message: r.code === 0 ? `Restarted ${spec.label}.` : `schtasks /Run /TN ${spec.label} failed: ${r.out}` };
+		return { ok: r.code === 0, file, kept, message: r.code === 0 ? `Restarted ${spec.label}.` : `schtasks /Run /TN ${spec.label} failed: ${r.out}` };
 	}
 	return { ok: false, message: `No service manager is set up for ${platform()}.` };
 }

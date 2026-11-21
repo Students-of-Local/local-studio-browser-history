@@ -78,6 +78,7 @@ export const VALUE_HINTS: Record<string, string> = {
 	"--out": "FILE",
 	"--folder": "NAME",
 	"--file": "<file>",
+	"--new-passcode-file": "<path>",
 	"--confirm": "<code>",
 	"--repo": "owner/name",
 	"--branch": "<branch>",
@@ -92,7 +93,7 @@ export const VALUE_HINTS: Record<string, string> = {
 export const VALUE_FLAGS = new Set(Object.keys(VALUE_HINTS));
 
 /** Value options whose value is a path: completions offer file names after them. */
-const PATH_VALUES = new Set(["--cases", "--base", "--router", "--out", "--file", "--release"]);
+const PATH_VALUES = new Set(["--cases", "--base", "--router", "--out", "--file", "--release", "--new-passcode-file"]);
 
 export const COMMANDS: CommandSpec[] = [
 	{ name: "setup", selfParsed: true, what: "Build, register, load, connect and add to your agents; --agents moves agents from Polycarp's browser MCP under their old names, --agents --finish renames those to tychicus, --dry-run shows either", group: "Get started", flags: SETUP_FLAGS },
@@ -254,6 +255,11 @@ export const COMMANDS: CommandSpec[] = [
 			{ name: "test", what: "Prove an assistant can reach it, from outside: public DNS, TLS, the OAuth metadata, the sign-in challenge and a streaming probe", flags: ["--json"] },
 			{ name: "fix", what: "Repair what remote test or status found, one step at a time, asking first (--yes to skip asking, --dry-run to list)", flags: ["--yes", "--dry-run", "--json"] },
 			{ name: "off", what: "Stop the service, close the tunnel or Funnel and remove remote.json", flags: ["--json"] },
+			{
+				name: "reset",
+				what: "After a tunnel token leaked: set the passcode from an owner-only file and end every OAuth grant, client, connect code, hub device credential and static token (a relayed request may have carried one, and which did can't be told; link tokens stay, no public route takes them). Asks first in a terminal; elsewhere and with --json it needs --yes. 0 done and read back, 1 left, 2 refused or not confirmed",
+				flags: ["--new-passcode-file", "--yes", "--json"],
+			},
 			{ name: "import-polycarp", what: "Move Polycarp's remote connector (same address, same sign-ins) to Tychicus, once (--dry-run to list)", flags: ["--dry-run", "--force"] },
 		],
 	},
@@ -299,7 +305,7 @@ export const COMMANDS: CommandSpec[] = [
 	},
 	{
 		name: "install",
-		what: "Register the native host with every browser (--browser <name>: one); --release <folder> checks and installs a downloaded release; --local-studio adds the Local Studio plugins; --dry-run lists what it would write; after --release, services on an older version restart (--no-restart names them instead, --restart-services restarts them later)",
+		what: "Register the native host with every browser (--browser <name>: one); --release <folder> checks and installs a downloaded release; --local-studio adds the Local Studio plugins; --dry-run lists what it would write; after --release, services on an older version restart (--no-restart names them instead, --restart-services restarts them later on the installed release, and --dry-run with it only lists them)",
 		group: "Troubleshoot",
 		flags: ["--force", "--browser", "--dry-run", "--local-studio", "--release", "--skip-attestation", "--no-restart", "--restart-services"],
 	},

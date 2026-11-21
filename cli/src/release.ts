@@ -19,7 +19,7 @@ import { createHash } from "node:crypto";
 import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { basename, delimiter, dirname, join, relative, resolve, sep } from "node:path";
 import { browserDirs } from "./install.ts";
-import { releaseBase, releaseRoot } from "./paths.ts";
+import { releaseBase, releaseProgram, releaseRoot } from "./paths.ts";
 import { eukheSettingsPath, localStudioPluginsDir, PLUGINS } from "./local-studio.ts";
 import { NATIVE_HOST_NAMES } from "../../src/bridge/protocol.ts";
 import { COMMAND_NAME } from "./self.ts";
@@ -51,10 +51,8 @@ export function releaseExtensionDir(base: string = releaseBase()): string {
 	return join(base, "extension");
 }
 
-/** The release's program inside releaseRoot(). */
-export function releaseProgram(root: string = releaseRoot()): string {
-	return join(root, process.platform === "win32" ? "tychicus.exe" : "tychicus");
-}
+// In paths.ts, so remote fix can name it without loading this module (and Local Studio's plugin files with it).
+export { releaseProgram } from "./paths.ts";
 
 /** SHA256SUMS lines (`<hex>  <name>`, or `<hex> *<name>` in binary mode) as name -> hex. */
 export function parseSums(text: string): Map<string, string> {

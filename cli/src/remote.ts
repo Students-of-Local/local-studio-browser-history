@@ -12,7 +12,7 @@
 
 import { COMMAND_NAME } from "./self.ts";
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, unwatchFile, watchFile, writeFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -22,7 +22,7 @@ import { COMPUTER_ACT_TOOLS, COMPUTER_READ_TOOLS, computerHelper, openComputer }
 import { argumentNeeds, type CallCheck, createMcpServer } from "./mcp.ts";
 import { MAX_LINK_SESSIONS, type RosterDevice } from "./link-protocol.ts";
 import { handleOAuth, readBody } from "./oauth-http.ts";
-import { liveGrantIds, type OAuthConfig, resourceMetadataUrl, verifyAccessToken } from "./oauth.ts";
+import { liveGrantIds, type OAuthConfig, oauthStateFile, resourceMetadataUrl, verifyAccessToken } from "./oauth.ts";
 import { envVar } from "./env.ts";
 import { configDir } from "./files.ts";
 
@@ -241,6 +241,26 @@ export function deleteToken(id: string): boolean {
 	return removed;
 }
 
+/**
+ * End every live static token but link tokens (`remote reset`). A link token is refused on any serve with a public route
+ * (acceptLinkTokens can't be combined with OAuth), so no request through a tunnel ever carried one that worked.
+ */
+export function revokeStaticTokens(): number {
+	return withTokensLock(() => {
+		const tokens = loadTokens();
+		const time = new Date().toISOString();
+		let n = 0;
+		for (const t of tokens) {
+			if (t.kind !== "link" && tokenLive(t)) {
+				t.revokedAt = time;
+				n++;
+			}
+		}
+		if (n) saveTokens(tokens);
+		return n;
+	});
+}
+
 export function revokeToken(idOrName: string): number {
 	return withTokensLock(() => revokeLocked(idOrName));
 }
@@ -432,7 +452,7 @@ export async function serve(options: ServeOptions): Promise<{ close: () => Promi
 	const notifySessions = () => options.onSessionsChange?.(sessions.size + [...pending.values()].reduce((a, b) => a + b, 0));
 	// Close sessions that went quiet or whose token was revoked; a client that vanished without
 	// a DELETE would otherwise hold a server and a tab group forever.
-	const sweep = setInterval(() => {
+	const sweepSessions = () => {
 		let tokens: TokenRecord[] = [];
 		try {
 			tokens = loadTokens();
@@ -448,8 +468,13 @@ export async function serve(options: ServeOptions): Promise<{ close: () => Promi
 				notifySessions();
 			}
 		}
-	}, 60_000);
+	};
+	const sweep = setInterval(sweepSessions, 60_000);
 	sweep.unref();
+	// Every request reads the token files again, so a revoked token is refused at once. An open stream sends no request, so a
+	// revoke in another process (token revoke, remote reset) also sweeps within a second of the file changing.
+	const watched = [tokensFile(), ...(options.oauth ? [oauthStateFile()] : [])];
+	for (const file of watched) watchFile(file, { interval: 1000, persistent: false }, sweepSessions);
 
 	const oauth = options.oauth;
 	// Clients find the authorization server from this header (RFC 9728).
@@ -606,6 +631,7 @@ export async function serve(options: ServeOptions): Promise<{ close: () => Promi
 		close: () =>
 			new Promise<void>((resolve) => {
 				clearInterval(sweep);
+				for (const file of watched) unwatchFile(file, sweepSessions);
 				for (const { transport } of sessions.values()) void transport.close();
 				http.close(() => resolve());
 			}),

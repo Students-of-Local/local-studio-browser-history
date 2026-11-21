@@ -107,6 +107,9 @@ function stateFile(): string {
 	return join(configDir(), "oauth.json");
 }
 
+/** oauth.json's path, for serve to watch: a reset in another process closes the sessions of the grants it ended. */
+export const oauthStateFile = stateFile;
+
 /** Normalize and check a --public-url: https (or http on loopback, for tests), no path, query or credentials. */
 export function normalizePublicUrl(raw: string): string {
 	let url: URL;
@@ -205,13 +208,68 @@ async function checkPasscode(stored: string | undefined, passcode: string): Prom
 	}
 }
 
+/**
+ * The shortest passcode a person may choose (`remote reset --new-passcode-file`): the 20 random characters a passcode from
+ * `token passcode` holds (its three dashes add nothing). The longest is what the approval page checks.
+ */
+export const MIN_PASSCODE_LENGTH = 20;
+export const MAX_PASSCODE_LENGTH = 200;
+
+/** Why a chosen passcode can't be used, or undefined when it can. */
+export function passcodeProblem(passcode: string): string | undefined {
+	if (!passcode) return "it is empty";
+	if (passcode.length < MIN_PASSCODE_LENGTH) return `it is ${passcode.length} characters; a passcode needs at least ${MIN_PASSCODE_LENGTH}`;
+	if (passcode.length > MAX_PASSCODE_LENGTH) return `it is ${passcode.length} characters; the approval page takes at most ${MAX_PASSCODE_LENGTH}`;
+	// biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what this refuses.
+	if (/[\x00-\x1f\x7f]/.test(passcode)) return "it holds a control character or a second line, which the approval page can't take";
+	return undefined;
+}
+
+/** Store `passcode`'s scrypt hash in `state`: `token passcode` and `remote reset` both set it here. */
+function storePasscode(state: State, passcode: string): void {
+	state.passcode = hashPasscode(passcode);
+}
+
 /** A new owner passcode, returned once. Rotating it doesn't end grants already approved. */
 export function setPasscode(): string {
 	const passcode = (randomBytes(15).toString("base64url").replace(/[-_]/g, "x").match(/.{1,5}/g) ?? []).join("-");
-	change((state) => {
-		state.passcode = hashPasscode(passcode);
-	});
+	change((state) => storePasscode(state, passcode));
 	return passcode;
+}
+
+/** True when `passcode` is the stored owner passcode. Synchronous: for CLI read-backs, never a request handler. */
+export function passcodeMatches(passcode: string): boolean {
+	const [scheme, n, r, p, salt, hash] = (load().passcode ?? "").split("$");
+	if (scheme !== "scrypt" || !salt || !hash) return false;
+	const expected = Buffer.from(hash, "base64url");
+	const derived = scryptSync(passcode, Buffer.from(salt, "base64url"), expected.length, { N: Number(n), r: Number(r), p: Number(p) });
+	return timingSafeEqual(derived, expected);
+}
+
+/**
+ * `remote reset`: in one write of oauth.json, set `passcode` as the owner passcode and end every grant and client
+ * registration. The signing key is replaced too, so an approval form or an authorization code issued before it (codes live
+ * in serve's memory, bound to the key) is refused. Returns what it ended.
+ */
+export function resetOAuth(passcode: string): { clients: number; grants: number } {
+	const problem = passcodeProblem(passcode);
+	if (problem) throw new Error(`The new passcode can't be used: ${problem}.`);
+	return change((state) => {
+		const clients = Object.keys(state.clients).length;
+		const time = now();
+		const grants = new Set(Object.values(state.tokens).filter((t) => !t.revoked && t.expires > time).map((t) => t.family)).size;
+		storePasscode(state, passcode);
+		state.clients = {};
+		state.tokens = {};
+		state.key = b64();
+		return { clients, grants };
+	});
+}
+
+/** What a fresh read of oauth.json holds: registered clients and stored tokens, live or spent. For `remote reset`'s read-back. */
+export function oauthCounts(): { clients: number; tokens: number } {
+	const state = load();
+	return { clients: Object.keys(state.clients).length, tokens: Object.keys(state.tokens).length };
 }
 
 export function passcodeSet(): boolean {
@@ -252,6 +310,20 @@ export function mintApprovalCode(lockMs?: number): { code: string; expiresAt: nu
 		},
 		lockMs,
 	);
+}
+
+/** End every approval code still waiting (`remote reset`). Returns how many were live. */
+export function clearApprovalCodes(): number {
+	return withFileLock(approvalFile(), () => {
+		const live = liveCodes(loadApprovalCodes(), Date.now()).length;
+		writeJsonPrivate(approvalFile(), { codes: [] });
+		return live;
+	});
+}
+
+/** Approval codes a fresh read finds still live. */
+export function liveApprovalCodes(): number {
+	return liveCodes(loadApprovalCodes(), Date.now()).length;
 }
 
 /** Whether a typed value is a live approval code. Does not use it up. */
@@ -490,7 +562,8 @@ export interface ConsentDetails {
 	ticked?: string[];
 }
 
-const codes = new Map<string, AuthorizeRequest & { scopes: string[]; expires: number }>();
+/** Authorization codes, in serve's memory. `key` is the SHA-256 of the signing key they were issued under: a reset replaces the key, which ends them. */
+const codes = new Map<string, AuthorizeRequest & { scopes: string[]; expires: number; key: string }>();
 
 /** Check an authorize request. Errors about the client or redirect URI throw (shown on the page); the rest redirect back. */
 export function validateAuthorize(config: OAuthConfig, params: URLSearchParams): ConsentDetails | { redirect: string } {
@@ -619,7 +692,7 @@ export async function approveAuthorize(config: OAuthConfig, form: URLSearchParam
 	});
 	const code = `tka_${b64()}`;
 	for (const [key, value] of codes) if (value.expires < now()) codes.delete(key);
-	codes.set(sha(code), { ...request, scopes, expires: now() + CODE_TTL });
+	codes.set(sha(code), { ...request, scopes, expires: now() + CODE_TTL, key: sha(state.key) });
 	return back({ code });
 }
 
@@ -677,7 +750,7 @@ export async function exchangeToken(params: URLSearchParams, authorization: stri
 		codes.delete(sha(code));
 		return changeAsync((state) => {
 			const registered = authenticateClient(state, params, authorization);
-			if (!saved || saved.expires < now() || saved.client_id !== registered.client_id) throw new OAuthError(400, "invalid_grant", "The authorization code is invalid, expired or already used.");
+			if (!saved || saved.expires < now() || saved.client_id !== registered.client_id || saved.key !== sha(state.key)) throw new OAuthError(400, "invalid_grant", "The authorization code is invalid, expired or already used.");
 			if (params.get("redirect_uri") !== saved.redirect_uri) throw new OAuthError(400, "invalid_grant", "redirect_uri doesn't match the authorization request.");
 			const verifier = params.get("code_verifier") ?? "";
 			if (!/^[A-Za-z0-9._~-]{43,128}$/.test(verifier) || createHash("sha256").update(verifier).digest("base64url") !== saved.code_challenge) {
