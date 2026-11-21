@@ -1950,3 +1950,16 @@ Releases exist for darwin-arm64, linux-x64 and win-x64 only; the scripts name th
 
 **Proof.** `test/install-script.test.mjs`, `test/install-command.test.mjs`, the welcome case in
 `cli/test/e2e-panel.test.mjs`, the #13 cases in `cli/test/update.test.mjs`, and CI's `clean-install` job.
+
+## D57. A given tab and a hand-back: the panel's tab stays loose, a hand-back never takes focus and waits 10 minutes (Claude, 2026-11-21)
+
+Issue #45. Three defaults:
+
+- A tab given to the side panel ("Give this tab to Tychicus") starts a new panel chat on it and stays out of any tab group,
+  as every panel chat's tabs do. Only a tab given to an agent joins that agent's group, and the agent hears of it in
+  `tabs_context`.
+- `tabs_show` with `wait:true` (the hand-back) does not activate the tab or focus the window. The person sees Continue on the
+  page's pill, in the panel and as the toolbar badge, and goes to the tab when they choose. The call waits up to
+  10 minutes (`HANDBACK_TIMEOUT_MS`), then returns `timeout`; a dropped client or host ends it as `disconnected`.
+- The wait guidance lives in the `tabs_show` description, not the MCP instructions, so the instructions stay inside their
+  3,210-byte budget. The tools/list budget in `cli/test/mcp.test.mjs` rises to 33,832 bytes for the two new parameters.
