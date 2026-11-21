@@ -99,6 +99,11 @@ function install(): void {
 			if (frames.size > 100) frames.delete(frames.keys().next().value as string);
 			const map = pending.get(tabId);
 			for (const [k, r] of map ?? []) if (r.frameId === frame.id && r.loaderId !== frame.loaderId) map?.delete(k);
+		} else if (method === "Page.windowOpen") {
+			// The page asked for a new window (a target=_blank link, window.open, a form): sent on the tab's own session
+			// as the request is made, so it comes before the reply to any later probe there, well before the new tab's
+			// own events (D56: those came after a 20 ms idle window on a loaded machine).
+			lastOpened.set(tabId, Date.now());
 		} else if (method === "Network.loadingFinished" || method === "Network.loadingFailed") {
 			const map = pending.get(tabId);
 			if (map?.delete(String(p.requestId))) lastEnd.set(tabId, Date.now());

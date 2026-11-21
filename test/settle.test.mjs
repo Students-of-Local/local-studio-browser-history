@@ -340,3 +340,24 @@ test("an idle settle returns early on a quiet page, and a tab opened from the pa
 		assert.ok(opened.ms >= 280, `returned at ${opened.ms} ms, before the new tab could join the session`);
 	}
 });
+
+// D56: the tab events for a target=_blank click can come after the 20 ms idle window on a loaded machine (the e2e change
+// report then listed no new tab). The page's own Page.windowOpen comes on the tab's session ahead of the probe's reply.
+test("D56: Page.windowOpen before the probe's reply holds an idle settle, with no tab event yet", async () => {
+	const fake = installFakeChrome();
+	noEvents();
+	const { settle, IDLE_MS } = await import(`../src/browser/settle.ts?ctx=${Math.random()}`);
+	const tabId = fake.addTab({ url: "https://example.com/", status: "complete" });
+	let probes = 0;
+	recordCommands((method) => {
+		if (method !== "Runtime.evaluate") return undefined;
+		if (++probes === 1)
+			for (const fn of chrome.debugger.onEvent.listeners)
+				fn({ tabId }, "Page.windowOpen", { url: "https://example.com/quiet", windowName: "_blank", userGesture: true });
+		return probeSays({ since: 100_000, parsing: false, busy: "", complete: true, lateAgo: null });
+	});
+	const r = await settle(tabId, { quietMs: 300, capMs: 2500, idleMs: IDLE_MS });
+	assert.equal(r.settled, true, JSON.stringify(r));
+	assert.ok(!r.idle, `the window the page opened was not a reaction: ${JSON.stringify(r)}`);
+	assert.ok(r.ms >= 280, `returned at ${r.ms} ms, before the new tab could join the session`);
+});
