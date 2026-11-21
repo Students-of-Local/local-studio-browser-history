@@ -21,8 +21,9 @@
  * needs --yes, else it refuses with code `confirmation_required`. Every result names the state and, when there is one, the
  * next command to run (`next`), as `remote fix` does.
  */
-import { closeSync, constants, fstatSync, openSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { closeSync, constants, existsSync, fstatSync, openSync, readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { configHome } from "./files.ts";
 import { clearConnectCodes, liveConnectCodes } from "./hub-state.ts";
 import { clearApprovalCodes, configDir, liveApprovalCodes, oauthCounts, passcodeMatches, passcodeProblem, resetOAuth } from "./oauth.ts";
 import { loadTokens, revokeStaticTokens, tokenLive } from "./remote.ts";
@@ -86,15 +87,17 @@ export function readPasscodeFile(path: string): string {
 }
 
 /**
- * A serve or hub service set up with its own config folder reads its grants there. A reset of this shell's folder would leave
- * them all working, so it is refused, naming the folder to run it in.
+ * A serve or hub service set up with its own config folder reads its grants there, and one set up with none reads the default
+ * folder, whatever this shell's TYCHICUS_CONFIG_DIR says. A reset of another folder would leave them all working, so it is
+ * refused, naming the folder to run it in.
  */
 function otherConfigFolder(): string | undefined {
 	const here = resolve(configDir());
 	for (const spec of [SERVE_SERVICE, HUB_SERVICE]) {
-		if (!serviceFile(spec)) continue;
-		const folder = savedFolders(spec).config;
-		if (folder && resolve(folder) !== here) return folder;
+		const file = serviceFile(spec);
+		if (!file || !existsSync(file)) continue;
+		const folder = savedFolders(spec).config ?? join(configHome(), "tychicus");
+		if (resolve(folder) !== here) return folder;
 	}
 	return undefined;
 }

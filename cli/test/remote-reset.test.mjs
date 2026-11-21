@@ -331,3 +331,28 @@ const MCP_HEADERS = { "content-type": "application/json", accept: "application/j
 	assert.ok(matches(m, NEW_PASSCODE), "the new passcode is set");
 	assert.ok(!yes.out.includes(NEW_PASSCODE), "the passcode is never printed");
 });
+
+(posix ? test : test.skip)("remote reset refuses when a service set up with no config folder reads the default one, and this shell uses another", () => {
+	// launchd on a Mac, systemd elsewhere: the file this platform's services read, with no folder in its environment.
+	const m = machine("default-folder");
+	m.run(["token", "passcode"]);
+	const serviceFile = process.platform === "darwin" ? join(m.home, "Library", "LaunchAgents", "com.tychicus.serve.plist") : join(m.home, ".config", "systemd", "user", "tychicus-serve.service");
+	mkdirSync(dirname(serviceFile), { recursive: true });
+	writeFileSync(
+		serviceFile,
+		process.platform === "darwin"
+			? "<plist><dict><key>ProgramArguments</key><array><string>/usr/local/bin/tychicus</string><string>serve</string></array></dict></plist>\n"
+			: "[Service]\nExecStart=/usr/local/bin/tychicus serve\n",
+	);
+	const before = readFileSync(join(m.config, "oauth.json"), "utf8");
+	const r = m.run(["remote", "reset", "--new-passcode-file", m.file("p", NEW_PASSCODE, 0o600), "--yes", "--json"]);
+	assert.equal(r.code, 2, r.out);
+	const report = JSON.parse(r.stdout);
+	assert.equal(report.code, "config_folder");
+	// The machine's HOME has no XDG_CONFIG_HOME, so the default is ~/.config/tychicus, not the shell's TYCHICUS_CONFIG_DIR.
+	assert.ok(report.message.includes(join(m.home, ".config", "tychicus")), report.message);
+	assert.equal(readFileSync(join(m.config, "oauth.json"), "utf8"), before, "nothing changed");
+	// Run in the default folder, as `next` says, it is not refused for the folder.
+	const there = m.run(["remote", "reset", "--new-passcode-file", m.file("p2", NEW_PASSCODE, 0o600), "--yes", "--json"], { extra: { TYCHICUS_CONFIG_DIR: join(m.home, ".config", "tychicus") } });
+	assert.notEqual(JSON.parse(there.stdout).code, "config_folder", there.out);
+});

@@ -487,8 +487,9 @@ A running serve refuses the old tokens on the next request and closes their open
 a second. The command reads every file back and exits 0 only when the passcode is the new one and
 no grant, client, connect code or static token is left; 1 when a step or the read-back failed (the
 report names what is left; run it again); 2 when it refused the file or the folder, or wasn't
-confirmed, and changed nothing. A serve or hub service set up with its own config folder is refused with that folder's
-name: run the command with `TYCHICUS_CONFIG_DIR` set to it. On Windows the file's permissions
+confirmed, and changed nothing. When a serve or hub service reads another config folder than this shell (its own, or the default
+`~/.config/tychicus` when it was set up with none while this shell sets `TYCHICUS_CONFIG_DIR`), the
+reset is refused with that folder's name: run the command with `TYCHICUS_CONFIG_DIR` set to it. On Windows the file's permissions
 aren't checked, since NTFS access lists aren't in its mode bits.
 
 ## Security notes
