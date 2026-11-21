@@ -30,8 +30,9 @@ function machine(name) {
 	const config = join(home, "cfg");
 	mkdirSync(config, { recursive: true, mode: 0o700 });
 	const env = { HOME: home, TYCHICUS_CONFIG_DIR: config, PATH: nodeOnly, NO_COLOR: "1", TABKYRA_SOCKET_DIR: join(home, "sock"), TABKYRA_APPLICATIONS_DIR: join(home, "apps"), TABKYRA_DOH_URL: "http://127.0.0.1:9/dns-query" };
-	const run = (args) => {
-		const r = spawnSync(process.execPath, [cli, ...args], { env, encoding: "utf8", timeout: 20_000, killSignal: "SIGKILL" });
+	/** `extra` env on top of this machine's, and `input` on stdin (a pipe: no terminal unless TABKYRA_ASSUME_TTY says so). */
+	const run = (args, { extra = {}, input } = {}) => {
+		const r = spawnSync(process.execPath, [cli, ...args], { env: { ...env, ...extra }, input, encoding: "utf8", timeout: 20_000, killSignal: "SIGKILL" });
 		return { code: r.status, out: `${r.stdout}${r.stderr}`, stdout: r.stdout };
 	};
 	/** A passcode file with `text` and `mode`. */
@@ -85,6 +86,8 @@ const NEW_PASSCODE = "correct-horse-battery-staple-42";
 		assert.match(report.message, pattern, what);
 		assert.match(report.message, /Nothing was changed/, what);
 		assert.ok(!r.out.includes(NEW_PASSCODE), `${what}: the passcode is never printed`);
+		// The file is checked before anything asks for a yes; a file others can read gets the command that fixes it.
+		if (what === "group readable") assert.deepEqual(report.next, { kind: "run_command", command: `chmod 600 ${path}` });
 	}
 	// No flag, and the flag with no value, are usage errors.
 	assert.equal(m.run(["remote", "reset"]).code, 2);
@@ -177,10 +180,12 @@ const MCP_HEADERS = { "content-type": "application/json", accept: "application/j
 		const staticSession = await open(staticToken);
 
 		const file = m.file("new-passcode", `${NEW_PASSCODE}\n`, 0o600);
-		const r = m.run(["remote", "reset", "--new-passcode-file", file, "--json"]);
+		const r = m.run(["remote", "reset", "--new-passcode-file", file, "--yes", "--json"]);
 		assert.equal(r.code, 0, r.out);
 		const report = JSON.parse(r.stdout);
 		assert.equal(report.ok, true, r.stdout);
+		assert.equal(report.state, "done");
+		assert.deepEqual(report.next, { kind: "run_command", command: "tychicus token approval-code --json" }, "an agent knows to make a connect code");
 		assert.deepEqual(report.ended, { clients: 1, grants: 1, approvalCodes: 1, deviceCodes: 0, staticRevoked: 1 });
 		assert.deepEqual(report.left, []);
 		assert.ok(!r.out.includes(NEW_PASSCODE) && !r.out.includes(oldPasscode), "no passcode is printed");
@@ -235,10 +240,13 @@ const MCP_HEADERS = { "content-type": "application/json", accept: "application/j
 	assert.equal(m.run(["token", "approval-code"]).code, 0);
 	// tokens.json that can't be parsed: the static token step fails, and the read-back can't prove it either.
 	writeFileSync(join(m.config, "tokens.json"), "not json");
-	const r = m.run(["remote", "reset", "--new-passcode-file", m.file("p", NEW_PASSCODE, 0o600), "--json"]);
+	const p = m.file("p", NEW_PASSCODE, 0o600);
+	const r = m.run(["remote", "reset", "--new-passcode-file", p, "--yes", "--json"]);
 	assert.equal(r.code, 1, r.out);
 	const report = JSON.parse(r.stdout);
 	assert.equal(report.ok, false);
+	assert.equal(report.state, "failed");
+	assert.deepEqual(report.next, { kind: "run_command", command: `tychicus remote reset --new-passcode-file ${p} --yes --json` }, "the same reset again");
 	assert.deepEqual(report.failed.map((f) => f.step), ["static_tokens"]);
 	assert.deepEqual(report.left.map((l) => l.name), ["static_tokens"]);
 	assert.match(report.message, /Reset isn't complete: static_tokens failed/);
@@ -247,7 +255,7 @@ const MCP_HEADERS = { "content-type": "application/json", accept: "application/j
 	assert.equal(matches(m, NEW_PASSCODE), true);
 	assert.deepEqual(JSON.parse(readFileSync(join(m.config, "oauth-codes.json"), "utf8")).codes, []);
 	// Text mode says the same on stderr and exits 1.
-	const text = m.run(["remote", "reset", "--new-passcode-file", m.file("p2", NEW_PASSCODE, 0o600)]);
+	const text = m.run(["remote", "reset", "--new-passcode-file", m.file("p2", NEW_PASSCODE, 0o600), "--yes"]);
 	assert.equal(text.code, 1);
 	assert.match(text.out, /Reset isn't complete/);
 });
@@ -256,7 +264,7 @@ const MCP_HEADERS = { "content-type": "application/json", accept: "application/j
 	const m = machine("folders");
 	m.run(["token", "passcode"]);
 	writeFileSync(join(m.config, "tokens.json"), JSON.stringify({ tokens: [{ id: "abcdef01", name: "link:run", scopes: ["browser.read"], sha256: "00".repeat(32), createdAt: new Date().toISOString(), kind: "link" }] }));
-	const ok = m.run(["remote", "reset", "--new-passcode-file", m.file("p", NEW_PASSCODE, 0o600), "--json"]);
+	const ok = m.run(["remote", "reset", "--new-passcode-file", m.file("p", NEW_PASSCODE, 0o600), "--yes", "--json"]);
 	assert.equal(ok.code, 0, ok.out);
 	assert.deepEqual(JSON.parse(ok.stdout).kept, { linkTokens: 1 });
 	assert.equal(JSON.parse(readFileSync(join(m.config, "tokens.json"), "utf8")).tokens[0].revokedAt, undefined);
@@ -272,11 +280,54 @@ const MCP_HEADERS = { "content-type": "application/json", accept: "application/j
 			: `[Service]\nEnvironment="POLYCARP_BROWSER_CONFIG_DIR=${other}"\n`,
 	);
 	const before = readFileSync(join(m.config, "oauth.json"), "utf8");
-	const refused = m.run(["remote", "reset", "--new-passcode-file", m.file("p2", `${NEW_PASSCODE}-2`, 0o600), "--json"]);
+	const p2 = m.file("p2", `${NEW_PASSCODE}-2`, 0o600);
+	const refused = m.run(["remote", "reset", "--new-passcode-file", p2, "--yes", "--json"]);
 	assert.equal(refused.code, 2, refused.out);
 	const report = JSON.parse(refused.stdout);
 	assert.equal(report.code, "config_folder");
+	assert.deepEqual(report.next, { kind: "run_command", command: `TYCHICUS_CONFIG_DIR='${other}' tychicus remote reset --new-passcode-file ${p2} --yes --json` });
 	assert.ok(report.message.includes(other), report.message);
 	assert.equal(readFileSync(join(m.config, "oauth.json"), "utf8"), before);
 	assert.ok(!existsSync(join(other, "oauth.json")));
+});
+
+(posix ? test : test.skip)("remote reset never asks without a terminal or with --json: it needs --yes; at a terminal it asks first", () => {
+	const m = machine("confirm");
+	const old = /([a-zA-Z0-9]{5}-){3}[a-zA-Z0-9]{5}/.exec(m.run(["token", "passcode"]).out)?.[0];
+	const before = readFileSync(join(m.config, "oauth.json"), "utf8");
+	const p = m.file("p", `${NEW_PASSCODE}\n`, 0o600);
+	const unchanged = (what) => {
+		assert.equal(readFileSync(join(m.config, "oauth.json"), "utf8"), before, `${what}: nothing changed`);
+		assert.ok(matches(m, old), `${what}: the old passcode stands`);
+	};
+
+	// No terminal (stdin is a pipe), no --yes: refused with a code and the command to run, without waiting on stdin.
+	const agent = m.run(["remote", "reset", "--new-passcode-file", p, "--json"], { input: "y\n" });
+	assert.equal(agent.code, 2, agent.out);
+	const report = JSON.parse(agent.stdout);
+	assert.deepEqual([report.ok, report.state, report.code], [false, "refused", "confirmation_required"]);
+	assert.deepEqual(report.next, { kind: "run_command", command: `tychicus remote reset --new-passcode-file ${p} --yes --json` });
+	unchanged("no terminal, --json");
+	const plain = m.run(["remote", "reset", "--new-passcode-file", p]);
+	assert.equal(plain.code, 2, plain.out);
+	assert.match(plain.out, /needs a yes\. Run it in a terminal, or add --yes/);
+	unchanged("no terminal, text");
+	// --json never asks, even at a terminal: an agent reads that output.
+	const tty = { TABKYRA_ASSUME_TTY: "1" };
+	const jsonAtTerminal = m.run(["remote", "reset", "--new-passcode-file", p, "--json"], { extra: tty, input: "y\n" });
+	assert.equal(jsonAtTerminal.code, 2, jsonAtTerminal.out);
+	assert.equal(JSON.parse(jsonAtTerminal.stdout).code, "confirmation_required");
+	unchanged("--json at a terminal");
+
+	// At a terminal it asks; anything but yes changes nothing.
+	const no = m.run(["remote", "reset", "--new-passcode-file", p], { extra: tty, input: "n\n" });
+	assert.equal(no.code, 2, no.out);
+	assert.match(no.out, /Every assistant must connect again\. \[y\/N\]/);
+	assert.match(no.out, /Stopped: you said no\. Nothing was changed\./);
+	unchanged("answered no");
+	const yes = m.run(["remote", "reset", "--new-passcode-file", p], { extra: tty, input: "yes\n" });
+	assert.equal(yes.code, 0, yes.out);
+	assert.match(yes.out, /Connect each assistant again: tychicus token approval-code/);
+	assert.ok(matches(m, NEW_PASSCODE), "the new passcode is set");
+	assert.ok(!yes.out.includes(NEW_PASSCODE), "the passcode is never printed");
 });

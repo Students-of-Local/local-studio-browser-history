@@ -796,7 +796,7 @@ async function main(): Promise<void> {
 				return;
 			}
 			if (sub === "reset") {
-				process.exitCode = await remoteReset({ passcodeFile: option("--new-passcode-file"), json: flag("--json") });
+				process.exitCode = await remoteReset({ passcodeFile: option("--new-passcode-file"), json: flag("--json"), yes: flag("--yes") });
 				return;
 			}
 			if (sub === "import-polycarp") {
@@ -804,7 +804,7 @@ async function main(): Promise<void> {
 				return;
 			}
 			throw new UsageError(
-				`Usage: ${COMMAND_NAME} remote setup [--tailscale | --cloudflare [name.yourdomain.com] | --public-url https://host] [--replace-funnel] [--port N] [--no-service] [--no-passcode] [--no-wait] [--no-input] [--yes] [--connect-code] [--json] | cloudflare login [--json] | status [--json] | test [--json] | fix [--yes] [--dry-run] [--json] | off [--json] | reset --new-passcode-file <path> [--json] | import-polycarp [--dry-run] [--force]`,
+				`Usage: ${COMMAND_NAME} remote setup [--tailscale | --cloudflare [name.yourdomain.com] | --public-url https://host] [--replace-funnel] [--port N] [--no-service] [--no-passcode] [--no-wait] [--no-input] [--yes] [--connect-code] [--json] | cloudflare login [--json] | status [--json] | test [--json] | fix [--yes] [--dry-run] [--json] | off [--json] | reset --new-passcode-file <path> [--yes] [--json] | import-polycarp [--dry-run] [--force]`,
 			);
 		}
 		case "hub": {

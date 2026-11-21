@@ -15,13 +15,18 @@
  *
  * Each step runs even when one before it failed, then a fresh read of every file proves the result. Exit 0 only when every
  * step is done and read back; 1 when a step or the read-back failed (the report names what is left); 2 when the passcode file
- * or the config folder is refused, before anything changes.
+ * or the config folder is refused, or the reset isn't confirmed, before anything changes.
+ *
+ * An agent can run it for a person: it asks only at a terminal, and never with --json. Without a terminal (or with --json) it
+ * needs --yes, else it refuses with code `confirmation_required`. Every result names the state and, when there is one, the
+ * next command to run (`next`), as `remote fix` does.
  */
 import { closeSync, constants, fstatSync, openSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { clearConnectCodes, liveConnectCodes } from "./hub-state.ts";
 import { clearApprovalCodes, configDir, liveApprovalCodes, oauthCounts, passcodeMatches, passcodeProblem, resetOAuth } from "./oauth.ts";
 import { loadTokens, revokeStaticTokens, tokenLive } from "./remote.ts";
+import { askYes, closeInput, interactiveTerminal } from "./remote-guide.ts";
 import { printReport } from "./remote-state.ts";
 import { COMMAND_NAME } from "./self.ts";
 import { HUB_SERVICE, SERVE_SERVICE, savedFolders, serviceFile } from "./service.ts";
@@ -34,7 +39,18 @@ export const EXIT_RESET_REFUSED = 2;
 /** A passcode file this big is not a passcode. */
 const MAX_FILE_BYTES = 4096;
 
-export class PasscodeFileError extends Error {}
+/** A refused passcode file; `fix` is the command that fixes it, when one does. */
+export class PasscodeFileError extends Error {
+	constructor(
+		message: string,
+		readonly fix?: string,
+	) {
+		super(message);
+	}
+}
+
+/** Quoted for a POSIX shell. */
+const shellQuote = (text: string) => (/^[A-Za-z0-9_./:@%+=,-]+$/.test(text) ? text : `'${text.replace(/'/g, "'\\''")}'`);
 
 /**
  * The passcode in `path`. Refused: a link, anything but a regular file, a file group or others can read or write, one that
@@ -56,7 +72,7 @@ export function readPasscodeFile(path: string): string {
 		const st = fstatSync(fd);
 		if (!st.isFile()) throw new PasscodeFileError(`${shown} isn't a regular file.`);
 		if (process.platform !== "win32") {
-			if (st.mode & 0o077) throw new PasscodeFileError(`${shown} can be read or written by others (mode ${(st.mode & 0o777).toString(8).padStart(4, "0")}). Make it the owner's alone: chmod 600 ${shown}`);
+			if (st.mode & 0o077) throw new PasscodeFileError(`${shown} can be read or written by others (mode ${(st.mode & 0o777).toString(8).padStart(4, "0")}). Make it the owner's alone: chmod 600 ${shellQuote(shown)}`, `chmod 600 ${shellQuote(shown)}`);
 			if (process.getuid && st.uid !== process.getuid()) throw new PasscodeFileError(`${shown} belongs to another account.`);
 		}
 		if (st.size > MAX_FILE_BYTES) throw new PasscodeFileError(`${shown} is ${st.size} bytes; a passcode file holds one line.`);
@@ -86,7 +102,12 @@ function otherConfigFolder(): string | undefined {
 export interface ResetOptions {
 	passcodeFile: string | undefined;
 	json: boolean;
+	/** Reset without asking: needed without a terminal, and with --json. */
+	yes: boolean;
 }
+
+/** What to do next, for an agent: the shape `remote fix` reports. */
+type Next = { kind: "run_command"; command: string };
 
 /** How many of each the reset ended. */
 interface Ended {
@@ -103,21 +124,35 @@ export async function remoteReset(options: ResetOptions): Promise<number> {
 	const say = (line: string) => {
 		if (!options.json) console.log(line);
 	};
-	const refuse = (code: string, message: string) => {
-		if (options.json) printReport({ ok: false, state: "refused", code, message: `${message} Nothing was changed.` });
+	const refuse = (code: string, message: string, next?: Next) => {
+		if (options.json) printReport({ ok: false, state: "refused", code, message: `${message} Nothing was changed.`, ...(next ? { next } : {}) });
 		else console.error(`${sym.fail} ${message} Nothing was changed.`);
 		return EXIT_RESET_REFUSED;
 	};
-	if (!options.passcodeFile) return refuse("usage", `Usage: ${COMMAND_NAME} remote reset --new-passcode-file <path> [--json]`);
+	if (!options.passcodeFile) return refuse("usage", `Usage: ${COMMAND_NAME} remote reset --new-passcode-file <path> [--yes] [--json]`);
+	// The command again, as given, for a `next` step: the file path is a path, never the passcode.
+	const again = (env = "", yes = options.yes) => `${env}${COMMAND_NAME} remote reset --new-passcode-file ${shellQuote(resolve(options.passcodeFile ?? ""))}${yes ? " --yes" : ""}${options.json ? " --json" : ""}`;
 	let passcode: string;
 	try {
 		passcode = readPasscodeFile(options.passcodeFile);
 	} catch (err) {
-		if (err instanceof PasscodeFileError) return refuse("passcode_file", err.message);
+		if (err instanceof PasscodeFileError) return refuse("passcode_file", err.message, err.fix ? { kind: "run_command", command: err.fix } : undefined);
 		throw err;
 	}
 	const other = otherConfigFolder();
-	if (other) return refuse("config_folder", `The service reads ${other}, and this shell uses ${configDir()}. Run it there: TYCHICUS_CONFIG_DIR="${other}" ${COMMAND_NAME} remote reset --new-passcode-file <path>`);
+	if (other) {
+		const command = again(`TYCHICUS_CONFIG_DIR=${shellQuote(other)} `);
+		return refuse("config_folder", `The service reads ${other}, and this shell uses ${configDir()}. Run it there: ${command}`, { kind: "run_command", command });
+	}
+	if (!options.yes) {
+		// Never a question without a terminal, or in a JSON run an agent reads: --yes says the person asked for this reset.
+		if (options.json || !interactiveTerminal()) {
+			return refuse("confirmation_required", `remote reset ends every assistant's connection and needs a yes. Run it in a terminal, or add --yes: ${again("", true)}`, { kind: "run_command", command: again("", true) });
+		}
+		const sure = await askYes(`Replace the passcode and end every OAuth grant, client registration, connect code and static token in ${configDir()}? Every assistant must connect again. [y/N] `);
+		closeInput();
+		if (!sure) return refuse("declined", "Stopped: you said no.");
+	}
 
 	const ended: Ended = { clients: 0, grants: 0, approvalCodes: 0, deviceCodes: 0, staticRevoked: 0 };
 	const failed: { step: string; detail: string }[] = [];
@@ -175,11 +210,13 @@ export async function remoteReset(options: ResetOptions): Promise<number> {
 	});
 
 	const ok = failed.length === 0 && left.length === 0;
+	// Done: each assistant connects again with a one-time approval code. Not done: the same reset again, which is safe to repeat.
+	const next: Next = ok ? { kind: "run_command", command: `${COMMAND_NAME} token approval-code${options.json ? " --json" : ""}` } : { kind: "run_command", command: again("", true) };
 	const message = ok
 		? "The passcode is replaced, and every grant, client registration, connect code and static token is ended and read back. Every assistant must connect again with a new connect code."
 		: `Reset isn't complete: ${[...failed.map((f) => `${f.step} failed (${f.detail})`), ...left.map((l) => `${l.name}: ${l.detail}`)].join("; ")}. Run ${COMMAND_NAME} remote reset again before the tunnel comes back.`;
 	if (options.json) {
-		printReport({ ok, state: ok ? "done" : "failed", message, ended, kept: { linkTokens: linkKept }, failed, left });
+		printReport({ ok, state: ok ? "done" : "failed", message, ended, kept: { linkTokens: linkKept }, failed, left, next });
 		return ok ? EXIT_RESET_DONE : EXIT_RESET_FAILED;
 	}
 	if (!failed.some((f) => f.step === "oauth")) {
@@ -188,7 +225,9 @@ export async function remoteReset(options: ResetOptions): Promise<number> {
 	}
 	if (!failed.some((f) => f.step === "approval_codes" || f.step === "device_codes")) say(`${sym.ok} Ended ${plural(ended.approvalCodes + ended.deviceCodes, "waiting connect code")}.`);
 	if (!failed.some((f) => f.step === "static_tokens")) say(`${sym.ok} Revoked ${plural(ended.staticRevoked, "static token")}${linkKept ? `; kept ${plural(linkKept, "link token")}, which no public route accepts` : ""}.`);
-	if (ok) say(`${sym.ok} ${message} A running serve refuses the old tokens at once and closes their sessions within a second.`);
-	else console.error(`${sym.fail} ${message}`);
+	if (ok) {
+		say(`${sym.ok} ${message} A running serve refuses the old tokens at once and closes their sessions within a second.`);
+		say(`  Connect each assistant again: ${next.command}`);
+	} else console.error(`${sym.fail} ${message}`);
 	return ok ? EXIT_RESET_DONE : EXIT_RESET_FAILED;
 }
