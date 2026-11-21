@@ -1911,7 +1911,7 @@ reacting, like the new tab's own events, which can come after the 20 ms window.
 
 **Why.** On CI's runner the first page text after a load took 361 ms, about 330 of them in the 300 ms window counted
 from the first probe and polled in 100 ms steps; every transport hop together cost about 3 ms
-(`docs/verification/speed-trace.md`). Worst of 3 runners after: firstText 89 ms, fill 33 ms, click 62 ms.
+(`docs/verification/speed-trace.md`). Worst of 3 runners after: firstText 92 ms, fill 35 ms, click 63 ms.
 
 **Limits.** A page that redraws more than 50 ms after load with no request and no DOM change in between (a plain
 `setTimeout` of 100 ms) can be read before it redraws; D41's 300 ms window had the same limit at 300 ms. Click stays

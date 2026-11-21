@@ -137,12 +137,13 @@ the `Page.windowOpen` handling failed its unit test (`{"settled":true,"ms":25,"i
 |---|---|---|---|---|---|
 | ed35a6e (runs 1, 2, 3) | 84, 84, 85 | 32, 32, 32 | 61, 61, 61 | 30/30 | 54/54 |
 | 26cc90d (runs 1, 2, 3) | 85, 89, 87 | 29, 32, 33 | 59, 61, 62 | 30/30 | 54/54 |
+| f5525b1, final head on main 97c6304 (runs 1, 2, 3; run 44880929842) | 92, 88, 82 | 35, 33, 32 | 63, 63, 60 | 30/30 | 54/54 |
 
 | Verb | Ceiling before | Worst of 3 after | Target |
 |---|---|---|---|
-| firstText | 361 ms | 89 ms | under 120 ms, met |
-| fill | 80 ms | 33 ms | under 40 ms, met |
-| click | 79 ms | 62 ms | under 50 ms, not met |
+| firstText | 361 ms | 92 ms | under 120 ms, met |
+| fill | 80 ms | 35 ms | under 40 ms, met |
+| click | 79 ms | 63 ms | under 50 ms, not met |
 
 ### Left as is
 

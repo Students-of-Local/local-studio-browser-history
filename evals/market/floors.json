@@ -11,9 +11,9 @@
 		}
 	},
 	"ceilings_ms": {
-		"click": 79,
-		"fill": 80,
-		"firstText": 361
+		"click": 63,
+		"fill": 35,
+		"firstText": 92
 	},
 	"tolerance_pct": 10,
 	"localOnly": {
@@ -25,8 +25,8 @@
 		"rule": "worst of 3 runs; a score only goes up and a ceiling only goes down",
 		"runs": [
 			{
-				"at": "2026-11-18T17:58:47.218Z",
-				"commit": "7464b8823b564c09a94cfd5142a93082b178dea8",
+				"at": "2026-11-21T07:36:37.918Z",
+				"commit": "f5525b123a3a3da5eb3db41c3a91aae64d1ee3ec",
 				"runner": "github-actions ubuntu24 X64",
 				"scores": {
 					"tasks": {
@@ -39,14 +39,14 @@
 					}
 				},
 				"speed_ms": {
-					"click": 79,
-					"fill": 80,
-					"firstText": 361
+					"click": 63,
+					"fill": 35,
+					"firstText": 92
 				}
 			},
 			{
-				"at": "2026-11-18T18:04:05.044Z",
-				"commit": "7464b8823b564c09a94cfd5142a93082b178dea8",
+				"at": "2026-11-21T07:36:43.476Z",
+				"commit": "f5525b123a3a3da5eb3db41c3a91aae64d1ee3ec",
 				"runner": "github-actions ubuntu24 X64",
 				"scores": {
 					"tasks": {
@@ -59,14 +59,14 @@
 					}
 				},
 				"speed_ms": {
-					"click": 74,
-					"fill": 74,
-					"firstText": 344
+					"click": 63,
+					"fill": 33,
+					"firstText": 88
 				}
 			},
 			{
-				"at": "2026-11-18T17:58:40.640Z",
-				"commit": "7464b8823b564c09a94cfd5142a93082b178dea8",
+				"at": "2026-11-21T07:36:53.695Z",
+				"commit": "f5525b123a3a3da5eb3db41c3a91aae64d1ee3ec",
 				"runner": "github-actions ubuntu24 X64",
 				"scores": {
 					"tasks": {
@@ -79,9 +79,9 @@
 					}
 				},
 				"speed_ms": {
-					"click": 78,
-					"fill": 78,
-					"firstText": 354
+					"click": 60,
+					"fill": 32,
+					"firstText": 82
 				}
 			}
 		]
