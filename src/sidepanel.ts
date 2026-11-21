@@ -124,6 +124,7 @@ import "./utils/i18n-extension.js";
 import { createArtifactViewer } from "./artifacts/viewers.js";
 import { bridgeQuestions, watchBridgeQuestions } from "./ask/bridge-panel.js";
 import { updateNotice, watchUpdateStatus } from "./components/UpdateNotice.js";
+import { takeHandoff, watchHandoff } from "./handoff/panel.js";
 import { tabkyraTranscript } from "./transcript/render.js";
 import { starters } from "./tutorials.js";
 import "./dictation/DictationButton.js";
@@ -1304,6 +1305,15 @@ const newSession = () => {
 	window.location.href = url.toString();
 };
 
+/** "Give this tab to Tychicus" (src/handoff): a new chat that starts on `tabId`. */
+function newTaskOnTab(tabId: number): void {
+	const url = new URL(window.location.href);
+	url.search = "";
+	url.searchParams.set("tabId", String(tabId));
+	url.searchParams.set("new", "true");
+	window.location.href = url.toString();
+}
+
 // ============================================================================
 // RENDER
 // ============================================================================
@@ -1610,6 +1620,18 @@ async function initApp() {
 	// An old panel URL (left open across the update) may still carry ?tabId=; keep honoring it.
 	const homeTabParam = new URLSearchParams(window.location.search).get("tabId");
 	homeTabId = homeTabParam ? Number(homeTabParam) : undefined;
+
+	// "Give this tab to Tychicus" opened this panel: start the new chat on that tab. Later gives come while it is open.
+	const given = await takeHandoff(currentWindowId);
+	if (given !== undefined) {
+		newTaskOnTab(given);
+		return;
+	}
+	watchHandoff(currentWindowId, (tabId) => {
+		// A reload would end the run under way; the user stops it first.
+		if (agent?.state.isStreaming) Toast.info("Tychicus is working. Stop this run, then give the tab again.");
+		else newTaskOnTab(tabId);
+	});
 
 	performance.mark("panel:window");
 	// Initialize port communication system (lifecycle only; background tracks open panels)

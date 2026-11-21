@@ -814,14 +814,19 @@ export class BrowserSession {
 		);
 	}
 
-	/** The user put one of their tabs into this agent's group: it's the agent's now. */
-	async userGave(tabId: number, tab?: chrome.tabs.Tab): Promise<void> {
+	/**
+	 * The user put one of their tabs into this agent's group, or gave it from the tab's menu ("Give this tab to ..."):
+	 * it's the agent's now, in its group.
+	 */
+	async userGave(tabId: number, tab?: chrome.tabs.Tab, how: "moved" | "menu" = "moved"): Promise<void> {
 		await this.refresh();
 		if (this.state.tabIds.includes(tabId)) return;
 		await this.adopt(tabId, false);
 		await addNotice(
 			this.state.id,
-			`The user gave you ${tabName(tab, tabId)} by moving it into your group; you can use it now.`,
+			how === "menu"
+				? `The user gave you ${tabName(tab, tabId)} from the tab's menu; it is in your group now and you can use it.`
+				: `The user gave you ${tabName(tab, tabId)} by moving it into your group; you can use it now.`,
 		);
 	}
 
