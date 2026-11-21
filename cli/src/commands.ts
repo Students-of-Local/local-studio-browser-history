@@ -78,6 +78,7 @@ export const VALUE_HINTS: Record<string, string> = {
 	"--out": "FILE",
 	"--folder": "NAME",
 	"--file": "<file>",
+	"--new-passcode-file": "<path>",
 	"--confirm": "<code>",
 	"--repo": "owner/name",
 	"--branch": "<branch>",
@@ -92,7 +93,7 @@ export const VALUE_HINTS: Record<string, string> = {
 export const VALUE_FLAGS = new Set(Object.keys(VALUE_HINTS));
 
 /** Value options whose value is a path: completions offer file names after them. */
-const PATH_VALUES = new Set(["--cases", "--base", "--router", "--out", "--file", "--release"]);
+const PATH_VALUES = new Set(["--cases", "--base", "--router", "--out", "--file", "--release", "--new-passcode-file"]);
 
 export const COMMANDS: CommandSpec[] = [
 	{ name: "setup", selfParsed: true, what: "Build, register, load, connect and add to your agents; --agents moves agents from Polycarp's browser MCP under their old names, --agents --finish renames those to tychicus, --dry-run shows either", group: "Get started", flags: SETUP_FLAGS },
@@ -254,6 +255,11 @@ export const COMMANDS: CommandSpec[] = [
 			{ name: "test", what: "Prove an assistant can reach it, from outside: public DNS, TLS, the OAuth metadata, the sign-in challenge and a streaming probe", flags: ["--json"] },
 			{ name: "fix", what: "Repair what remote test or status found, one step at a time, asking first (--yes to skip asking, --dry-run to list)", flags: ["--yes", "--dry-run", "--json"] },
 			{ name: "off", what: "Stop the service, close the tunnel or Funnel and remove remote.json", flags: ["--json"] },
+			{
+				name: "reset",
+				what: "After a tunnel token leaked: set the passcode from an owner-only file and end every OAuth grant, client, connect code and static token (a relayed /mcp request may have carried one; link tokens stay, no public route takes them). 0 done and read back, 1 left, 2 refused",
+				flags: ["--new-passcode-file", "--json"],
+			},
 			{ name: "import-polycarp", what: "Move Polycarp's remote connector (same address, same sign-ins) to Tychicus, once (--dry-run to list)", flags: ["--dry-run", "--force"] },
 		],
 	},
@@ -385,6 +391,7 @@ export const REMOTE_GUIDE = [
 	`  4. ${COMMAND_NAME} remote fix      Repair what status or test found (--dry-run lists the steps)`,
 	`  5. ${COMMAND_NAME} remote off      Stop the service, close the tunnel and remove remote.json`,
 	`Moving from Polycarp: ${COMMAND_NAME} remote import-polycarp [--dry-run] [--force] copies its connector here and swaps the services, once.`,
+	`A tunnel token leaked: ${COMMAND_NAME} remote reset --new-passcode-file <path> sets a new passcode and ends every grant, client, connect code and static token before the tunnel comes back.`,
 	"Each takes --json. Exit codes: 0 ok, 1 failed, 2 usage; setup and fix also 3 when a person has to act, test and fix 3 when nothing is set up.",
 	`Every flag: ${COMMAND_NAME} --help`,
 	"",

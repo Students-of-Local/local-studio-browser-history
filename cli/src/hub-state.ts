@@ -184,6 +184,21 @@ function loadConnectCodes(): ConnectCode[] {
 	}
 }
 
+/** End every device connect code still waiting (`remote reset`; a hub's codes travel through its tunnel too). Returns how many were live. */
+export function clearConnectCodes(): number {
+	if (!existsSync(codesFile())) return 0;
+	return withFileLock(codesFile(), () => {
+		const live = liveCodes(loadConnectCodes(), Date.now()).length;
+		writeJsonPrivate(codesFile(), { codes: [] });
+		return live;
+	});
+}
+
+/** Device connect codes a fresh read finds still live. */
+export function liveConnectCodes(): number {
+	return liveCodes(loadConnectCodes(), Date.now()).length;
+}
+
 /** A new connect code, shown once. `lockMs` is how long to wait for the lock (a request handler passes a short one). */
 export function mintConnectCode(options: { name?: string; manage?: boolean }, time = Date.now(), lockMs?: number): { code: string; expiresAt: number } {
 	if (options.name !== undefined && !validDeviceName(options.name)) throw new HubStateError(400, "Device name: letters, digits, dot, dash, underscore or space, up to 40.");
