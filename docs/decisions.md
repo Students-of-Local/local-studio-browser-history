@@ -1897,3 +1897,29 @@ model track, Browser Use and computer use are not in it yet (#30).
 
 **Proof.** `test/market-floors.test.mjs` (the check, the ratchet and raise), and the pull request that added this:
 a 200 ms sleep in click failed `market-evals`, and its revert passed.
+
+## D56. A loaded navigation settles after 50 ms of quiet, and the idle look drains the page's tasks (Claude, 2026-11-21)
+
+**Default.** After a navigation, once a probe sees `readyState` complete, no request, loader or pending navigation in
+flight, and no data request that ended within the quiet window, navigate needs 50 ms of quiet (`LOADED_QUIET_MS`)
+instead of D41's 300 ms. Data requests are read from Resource Timing in the page's own clock: a fetch or XHR, or a
+script, style or frame that ended after DOMContentLoaded, counts as activity at its end time, so a page that draws
+after its data keeps the 300 ms window. The idle and loaded probes answer after one MessageChannel turn and a
+`setTimeout(0)`, so a reaction the page posts as a task is seen; with that, D50's `IDLE_MS` drops from 60 to 20 ms.
+The settle loop wakes when the quiet window would end. A `Page.windowOpen` on the tab's session counts as the page
+reacting, like the new tab's own events, which can come after the 20 ms window.
+
+**Why.** On CI's runner the first page text after a load took 361 ms, about 330 of them in the 300 ms window counted
+from the first probe and polled in 100 ms steps; every transport hop together cost about 3 ms
+(`docs/verification/speed-trace.md`). Worst of 3 runners after: firstText 92 ms, fill 35 ms, click 63 ms.
+
+**Limits.** A page that redraws more than 50 ms after load with no request and no DOM change in between (a plain
+`setTimeout` of 100 ms) can be read before it redraws; D41's 300 ms window had the same limit at 300 ms. A click or
+fill whose input handler schedules its reaction 20 to 60 ms out (a `setTimeout` of 30 ms, with no request, DOM change
+or loader before it) now returns before that reaction; with D50's 60 ms idle window it was waited for. The change
+report then says nothing changed, and the next read shows the reaction. Click stays
+at about 60 ms: Chromium holds the page's tasks after a discrete input until a frame, and a hidden tab draws none
+(`DeferRendererTasksAfterInput`, measured in the trace).
+
+**Proof.** `cli/test/e2e-bridge.test.mjs` "D56: ..." (two tests) and `test/settle.test.mjs` "D56: Page.windowOpen ...";
+removing the Resource Timing rule or the `Page.windowOpen` handling fails them.

@@ -23,9 +23,14 @@ export const ACTION_SETTLE = { quietMs: 300, capMs: 2500, longMs: 2000 };
 /**
  * After a click or fill the page showed no sign of reacting to: no DOM change, request, navigation or loader since the
  * action began. Waiting out the whole quiet window then only adds its 300 ms to every such action (D50). A sign that
- * comes within this time keeps the quiet window.
+ * comes within this time keeps the quiet window. 60 ms until D56, which drains the page's queued tasks before it looks.
  */
-export const IDLE_MS = 60;
+export const IDLE_MS = 20;
+/**
+ * After a navigation, once the load event has fired and nothing else holds the wait (no request, loader or pending
+ * navigation): how long the page must stay quiet. Until then it is ACTION_SETTLE's 300 ms (D56).
+ */
+export const LOADED_QUIET_MS = 50;
 /** `wait {until:"settled"}` with no timeoutMs. */
 export const WAIT_SETTLE = { quietMs: 500, capMs: 10000, longMs: 5000 };
 
@@ -94,6 +99,11 @@ function install(): void {
 			if (frames.size > 100) frames.delete(frames.keys().next().value as string);
 			const map = pending.get(tabId);
 			for (const [k, r] of map ?? []) if (r.frameId === frame.id && r.loaderId !== frame.loaderId) map?.delete(k);
+		} else if (method === "Page.windowOpen") {
+			// The page asked for a new window (a target=_blank link, window.open, a form): sent on the tab's own session
+			// as the request is made, so it comes before the reply to any later probe there, well before the new tab's
+			// own events (D56: those came after a 20 ms idle window on a loaded machine).
+			lastOpened.set(tabId, Date.now());
 		} else if (method === "Network.loadingFinished" || method === "Network.loadingFailed") {
 			const map = pending.get(tabId);
 			if (map?.delete(String(p.requestId))) lastEnd.set(tabId, Date.now());
@@ -165,23 +175,42 @@ export interface SettleMark {
 	drawn: Promise<void> | null;
 }
 
+/** What settleProbe says about the page: ms since it last changed, still parsing, a loader on screen, load fired. */
+interface ProbeReport {
+	since: number;
+	parsing: boolean;
+	busy: string;
+	complete: boolean;
+	/**
+	 * Ms since the page's last data request ended (a fetch or XHR, or a script, stylesheet or frame that finished after
+	 * DOMContentLoaded), by its own Resource Timing; null when it made none. What such a request brings is often drawn
+	 * a task or a timer later, so a short window counts only once that end is a full quiet window old (D56).
+	 */
+	lateAgo: number | null;
+}
+type ProbeResult = ProbeReport | { guarded: true };
+
 /**
  * Page side: leave a MutationObserver in the document once, and say how long ago the page last
- * changed, whether it is still parsing, and whether a loading marker is on screen. Self-contained.
+ * changed, whether it is still parsing, whether a loading marker is on screen, whether the load
+ * event has fired and when its last data request ended. Self-contained.
  * On a guarded page (the approval address, #94) it touches nothing and says so: a navigation can
  * commit there after the loop last read the tab's URL.
+ * `drain`: look only after the page has run what is already queued (a MessageChannel turn, then a zero-delay timer),
+ * so a change an event handler or a load handler scheduled for its next task is seen, not missed by a look that ran
+ * first. The observer is in place before the drain, so a change made during it counts.
  */
 function settleProbe(
 	veil: string,
 	hosts: readonly string[],
 	guarded: (url: string, hosts: readonly string[]) => boolean,
-): { since: number; parsing: boolean; busy: string } | { guarded: true } {
+	drain: boolean,
+): ProbeResult | Promise<ProbeResult> {
 	if (guarded(location.href, hosts)) return { guarded: true };
 	const w = window as unknown as { __tabkyraSettle?: SettleMark };
-	const now = performance.now();
 	let s = w.__tabkyraSettle;
 	if (!s || s.doc !== document) {
-		s = { last: now, doc: document, owed: 0, drawn: null };
+		s = { last: performance.now(), doc: document, owed: 0, drawn: null };
 		w.__tabkyraSettle = s;
 		const mark = s;
 		const inVeil = (n: Node | null) => {
@@ -212,31 +241,67 @@ function settleProbe(
 			);
 		}).observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
 	}
-	// A loading marker a person would read as "not ready": aria-busy, or a skeleton, shimmer or
-	// spinner class on something shown in the window.
-	const token = /(^|[-_])(skeleton|shimmer|spinner)([-_]|$)|^(is-)?loading$/i;
-	let busy = "";
-	const marked = document.querySelectorAll(
-		"[aria-busy=true],[class*=skeleton i],[class*=shimmer i],[class*=spinner i],[class*=loading i]",
-	);
-	for (let i = 0; i < marked.length && i < 200 && !busy; i++) {
-		const el = marked[i];
-		if (el.getAttribute("aria-busy") !== "true" && !Array.from(el.classList).some((c) => token.test(c))) continue;
-		const r = el.getBoundingClientRect();
-		if (r.width === 0 || r.height === 0 || r.bottom < 0 || r.top > innerHeight || r.right < 0 || r.left > innerWidth)
-			continue;
-		// Seen means seen: a loader faded out (opacity 0 on an ancestor) or hidden by one stays in the
-		// page after many transitions, and must not hold every wait.
-		const check = (el as Element & { checkVisibility?: (o?: Record<string, boolean>) => boolean }).checkVisibility;
-		if (check) {
-			if (!check.call(el, { opacityProperty: true, visibilityProperty: true })) continue;
-		} else {
-			const st = getComputedStyle(el);
-			if (st.visibility === "hidden" || st.display === "none" || st.opacity === "0") continue;
+	const seen = s;
+	const report = (): ProbeReport => {
+		const now = performance.now();
+		// A loading marker a person would read as "not ready": aria-busy, or a skeleton, shimmer or
+		// spinner class on something shown in the window.
+		const token = /(^|[-_])(skeleton|shimmer|spinner)([-_]|$)|^(is-)?loading$/i;
+		let busy = "";
+		const marked = document.querySelectorAll(
+			"[aria-busy=true],[class*=skeleton i],[class*=shimmer i],[class*=spinner i],[class*=loading i]",
+		);
+		for (let i = 0; i < marked.length && i < 200 && !busy; i++) {
+			const el = marked[i];
+			if (el.getAttribute("aria-busy") !== "true" && !Array.from(el.classList).some((c) => token.test(c))) continue;
+			const r = el.getBoundingClientRect();
+			if (
+				r.width === 0 ||
+				r.height === 0 ||
+				r.bottom < 0 ||
+				r.top > innerHeight ||
+				r.right < 0 ||
+				r.left > innerWidth
+			)
+				continue;
+			// Seen means seen: a loader faded out (opacity 0 on an ancestor) or hidden by one stays in the
+			// page after many transitions, and must not hold every wait.
+			const check = (el as Element & { checkVisibility?: (o?: Record<string, boolean>) => boolean }).checkVisibility;
+			if (check) {
+				if (!check.call(el, { opacityProperty: true, visibilityProperty: true })) continue;
+			} else {
+				const st = getComputedStyle(el);
+				if (st.visibility === "hidden" || st.display === "none" || st.opacity === "0") continue;
+			}
+			busy = el.getAttribute("aria-busy") === "true" ? "aria-busy" : "loading placeholder";
 		}
-		busy = el.getAttribute("aria-busy") === "true" ? "aria-busy" : "loading placeholder";
-	}
-	return { since: Math.round(now - s.last), parsing: document.readyState === "loading", busy };
+		const complete = document.readyState === "complete";
+		let lateAgo: number | null = null;
+		if (complete && drain) {
+			const nav = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
+			const dcl = nav?.domContentLoadedEventStart ?? 0;
+			let end = -1;
+			for (const e of performance.getEntriesByType("resource") as PerformanceResourceTiming[]) {
+				const data = e.initiatorType === "fetch" || e.initiatorType === "xmlhttprequest";
+				const late = /^(script|link|css|iframe|frame)$/.test(e.initiatorType) && e.responseEnd >= dcl;
+				if ((data || late) && e.responseEnd > end) end = e.responseEnd;
+			}
+			if (end >= 0) lateAgo = Math.max(0, Math.round(now - end));
+		}
+		return {
+			since: Math.round(now - seen.last),
+			parsing: document.readyState === "loading",
+			busy,
+			complete,
+			lateAgo,
+		};
+	};
+	if (!drain) return report();
+	return new Promise<ProbeResult>((done) => {
+		const c = new MessageChannel();
+		c.port1.onmessage = () => setTimeout(() => done(report()), 0);
+		c.port2.postMessage(0);
+	});
 }
 
 export interface SettleResult {
@@ -277,6 +342,12 @@ export async function settle(
 		 * keeps the full quiet window.
 		 */
 		idleMs?: number;
+		/**
+		 * The quiet window once the page's load event has fired (the probe reads readyState "complete"), when nothing
+		 * else holds the wait: a navigation's settle (D56). A page still loading, or one the probe can't read, keeps
+		 * `quietMs`.
+		 */
+		loadedQuietMs?: number;
 	} = {},
 ): Promise<SettleResult> {
 	const { quietMs = ACTION_SETTLE.quietMs, capMs = ACTION_SETTLE.capMs, longMs = ACTION_SETTLE.longMs } = options;
@@ -290,7 +361,11 @@ export async function settle(
 	const run = async (): Promise<SettleResult> => {
 		if (!options.watched) await watchNetwork(tabId);
 		const veil = (await within(veilTag(tabId), 300)) ?? "";
-		const code = `(${settleProbe.toString()})(${JSON.stringify(veil)}, ${JSON.stringify(options.guardedHosts ?? [])}, ${isGuardedUrl.toString()})`;
+		// The short windows look only after the page has run what is already queued (settleProbe's drain).
+		let drain = !!options.idleMs || options.loadedQuietMs !== undefined;
+		const probeCode = (d: boolean) =>
+			`(${settleProbe.toString()})(${JSON.stringify(veil)}, ${JSON.stringify(options.guardedHosts ?? [])}, ${isGuardedUrl.toString()}, ${d})`;
+		let code = probeCode(drain);
 		let lastActivity = start;
 		/** Something on the page answered the action (idleMs): never reset once set. */
 		let reacted = !options.idleMs;
@@ -303,6 +378,8 @@ export async function settle(
 			if (options.stop?.() || openDialog(tabId)) return { settled: false, ms: Date.now() - start, stopped: true };
 			const before = waitingOn;
 			waitingOn = undefined;
+			/** This pass's probe saw the load event fired (loadedQuietMs). */
+			let loaded = false;
 			const tab = await chrome.tabs.get(tabId).catch(() => undefined);
 			// The cap came while the tab was read: no probe goes out after it.
 			if (over) return { settled: false, ms: Date.now() - start };
@@ -324,19 +401,32 @@ export async function settle(
 				// Never let one probe hold the loop, or run past the cap.
 				const budget = Math.max(0, Math.min(PROBE_MS, deadline - t0));
 				const page = await within(
-					runInPage<ReturnType<typeof settleProbe>>(tabId, code).then(
+					runInPage<ProbeResult>(tabId, code).then(
 						(v) => v ?? "refused",
 						() => "refused" as const,
 					),
 					budget,
 				);
+				if (page === undefined && drain && budget >= PROBE_MS) {
+					// The drain waits on a page timer, and a browser may hold the timers of a tab out of sight past the
+					// budget (review r2 first-F1). Look undrained for the rest of this settle. Without a drained look the
+					// short windows are not safe, so the page counts as reacting and gets the full window; this pass
+					// says nothing about the page, so it is not counted as busy.
+					drain = false;
+					code = probeCode(false);
+					reacted = true;
+					continue;
+				}
+				// A drained probe measured "since" after its drain, so its answer, not the call, is the time it is relative to;
+				// the later time can only move a change later, which waits longer, never less.
+				const at = drain ? Date.now() : t0;
 				if (page && page !== "refused" && "guarded" in page)
 					return { settled: false, ms: Date.now() - start, stopped: true, guarded: true };
 				if (page === "refused") refused++;
 				else if (page !== undefined) refused = 0;
 				// A page that can't be looked at, or is too busy to answer, may be reacting: no shortcut.
 				if (page === undefined || page === "refused") reacted = true;
-				else if (!("guarded" in page) && (page.parsing || page.busy || t0 - page.since >= since)) reacted = true;
+				else if (!("guarded" in page) && (page.parsing || page.busy || at - page.since >= since)) reacted = true;
 				if (page === undefined) {
 					// No answer in time: the page's main thread is busy (a long task, hydration). Cut
 					// short by the cap instead, it says nothing new about the page.
@@ -344,7 +434,12 @@ export async function settle(
 					lastActivity = Date.now();
 				} else if (page !== "refused" && !("guarded" in page)) {
 					// The probe's clock is the page's: its "since" is measured at the page, about when the call went out.
-					lastActivity = Math.max(lastActivity, t0 - page.since);
+					lastActivity = Math.max(lastActivity, at - page.since);
+					// The short window is for a page done loading whose data requests, if any, ended a full window ago.
+					const lateAgo = typeof page.lateAgo === "number" && Number.isFinite(page.lateAgo) ? page.lateAgo : null;
+					if (lateAgo !== null) lastActivity = Math.max(lastActivity, at - lateAgo);
+					// Only a drained probe reads Resource Timing, so only its answer can show the data requests ended.
+					loaded = drain && page.complete === true && (lateAgo === null || lateAgo >= quietMs);
 					if (page.parsing || page.busy) {
 						waitingOn = "loading";
 						lastActivity = Date.now();
@@ -360,11 +455,15 @@ export async function settle(
 			if ((lastEnd.get(tabId) ?? 0) >= since) reacted = true;
 			if ((lastOpened.get(tabId) ?? 0) >= since) reacted = true;
 			lastReason = waitingOn;
-			if (!waitingOn && now - lastActivity >= quietMs) return { settled: true, ms: now - start };
+			const quiet =
+				loaded && options.loadedQuietMs !== undefined ? Math.min(quietMs, options.loadedQuietMs) : quietMs;
+			if (!waitingOn && now - lastActivity >= quiet) return { settled: true, ms: now - start };
 			const idleLeft = reacted ? Number.POSITIVE_INFINITY : (options.idleMs ?? 0) - (now - start);
 			if (!waitingOn && idleLeft <= 0) return { settled: true, ms: now - start, idle: true };
 			if (now >= deadline) return { settled: false, ms: now - start, waitingOn: waitingOn ?? "dom" };
-			await new Promise((r) => setTimeout(r, Math.max(10, Math.min(100, deadline - now, idleLeft))));
+			// The next look comes when the quiet window would end (or the idle one, or the cap), and at least every 100 ms.
+			const quietLeft = waitingOn ? quiet : quiet - (now - lastActivity);
+			await new Promise((r) => setTimeout(r, Math.max(10, Math.min(100, deadline - now, idleLeft, quietLeft))));
 		}
 	};
 	let timer: ReturnType<typeof setTimeout> | undefined;

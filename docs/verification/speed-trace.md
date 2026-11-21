@@ -74,3 +74,84 @@ After the fixes, one click: resolve 2 ms, point 3 ms, input 6 ms, settle 60 ms.
 
 Drag awaits each of its 12 mouse moves, because a drop target may need the frames between them, so a drag in a
 hidden tab takes about a second per move (dom-bench pointer-sortable takes about 15 s). It predates this branch.
+
+## 2026-11-21: first page text, fill and click (D56)
+
+The market eval's floors (D55, medians of 9 on CI's runner) were firstText 361 ms, fill 80 ms and click 79 ms. The
+targets were firstText under 120 ms, fill under 40 ms and click under 50 ms, with dom-bench at 54/54 and tasks at 30/30.
+
+### How it was measured
+
+A temporary branch (`floors/speed-trace`, not for merge) added a `_trace` of timestamps to the navigate, click and fill
+results, and each settle probe returned page-clock times for its own phases. `evals/market/tasks/loop.mjs` kept the traces,
+and the `market-floors` workflow ran it on 3 runners (runs 44876033610 and 44876541177). Medians of 27 calls, in ms from
+the start of the handler:
+
+| Call | Hop | ms |
+|---|---|---|
+| navigate | check the URL, resolve the tab, action start | 1.3 |
+| navigate | the navigation reaches DOMContentLoaded | 23 |
+| navigate | tab summary | 24.8 |
+| navigate | first probe answers (`readyState` complete, nothing in flight) | 27.7 |
+| navigate | second probe, after the 50 ms loaded window | 78.6 |
+| navigate | end | 78.9 |
+| get_page_text | the whole call, through MCP, socket, host and native messaging | about 3 |
+| fill | resolve, look before, action start | 2.3 |
+| fill | set the value (`fillElement`) | 5.2 |
+| fill | probes, then the 20 ms idle window | 26.5 |
+| fill | change report | 30 |
+| click | resolve, look before, point, action start | 4.3 |
+| click | press, move reply, release | 6.1 |
+| click | first probe answers | 56.6 |
+| click | change report | 58.5 |
+
+Before this branch, navigate settled with D41's 300 ms quiet window, counted from the first probe after
+DOMContentLoaded and polled in 100 ms steps: about 330 of the 361 ms. The transport hops cost about 3 ms in all.
+
+### What changed
+
+- **A short quiet window after a loaded navigation.** Once a probe sees `readyState` complete, no request, loader or
+  pending navigation, and no data request that ended recently, navigate waits 50 ms of quiet (`LOADED_QUIET_MS`)
+  instead of 300 ms.
+- **The full window after data requests.** The probe reads Resource Timing in the page's own clock: a fetch or XHR,
+  or a script, style or frame that ended after DOMContentLoaded, counts as activity at its end time. A page that
+  draws 150 ms after its fetch (e2e `/nav-fetched`), or opens an alert 200 ms after one, keeps the 300 ms window.
+- **A drained idle look.** The idle and loaded probes answer after one MessageChannel turn and a `setTimeout(0)`, so
+  a reaction the page posts as a task or a timer is seen before the action returns. `IDLE_MS` dropped from 60 to 20.
+- **The loop wakes when the quiet window would end,** not on the next 100 ms step.
+- **`Page.windowOpen` counts as the page reacting.** On a loaded machine the new tab's own events came after the 20 ms
+  idle window and the change report listed no new tab; the opener's `Page.windowOpen` comes on its own session first.
+
+Races covered by tests: `cli/test/e2e-bridge.test.mjs` "D56: navigate then get_page_text at once reads the new page
+as its scripts drew it, never the old one" (pages that redraw at DOMContentLoaded, on load, after a fetch, and that
+redirect after load) and "D56: a click or fill whose page answers a task later reports that change, and the next read
+sees it"; `test/settle.test.mjs` "D56: Page.windowOpen before the probe's reply holds an idle settle, with no tab event
+yet". Removing the Resource Timing rule failed `/nav-fetched` and the existing "Welcome back" alert test; removing
+the `Page.windowOpen` handling failed its unit test (`{"settled":true,"ms":25,"idle":true}`).
+
+### Results
+
+`market-floors` on CI, medians of 9 per runner:
+
+| Commit | firstText | fill | click | tasks | dom-bench |
+|---|---|---|---|---|---|
+| ed35a6e (runs 1, 2, 3) | 84, 84, 85 | 32, 32, 32 | 61, 61, 61 | 30/30 | 54/54 |
+| 26cc90d (runs 1, 2, 3) | 85, 89, 87 | 29, 32, 33 | 59, 61, 62 | 30/30 | 54/54 |
+| f5525b1, final head on main 97c6304 (runs 1, 2, 3; run 44880929842) | 92, 88, 82 | 35, 33, 32 | 63, 63, 60 | 30/30 | 54/54 |
+
+| Verb | Ceiling before | Worst of 3 after | Target |
+|---|---|---|---|
+| firstText | 361 ms | 92 ms | under 120 ms, met |
+| fill | 80 ms | 35 ms | under 40 ms, met |
+| click | 79 ms | 63 ms | under 50 ms, not met |
+
+### Left as is
+
+Click under 50 ms was not reached. The 50 ms is the page's task queue held after the click, not Tychicus's own work:
+in the CI trace the move reply came back at 6.3 ms, and the probe began in the page 0.8 ms after it was sent, but its
+MessageChannel message was delivered at 50.2 ms (fill and navigate probes: about 1 ms). Chromium's
+`DeferRendererTasksAfterInput` holds a page's ordinary tasks after a discrete input until the next frame. In a visible
+headless tab that took 2 to 12 ms, and with `--disable-features=DeferRendererTasksAfterInput` it was 0 ms. The page's own
+`setTimeout(0)` reaction to the click was held for the same time, so returning earlier would miss it. The agent's tab is
+hidden and draws no frame on its own, which matches the 50 ms seen on CI. A flag in the user's own Chrome is not ours to
+set, so click stays at about 60 ms.

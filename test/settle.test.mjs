@@ -330,12 +330,57 @@ test("an idle settle returns early on a quiet page, and a tab opened from the pa
 		[chrome.webNavigation.onCreatedNavigationTarget, { sourceTabId: tabId, tabId: 900, url: "https://example.com/quiet" }],
 		[chrome.tabs.onCreated, { id: 901, openerTabId: tabId }],
 	]) {
+		// Inside the idle window: a tab that opens after it is a reaction the idle settle does not wait for (D50's limit).
 		setTimeout(() => {
 			for (const fn of event.listeners) fn(arg);
-		}, 20);
+		}, IDLE_MS / 2);
 		const opened = await settle(tabId, { quietMs: 300, capMs: 2500, idleMs: IDLE_MS });
 		assert.equal(opened.settled, true, JSON.stringify(opened));
 		assert.ok(!opened.idle, `a new tab was not a reaction: ${JSON.stringify(opened)}`);
 		assert.ok(opened.ms >= 280, `returned at ${opened.ms} ms, before the new tab could join the session`);
 	}
+});
+
+// D56: the tab events for a target=_blank click can come after the 20 ms idle window on a loaded machine (the e2e change
+// report then listed no new tab). The page's own Page.windowOpen comes on the tab's session ahead of the probe's reply.
+test("D56: Page.windowOpen before the probe's reply holds an idle settle, with no tab event yet", async () => {
+	const fake = installFakeChrome();
+	noEvents();
+	const { settle, IDLE_MS } = await import(`../src/browser/settle.ts?ctx=${Math.random()}`);
+	const tabId = fake.addTab({ url: "https://example.com/", status: "complete" });
+	let probes = 0;
+	recordCommands((method) => {
+		if (method !== "Runtime.evaluate") return undefined;
+		if (++probes === 1)
+			for (const fn of chrome.debugger.onEvent.listeners)
+				fn({ tabId }, "Page.windowOpen", { url: "https://example.com/quiet", windowName: "_blank", userGesture: true });
+		return probeSays({ since: 100_000, parsing: false, busy: "", complete: true, lateAgo: null });
+	});
+	const r = await settle(tabId, { quietMs: 300, capMs: 2500, idleMs: IDLE_MS });
+	assert.equal(r.settled, true, JSON.stringify(r));
+	assert.ok(!r.idle, `the window the page opened was not a reaction: ${JSON.stringify(r)}`);
+	assert.ok(r.ms >= 280, `returned at ${r.ms} ms, before the new tab could join the session`);
+});
+
+// Review r2 first-F1: the drain waits on a page timer. A browser that holds the timers of the agent's tab past the probe's
+// budget must not turn every pass into "loading" and run click, fill and navigate to the cap.
+test("a drained probe that never answers falls back to undrained looks and settles, never at the cap", async () => {
+	const fake = installFakeChrome();
+	noEvents();
+	const { settle, IDLE_MS } = await import(`../src/browser/settle.ts?ctx=${Math.random()}`);
+	const tabId = fake.addTab({ url: "https://example.com/", status: "complete" });
+	const drained = (expr) => expr.lastIndexOf(", true)") > expr.lastIndexOf(", false)");
+	const kinds = [];
+	recordCommands((method, params) => {
+		if (method !== "Runtime.evaluate") return undefined;
+		const d = drained(String(params?.expression ?? ""));
+		kinds.push(d ? "drained" : "plain");
+		if (d) return new Promise(() => {});
+		return probeSays({ since: 100_000, parsing: false, busy: "", complete: true, lateAgo: null });
+	});
+	const r = await settle(tabId, { quietMs: 300, capMs: 2500, idleMs: IDLE_MS });
+	assert.ok(kinds.includes("drained"), `no drained probe was sent: ${kinds}`);
+	assert.equal(r.settled, true, JSON.stringify({ r, kinds }));
+	assert.ok(r.ms < 1500, `took ${r.ms} ms: ${JSON.stringify({ r, kinds })}`);
+	assert.ok(!r.idle, `a fallback is no sign the page is idle: ${JSON.stringify(r)}`);
 });
