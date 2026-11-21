@@ -1951,7 +1951,7 @@ Releases exist for darwin-arm64, linux-x64 and win-x64 only; the scripts name th
 **Proof.** `test/install-script.test.mjs`, `test/install-command.test.mjs`, the welcome case in
 `cli/test/e2e-panel.test.mjs`, the #13 cases in `cli/test/update.test.mjs`, and CI's `clean-install` job.
 
-## D57. A given tab and a hand-back: the panel's tab stays loose, a hand-back never takes focus and waits 10 minutes (Claude, 2026-11-21)
+## D58. A given tab and a hand-back: the panel's tab stays loose, a hand-back never takes focus and waits 10 minutes (Claude, 2026-11-21)
 
 Issue #45. Three defaults:
 
