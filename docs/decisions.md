@@ -1963,3 +1963,18 @@ Issue #45. Three defaults:
   10 minutes (`HANDBACK_TIMEOUT_MS`), then returns `timeout`; a dropped client or host ends it as `disconnected`.
 - The wait guidance lives in the `tabs_show` description, not the MCP instructions, so the instructions stay inside their
   3,210-byte budget. The tools/list budget in `cli/test/mcp.test.mjs` rises to 33,832 bytes for the two new parameters.
+
+## D59. One tunnel per machine, shared with Local Studio (Claude, 2026-11-21)
+
+**Decision.** Local Studio owns the one tunnel on a computer, on every route (hosted, Cloudflare, tailnet), and writes the
+route record. Tychicus only reads the record and joins (`remote join`); `remote setup` joins where a record exists and
+otherwise defers to `local-studio tunnel setup` for a Cloudflare or tailnet route. Local Studio's waitlist answer (stable
+and nightly) or a build without tunnel setup leaves Tychicus its own route, and a Local Studio folder alone never
+diverts setup, since `install --local-studio` makes one. Standalone Tychicus keeps its own
+route with the same exact paths: a Cloudflare ingress of its nine paths then 404, or nine `tailscale serve` mounts on
+443. Aliases let the joined route keep answering an older name, with OAuth and tokens bound to each host.
+
+**Why.** Two tunnels on one machine fight for the port, the DNS name and the sign-in; one owner and exact paths let both
+apps share one address without either catching the other's traffic. Design: baney75/local-studio `docs/tunnel.md`.
+
+**Proof.** `cli/test/one-tunnel.test.mjs`, and a live `remote setup --tailnet` with `remote test` passing.
