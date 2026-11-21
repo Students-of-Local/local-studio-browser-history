@@ -391,7 +391,6 @@ export const REMOTE_GUIDE = [
 	`  4. ${COMMAND_NAME} remote fix      Repair what status or test found (--dry-run lists the steps)`,
 	`  5. ${COMMAND_NAME} remote off      Stop the service, close the tunnel and remove remote.json`,
 	`Moving from Polycarp: ${COMMAND_NAME} remote import-polycarp [--dry-run] [--force] copies its connector here and swaps the services, once.`,
-	`A tunnel token leaked: ${COMMAND_NAME} remote reset --new-passcode-file <path> --yes sets a new passcode and ends every grant, client, connect code and static token before the tunnel comes back.`,
 	"Each takes --json. Exit codes: 0 ok, 1 failed, 2 usage; setup and fix also 3 when a person has to act, test and fix 3 when nothing is set up.",
 	`Every flag: ${COMMAND_NAME} --help`,
 	"",

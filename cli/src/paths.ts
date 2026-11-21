@@ -72,3 +72,8 @@ export function releaseBase(): string {
 export function releaseRoot(): string {
 	return join(releaseBase(), "release");
 }
+
+/** The release's program inside releaseRoot(). */
+export function releaseProgram(root: string = releaseRoot()): string {
+	return join(root, process.platform === "win32" ? "tychicus.exe" : "tychicus");
+}
