@@ -29,6 +29,8 @@ const PANEL = `chrome-extension://${EXTENSION_ID}/sidepanel.html`;
 const { isSidePanelPort } = await loadTs(`export { isSidePanelPort } from "@src/../../src/connect/gate.ts";`);
 const { PRESETS, contrast } = await loadTs(`export { PRESETS, contrast } from "@src/../../src/appearance/palettes.ts";`);
 const { createOverlayScript } = await loadTs(`export { createOverlayScript } from "@src/../../src/tools/repl/overlay-content.ts";`);
+const { installCommandFor } = await loadTs(`export { installCommandFor } from "@src/../../src/install-command.ts";`);
+const { HOST_CONNECTED_KEY } = await loadTs(`export { HOST_CONNECTED_KEY } from "@src/../../src/bridge/host-state.ts";`);
 
 let profile;
 let context;
@@ -160,6 +162,37 @@ for (const [width, height] of [[400, 860], [760, 850], [400, 1200], [320, 620]])
 		}
 	});
 }
+
+// A copy from the store starts with no helper (#44). No native host runs here, so the worker reports none; the test then
+// writes what the worker writes when a helper talks (host-state.ts) and the welcome must change in place.
+test("with no helper the welcome shows this OS's install command with Copy, and shows connected without a reload", async () => {
+	const page = await context.newPage();
+	try {
+		await page.goto(PANEL);
+		await page.evaluate(() => chrome.storage.local.remove("tk-welcome-seen"));
+		await page.reload();
+		const welcome = page.locator("welcome-setup-dialog");
+		await welcome.waitFor({ state: "attached", timeout: 20_000 });
+		const setup = welcome.locator("[data-helper-setup]");
+		await setup.waitFor({ timeout: 10_000 });
+		assert.equal(await setup.getAttribute("data-helper-setup"), "missing");
+		const os = await page.evaluate(() => chrome.runtime.getPlatformInfo().then((i) => i.os));
+		assert.equal((await setup.locator("[data-install-command]").textContent()).trim(), installCommandFor(os).command);
+		const copy = setup.getByRole("button", { name: `Copy Install command for ${installCommandFor(os).shell}`, exact: true });
+		assert.ok(await copy.isVisible(), "no Copy button beside the command");
+		const box = await setup.locator("[data-install-command]").boundingBox();
+		assert.ok(box.x >= 0 && box.x + box.width <= page.viewportSize().width, `the command box runs past the panel: ${JSON.stringify(box)}`);
+
+		await page.evaluate((key) => chrome.storage.session.set({ [key]: true }), HOST_CONNECTED_KEY);
+		await welcome.locator('[data-helper-setup="connected"]').waitFor({ timeout: 5000 });
+		assert.match(await welcome.locator("[data-helper-setup]").innerText(), /Helper connected/);
+		assert.equal(await welcome.locator("[data-install-command]").count(), 0, "the command stays up after the helper connected");
+		await page.evaluate((key) => chrome.storage.session.set({ [key]: false }), HOST_CONNECTED_KEY);
+		await welcome.getByRole("button", { name: "Close", exact: true }).click();
+	} finally {
+		await page.close();
+	}
+});
 
 // A theme's type.size scales every rem; at 24 the two-column starter pills cut their titles off (#13).
 for (const width of [400, 320]) {

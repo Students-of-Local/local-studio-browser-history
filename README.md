@@ -52,10 +52,37 @@ change. Tychicus does not decide this for you. Read your provider's terms and de
 connect a subscription; API keys under a developer agreement are the safer route where terms
 are unclear.
 
-## Install from a release
+## Install
 
 You need a Chromium 141+ browser (Helium, Chrome, Brave, Edge or Chromium). Nothing else: the
 `tychicus` program in each release carries its own runtime.
+
+On macOS or Linux, in a terminal:
+
+```bash
+curl -fsSL https://github.com/baney75/tychicus/releases/latest/download/install.sh | sh
+```
+
+On Windows, in PowerShell:
+
+```powershell
+irm https://github.com/baney75/tychicus/releases/latest/download/install.ps1 | iex
+```
+
+The command downloads the archive for your computer and `SHA256SUMS` from the latest release,
+checks the archive's SHA-256, checks its build attestation with `gh attestation verify` when the
+[GitHub CLI](https://cli.github.com) is installed (and says so when it isn't), then runs the
+release's own `tychicus install --release`, which checks again and registers the helper. It needs
+no sudo and refuses to run as root or administrator unless you pass `--allow-root`.
+`TYCHICUS_VERSION=1.2.3` installs that release instead of the latest, and options after
+`sh -s --` go to the installer: `curl -fsSL <address above> | sh -s -- --local-studio`. Releases
+are built for macOS on Apple silicon, Linux x64 and Windows x64.
+
+Then load the extension as step 3 below says. Once Tychicus is listed on the Chrome Web Store,
+that copy works too: its welcome screen shows the command for your computer with a Copy button,
+and shows the helper connected once the command has run.
+
+### Install from a release by hand
 
 1. From the [latest release](https://github.com/baney75/tychicus/releases/latest), download
    `SHA256SUMS` and the archive for your computer (`tychicus-<version>-linux-x64.tar.gz`,
@@ -84,8 +111,9 @@ You need a Chromium 141+ browser (Helium, Chrome, Brave, Edge or Chromium). Noth
 
 Then point your agent at it, for example
 `claude mcp add --scope user tychicus -- ~/.local/share/tychicus/release/tychicus mcp`.
-CI's `clean-install` job runs these steps from an empty home folder on every pull request and
-fails if they take more than three steps or 60 seconds, or if a changed file is accepted.
+CI's `clean-install` job runs the one command and these steps from an empty home folder on every
+pull request, and fails if the steps grow past three, if the command takes more than 60 seconds
+to the first page read, or if a changed file is accepted.
 
 ## Build and load the extension
 

@@ -204,15 +204,18 @@ answer no and use `git pull`, `./scripts/setup-siblings.sh`, `npm run build` and
 
 ## What an update checks before it touches a file
 
-1. **The release list.** It reads the newest non-draft release on the channel. It needs
-   `tabkyra-<version>.zip`, `SHA256SUMS` and `SHA256SUMS.minisig`, and refuses a release
-   without all three. Downloads use https (loopback http is allowed only for the test server),
+1. **The release list.** It reads the newest non-draft release on the channel from
+   baney75/tychicus, counting only releases that carry a `tychicus-<version>` asset. To update in
+   place it needs `tychicus-<version>.zip`, `SHA256SUMS` and `SHA256SUMS.minisig`, and refuses a
+   release without all three. A release `.github/workflows/release.yml` built has per-OS archives
+   with build attestations and no minisign signature yet: the check reports it, and the update
+   refuses it and prints the one install command (README.md, Install) that installs it instead. Downloads use https (loopback http is allowed only for the test server),
    with size limits (64 KB for the checksum files, 200 MB for the zip).
 2. **The signature.** `SHA256SUMS.minisig` must verify against the minisign public key
    built into the CLI (`keys/tabkyra-release.pub`). The verifier is `cli/src/minisign.ts`.
    It accepts only prehashed Ed25519 signatures (minisign's default), checks the key id,
    and checks the signed trusted comment.
-3. **The version.** The trusted comment must say `tabkyra <version>`, the version being
+3. **The version.** The trusted comment must say `tychicus <version>`, the version being
    installed. An old, validly signed `SHA256SUMS` can't be passed off as a newer release.
 4. **The checksum.** The zip's SHA-256 must match its line in `SHA256SUMS`.
 5. **The contents.** The zip is unpacked into a staging folder. It refuses absolute paths,

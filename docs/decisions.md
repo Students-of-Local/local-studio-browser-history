@@ -1923,3 +1923,30 @@ at about 60 ms: Chromium holds the page's tasks after a discrete input until a f
 
 **Proof.** `cli/test/e2e-bridge.test.mjs` "D56: ..." (two tests) and `test/settle.test.mjs` "D56: Page.windowOpen ...";
 removing the Resource Timing rule or the `Page.windowOpen` handling fails them.
+
+## D57. One command installs the helper; the updater reads Tychicus's releases and defers to it (Claude, 2026-11-21)
+
+**Context.** #44: rivals install in one step, Tychicus took three. #13: the updater read the repository archived at the
+rename and expected a minisigned zip that release.yml doesn't publish.
+
+**Decision.**
+- `scripts/install.sh` (POSIX sh) and `scripts/install.ps1` are the one command, uploaded with every release and
+  attested like the archives. They find the version from the release's own `SHA256SUMS` (the archive name carries it),
+  then download from that version's tag, so no API call and no JSON parsing in sh.
+- With `gh` on PATH, a failed `gh attestation verify` stops the install, including a `gh` that isn't signed in, the
+  same as `install --release` (release.ts). `TYCHICUS_GH=none` skips it on purpose, and the script says so.
+- They refuse root, and an elevated PowerShell, unless given `--allow-root`: the helper installs into one person's
+  home and needs no rights beyond it.
+- The test-only `TYCHICUS_INSTALL_BASE_URL` accepts only a loopback http address, so it can't send a real install to
+  another host.
+- The welcome learns the helper's state from `chrome.storage.session` (`tychicus.hostConnected`), written by the
+  worker when a host first talks and when the port closes, so it changes without a reload.
+- The updater reads baney75/tychicus and counts only releases with a `tychicus-<version>` asset. A release with only
+  release.yml's attested archives is reported by the check, and `update` refuses to install it in place and prints the
+  one command. It doesn't install attested archives itself: that needs the channel design #13 waits on.
+
+**Limits.** The store copy connects only after `STORE_EXTENSION_ID` holds its id (store/listing.md, first upload).
+Releases exist for darwin-arm64, linux-x64 and win-x64 only; the scripts name the missing target and stop.
+
+**Proof.** `test/install-script.test.mjs`, `test/install-command.test.mjs`, the welcome case in
+`cli/test/e2e-panel.test.mjs`, the #13 cases in `cli/test/update.test.mjs`, and CI's `clean-install` job.

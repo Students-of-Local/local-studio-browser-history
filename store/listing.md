@@ -22,8 +22,10 @@ permission with no row in permissions.md.
    `igjafcggmahiboobmnhfkndodphjdnhg` in `src/bridge/extension-id.json`, fixed by the manifest key the zip leaves out.
    `test/store-origins.test.mjs` covers both ids.
 3. Release the helper from that commit with `./release.sh patch` (it tags `v<version>`, and
-   `.github/workflows/release.yml` builds the helper with the id in it). People who installed before run
-   `tychicus install --release <folder>` again, which rewrites the host manifest to allow the store copy.
+   `.github/workflows/release.yml` builds the helper with the id in it). People who installed before run the
+   one install command again (or `tychicus install --release <folder>`), which rewrites the host manifest to allow
+   the store copy. Until this step, a store copy finds no helper it may talk to: Chrome refuses the connection
+   because the host manifest doesn't list its id, so its welcome screen keeps showing the install command.
 4. Submit the draft for review.
 
 ## Store listing tab
@@ -52,6 +54,14 @@ What it does well:
 • The agents you already use. Claude Code, Codex, Cursor, OpenCode, pi and any other MCP agent drive your browser through the free Tychicus helper on your computer. With the helper and your own Tailscale or Cloudflare tunnel, claude.ai, ChatGPT and grok.com can use it too.
 • Local models through Local Studio. With Local Studio on your computer, the side panel chats on your local models and the plans you signed in to there, with no API key or sign-in in the extension.
 • Or bring an API key from Anthropic, OpenAI, Google, OpenRouter and others, or use a free OpenRouter key.
+
+Set up the helper in one command. The welcome screen shows the one for your computer with a Copy button, and shows the helper connected as soon as it runs.
+
+On macOS or Linux, in a terminal:
+curl -fsSL https://github.com/baney75/tychicus/releases/latest/download/install.sh | sh
+
+On Windows, in PowerShell:
+irm https://github.com/baney75/tychicus/releases/latest/download/install.ps1 | iex
 
 You stay in charge:
 
@@ -127,5 +137,5 @@ No account is needed.
 3. Ask: "Open example.com and tell me what the page says."
 4. Approve example.com when asked. A new tab group opens, and the agent reads the page in it.
 
-Connecting a coding agent needs the free Tychicus helper from https://github.com/baney75/tychicus/releases. It isn't required to review the side panel.
+Connecting a coding agent needs the free Tychicus helper. The welcome shows the command that installs it (curl -fsSL https://github.com/baney75/tychicus/releases/latest/download/install.sh | sh on macOS and Linux). It isn't required to review the side panel.
 ```

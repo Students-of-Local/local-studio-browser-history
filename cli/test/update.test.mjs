@@ -54,12 +54,12 @@ function fakeCheckout(version) {
 }
 
 /** Build a release with the real packaging script, then sign it (or not, or wrongly). */
-function publish(version, { prerelease = false, signer = key, comment = `tabkyra ${version}`, tamper = false, notes } = {}) {
+function publish(version, { prerelease = false, signer = key, comment = `tychicus ${version}`, tamper = false, notes } = {}) {
 	const root = fakeCheckout(version);
 	const out = join(tmp, `out-${version}`);
 	const r = spawnSync(process.execPath, [packageScript, "--version", version, "--out", out, "--root", root], { encoding: "utf8" });
 	assert.equal(r.status, 0, r.stderr);
-	const zipName = `tabkyra-${version}.zip`;
+	const zipName = `tychicus-${version}.zip`;
 	let zip = readFileSync(join(out, zipName));
 	const sums = readFileSync(join(out, "SHA256SUMS"));
 	if (tamper) {
@@ -79,11 +79,11 @@ function publishEscaping(version) {
 		{ name: "release.json", data: Buffer.from(JSON.stringify({ version })) },
 		{ name: "../../escaped.txt", data: Buffer.from("owned") },
 	]);
-	const zipName = `tabkyra-${version}.zip`;
+	const zipName = `tychicus-${version}.zip`;
 	const sums = Buffer.from(`${createHash("sha256").update(zip).digest("hex")}  ${zipName}\n`);
 	releases.set(`v${version}`, {
 		prerelease: false,
-		assets: { [zipName]: zip, SHA256SUMS: sums, "SHA256SUMS.minisig": Buffer.from(signMinisign(sums, key, `tabkyra ${version}`)) },
+		assets: { [zipName]: zip, SHA256SUMS: sums, "SHA256SUMS.minisig": Buffer.from(signMinisign(sums, key, `tychicus ${version}`)) },
 	});
 }
 
@@ -132,7 +132,7 @@ const appVersion = (dir = "app") => JSON.parse(readFileSync(join(tabkyraHome, di
 before(async () => {
 	server = createServer((req, res) => {
 		const url = new URL(req.url, "http://x");
-		if (url.pathname === "/repos/baney75/tabkyra/releases") {
+		if (url.pathname === "/repos/baney75/tychicus/releases") {
 			const list = [...releases.entries()].map(([tag, r]) => ({
 				tag_name: tag,
 				draft: false,
@@ -258,10 +258,10 @@ test("a release signed by another key is refused", async () => {
 });
 
 test("a signature made for another version is refused", async () => {
-	publish("9.1.5", { comment: "tabkyra 9.1.1" });
+	publish("9.1.5", { comment: "tychicus 9.1.1" });
 	const r = await run(appCli(), "update");
 	assert.equal(r.code, 1, r.out);
-	assert.match(r.out, /made for "tabkyra 9\.1\.1", not tabkyra 9\.1\.5/);
+	assert.match(r.out, /made for "tychicus 9\.1\.1", not tychicus 9\.1\.5/);
 	assert.equal(appVersion(), "9.1.2");
 	releases.delete("v9.1.5");
 });
@@ -286,6 +286,62 @@ test("no signing key in the build: updates refuse", async () => {
 	assert.match(r.out, /no release signing key/);
 	assert.equal(appVersion(), "9.1.2");
 	releases.delete("v9.1.7");
+});
+
+// #13: the updater reads baney75/tychicus (the fake API answers only that path) and takes only Tychicus's releases.
+test("a newer release with only tabkyra-* assets is not Tychicus's: no update is found", async () => {
+	const zip = Buffer.from("an old tabkyra archive");
+	const sums = Buffer.from(`${createHash("sha256").update(zip).digest("hex")}  tabkyra-9.2.0.zip\n`);
+	releases.set("v9.2.0", {
+		prerelease: false,
+		assets: { "tabkyra-9.2.0.zip": zip, SHA256SUMS: sums, "SHA256SUMS.minisig": Buffer.from(signMinisign(sums, key, "tabkyra 9.2.0")) },
+	});
+	try {
+		const r = await run(appCli(), "update", "--check", "--json");
+		assert.equal(r.code, 0, r.out);
+		const status = JSON.parse(r.out);
+		assert.equal(status.latest, "9.1.2", "the tabkyra-only release was taken for Tychicus's");
+		assert.equal(status.available, false);
+	} finally {
+		releases.delete("v9.2.0");
+	}
+});
+
+test("a release with only release.yml's attested archives: the check finds it, the update names the one command", async () => {
+	const archive = Buffer.from("a per-OS archive");
+	const sums = Buffer.from(`${createHash("sha256").update(archive).digest("hex")}  tychicus-9.2.1-linux-x64.tar.gz\n`);
+	releases.set("v9.2.1", { prerelease: false, assets: { "tychicus-9.2.1-linux-x64.tar.gz": archive, SHA256SUMS: sums } });
+	try {
+		const check = await run(appCli(), "update", "--check", "--json");
+		assert.equal(check.code, 100, check.out);
+		assert.equal(JSON.parse(check.out).latest, "9.2.1");
+		const r = await run(appCli(), "update");
+		assert.equal(r.code, 1, r.out);
+		assert.match(r.out, /Tychicus 9\.2\.1 has no signed update archive \(tychicus-9\.2\.1\.zip and SHA256SUMS\.minisig\)/);
+		const command = process.platform === "win32" ? "install.ps1 | iex" : "install.sh | sh";
+		assert.ok(r.out.includes(`https://github.com/baney75/tychicus/releases/latest/download/${command}`), r.out);
+		assert.equal(appVersion(), "9.1.2");
+	} finally {
+		releases.delete("v9.2.1");
+	}
+});
+
+test("no update path names the archived tabkyra releases", () => {
+	const repo = join(here, "..", "..");
+	const read = (file) => readFileSync(join(repo, file), "utf8");
+	const updateRepo = read("cli/src/update.ts").match(/export const REPO = "([^"]+)"/)?.[1];
+	const releaseRepo = read("cli/src/release.ts").match(/export const RELEASE_REPO = "([^"]+)"/)?.[1];
+	assert.equal(updateRepo, "baney75/tychicus");
+	assert.equal(updateRepo, releaseRepo, "update and install --release read different repositories");
+	const files = ["cli/src/update.ts", "cli/src/update-run.ts", "cli/src/update-host.ts", "cli/src/update-progress.ts", "cli/src/checkout.ts", "scripts/release/package.mjs", "release.sh"];
+	for (const dir of ["src/update"]) for (const f of readdirSync(join(repo, dir))) if (f.endsWith(".ts")) files.push(join(dir, f));
+	for (const file of files) {
+		const text = read(file);
+		// The repository, a `tabkyra-<version>` asset, and a `tabkyra <version>` signed comment.
+		assert.doesNotMatch(text, /baney75\/tabkyra/, `${file} names the archived repository`);
+		assert.doesNotMatch(text, /tabkyra-\$\{[^}]*version/i, `${file} names a tabkyra-<version> asset`);
+		assert.doesNotMatch(text, /[`"']tabkyra \$\{/, `${file} expects a "tabkyra <version>" signature`);
+	}
 });
 
 test("rollback swaps back, and again", async () => {

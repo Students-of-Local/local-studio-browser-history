@@ -1,16 +1,20 @@
-// CI's clean-install job: install a packaged release the way README.md's "Install from a release" says, from an
-// empty home folder, and reach the first page text. It fails when:
-//   - the README section has more than 3 numbered steps,
-//   - the steps take more than 60 s, from unpacking to the first get_page_text,
+// CI's clean-install job: install a packaged release the way README.md's "Install" says, from an empty home folder,
+// and reach the first page text. It fails when:
+//   - the README's install section doesn't lead with the one command (`curl -fsSL .../install.sh | sh`),
+//   - that command, run against a local copy of the release, takes more than 60 s to the first get_page_text,
+//   - the by-hand section has more than 3 numbered steps, or its command doesn't install,
 //   - a tampered artifact (an archive whose bytes no longer match SHA256SUMS) is accepted, or anything is written
 //     for it, or
 //   - with gh and a token at hand, a build with no attestation from the release workflow is accepted.
 //   node cli/test/clean-install.mjs --release <folder from scripts/package-release.mjs>
 // Linux only (the job runs on ubuntu). Needs Playwright's Chromium (`npx playwright-core install chromium`).
 //
-// What each manual step stands in for: step 1 (the download) is a copy into ~/Downloads; step 2 runs the README's own
-// command line; step 3 (Developer mode and Load unpacked) is Chromium's --load-extension with the folder the installer
-// printed. The page's site is allowed with `tychicus allow`, the one-time approval a person gives on first use.
+// The one command runs as README.md writes it, with the GitHub releases address swapped for a local server that
+// serves the release folder under the same paths (install.sh itself included), and TYCHICUS_INSTALL_BASE_URL, the
+// script's test-only override, pointing at it. Loading the extension (Developer mode and Load unpacked) is Chromium's
+// --load-extension with the folder the installer printed. The page's site is allowed with `tychicus allow`, the
+// one-time approval a person gives on first use. The by-hand steps: step 1 (the download) is a copy into ~/Downloads;
+// step 2 runs the README's own command line.
 // TYCHICUS_GH=none stands for a computer without the GitHub CLI: pull request builds carry no attestation.
 // TABKYRA_SOCKET_DIR keeps the bridge socket inside the sandbox, so a helper already running on the machine is
 // never reached.
@@ -38,20 +42,43 @@ if (i < 0 || !process.argv[i + 1]) {
 const release = resolve(process.argv[i + 1]);
 const log = (line) => console.log(`clean-install: ${line}`);
 
-// 1. The README's steps.
+// 1. The README: the one command first, then the steps by hand.
+const RELEASES = "https://github.com/baney75/tychicus/releases";
 const readme = readFileSync(join(repo, "README.md"), "utf8");
-const section = readme.match(/\n## Install from a release\n([\s\S]*?)\n## /)?.[1];
-assert.ok(section, 'README.md has no "## Install from a release" section');
+const install = readme.match(/\n## Install\n([\s\S]*?)\n## /)?.[1];
+assert.ok(install, 'README.md has no "## Install" section');
+const oneCommand = install.match(/\n```bash\n([^\n]+)\n```/)?.[1]?.trim();
+assert.equal(oneCommand, `curl -fsSL ${RELEASES}/latest/download/install.sh | sh`, "README's install section must lead with the one command");
+const section = install.match(/\n### Install from a release by hand\n([\s\S]*)$/)?.[1];
+assert.ok(section, 'README.md has no "### Install from a release by hand" section under "## Install"');
 const steps = section.split("\n").filter((line) => /^\d+\. /.test(line));
-log(`README steps: ${steps.length} (at most ${MAX_STEPS})`);
+log(`README steps by hand: ${steps.length} (at most ${MAX_STEPS})`);
 assert.ok(steps.length >= 1 && steps.length <= MAX_STEPS, `README's install has ${steps.length} steps; the limit is ${MAX_STEPS}`);
 const command = section.match(/```bash\n([^\n]+)\n\s*```/)?.[1]?.trim();
-assert.ok(command, "README's install section has no one-line bash command for step 2");
+assert.ok(command, "README's by-hand section has no one-line bash command for step 2");
 
 const artifacts = readdirSync(release).filter((f) => f === "SHA256SUMS" || /^tychicus-.*-(linux-x64\.tar\.gz|extension\.zip)$/.test(f));
 assert.ok(artifacts.includes("SHA256SUMS") && artifacts.some((f) => f.endsWith("linux-x64.tar.gz")), `no linux-x64 release in ${release}`);
+assert.ok(existsSync(join(release, "install.sh")), `no install.sh in ${release}; scripts/package-release.mjs copies it there`);
 const archive = artifacts.find((f) => f.endsWith("linux-x64.tar.gz"));
 const top = archive.replace(/\.tar\.gz$/, "");
+const version = archive.match(/^tychicus-(\d+\.\d+\.\d+)-/)[1];
+
+/** Run a command without blocking this process, which serves the release and the page it reads. */
+function runAsync(cmd, args, options) {
+	return new Promise((done) => {
+		const child = spawn(cmd, args, options);
+		let stdout = "";
+		let stderr = "";
+		child.stdout.on("data", (d) => {
+			stdout += d;
+		});
+		child.stderr.on("data", (d) => {
+			stderr += d;
+		});
+		child.on("close", (status) => done({ status, stdout, stderr }));
+	});
+}
 
 const scratch = mkdtempSync(join(process.env.TMPDIR || tmpdir(), "tychicus-clean-"));
 // An empty home with a Chromium in it (its config folder exists, as it does once a browser has run), the release
@@ -87,6 +114,7 @@ async function until(fn, ms, what) {
 let browser;
 let mcp;
 let server;
+let releaseServer;
 try {
 	// 2. Tampered: one byte of the archive changed, SHA256SUMS as published. The program from a good copy must refuse
 	// it and write nothing.
@@ -126,8 +154,30 @@ try {
 		} else log("unattested build: skipped (no gh or no GH_TOKEN)");
 	}
 
-	// 3. The user's steps, timed from unpacking to the first page text.
+	// 3. By hand: the README's step 2 command, as written, in the folder the release was downloaded to.
+	{
+		const h = freshHome("by-hand");
+		const step2 = spawnSync("sh", ["-c", command], { cwd: h.downloads, env: h.env, encoding: "utf8" });
+		log(`by hand, step 2 (${command}): exit ${step2.status}`);
+		assert.equal(step2.status, 0, `${step2.stdout}${step2.stderr}`);
+		const printed = join(dirname(installed(h.home)), "extension");
+		assert.ok(step2.stdout.includes(printed), `the installer did not print the folder to load (${printed}):\n${step2.stdout}`);
+		assert.ok(existsSync(hostManifest(h.home)), "the by-hand install registered no host");
+	}
+
+	// 4. The one command, timed to the first page text. A local server stands in for GitHub's release pages.
 	const u = freshHome("user");
+	releaseServer = createServer((req, res) => {
+		const m = /^\/releases\/(?:latest\/download|download\/v([^/]+))\/([^/]+)$/.exec(new URL(req.url, "http://x").pathname);
+		const file = m && (!m[1] || m[1] === version) && readdirSync(release).includes(m[2]) ? join(release, m[2]) : undefined;
+		if (!file) {
+			res.writeHead(404).end("not found");
+			return;
+		}
+		res.writeHead(200).end(readFileSync(file));
+	});
+	await new Promise((r) => releaseServer.listen(0, "127.0.0.1", r));
+	const releases = `http://127.0.0.1:${releaseServer.address().port}/releases`;
 	server = createServer((_req, res) => {
 		res.writeHead(200, { "content-type": "text/html" });
 		res.end("<!doctype html><title>Clean install</title><p>Tychicus read this page after a clean install.</p>");
@@ -136,19 +186,22 @@ try {
 	const pageUrl = `http://127.0.0.1:${server.address().port}/`;
 	const started = Date.now();
 
-	// Step 2: the README's command, as written.
-	const step2 = spawnSync("sh", ["-c", command], { cwd: u.downloads, env: u.env, encoding: "utf8" });
-	log(`step 2 (${command}): exit ${step2.status}, ${Date.now() - started} ms`);
-	assert.equal(step2.status, 0, `${step2.stdout}${step2.stderr}`);
+	const local = oneCommand.replace(RELEASES, releases);
+	const one = await runAsync("sh", ["-c", local], { cwd: u.home, env: { ...u.env, TYCHICUS_INSTALL_BASE_URL: releases } });
+	log(`one command (${local}): exit ${one.status}, ${Date.now() - started} ms`);
+	assert.equal(one.status, 0, `${one.stdout}${one.stderr}`);
+	assert.match(one.stdout, /matches SHA256SUMS/);
+	assert.match(one.stdout, /Skipped the build attestation check/);
+	assert.match(one.stdout, /Next: /);
 	const root = installed(u.home);
 	const extension = join(dirname(root), "extension"); // the fixed folder next to release/, which outlives each version
-	assert.ok(step2.stdout.includes(extension), `the installer did not print the folder to load (${extension}):\n${step2.stdout}`);
+	assert.ok(one.stdout.includes(extension), `the installer did not print the folder to load (${extension}):\n${one.stdout}`);
 	const manifest = JSON.parse(readFileSync(hostManifest(u.home), "utf8"));
 	assert.deepEqual(manifest.allowed_origins, [`chrome-extension://${extensionId.id}/`]);
 	// The host is the current version's program: each release install rewrites the manifest, and the pointer names the same file.
 	assert.equal(realpathSync(manifest.path), realpathSync(join(root, "tychicus")));
 
-	// Step 3: Load unpacked, pointed at the folder the installer printed.
+	// Load unpacked, pointed at the folder the installer printed.
 	browser = spawn(
 		chromium.executablePath(),
 		[
@@ -195,6 +248,7 @@ try {
 	await mcp?.close().catch(() => {});
 	browser?.kill();
 	server?.close();
+	releaseServer?.close();
 	await new Promise((r) => setTimeout(r, 300));
 	rmSync(scratch, { recursive: true, force: true });
 }
