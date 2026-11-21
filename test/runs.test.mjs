@@ -4,6 +4,7 @@ import { test } from "node:test";
 import {
 	addStep,
 	cap,
+	clearWaits,
 	EMPTY_LOG,
 	endRun,
 	isRunStep,
@@ -124,4 +125,31 @@ test("names and labels have no em or en dashes", () => {
 	];
 	for (const t of text) assert.doesNotMatch(t, /[–—]/);
 	assert.equal(panelRunName(""), "Side panel");
+});
+
+test("typed text and a URL's query or fragment never reach the log", () => {
+	let log = addStep(EMPTY_LOG, "s", step({ tool: "type", params: { text: "hunter2-secret" }, result: { ok: true } }), 1);
+	log = addStep(log, "s", step({ tool: "navigate", params: { url: "https://id.example/cb?code=abc123#t=xyz" }, result: { url: "https://app.example/reset?token=s3cr3t#frag" } }), 2);
+	log = addStep(log, "s", step({ tool: "tabs_create", params: {}, result: { url: "https://signed.example/f?X-Amz-Signature=deadbeef" } }), 3);
+	const text = JSON.stringify(log);
+	for (const secret of ["hunter2", "abc123", "xyz", "s3cr3t", "frag", "deadbeef"]) assert.ok(!text.includes(secret), `${secret} in ${text}`);
+	const [run] = log.runs;
+	assert.equal(run.steps[0].target, "typed 14 characters");
+	assert.equal(run.steps[1].target, "id.example/cb");
+	assert.equal(run.steps[1].result, "app.example/reset");
+	assert.equal(run.steps[2].result, "signed.example/f");
+});
+
+test("a worker restart leaves no run waiting on the user", () => {
+	let log = addStep(EMPTY_LOG, "a", step(), 1);
+	log = addStep(log, "b", step(), 2);
+	log = setWaiting(log, "a", true, 3);
+	log = clearWaits(log, 4);
+	assert.deepEqual(
+		log.runs.map((r) => [r.id, r.status]).sort(),
+		[
+			["a", "running"],
+			["b", "running"],
+		],
+	);
 });

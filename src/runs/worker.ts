@@ -7,6 +7,7 @@
 
 import {
 	addStep,
+	clearWaits,
 	EMPTY_LOG,
 	endRun,
 	parseLog,
@@ -72,8 +73,15 @@ export function recordStep(sessionId: string, step: StepInput): void {
 	edit(async (l) => addStep(l, sessionId, { ...step, tabTitle: step.tabTitle ?? (await titleOf(step.tabId)) }, at));
 }
 
+/** Open waits per run: a run can wait on two hand-backs, or a hand-back and a question, at once. */
+const waits = new Map<string, number>();
+
+/** A wait on the user opened or closed. The run shows waiting from its first open wait until its last one closes. */
 export function runWaiting(sessionId: string, on: boolean): void {
-	edit((l, now) => setWaiting(l, sessionId, on, now));
+	const open = Math.max(0, (waits.get(sessionId) ?? 0) + (on ? 1 : -1));
+	if (open) waits.set(sessionId, open);
+	else waits.delete(sessionId);
+	if (on ? open === 1 : open === 0) edit((l, now) => setWaiting(l, sessionId, on, now));
 }
 
 export function runEnded(sessionId: string, failed?: boolean): void {
@@ -99,8 +107,9 @@ export function startRuns(): void {
 		.then((d) => {
 			const live = new Set(Object.keys((d[SESSIONS_KEY] as Record<string, unknown> | undefined) ?? {}));
 			edit((l, now) => {
-				let next = l;
-				for (const run of l.runs)
+				// No wait outlives the worker: handback and ask_user start with nothing pending.
+				let next = clearWaits(l, now);
+				for (const run of next.runs)
 					if ((run.status === "running" || run.status === "waiting") && !live.has(run.id))
 						next = endRun(next, run.id, now);
 				return next;

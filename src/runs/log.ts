@@ -57,21 +57,28 @@ export const EMPTY_LOG: RunsLog = { runs: [] };
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 3).trimEnd()}...` : s);
 const oneLine = (s: string) => s.replace(/\s+/g, " ").trim();
 
-/** What a step acted on, from its params: a ref or a name, else a URL's host and path, else a tab. */
+/** A URL as host and path: its query and fragment can carry a token (an OAuth code, a reset link), so they never go in the log. */
+function urlShape(url: string): string {
+	try {
+		const u = new URL(url);
+		return `${u.host}${u.pathname === "/" ? "" : u.pathname}` || u.protocol;
+	} catch {
+		return oneLine(url).replace(/[?#].*$/, "");
+	}
+}
+
+/**
+ * What a step acted on, from its params: a ref or a name, else a URL's host and path, else a tab. Typed text is
+ * never kept (it can be a password or a code the user gave the agent), only its length.
+ */
 export function stepTarget(params: Record<string, unknown> | undefined, tabId?: number): string {
 	const p = params ?? {};
 	const pick = (k: string) => (typeof p[k] === "string" && (p[k] as string).trim() ? (p[k] as string) : undefined);
-	const ref = pick("ref") ?? pick("element") ?? pick("selector") ?? pick("query") ?? pick("text") ?? pick("reason");
+	const ref = pick("ref") ?? pick("element") ?? pick("selector") ?? pick("query") ?? pick("reason");
 	if (ref) return clip(oneLine(ref), TARGET_MAX);
 	const url = pick("url");
-	if (url) {
-		try {
-			const u = new URL(url);
-			return clip(`${u.host}${u.pathname === "/" ? "" : u.pathname}`, TARGET_MAX);
-		} catch {
-			return clip(oneLine(url), TARGET_MAX);
-		}
-	}
+	if (url) return clip(urlShape(url), TARGET_MAX);
+	if (typeof p.text === "string" && p.text) return `typed ${p.text.length} characters`;
 	if (typeof p.x === "number" && typeof p.y === "number") return `${Math.round(p.x)}, ${Math.round(p.y)}`;
 	if (typeof p.key === "string") return clip(p.key, TARGET_MAX);
 	const tab = typeof p.tabId === "number" ? p.tabId : tabId;
@@ -110,7 +117,7 @@ export function stepResult(result: unknown, error?: string): string {
 	if (typeof result !== "object") return clip(oneLine(String(result)), 160);
 	const r = result as Record<string, unknown>;
 	if (typeof r.title === "string" && r.title) return clip(oneLine(r.title), 160);
-	if (typeof r.url === "string") return clip(r.url, 160);
+	if (typeof r.url === "string") return clip(urlShape(r.url), 160);
 	const small = Object.entries(r)
 		.filter(
 			([k, v]) =>
@@ -178,6 +185,13 @@ export function addStep(log: RunsLog, id: string, s: StepInput, now: number): Ru
 			}
 		},
 	);
+}
+
+/** After a worker restart no hand-back or question is open any more, so no run still waits on the user. */
+export function clearWaits(log: RunsLog, now: number): RunsLog {
+	let next = log;
+	for (const run of log.runs) if (run.status === "waiting") next = setWaiting(next, run.id, false, now);
+	return next;
 }
 
 /** The run waits on the user (a hand-back or a question), or stops waiting. A run not in the log is left alone. */
