@@ -790,9 +790,7 @@ export async function click(
 		}
 		await send(tabId, "Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button, clickCount: i, modifiers });
 	}
-	// The move's own reply is not awaited either (D56): the press already made the page take it, so the reply only
-	// says so a frame later, which cost every click about 30 ms on CI's runner. A move that failed is caught above; a
-	// debugger that went away fails the press and the release, which are awaited.
+	await moved;
 }
 
 export async function hover(tabId: number, x: number, y: number): Promise<void> {
