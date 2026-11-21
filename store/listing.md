@@ -43,28 +43,31 @@ Lets AI agents work in your browser, in their own tab group, while you keep work
 **Description:**
 
 ```
-Tychicus lets an AI agent work in your browser while you keep working. The agent gets its own tab group. It opens pages, reads them, clicks, fills in forms and checks its own work there, and your tabs stay yours.
+Tychicus lets an AI agent work in your browser while you keep working. The agent gets a tab group of its own and works there in the background: it opens pages, reads them, clicks, fills in forms and checks its own work, without taking focus from the tab you are using. Your tabs stay yours.
 
-Tychicus comes three ways: a Local Studio plugin, an app you install on its own, and this Chrome extension. The extension works with or without Local Studio.
+What it does well:
 
-Use it two ways:
-
-• Chat in the side panel. With Local Studio on your computer, the panel runs on it by default: your local models, and the plans you signed in to inside Local Studio, with no API key or sign-in in the extension. Without Local Studio, add an API key from Anthropic, OpenAI, Google, OpenRouter and others, or use a free OpenRouter key; with Local Studio, "Use an API key instead" does the same.
-• Connect the coding agent you already use. Claude Code, Codex and any MCP agent can drive your browser through the free Tychicus helper on your computer.
+• Its own tab group. Each agent works in a group of its own tabs, marked while it works, with a pointer that shows what it is doing and a "Take over" button.
+• Background tabs, no stolen focus. The agent acts in its tabs without bringing them to the front, so you can keep typing somewhere else.
+• The agents you already use. Claude Code, Codex, Cursor, OpenCode, pi and any other MCP agent drive your browser through the free Tychicus helper on your computer. With the helper and your own Tailscale or Cloudflare tunnel, claude.ai, ChatGPT and grok.com can use it too.
+• Local models through Local Studio. With Local Studio on your computer, the side panel chats on your local models and the plans you signed in to there, with no API key or sign-in in the extension.
+• Or bring an API key from Anthropic, OpenAI, Google, OpenRouter and others, or use a free OpenRouter key.
 
 You stay in charge:
 
-• The agent can't open a new site until you allow it.
+• The agent can't open a new site until you allow it. Allowed sites are listed in Settings, where you can remove them.
 • It stops and hands the tab to you for sign-ins and captchas.
-• Private mode only sends prompts to models that don't keep them, or to your own machines.
+• Private mode sends prompts only to models that don't keep them, or to your own machines.
 
-Tychicus has no account and no analytics, and it runs no servers of its own. Your chats and settings stay on your computer. Your messages, and what the agent reads, go only to the AI you picked.
+No account, no analytics, and open source under the AGPL-3.0. Tychicus runs no servers of its own. Your chats and settings stay on your computer, and your messages, and what the agent reads, go only to the AI you picked.
+
+Tychicus comes three ways: a Local Studio plugin, an app you install on its own, and this Chrome extension. The extension works with or without Local Studio.
 
 A note on provider terms: using a consumer chat subscription through automation may break that provider's terms of service. Some allow it, some forbid it, and terms change. Tychicus doesn't decide this for you. Read your provider's terms before you connect a subscription; API keys under a developer agreement are the safer route where terms are unclear.
 
 Local Studio chats need macOS or Linux for now.
 
-Free software under the AGPL-3.0. Source: https://github.com/baney75/tychicus
+Source: https://github.com/baney75/tychicus
 Built on 0xSero's agent bridge and Mario Zechner's Sitegeist.
 ```
 
@@ -75,9 +78,8 @@ Built on 0xSero's agent bridge and Mario Zechner's Sitegeist.
 **Images:**
 
 - Icon: `static/icon-128.png`
-- Screenshots, 1280x800, in this order: `store/screenshots/local-studio.png`, `store/screenshots/models.png`,
-  `store/screenshots/agents.png`. `scripts/store-shots.mjs` also draws `welcome.png` and `site-access.png`, but only once
-  those screens in the panel stop showing the old product name; it refuses them until then.
+- Screenshots, 1280x800, in this order: `store/screenshots/welcome.png`, `store/screenshots/agents.png`,
+  `store/screenshots/local-studio.png`, `store/screenshots/models.png`, `store/screenshots/site-access.png`.
 - Small promo tile, 440x280: `store/promo-small.png`
 - Marquee, 1400x560: `store/promo-marquee.png`
 

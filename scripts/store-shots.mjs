@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // Draws the Chrome Web Store images from a real run: the built extension in a throwaway headless Chromium, the native host
 // it spawns, and a stand-in for Local Studio's Eukhe daemon (cli/test/helpers/fake-eukhe.mjs), the same stack as
-// cli/test/e2e-eukhe.test.mjs. Nothing is signed in and no key exists; the pages are served from 127.0.0.1.
+// cli/test/e2e-eukhe.test.mjs. Nothing is signed in and no key exists. The page the agent reads is served from this
+// script and reached as riverside-trail.example (a reserved name Chromium maps to the loopback server), so no
+// 127.0.0.1 address shows in the panel's tool lines.
 //
 //   TABKYRA_NO_BUMP=1 TABKYRA_OUT_DIR=$PWD/dist-chrome npm run build && (cd cli && npm run build)
 //   node scripts/store-shots.mjs [out folder]        (default: store/)
@@ -9,15 +11,21 @@
 // Writes screenshots/{welcome,local-studio,models,agents,site-access}.png at 1280x800, promo-small.png at 440x280 and
 // promo-marquee.png at 1400x560. `--raw <folder>` also keeps the bare captures. A capture whose screen shows another
 // product name (Polycarp, Tabkyra) is not written, and the run then exits 1 naming it. Needs a Playwright Chromium
-// (`cd cli && npx playwright-core install chromium`).
+// (`cd cli && npx playwright-core install chromium`) and the brand fonts (`cd site && npm ci`).
+//
+// The images wear the brand media/brand/build.mjs draws (BRAND.md): its palette, its generated icon.svg and
+// mark-blue.svg, and Instrument Sans and JetBrains Mono, laid out like the dark README hero, hero.png. The panel is
+// captured in its dark scheme whatever this computer's setting is, so every run looks the same.
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { sleep, startHarness } from "../cli/test/e2e-harness.mjs";
 import { startFakeEukhe } from "../cli/test/helpers/fake-eukhe.mjs";
+import { PALETTE } from "../media/brand/build.mjs";
 
 const repo = join(dirname(fileURLToPath(import.meta.url)), "..");
 const argv = process.argv.slice(2);
@@ -29,28 +37,60 @@ if (rawDir) mkdirSync(rawDir, { recursive: true });
 const { chromium } = createRequire(join(repo, "cli/package.json"))("playwright-core");
 const extensionId = JSON.parse(readFileSync(join(repo, "src/bridge/extension-id.json"), "utf8")).id;
 const PANEL = `chrome-extension://${extensionId}/sidepanel.html`;
-const icon = `data:image/png;base64,${readFileSync(join(repo, "static/icon-128.png")).toString("base64")}`;
 
-const CSS = `
+/** The generated brand files, as data URLs: a page from setContent cannot read file:// URLs. */
+const svg = (name) =>
+	`data:image/svg+xml;base64,${readFileSync(join(repo, "media/brand", `${name}.svg`)).toString("base64")}`;
+const ICON = svg("icon");
+const WAKE = svg("mark-blue");
+const font = (pkg, file) =>
+	`url(data:font/woff2;base64,${readFileSync(join(repo, "site/node_modules/@fontsource", pkg, "files", file)).toString("base64")})`;
+const FONTS = `
+@font-face{font-family:"Instrument Sans";font-weight:400;src:${font("instrument-sans", "instrument-sans-latin-400-normal.woff2")}}
+@font-face{font-family:"Instrument Sans";font-weight:600;src:${font("instrument-sans", "instrument-sans-latin-600-normal.woff2")}}
+@font-face{font-family:"JetBrains Mono";font-weight:400;src:${font("jetbrains-mono", "jetbrains-mono-latin-400-normal.woff2")}}`;
+
+/** hero.png's dark theme (build.mjs THEMES.dark): night ground, light title, the lifted accent line, muted mono. */
+const B = { ...PALETTE, line: "#7c9cff", surface: "#111111", border: "#27272a" };
+// A blue glow lifts a dark capture off the dark ground, where a drop shadow would not show.
+const SHADOW = "0 0 0 1px rgba(124,156,255,.10),0 30px 90px -20px rgba(52,107,241,.45)";
+const CSS = `${FONTS}
 *{box-sizing:border-box;margin:0}
-body{background:#f4f1e6;color:#25291f;font-family:"Noto Sans","Liberation Sans",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
-h1{font-family:"Noto Serif","Liberation Serif",Georgia,serif;font-weight:700;font-size:50px;line-height:1.08;letter-spacing:-.01em}
-.slide{width:1280px;height:800px;display:flex;align-items:center;justify-content:space-between;padding:0 72px}
-.copy{width:600px}.copy p{margin-top:22px;font-size:22px;line-height:1.5;color:#5b5f52}
-.tile{width:72px;height:72px;border-radius:17px;display:block;margin-bottom:30px}
-.tile.small{width:60px;height:60px;border-radius:14px;margin:4px 0 0}
-.panel{width:420px;height:720px;border-radius:14px;border:1px solid #d9d4c3;box-shadow:0 20px 50px rgba(52,48,30,.18)}
-.slide.wide{flex-direction:column;justify-content:flex-start;align-items:flex-start;padding:46px 72px 0}
-.copy.top{width:auto;display:flex;gap:24px;align-items:flex-start}
-.copy.top h1{font-size:40px}.copy.top p{margin-top:10px;font-size:19px;max-width:900px}
-.page{margin-top:34px;width:1136px;height:710px;object-fit:cover;object-position:top;border-radius:12px 12px 0 0;border:1px solid #d9d4c3;border-bottom:0;box-shadow:0 20px 50px rgba(52,48,30,.18)}
-.promo{display:flex;align-items:center;background:#5a6b40;color:#f4f1e6;height:100vh}
-.promo img{border-radius:22%;border:1px solid rgba(244,241,230,.35)}
-.promo .name{font-family:"Noto Serif","Liberation Serif",Georgia,serif;font-weight:700}
-.promo.small{flex-direction:column;justify-content:center;gap:12px;text-align:center}
-.promo.small img{width:96px;height:96px}.promo.small .name{font-size:38px}.promo.small .line{font-size:16px;opacity:.9;padding:0 24px}
-.promo.marquee{justify-content:center;gap:44px}
-.promo.marquee img{width:184px;height:184px}.promo.marquee .name{font-size:92px;line-height:1}.promo.marquee .line{font-size:25px;margin-top:20px;opacity:.92;max-width:720px}
+body{background:${B.night};color:${B.nightText};font-family:"Instrument Sans",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+.wake{position:absolute;pointer-events:none;opacity:.08}
+.lockup{display:flex;align-items:center;gap:12px;font-weight:600;font-size:26px;letter-spacing:-.035em}
+.lockup img{width:40px;height:40px}
+h1,p,.line{text-wrap:balance}
+h1{font-weight:600;letter-spacing:-.03em;line-height:1.06}
+.slide{position:relative;overflow:hidden;width:1280px;height:800px;display:flex;align-items:center;justify-content:space-between;padding:0 88px 0 80px;background:${B.night}}
+.slide .wake{width:1080px;height:1080px;right:-330px;top:-140px}
+.copy{position:relative;width:600px}
+.copy h1{font-size:56px;margin-top:44px}
+.copy p{margin-top:24px;font-size:23px;line-height:1.45;color:${B.line}}
+.copy .tag{margin-top:34px;font-family:"JetBrains Mono",monospace;font-size:17px;color:${B.nightMuted};letter-spacing:.01em}
+.panel{position:relative;width:420px;height:720px;border-radius:16px;border:1px solid ${B.border};box-shadow:${SHADOW};background:${B.surface}}
+.slide.wide{flex-direction:column;justify-content:flex-start;align-items:stretch;padding:48px 72px 0}
+.slide.wide .wake{display:none}
+.top{position:relative;display:flex;justify-content:space-between;align-items:flex-end;gap:40px}
+.top h1{font-size:44px;margin-top:22px}
+.top p{max-width:520px;font-size:20px;line-height:1.45;color:${B.line}}
+.window{position:relative;margin-top:36px;border-radius:14px 14px 0 0;border:1px solid ${B.border};border-bottom:0;box-shadow:${SHADOW};background:${B.surface};overflow:hidden}
+.bar{height:44px;display:flex;align-items:center;gap:8px;padding:0 18px;border-bottom:1px solid ${B.border};background:${B.surface}}
+.bar i{width:11px;height:11px;border-radius:50%;background:${B.border}}
+.bar span{margin-left:18px;padding:5px 16px;border-radius:8px;background:${B.night};border:1px solid ${B.border};font-family:"JetBrains Mono",monospace;font-size:13px;color:${B.nightMuted}}
+.window img{display:block;width:1134px;height:560px;object-fit:cover;object-position:top}
+.promo{position:relative;overflow:hidden;height:100vh;display:flex;align-items:center;background:${B.night}}
+.promo .word{font-weight:600;letter-spacing:-.035em;line-height:1}
+.promo .line{color:${B.line};letter-spacing:-.01em}
+.promo.small{gap:22px;padding:0 34px}
+.promo.small img.mark{width:104px;height:104px;flex:none}
+.promo.small .word{font-size:52px}.promo.small .line{font-size:19px;line-height:1.3;margin-top:12px}
+.promo.small .wake{width:420px;height:420px;right:-190px;top:-70px}
+.promo.marquee{gap:60px;padding:0 96px}
+.promo.marquee img.mark{width:240px;height:240px;flex:none}
+.promo.marquee .word{font-size:124px}.promo.marquee .line{font-size:38px;line-height:1.2;margin-top:24px;max-width:820px}
+.promo.marquee .sub{font-family:"JetBrains Mono",monospace;font-size:20px;color:${B.nightMuted};margin-top:28px;letter-spacing:.01em}
+.promo.marquee .wake{width:900px;height:900px;right:-300px;top:-170px}
 `;
 
 /** One CDP connection kept open, so a viewport override lasts until the capture. */
@@ -131,15 +171,16 @@ async function waitFor(fn, ms, what) {
 	}
 }
 
-// The page the panel chat reads and the agent works on: a plain local page, served by the harness.
+// The page the panel chat reads and the agent works on: a plain page in neutral slate, so no color in it reads as a
+// brand, served by this script as riverside-trail.example.
 const PAGE = `<!doctype html><html><head><meta charset="utf-8"><title>Riverside Trail conditions</title><style>
-body{margin:0;font:17px/1.55 system-ui,sans-serif;background:#f4f6f3;color:#1f2a24}
-header{background:#2f4a3a;color:#fff;padding:22px 48px;font-size:24px;font-weight:650}
+body{margin:0;font:17px/1.55 system-ui,sans-serif;background:#f4f6f8;color:#1e2733}
+header{background:#263445;color:#fff;padding:22px 48px;font-size:24px;font-weight:650}
 header small{display:block;font-size:14px;font-weight:400;opacity:.8}
 main{max-width:760px;margin:30px auto;padding:0 28px}
-.card{background:#fff;border:1px solid #dfe5dc;border-radius:12px;padding:18px 24px;margin:14px 0}
+.card{background:#fff;border:1px solid #dde3ea;border-radius:12px;padding:18px 24px;margin:14px 0}
 .open{color:#2c7a4b;font-weight:600}.closed{color:#a3412f;font-weight:600}
-button{font:inherit;padding:10px 18px;border:0;border-radius:8px;background:#2f4a3a;color:#fff}
+button{font:inherit;padding:10px 18px;border:0;border-radius:8px;background:#263445;color:#fff}
 </style></head><body><header>Riverside Trail<small>Conditions, updated this morning</small></header><main>
 <h2>Today on the trail</h2>
 <div class="card"><b>North loop (4.2 mi)</b><br><span class="open">Open.</span> Dry and firm. The footbridge at mile 2 was rebuilt last week.</div>
@@ -172,15 +213,32 @@ const daemon = await startFakeEukhe({
 	},
 });
 
+const HOST = "riverside-trail.example";
 const raw = {};
 let renderer;
+let site;
 try {
-	h = await startHarness({ name: "Claude Code", chromiumArgs: ["--window-size=1280,800"] });
+	// The trail page on a loopback port, reached by a name: Chromium maps riverside-trail.example to it, so the tool
+	// lines in the panel show an address a reader expects instead of 127.0.0.1 and a random port.
+	site = createServer((_req, res) => {
+		res.writeHead(200, { "content-type": "text/html" });
+		res.end(PAGE);
+	});
+	await new Promise((ok) => site.listen(0, "127.0.0.1", ok));
+	const page = `http://${HOST}/`;
+	h = await startHarness({
+		name: "Claude Code",
+		chromiumArgs: [
+			"--window-size=1280,800",
+			`--host-resolver-rules=MAP ${HOST} 127.0.0.1:${site.address().port}`,
+			// The name has no certificate; without this Chromium first tries https:// and waits for it to fail.
+			"--disable-features=HttpsUpgrades",
+		],
+	});
 	execFileSync(process.execPath, [h.cli, "install", "--local-studio"], {
 		env: h.env(),
 		stdio: ["ignore", "ignore", "inherit"],
 	});
-	const page = h.mount("trail", PAGE);
 	const version = await (await fetch(`http://${h.devtools}/json/version`)).json();
 	const browserWs = version.webSocketDebuggerUrl;
 	const { targetId: pageTarget } = await h.cdp(browserWs, "Target.createTarget", { url: page });
@@ -193,6 +251,8 @@ try {
 	const W = 420;
 	const H = 720;
 	await panel.send("Emulation.setDeviceMetricsOverride", { width: W, height: H, deviceScaleFactor: 2, mobile: false });
+	// The panel follows the system scheme; the store images show its dark one, as hero.png is, on any computer.
+	await panel.send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "dark" }] });
 
 	await waitFor(() => panel.eval(`!!document.querySelector("welcome-setup-dialog")`), 30_000, "the welcome");
 	await waitFor(
@@ -234,6 +294,14 @@ try {
 		"the answer",
 	);
 	await h.cdp(browserWs, "Target.activateTarget", { targetId: panelTarget });
+	// The capture does not repaint the composer after a send from script; clear it as a sent message leaves it.
+	await panel.eval(`(() => {
+		const box = document.querySelector("textarea");
+		Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set.call(box, "");
+		box.dispatchEvent(new Event("input", { bubbles: true }));
+		box.blur();
+		return true;
+	})()`);
 	await sleep(800);
 	raw.localStudio = await panel.png(W, H, "local-studio");
 	console.log(raw.localStudio ? "local-studio" : "local-studio refused");
@@ -323,7 +391,15 @@ try {
 				if (el.shadowRoot) { const f = walk(el.shadowRoot); if (f) return f; }
 			}
 		};
-		walk(document)?.scrollIntoView({ block: "start" });
+		const heading = walk(document);
+		heading?.scrollIntoView({ block: "start" });
+		// The settings tabs stay pinned over the top of the scroller; leave the heading clear of them.
+		for (let el = heading; el; el = el.parentElement ?? el.getRootNode().host)
+			if (el.scrollHeight > el.clientHeight && /auto|scroll/.test(getComputedStyle(el).overflowY)) {
+				el.scrollTop -= 20;
+				break;
+			}
+		document.activeElement?.blur();
 		return true;
 	})()`);
 	await sleep(500);
@@ -347,19 +423,18 @@ try {
 		console.log(file);
 	};
 	const img = (png) => (png ? `data:image/png;base64,${png.toString("base64")}` : "");
-	const panelSlide = (
-		title,
-		line,
-		png,
-	) => `<div class="slide"><div class="copy"><img class="tile" src="${icon}" alt=""><h1>${title}</h1><p>${line}</p></div>
-		<img class="panel" src="${img(png)}" alt=""></div>`;
+	const wake = `<img class="wake" src="${WAKE}" alt="">`;
+	const lockup = `<div class="lockup"><img src="${ICON}" alt="">Tychicus</div>`;
+	const panelSlide = (title, line, tag, png) => `<div class="slide">${wake}<div class="copy">${lockup}<h1>${title}</h1>
+		<p>${line}</p><div class="tag">${tag}</div></div><img class="panel" src="${img(png)}" alt=""></div>`;
 	await render(
 		"screenshots/welcome.png",
 		1280,
 		800,
 		panelSlide(
-			"Browser use for your own AI agents",
-			"Tychicus chats through Local Studio on your own models and sign-ins. The extension holds no API keys.",
+			"Browser use for the AI agents you already use",
+			"Chat in the side panel, or connect Claude Code, Codex or any MCP agent. The extension holds no API keys.",
+			"No account · no analytics · open source",
 			raw.welcome,
 		),
 		[raw.welcome],
@@ -371,6 +446,7 @@ try {
 		panelSlide(
 			"Ask about the page you are on",
 			"The side panel reads the tab with you and shows each step it takes, here on a local model through Local Studio.",
+			"Local models · your own sign-ins",
 			raw.localStudio,
 		),
 		[raw.localStudio],
@@ -382,6 +458,7 @@ try {
 		panelSlide(
 			"Your models, no keys in the browser",
 			"Local Studio brings your local models and the plans you signed in to there. API keys are still an option.",
+			"Local Studio · OpenRouter · API keys",
 			raw.models,
 		),
 		[raw.models],
@@ -390,9 +467,9 @@ try {
 		"screenshots/agents.png",
 		1280,
 		800,
-		`<div class="slide wide"><div class="copy top"><img class="tile small" src="${icon}" alt=""><div><h1>Agents get their own tabs</h1>
-		<p>Claude Code, Codex and any MCP agent work in a tab group of their own, marked while they work. Your tabs stay yours.</p></div></div>
-		<img class="page" src="${img(raw.agents)}" alt=""></div>`,
+		`<div class="slide wide">${wake}<div class="top"><div>${lockup}<h1>Agents work in their own tabs</h1></div>
+		<p>Claude Code, Codex and any MCP agent get a tab group of their own and work in the background. Your tabs keep focus.</p></div>
+		<div class="window"><div class="bar"><i></i><i></i><i></i><span>${HOST}</span></div><img src="${img(raw.agents)}" alt=""></div></div>`,
 		[raw.agents],
 	);
 	await render(
@@ -401,7 +478,8 @@ try {
 		800,
 		panelSlide(
 			"You stay in charge",
-			"No account and no analytics. An agent opens a new site only after you allow it, and sign-ins are handed back to you.",
+			"An agent opens a new site only after you allow it, and it hands sign-ins and captchas back to you.",
+			"Site permissions · private mode",
 			raw.sites,
 		),
 		[raw.sites],
@@ -410,18 +488,21 @@ try {
 		"promo-small.png",
 		440,
 		280,
-		`<div class="promo small"><img src="${icon}" alt=""><div class="name">Tychicus</div><div class="line">Browser use for your own AI agents</div></div>`,
+		`<div class="promo small">${wake}<img class="mark" src="${ICON}" alt=""><div><div class="word">Tychicus</div>
+		<div class="line">Browser use for your AI agents</div></div></div>`,
 	);
 	await render(
 		"promo-marquee.png",
 		1400,
 		560,
-		`<div class="promo marquee"><img src="${icon}" alt=""><div><div class="name">Tychicus</div>
-		<div class="line">AI agents work in your browser, in their own tab group, while you keep working.</div></div></div>`,
+		`<div class="promo marquee">${wake}<img class="mark" src="${ICON}" alt=""><div><div class="word">Tychicus</div>
+		<div class="line">AI agents work in your browser, in their own tab group, while you keep working.</div>
+		<div class="sub">Claude Code · Codex · any MCP agent · Local Studio</div></div></div>`,
 	);
 } finally {
 	await renderer?.close().catch(() => {});
 	await h?.stop().catch(() => {});
+	site?.close();
 	await daemon.close();
 	rmSync(sockets, { recursive: true, force: true });
 }
