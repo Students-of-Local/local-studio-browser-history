@@ -93,9 +93,9 @@ export const ALLOWLIST = {
 		max: 1,
 		why: "Text of skills the agent reads, which mentions colors; not a style.",
 	},
-	"src/ask/bridge-worker.ts": {
+	"src/attention/badge.ts": {
 		max: 1,
-		why: "Page code run in the web page being driven, outside the panel's document.",
+		why: "The toolbar badge's color: chrome.action takes a color value, not a CSS token.",
 	},
 	"static/test.html": { max: 2, why: "A developer test page, never shown to a person." },
 };

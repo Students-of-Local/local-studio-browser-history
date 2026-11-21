@@ -97,7 +97,9 @@ test("tools/list stays small: no schema dialect line, and a byte budget", async 
 	// never the user's clipboard, without a tool of its own (a separate paste tool cost 659 more); type's text was cut first.
 	// click's mouseButton, with button kept as its "Old name", adds 57 (33,609; D52): a weak model that sends a control's
 	// name as button is no longer refused as a bad mouse button. The alias's description was cut to two words first.
-	assert.ok(bytes <= 33609, `tools/list is ${bytes} bytes, over the 33,609 budget`);
+	// tabs_show's wait and reason add 223 (33,832; issue 45): the agent hands a sign-in or captcha to the user and its call
+	// returns on Continue, so it no longer guesses when they are done. Each description was cut to a few words first.
+	assert.ok(bytes <= 33832, `tools/list is ${bytes} bytes, over the 33,832 budget`);
 	// The loop line teaching `changes` (D43) adds 47 bytes; it saves a read_page after most actions.
 	// The password rule covering one the user gave, with its tabs_show handoff, adds 92 (evals/weak-model: Haiku typed
 	// the password a signup prompt supplied, and submitted, when the rule didn't say it covered that).

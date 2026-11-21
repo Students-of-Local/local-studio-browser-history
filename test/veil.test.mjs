@@ -169,8 +169,8 @@ test("the page side is self-contained, uses a closed shadow root, sets no attrib
 		assert.ok(VEIL_CSS.includes(rule), rule);
 	for (const media of ["prefers-reduced-motion: reduce", "prefers-reduced-transparency: reduce", "forced-colors: active", "@media print"])
 		assert.ok(VEIL_CSS.includes(media), media);
-	// Only the button takes pointer events.
-	assert.equal(VEIL_CSS.match(/pointer-events: auto/g)?.length, 1);
+	// Only the buttons take pointer events: Take over, and Continue while the agent waits for the user (issue 45).
+	assert.equal(VEIL_CSS.match(/pointer-events: auto/g)?.length, 2);
 });
 
 test("the readers that list the page's elements leave the veil's element out", () => {

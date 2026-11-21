@@ -20,7 +20,7 @@ import {
 	setTranscriptRenderer,
 } from "@mariozechner/pi-web-ui";
 import { html, render } from "lit";
-import { CircleDot, Copy, FileCode2, History, type IconNode, Palette, Plus, Settings } from "lucide";
+import { Activity, CircleDot, Copy, FileCode2, History, type IconNode, Palette, Plus, Settings } from "lucide";
 import { isBlockedModel, purgeRemovedSignIns, RemovedSignInError, resolveApiKey } from "./auth/policy.js";
 import { isRestrictedUrl } from "./browser/cdp.js";
 import { setCurrentBrowserSession } from "./browser/current.js";
@@ -124,6 +124,10 @@ import "./utils/i18n-extension.js";
 import { createArtifactViewer } from "./artifacts/viewers.js";
 import { bridgeQuestions, watchBridgeQuestions } from "./ask/bridge-panel.js";
 import { updateNotice, watchUpdateStatus } from "./components/UpdateNotice.js";
+import { handbackCards, watchHandbacks } from "./handback/panel.js";
+import { takeHandoff, watchHandoff } from "./handoff/panel.js";
+import { RUNS_MESSAGE } from "./runs/log.js";
+import { runsView, runsWaiting, watchRuns } from "./runs/panel.js";
 import { tabkyraTranscript } from "./transcript/render.js";
 import { starters } from "./tutorials.js";
 import "./dictation/DictationButton.js";
@@ -1025,6 +1029,15 @@ const createAgent = async (initialState?: Partial<AgentState>, shouldSave = true
 				.set("lastUsedModel", agent.state.model)
 				.catch((err) => console.error("Failed to save lastUsedModel:", err));
 
+			// The Runs view: this chat's run ends with the turn (src/runs/).
+			if (event.type === "agent_end" && browserSession) {
+				const last = messages[messages.length - 1];
+				const failed = last?.role === "assistant" && last.stopReason === "error";
+				chrome.runtime
+					.sendMessage({ type: RUNS_MESSAGE, action: "end", sessionId: browserSession.id, failed })
+					.catch(() => {});
+			}
+
 			if (
 				event.type === "message_end" &&
 				event.message.role === "assistant" &&
@@ -1304,6 +1317,15 @@ const newSession = () => {
 	window.location.href = url.toString();
 };
 
+/** "Give this tab to Tychicus" (src/handoff): a new chat that starts on `tabId`. */
+function newTaskOnTab(tabId: number): void {
+	const url = new URL(window.location.href);
+	url.search = "";
+	url.searchParams.set("tabId", String(tabId));
+	url.searchParams.set("new", "true");
+	window.location.href = url.toString();
+}
+
 // ============================================================================
 // RENDER
 // ============================================================================
@@ -1419,7 +1441,15 @@ function moreMenuItems(): HeaderMenuItem[] {
 	];
 }
 
+/** The Runs view (src/runs/panel.ts) shows in place of the chat. */
+let showRuns = false;
+function toggleRuns(): void {
+	showRuns = !showRuns;
+	renderApp();
+}
+
 const renderApp = () => {
+	if (chatPanel) chatPanel.style.display = showRuns ? "none" : "";
 	const appHtml = html`
 		<div class="w-full h-full flex flex-col bg-background text-foreground overflow-hidden">
 			<!-- Header: brand or chat title, then what is used every chat; the rest is under More. -->
@@ -1441,6 +1471,7 @@ const renderApp = () => {
 							: ""
 					}
 					${artifactsButton()}
+					${headerButton(runsWaiting() ? `Runs (${runsWaiting()} waiting on you)` : "Runs", Activity, toggleRuns, runsWaiting())}
 					${headerButton("Past chats", History, openSessions)}
 					${headerButton("New chat", Plus, newSession)}
 					<tk-header-menu .items=${moreMenuItems()} label="More"></tk-header-menu>
@@ -1449,10 +1480,12 @@ const renderApp = () => {
 			</div>
 
 			${updateNotice()}
+			${handbackCards()}
 			${bridgeQuestions()}
 			${planBadge(agent?.state.model?.provider)}
 
-			<!-- Chat Panel -->
+			${showRuns ? runsView(toggleRuns, renderApp) : ""}
+			<!-- Chat Panel: stays mounted under the Runs view, so a run in it goes on. -->
 			${chatPanel}
 		</div>
 	`;
@@ -1611,6 +1644,18 @@ async function initApp() {
 	const homeTabParam = new URLSearchParams(window.location.search).get("tabId");
 	homeTabId = homeTabParam ? Number(homeTabParam) : undefined;
 
+	// "Give this tab to Tychicus" opened this panel: start the new chat on that tab. Later gives come while it is open.
+	const given = await takeHandoff(currentWindowId);
+	if (given !== undefined) {
+		newTaskOnTab(given);
+		return;
+	}
+	watchHandoff(currentWindowId, (tabId) => {
+		// A reload would end the run under way; the user stops it first.
+		if (agent?.state.isStreaming) Toast.info("Tychicus is working. Stop this run, then give the tab again.");
+		else newTaskOnTab(tabId);
+	});
+
 	performance.mark("panel:window");
 	// Initialize port communication system (lifecycle only; background tracks open panels)
 	port.initialize(currentWindowId);
@@ -1734,6 +1779,8 @@ async function initApp() {
 
 			renderApp();
 			void watchBridgeQuestions(renderApp).catch(() => {});
+			void watchHandbacks(renderApp).catch(() => {});
+			void watchRuns(renderApp).catch(() => {});
 			return;
 		} else {
 			// Session doesn't exist, redirect to new session
@@ -1760,6 +1807,8 @@ async function initApp() {
 	void watchUpdateStatus(renderApp).catch(() => {});
 	// External agents' questions (ask_user over the bridge) show above the chat.
 	void watchBridgeQuestions(renderApp).catch(() => {});
+	void watchHandbacks(renderApp).catch(() => {});
+	void watchRuns(renderApp).catch(() => {});
 
 	// If no API keys configured, show welcome dialog, open settings, then auto-select model
 	if (!(await hasAnyApiKey()) && !(await chrome.storage.local.get(WELCOME_SEEN_KEY))[WELCOME_SEEN_KEY]) {

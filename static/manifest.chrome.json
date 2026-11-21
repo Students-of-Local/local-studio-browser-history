@@ -37,6 +37,7 @@
 		"debugger",
 		"declarativeNetRequest",
 		"tabGroups",
+		"contextMenus",
 		"nativeMessaging",
 		"alarms",
 		"offscreen"

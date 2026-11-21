@@ -10,13 +10,14 @@
 import extensionId from "../../src/bridge/extension-id.json" with { type: "json" };
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
+import { startHarness } from "./e2e-harness.mjs";
 import { loadTs } from "./helpers/bundle-ts.mjs";
 import { ethicsPdf, FAR_LINE, FRIENDSHIP_PAGES, makePdf } from "./helpers/pdf.mjs";
 import { lastToolResult, seedStubScript, stubModelServer } from "./helpers/stub-model.mjs";
@@ -995,4 +996,182 @@ test("a long chat is summarized when the guard would drop turns, and the notes h
 		await context.unroute("https://llm.stub.test/**");
 		await page.close();
 	}
+});
+
+// Issue 45: a tab handed over and back, and every run watched. These need the native host and a real MCP client, so
+// they run on the shared harness (e2e-harness.mjs: its own Chromium, HOME and socket), not this file's Playwright one.
+// The panel is opened as a tab at its real 400 px width; each step's screenshot is saved for a person to look at.
+// The four cases run in order on one browser: each one starts where the last one left it.
+const SHOTS = process.env.TYCHICUS_E2E_SHOTS || join(tmpdir(), "tychicus-e2e-handoff");
+const handoff = {};
+after(async () => {
+	for (const ws of handoff.sockets ?? []) ws.close();
+	await handoff.h?.stop();
+});
+
+async function handoffBrowser() {
+	if (handoff.h) return handoff;
+	mkdirSync(SHOTS, { recursive: true });
+	const h = await startHarness({ name: "handoff" });
+	handoff.h = h;
+	handoff.run = async (target, expression) => {
+		const r = await h.cdp(target.webSocketDebuggerUrl, "Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true });
+		if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description ?? r.exceptionDetails.text);
+		return r.result.value;
+	};
+	handoff.shot = async (target, name) => {
+		const width = await handoff.run(target, "innerWidth");
+		assert.ok(width <= 420, `${name} is drawn at the panel's width, not ${width} px`);
+		const { data } = await (target.send ? target.send("Page.captureScreenshot", { format: "png" }) : h.cdp(target.webSocketDebuggerUrl, "Page.captureScreenshot", { format: "png" }));
+		const path = join(SHOTS, `${name}.png`);
+		writeFileSync(path, Buffer.from(data, "base64"));
+		console.log(`screenshot: ${path}`);
+	};
+	handoff.worker = async () => (await h.targets()).find((t) => t.type === "service_worker" && t.url.startsWith(`chrome-extension://${EXTENSION_ID}/`));
+	handoff.panel = async () => (await h.targets()).find((t) => t.type === "page" && t.url.startsWith(PANEL));
+	// The panel's width lasts only while the DevTools socket that set it stays open (h.cdp opens one per call), so each
+	// narrowed page keeps one open until the end, and its screenshots are taken on it.
+	handoff.sockets = [];
+	handoff.narrow = async (t) => {
+		const ws = new WebSocket(t.webSocketDebuggerUrl);
+		await new Promise((resolve, reject) => {
+			ws.onopen = resolve;
+			ws.onerror = () => reject(new Error("no DevTools socket"));
+		});
+		let next = 0;
+		const pending = new Map();
+		ws.onmessage = (e) => {
+			const m = JSON.parse(e.data);
+			const p = pending.get(m.id);
+			if (!p) return;
+			pending.delete(m.id);
+			m.error ? p.reject(new Error(m.error.message)) : p.resolve(m.result);
+		};
+		const send = (method, params = {}) =>
+			new Promise((resolve, reject) => {
+				const id = ++next;
+				pending.set(id, { resolve, reject });
+				ws.send(JSON.stringify({ id, method, params }));
+			});
+		await send("Emulation.setDeviceMetricsOverride", { width: 400, height: 860, deviceScaleFactor: 1, mobile: false });
+		handoff.sockets.push(ws);
+		t.send = send;
+		await h.until(() => handoff.run(t, "innerWidth <= 420"), 5_000, "the panel's width");
+	};
+	handoff.signIn = h.mount(
+		"signin",
+		`<!doctype html><title>Sign in to Example</title><main style="font:16px system-ui;max-width:360px;margin:72px auto">
+			<h1>Sign in</h1><label>Email <input name="email"></label><br><br><label>Password <input type="password" name="pw"></label><br><br><button>Sign in</button></main>`,
+	);
+	handoff.mine = h.mount("mine", `<!doctype html><title>My reading list</title><h1>My reading list</h1>`);
+	return handoff;
+}
+
+const tabIdOf = (x, url) => x.run(x.w, `chrome.tabs.query({}).then((ts) => ts.find((t) => (t.url || t.pendingUrl || "").startsWith(${JSON.stringify(url)}))?.id)`);
+
+test("issue 45: a tab handed over from the toolbar starts a new panel chat on it, and from the page menu joins the agent's group", { timeout: 180_000 }, async () => {
+	const x = await handoffBrowser();
+	const { h, run } = x;
+	// The agent opens the sign-in page, in its own group.
+	await h.go(x.signIn);
+	x.w = await h.until(x.worker, 10_000, "the service worker");
+	x.agentTab = await h.until(() => tabIdOf(x, x.signIn), 10_000, "the agent's tab");
+
+	// The user's own tab, and the side panel (as a tab, 400 px wide).
+	await fetch(`http://${h.devtools}/json/new?${x.mine}`, { method: "PUT" });
+	await fetch(`http://${h.devtools}/json/new?${PANEL}`, { method: "PUT" });
+	const p0 = await h.until(x.panel, 15_000, "the panel");
+	await x.narrow(p0);
+	await h.until(() => run(p0, `!!document.querySelector("textarea")`), 20_000, "the composer");
+	await run(p0, `chrome.storage.local.set({ "tk-welcome-seen": true })`);
+	x.mineTab = await h.until(() => tabIdOf(x, x.mine), 10_000, "the user's tab");
+
+	// The toolbar icon's menu: the panel starts a new chat on that tab.
+	await run(x.w, `chrome.tabs.get(${x.mineTab}).then((tab) => globalThis.__tychicusGiveTab({ menuItemId: "tychicus-give-panel" }, tab))`);
+	x.p = await h.until(
+		async () => {
+			const t = await x.panel();
+			if (!t) return undefined;
+			const u = new URL(t.url);
+			return u.searchParams.get("tabId") === String(x.mineTab) && u.searchParams.get("new") === "true" ? t : undefined;
+		},
+		15_000,
+		"the panel to start a chat on the given tab",
+	);
+	await x.narrow(x.p);
+	await h.until(() => run(x.p, `!!document.querySelector("textarea")`), 20_000, "the new chat");
+	await x.shot(x.p, "0-panel-new-chat-on-given-tab");
+
+	// The same tab to the agent from the page's menu: it joins the agent's group, and the agent is told.
+	x.sessionId = await run(
+		x.w,
+		`chrome.storage.local.get("browser_sessions").then((d) => Object.values(d.browser_sessions ?? {}).find((s) => s.id.startsWith("bridge-") && s.tabIds.includes(${x.agentTab}))?.id)`,
+	);
+	assert.ok(x.sessionId, "the agent has a session");
+	await run(x.w, `chrome.tabs.get(${x.mineTab}).then((tab) => globalThis.__tychicusGiveTab({ menuItemId: "tychicus-give-agent:${x.sessionId}" }, tab))`);
+	const context = await h.until(
+		async () => {
+			const text = await h.tool("tabs_context");
+			return /from the tab's menu/.test(text) ? text : undefined;
+		},
+		15_000,
+		"the agent to hear about the given tab",
+	);
+	assert.match(context, /My reading list/);
+	const grouped = await run(x.w, `Promise.all([chrome.tabs.get(${x.mineTab}), chrome.tabs.get(${x.agentTab})]).then(([a, b]) => a.groupId !== -1 && a.groupId === b.groupId)`);
+	assert.equal(grouped, true, "the given tab is in the agent's group");
+});
+
+test("issue 45: the agent pauses on a sign-in page; the panel and the page show Continue, and nothing takes focus", { timeout: 120_000 }, async () => {
+	const x = handoff;
+	assert.ok(x.p, "the hand-over case ran first");
+	const { h, run } = x;
+	const active = () => run(x.w, `chrome.tabs.query({ active: true }).then((ts) => ts.map((t) => t.id).sort().join())`);
+	const activeBefore = await active();
+	x.waiting = h.call("tabs_show", { tabId: x.agentTab, wait: true, reason: "Sign in to Example" });
+	await h.until(() => run(x.p, `document.querySelector('[data-testid="handback-card"] [data-reason]')?.textContent === "Sign in to Example"`), 15_000, "the Continue card");
+	assert.equal(await active(), activeBefore, "no tab took focus");
+	assert.equal(await run(x.w, `chrome.action.getBadgeText({})`), "1");
+	assert.equal(await run(x.p, `document.documentElement.scrollWidth <= innerWidth`), true, "nothing runs past the panel");
+	await x.shot(x.p, "1-panel-continue");
+	const page = await h.until(() => h.pageTarget(x.signIn), 5_000, "the sign-in page");
+	await x.narrow(page);
+	await x.shot(page, "2-page-your-turn");
+});
+
+test("issue 45: Continue in the panel returns the agent's call, and the card and badge go", { timeout: 60_000 }, async () => {
+	const x = handoff;
+	assert.ok(x.waiting, "the pause case ran first");
+	const { h, run } = x;
+	await run(x.p, `document.querySelector('[data-testid="handback-card"] [data-action="continue"]').click()`);
+	const done = await x.waiting;
+	assert.ok(done.ok, done.text);
+	assert.match(done.text, /The user pressed Continue on tab \d+ \(Sign in to Example\)/);
+	await h.until(() => run(x.p, `!document.querySelector('[data-testid="handback-card"]')`), 10_000, "the card to go");
+	assert.equal(await run(x.w, `chrome.action.getBadgeText({})`), "");
+});
+
+test("issue 45: the Runs view shows the agent's run with its step timeline and a step's change report", { timeout: 60_000 }, async () => {
+	const x = handoff;
+	assert.ok(x.sessionId, "the hand-over case ran first");
+	const { h, run } = x;
+	await h.tool("read_page", { filter: "interactive" });
+	await run(x.p, `document.querySelector('button[aria-label^="Runs"]').click()`);
+	const sel = `[data-testid="runs-view"] [data-run="${x.sessionId}"]`;
+	await h.until(() => run(x.p, `!!document.querySelector('${sel}')`), 10_000, "the agent's run");
+	await run(x.p, `document.querySelector('${sel} .tk-run-head').click()`);
+	const tools = await h.until(
+		() => run(x.p, `[...document.querySelectorAll('${sel} .tk-run-step')].map((s) => s.dataset.tool).join()`).then((t) => (/handback.+/.test(t) ? t : undefined)),
+		10_000,
+		"the steps after the hand-back",
+	);
+	assert.match(tools, /navigate.*handback/, tools);
+	assert.equal(await run(x.p, `document.querySelector('${sel} .tk-run-status').textContent.trim()`), "Running");
+	assert.equal(await run(x.p, `document.querySelector('textarea')?.offsetParent === null`), true, "the chat is hidden, not removed");
+	const withReport = await run(x.p, `(() => { const b = document.querySelector('${sel} .tk-run-step-row:not([disabled])'); b?.click(); return !!b; })()`);
+	assert.ok(withReport, `a step has a change report: ${tools}`);
+	const report = await h.until(() => run(x.p, `document.querySelector('${sel} [data-report]')?.textContent`), 5_000, "the change report");
+	assert.ok(report.length > 0);
+	assert.equal(await run(x.p, `document.documentElement.scrollWidth <= innerWidth`), true, "nothing runs past the panel");
+	await x.shot(x.p, "3-runs-timeline");
 });
