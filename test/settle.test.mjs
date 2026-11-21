@@ -361,3 +361,26 @@ test("D56: Page.windowOpen before the probe's reply holds an idle settle, with n
 	assert.ok(!r.idle, `the window the page opened was not a reaction: ${JSON.stringify(r)}`);
 	assert.ok(r.ms >= 280, `returned at ${r.ms} ms, before the new tab could join the session`);
 });
+
+// Review r2 first-F1: the drain waits on a page timer. A browser that holds the timers of the agent's tab past the probe's
+// budget must not turn every pass into "loading" and run click, fill and navigate to the cap.
+test("a drained probe that never answers falls back to undrained looks and settles, never at the cap", async () => {
+	const fake = installFakeChrome();
+	noEvents();
+	const { settle, IDLE_MS } = await import(`../src/browser/settle.ts?ctx=${Math.random()}`);
+	const tabId = fake.addTab({ url: "https://example.com/", status: "complete" });
+	const drained = (expr) => expr.lastIndexOf(", true)") > expr.lastIndexOf(", false)");
+	const kinds = [];
+	recordCommands((method, params) => {
+		if (method !== "Runtime.evaluate") return undefined;
+		const d = drained(String(params?.expression ?? ""));
+		kinds.push(d ? "drained" : "plain");
+		if (d) return new Promise(() => {});
+		return probeSays({ since: 100_000, parsing: false, busy: "", complete: true, lateAgo: null });
+	});
+	const r = await settle(tabId, { quietMs: 300, capMs: 2500, idleMs: IDLE_MS });
+	assert.ok(kinds.includes("drained"), `no drained probe was sent: ${kinds}`);
+	assert.equal(r.settled, true, JSON.stringify({ r, kinds }));
+	assert.ok(r.ms < 1500, `took ${r.ms} ms: ${JSON.stringify({ r, kinds })}`);
+	assert.ok(!r.idle, `a fallback is no sign the page is idle: ${JSON.stringify(r)}`);
+});

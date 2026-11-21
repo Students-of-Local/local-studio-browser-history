@@ -362,8 +362,10 @@ export async function settle(
 		if (!options.watched) await watchNetwork(tabId);
 		const veil = (await within(veilTag(tabId), 300)) ?? "";
 		// The short windows look only after the page has run what is already queued (settleProbe's drain).
-		const drain = !!options.idleMs || options.loadedQuietMs !== undefined;
-		const code = `(${settleProbe.toString()})(${JSON.stringify(veil)}, ${JSON.stringify(options.guardedHosts ?? [])}, ${isGuardedUrl.toString()}, ${drain})`;
+		let drain = !!options.idleMs || options.loadedQuietMs !== undefined;
+		const probeCode = (d: boolean) =>
+			`(${settleProbe.toString()})(${JSON.stringify(veil)}, ${JSON.stringify(options.guardedHosts ?? [])}, ${isGuardedUrl.toString()}, ${d})`;
+		let code = probeCode(drain);
 		let lastActivity = start;
 		/** Something on the page answered the action (idleMs): never reset once set. */
 		let reacted = !options.idleMs;
@@ -405,6 +407,16 @@ export async function settle(
 					),
 					budget,
 				);
+				if (page === undefined && drain && budget >= PROBE_MS) {
+					// The drain waits on a page timer, and a browser may hold the timers of a tab out of sight past the
+					// budget (review r2 first-F1). Look undrained for the rest of this settle. Without a drained look the
+					// short windows are not safe, so the page counts as reacting and gets the full window; this pass
+					// says nothing about the page, so it is not counted as busy.
+					drain = false;
+					code = probeCode(false);
+					reacted = true;
+					continue;
+				}
 				// A drained probe measured "since" after its drain, so its answer, not the call, is the time it is relative to;
 				// the later time can only move a change later, which waits longer, never less.
 				const at = drain ? Date.now() : t0;
@@ -426,7 +438,8 @@ export async function settle(
 					// The short window is for a page done loading whose data requests, if any, ended a full window ago.
 					const lateAgo = typeof page.lateAgo === "number" && Number.isFinite(page.lateAgo) ? page.lateAgo : null;
 					if (lateAgo !== null) lastActivity = Math.max(lastActivity, at - lateAgo);
-					loaded = page.complete === true && (lateAgo === null || lateAgo >= quietMs);
+					// Only a drained probe reads Resource Timing, so only its answer can show the data requests ended.
+					loaded = drain && page.complete === true && (lateAgo === null || lateAgo >= quietMs);
 					if (page.parsing || page.busy) {
 						waitingOn = "loading";
 						lastActivity = Date.now();
