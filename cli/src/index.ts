@@ -393,11 +393,17 @@ async function main(): Promise<void> {
 				if (!match) throw new UsageError(`Unknown browser "${only}". Use one of: ${known.map((b) => b.name).join(", ")}.`);
 				if (!existsSync(match.dir)) throw new UsageError(`${only} has no profile folder on this computer (${match.dir}). Open it once, then run this again.`);
 			}
-			if (flag("--restart-services")) {
-				process.exitCode = await restartStaleServices(releaseRoot(), releaseProgram());
-				return;
-			}
 			const release = option("--release");
+			if (flag("--restart-services")) {
+				if (flag("--no-restart")) throw new UsageError("--restart-services and --no-restart say opposite things: use one.");
+				// With --release, the release's install restarts the services on it once its pointer moved (the default after --release).
+				if (release === undefined) {
+					const ignored = ["--force", "--local-studio", "--browser", "--skip-attestation"].filter((f) => flag(f) || option(f) !== undefined);
+					if (ignored.length) throw new UsageError(`--restart-services only restarts services; ${ignored.join(", ")} belong${ignored.length === 1 ? "s" : ""} to an install. Run them separately.`);
+					process.exitCode = await restartStaleServices(releaseRoot(), releaseProgram(), console.log, { dryRun });
+					return;
+				}
+			}
 			if (release !== undefined) {
 				process.exitCode = await installFromRelease(release, { dryRun, skipAttestation: flag("--skip-attestation"), noRestart: flag("--no-restart"), passOn: argv.slice(1) });
 				return;

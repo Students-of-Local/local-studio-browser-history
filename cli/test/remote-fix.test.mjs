@@ -4,7 +4,7 @@
 // manager, cloudflared or ~/.config/tabkyra.
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { chmodSync, copyFileSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, constants, copyFileSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer as createHttpServer } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { createServer as createNetServer } from "node:net";
@@ -12,7 +12,10 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { loadTs } from "./helpers/bundle-ts.mjs";
 import { ENABLE_URL, writeTailscaleStub } from "./helpers/tailscale-stub.mjs";
+
+const { plistText, unitText, SERVE_SERVICE } = await loadTs(`export { plistText, unitText, SERVE_SERVICE } from "@src/service.ts";`);
 
 const here = dirname(fileURLToPath(import.meta.url));
 const cli = join(here, "..", "dist", "index.js");
@@ -98,7 +101,7 @@ async function fakeDoh() {
  * reads of the tunnel's service, after it is started, say it is still starting ("spawn scheduled", "activating"). cfDies: it stops
  * right after its first read says running. funnelMode: the tailscale stub's `funnel` (see tailscale-stub.mjs).
  */
-async function machine(name, { serve = "down", funnel = false, dns = DNS, recorded = DNS, doh, route = "funnel", cfLate = 0, cfDies = false, funnelMode, stale = false } = {}) {
+async function machine(name, { serve = "down", funnel = false, dns = DNS, recorded = DNS, doh, route = "funnel", cfLate = 0, cfDies = false, funnelMode, stale = false, ownFolder = false } = {}) {
 	const dir = join(root, name);
 	const bin = join(dir, "bin");
 	const home = join(dir, "home");
@@ -143,7 +146,9 @@ async function machine(name, { serve = "down", funnel = false, dns = DNS, record
 		mkdirSync(dirname(oldProgram), { recursive: true });
 		mkdirSync(join(versions, "2.0.0-bbbbbbbbbbbb"));
 		copyFileSync(process.execPath, oldProgram);
-		linkSync(oldProgram, join(versions, "2.0.0-bbbbbbbbbbbb", "tychicus"));
+		// On a Mac, lsof names a hard-linked program by either name, so the release gets its own copy (a clone on APFS).
+		if (process.platform === "darwin") copyFileSync(oldProgram, join(versions, "2.0.0-bbbbbbbbbbbb", "tychicus"), constants.COPYFILE_FICLONE);
+		else linkSync(oldProgram, join(versions, "2.0.0-bbbbbbbbbbbb", "tychicus"));
 		symlinkSync(join(versions, "2.0.0-bbbbbbbbbbbb"), join(home, ".local", "share", "tychicus", "release"));
 	}
 	const serveProgram = stale ? join(home, ".local", "share", "tychicus", "release", "tychicus") : process.execPath;
@@ -154,9 +159,17 @@ async function machine(name, { serve = "down", funnel = false, dns = DNS, record
 		writeFileSync(join(bin, file), `#!/bin/sh\necho "${file} $*" >> ${log}\n${body}`);
 		chmodSync(join(bin, file), 0o755);
 	};
+	// ownFolder: serve was set up with a config folder of its own, saved in its plist or unit, and a launcher there that runs the old version.
+	const ownConfig = join(home, "Custom Config");
+	if (ownFolder) {
+		mkdirSync(ownConfig, { recursive: true });
+		writeFileSync(join(ownConfig, "tychicus"), `#!/bin/sh\nexec "${oldProgram}" "$@"\n`, { mode: 0o755 });
+		const folders = { POLYCARP_BROWSER_CONFIG_DIR: ownConfig, TABKYRA_CONFIG_DIR: ownConfig };
+		writeFileSync(serviceFile, process.platform === "darwin" ? plistText(join(ownConfig, "tychicus"), folders, join(dir, "serve.log"), SERVE_SERVICE) : unitText(join(ownConfig, "tychicus"), folders, SERVE_SERVICE));
+	}
 	script(
 		"launchctl",
-		`case "$1" in\nprint) case "$2" in *com.tychicus.serve) if [ -f ${pidFile} ]; then echo "state = running"; exit 0; fi ;; *com.tychicus.cloudflared) ${cfDie("state = running", 0)}${cfStill("state = spawn scheduled", 0)}if [ -f ${cfRunning} ]; then echo "state = running"; exit 0; fi ;; esac; exit 1 ;;\nbootout) case "$2" in *com.tychicus.serve) ${stop} ;; *com.tychicus.cloudflared) /bin/rm -f ${cfRunning} ;; esac ;;\nbootstrap) case "$3" in *com.tychicus.serve.plist) ${start} ;; *com.tychicus.cloudflared.plist) ${cfStart} ;; esac ;;\nesac\n`,
+		`case "$1" in\nprint) case "$2" in *com.tychicus.serve) if [ -f ${pidFile} ]; then echo "state = running"; read p < ${pidFile}; echo "	pid = $p"; exit 0; fi ;; *com.tychicus.cloudflared) ${cfDie("state = running", 0)}${cfStill("state = spawn scheduled", 0)}if [ -f ${cfRunning} ]; then echo "state = running"; exit 0; fi ;; esac; exit 1 ;;\nbootout) case "$2" in *com.tychicus.serve) ${stop} ;; *com.tychicus.cloudflared) /bin/rm -f ${cfRunning} ;; esac ;;\nbootstrap) case "$3" in *com.tychicus.serve.plist) ${start} ;; *com.tychicus.cloudflared.plist) ${cfStart} ;; esac ;;\nkickstart) case "$3" in *com.tychicus.serve) ${stop}; ${start} ;; *com.tychicus.cloudflared) ${cfStart} ;; esac ;;\nesac\n`,
 	);
 	script(
 		"systemctl",
@@ -203,7 +216,14 @@ async function machine(name, { serve = "down", funnel = false, dns = DNS, record
 		calls: () => (existsSync(log) ? readFileSync(log, "utf8").split("\n").filter(Boolean) : []),
 		funnelOpen: () => existsSync(join(dir, "funnel-on")),
 		serveRunning: () => existsSync(pidFile),
-		serveExe: () => readlinkSync(`/proc/${readFileSync(pidFile, "utf8").trim()}/exe`),
+		ownConfig,
+		serviceText: () => readFileSync(serviceFile, "utf8"),
+		// The program serve's process runs, as the CLI reads it: /proc on Linux, lsof's text file on a Mac.
+		serveExe: () => {
+			const pid = readFileSync(pidFile, "utf8").trim();
+			if (process.platform !== "darwin") return readlinkSync(`/proc/${pid}/exe`);
+			return /^n(\/.*)$/m.exec(spawnSync("/usr/sbin/lsof", ["-a", "-p", pid, "-d", "txt", "-Fn"], { encoding: "utf8" }).stdout)?.[1] ?? "";
+		},
 		cleanup: () => {
 			if (existsSync(pidFile)) {
 				try {
@@ -518,7 +538,7 @@ serviceTest("the Cloudflare tunnel's service installed but not running: status s
 });
 
 // Issue 23: serve answers, but runs a version other than the one `release` names (started before install --release moved it).
-(process.platform === "linux" ? test : test.skip)("remote fix reports a serve that runs another version than release, and restarts it on the release", async () => {
+serviceTest("remote fix reports a serve that runs another version than release, and restarts it on the release", async () => {
 	const m = await machine("stale", { serve: "up", funnel: true, stale: true });
 	try {
 		assert.match(m.serveExe(), /versions\/1\.0\.0-aaaaaaaaaaaa\/tychicus$/);
@@ -533,6 +553,30 @@ serviceTest("the Cloudflare tunnel's service installed but not running: status s
 		const r = await m.run(["remote", "fix", "--yes", "--json"]);
 		assert.deepEqual(r.json().actions.map((a) => `${a.kind} ${a.status}`), ["restart_serve done"], r.stdout);
 		assert.match(m.serveExe(), /versions\/2\.0\.0-bbbbbbbbbbbb\/tychicus$/);
+		never(m);
+	} finally {
+		m.cleanup();
+	}
+});
+
+// Issue 26, item 4: a serve set up with its own config folder, left on the old version by `install --release --no-restart`.
+// remote fix restarts it in place: its plist or unit, which names that folder, is not rewritten with this shell's folder, and the
+// launcher in its own folder now runs the release.
+serviceTest("remote fix restarts a stale serve set up with its own config folder in place, keeping its service file and folder", async () => {
+	const m = await machine("stale-own-folder", { serve: "up", funnel: true, stale: true, ownFolder: true });
+	try {
+		assert.match(m.serveExe(), /versions\/1\.0\.0-aaaaaaaaaaaa\/tychicus$/);
+		const before = m.serviceText();
+		assert.ok(before.includes(m.ownConfig), "the service names its own config folder");
+		const shellLauncher = readFileSync(join(m.env.TABKYRA_CONFIG_DIR, "tychicus"), "utf8");
+		const r = await m.run(["remote", "fix", "--yes", "--json"]);
+		assert.deepEqual(r.json().actions.map((a) => `${a.kind} ${a.status}`), ["restart_serve done"], r.stdout + r.stderr);
+		assert.equal(m.serviceText(), before, "the plist or unit, with its config folder, is as setup wrote it");
+		assert.match(m.serveExe(), /versions\/2\.0\.0-bbbbbbbbbbbb\/tychicus$/);
+		// The launcher the service runs names the release's own program; the shell's launcher is not the one changed.
+		assert.match(readFileSync(join(m.ownConfig, "tychicus"), "utf8"), /^#!\/bin\/sh\nexec ".*\/versions\/2\.0\.0-bbbbbbbbbbbb\/tychicus" "\$@"\n$/);
+		assert.equal(readFileSync(join(m.env.TABKYRA_CONFIG_DIR, "tychicus"), "utf8"), shellLauncher);
+		assert.ok(!m.calls().some((c) => /launchctl (bootout|bootstrap)|systemctl --user (enable|daemon-reload)/.test(c)), m.calls().join("\n"));
 		never(m);
 	} finally {
 		m.cleanup();

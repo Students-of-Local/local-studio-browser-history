@@ -111,11 +111,38 @@ async function readBack(spec: ServiceSpec, current: string, root: string): Promi
 }
 
 /**
- * `install --restart-services`: restart each Tychicus service that runs a version other than the release, serve first, then
- * read back that its process runs the release (and that serve answers again, when remote.json says where). Returns the exit
- * code: 0 when every service runs the release, 1 when a restart or its read-back failed.
+ * The program a service restarted onto the release runs: the release's own, in its version folder, whatever `tychicus` runs the
+ * restart (a checkout or an npm link on PATH would otherwise point the launcher at itself). Undefined when it isn't there.
  */
-export async function restartStaleServices(root: string, program: string, say: (line: string) => void = console.log): Promise<number> {
+export function releaseVersionProgram(current: string, program: string): string | undefined {
+	const target = join(current, basename(program));
+	return existsSync(target) ? target : undefined;
+}
+
+/**
+ * Restart one stale service onto the release `current` and read back that its process runs it: the restart `install
+ * --restart-services` and `remote fix` share. The service keeps its file and the config folder it was set up with; its
+ * launcher is pointed at the release's program. `program` is the release program as the person would run it.
+ */
+export async function restartOnRelease(s: StaleService, current: string, root: string, program: string): Promise<{ ok: true; pid: number } | { ok: false; why: string }> {
+	const target = releaseVersionProgram(current, program);
+	if (!target) return { ok: false, why: `the release's program ${join(current, basename(program))} is missing; install the release again` };
+	const r = await restartService(s.spec, target);
+	if (!r.ok) return { ok: false, why: `restart failed: ${r.message}` };
+	const pid = await readBack(s.spec, current, root);
+	if (pid) return { ok: true, pid };
+	// A script the person wrote starts the service: Tychicus restarted it as it is and never rewrites it.
+	if (r.kept) return { ok: false, why: `restarted, but it still doesn't run ${s.release}: the service starts your own ${r.kept}, which Tychicus doesn't change. Point it at ${target}` };
+	return { ok: false, why: `restarted, but it doesn't run ${s.release} after ${Math.round(waitMs() / 1000)} seconds` };
+}
+
+/**
+ * `install --restart-services`: restart each Tychicus service that runs a version other than the release, serve first, then
+ * read back that its process runs the release (and that serve answers again, when remote.json says where). `dryRun` lists
+ * them and restarts nothing. Returns the exit code: 0 when every service runs the release (or, dry, always), 1 when a restart
+ * or its read-back failed.
+ */
+export async function restartStaleServices(root: string, program: string, say: (line: string) => void = console.log, options: { dryRun?: boolean } = {}): Promise<number> {
 	const current = currentRelease(root);
 	if (!current) {
 		say(`${sym.fail} No release is installed here (${root}), so there is no version to restart the services on.`);
@@ -128,6 +155,11 @@ export async function restartStaleServices(root: string, program: string, say: (
 		say(`${sym.ok} Every running Tychicus service runs ${versionName(current)}`);
 		return 0;
 	}
+	if (options.dryRun) {
+		for (const s of stale) say(`${sym.ok} Would restart ${serviceName(s.spec)}: ${s.running} -> ${s.release} ${c.dim(`(pid ${s.pid})`)}`);
+		say(c.dim("Nothing was restarted (--dry-run)."));
+		return 0;
+	}
 	for (const s of stale) {
 		const name = serviceName(s.spec);
 		const failed = (why: string) => {
@@ -135,11 +167,8 @@ export async function restartStaleServices(root: string, program: string, say: (
 			say(`  Run: ${restartCommand(program)}`);
 			return 1;
 		};
-		// Restart only: the service keeps the config folder it was set up with.
-		const r = await restartService(s.spec);
-		if (!r.ok) return failed(`restart failed: ${r.message}`);
-		const pid = await readBack(s.spec, current, root);
-		if (!pid) return failed(`restarted, but it doesn't run ${s.release} after ${Math.round(waitMs() / 1000)} seconds`);
+		const r = await restartOnRelease(s, current, root, program);
+		if (!r.ok) return failed(r.why);
 		if (s.spec === SERVE_SERVICE) {
 			let config: ReturnType<typeof loadRemoteConfig>;
 			try {
@@ -150,7 +179,7 @@ export async function restartStaleServices(root: string, program: string, say: (
 			}
 			if (config && !(await waitForServe(config.port, config.publicUrl, waitMs()))) return failed(`restarted on ${s.release}, but 127.0.0.1:${config.port} doesn't answer for ${config.publicUrl}`);
 		}
-		say(`${sym.ok} Restarted ${name}: ${s.running} -> ${s.release} ${c.dim(`(pid ${pid})`)}`);
+		say(`${sym.ok} Restarted ${name}: ${s.running} -> ${s.release} ${c.dim(`(pid ${r.pid})`)}`);
 	}
 	return 0;
 }

@@ -19,14 +19,14 @@ export { ourCloudflared } from "@src/tunnel.ts";
 export { tailscaleMissing, tailscaleSignIn } from "@src/remote-setup.ts";
 export { openPage } from "@src/remote-guide.ts";
 export { tailscaleDownloadUrl } from "@src/remote-state.ts";
-export { serviceRunning } from "@src/service.ts";
+export { processProgram, restartService, servicePid, serviceProgram, serviceRunning } from "@src/service.ts";
 export { recordServicePid, installService, removeService, serviceFile, serviceLogHint, setServiceSeamForTests, plistText, unitText, windowsTaskXml, windowsScriptText, schtasksPath, SERVE_SERVICE, HUB_SERVICE, LINK_SERVICE } from "@src/service.ts";
 export { CLOUDFLARE_SERVICE, cloudflaredBinary } from "@src/cloudflare.ts";
 export { tailscaleBinary } from "@src/remote-setup.ts";
 export { windowsInstallPaths, windowsTool } from "@src/tool-paths.ts";
 export { cloudflaredAsset, downloadCloudflared, downloadedCloudflared, CLOUDFLARED_VERSION } from "@src/cloudflared-download.ts";
 `);
-const { serviceRunning } = mod;
+const { processProgram, restartService, servicePid, serviceProgram, serviceRunning } = mod;
 const { tailscaleSignIn, openPage, tailscaleDownloadUrl, tailscaleMissing, ourCloudflared, recordServicePid, installService, removeService, serviceFile, serviceLogHint, setServiceSeamForTests, plistText, unitText, windowsTaskXml, windowsScriptText, schtasksPath, SERVE_SERVICE, HUB_SERVICE, LINK_SERVICE, CLOUDFLARE_SERVICE, cloudflaredBinary, tailscaleBinary, windowsInstallPaths, windowsTool, cloudflaredAsset, downloadCloudflared, downloadedCloudflared, CLOUDFLARED_VERSION } = mod;
 
 const SCHTASKS = "C:\\Windows\\System32\\schtasks.exe";
@@ -756,4 +756,69 @@ test("serviceRunning follows the service seam: its platform and its stand-in for
 	setServiceSeamForTests({ platform: "win32", exec: win.exec });
 	assert.equal(serviceRunning(CLOUDFLARE_SERVICE), undefined);
 	assert.deepEqual(win.calls, []);
+});
+
+test("restarting a Windows service onto a release ends the recorded program, points the launcher at the release and runs the same task", async () => {
+	await inConfig("win-restart", async (dir) => {
+		const OLD = "C:\\Users\\x\\AppData\\Local\\tychicus\\versions\\1.0.0-aaaaaaaaaaaa\\tychicus.exe";
+		const NEW = "C:\\Users\\x\\AppData\\Local\\tychicus\\versions\\2.0.0-bbbbbbbbbbbb\\tychicus.exe";
+		// As setup left it: the script windowsScriptText writes, calling the launcher, which runs the old version.
+		const script = join(dir, "services", "com.tychicus.serve.cmd");
+		mkdirSync(join(dir, "services"), { recursive: true });
+		const scriptText = windowsScriptText("tychicus.cmd", { POLYCARP_BROWSER_CONFIG_DIR: dir, TABKYRA_CONFIG_DIR: dir }, SERVE_SERVICE);
+		writeFileSync(script, scriptText);
+		const launcher = join(dir, "tychicus.cmd");
+		writeFileSync(launcher, `@echo off\r\n"${OLD}" %*\r\n`);
+		record(dir, 777, "tychicus.exe");
+		const fake = windowsWith(777, "tychicus.exe", { async: true });
+		winSeam({ exec: fake.exec, windowsUser: "PC\\x" });
+		assert.equal(serviceProgram(SERVE_SERVICE), launcher, "the script names the launcher in its config folder");
+		const r = await restartService(SERVE_SERVICE, NEW);
+		assert.equal(r.ok, true, r.message);
+		assert.equal(r.kept, undefined);
+		// The task is ended, its recorded program confirmed by start time and killed, seen gone, then the same task runs again.
+		assert.deepEqual(verbsOf(fake.calls), ["/End", "tasklist", "powershell", "taskkill /PID 777 /T /F", "tasklist", "/Run"]);
+		assert.deepEqual(fake.calls.at(-1), [SCHTASKS, "/Run", "/TN", SERVE_SERVICE.label]);
+		assert.ok(!fake.calls.some(([, verb]) => verb === "/Create" || verb === "/Delete"), "the task is never made again");
+		assert.equal(readFileSync(script, "utf8"), scriptText, "the script, with its folders, is as setup wrote it");
+		assert.equal(readFileSync(launcher, "utf8"), `@echo off\r\n"${NEW}" %*\r\n`, "the launcher runs the release");
+	});
+});
+
+test("a Windows restart whose program won't end runs nothing again and says so", async () => {
+	await inConfig("win-restart-stuck", async (dir) => {
+		mkdirSync(join(dir, "services"), { recursive: true });
+		writeFileSync(join(dir, "services", "com.tychicus.serve.cmd"), windowsScriptText("tychicus.cmd", {}, SERVE_SERVICE));
+		writeFileSync(join(dir, "tychicus.cmd"), '@echo off\r\n"C:\\t\\versions\\1.0.0-a\\tychicus.exe" %*\r\n');
+		record(dir, 888, "tychicus.exe");
+		const fake = windowsWith(888, "tychicus.exe", { stubborn: true, async: true });
+		winSeam({ exec: fake.exec, windowsUser: "PC\\x", stopWaitMs: 50 });
+		const r = await restartService(SERVE_SERVICE, "C:\\t\\versions\\2.0.0-b\\tychicus.exe");
+		assert.equal(r.ok, false);
+		assert.match(r.message, /tychicus\.exe \(pid 888\) is still running/);
+		assert.ok(!fake.calls.some(([, verb]) => verb === "/Run"), "the task isn't run while the old program still runs");
+	});
+});
+
+test("on Windows the service's pid and program come from its record, else Get-Process, and a pid now another image's is none", async () => {
+	await inConfig("win-pid-read", async (dir) => {
+		const real = "C:\\Users\\x\\AppData\\Local\\tychicus\\versions\\1.0.0-aaaaaaaaaaaa\\tychicus.exe";
+		mkdirSync(join(dir, "services"), { recursive: true });
+		const file = join(dir, "services", "com.tychicus.serve.pid");
+		// What recordServicePid writes: pid, image, start time, real path.
+		writeFileSync(file, `4242\r\ntychicus.exe\r\n${STARTED}\r\n${real}\r\n`);
+		const ps = fakeExec(() => ({ code: 0, out: "C:\\Users\\x\\AppData\\Local\\tychicus\\release\\tychicus.exe\r\n" }));
+		winSeam({ exec: ps.exec });
+		assert.equal(servicePid(SERVE_SERVICE), 4242);
+		assert.equal(processProgram(4242, SERVE_SERVICE), real, "the recorded real path, not the junction Get-Process names");
+		assert.deepEqual(ps.calls, []);
+		// A record without the path (an older helper): Get-Process, checked against the recorded image.
+		writeFileSync(file, `4242\r\ntychicus.exe\r\n${STARTED}\r\n`);
+		assert.equal(processProgram(4242, SERVE_SERVICE), "C:\\Users\\x\\AppData\\Local\\tychicus\\release\\tychicus.exe");
+		assert.deepEqual(ps.calls.at(-1), [POWERSHELL, "-NoProfile", "-NonInteractive", "-Command", "(Get-Process -Id 4242 -ErrorAction Stop).Path"]);
+		winSeam({ exec: fakeExec(() => ({ code: 0, out: "C:\\Windows\\notepad.exe\r\n" })).exec });
+		assert.equal(processProgram(4242, SERVE_SERVICE), undefined, "Windows gave the pid to another program");
+		writeFileSync(file, "exited\r\n");
+		assert.equal(servicePid(SERVE_SERVICE), undefined);
+	});
 });

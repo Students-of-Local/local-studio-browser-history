@@ -305,7 +305,7 @@ export const COMMANDS: CommandSpec[] = [
 	},
 	{
 		name: "install",
-		what: "Register the native host with every browser (--browser <name>: one); --release <folder> checks and installs a downloaded release; --local-studio adds the Local Studio plugins; --dry-run lists what it would write; after --release, services on an older version restart (--no-restart names them instead, --restart-services restarts them later)",
+		what: "Register the native host with every browser (--browser <name>: one); --release <folder> checks and installs a downloaded release; --local-studio adds the Local Studio plugins; --dry-run lists what it would write; after --release, services on an older version restart (--no-restart names them instead, --restart-services restarts them later on the installed release, and --dry-run with it only lists them)",
 		group: "Troubleshoot",
 		flags: ["--force", "--browser", "--dry-run", "--local-studio", "--release", "--skip-attestation", "--no-restart", "--restart-services"],
 	},
