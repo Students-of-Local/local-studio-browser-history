@@ -114,8 +114,11 @@ function listen(server) {
  * Pages are served from a path -> html map (`mount`). Two origins serve the same map, on two
  * ports, so a page can frame another origin: put `{{origin}}` (this origin) or `{{origin2}}`
  * (the other one) in html, each followed by a path.
+ *
+ * `extension` loads another build folder than dist-chrome (the store build, for e2e-store-sandbox.test.mjs), and
+ * `chromiumArgs` go to Chromium before the first page.
  */
-export async function startHarness({ name = "dom-bench", onElicit, chromiumArgs = [] } = {}) {
+export async function startHarness({ name = "dom-bench", onElicit, chromiumArgs = [], extension = extensionDir } = {}) {
 	const home = mkdtempSync(join(tmpdir(), "tabkyra-e2e-home-"));
 	// Unix socket paths are capped near 104 bytes on macOS, so keep this one short.
 	const socketDir = mkdtempSync("/tmp/tke2e-");
@@ -223,8 +226,8 @@ export async function startHarness({ name = "dom-bench", onElicit, chromiumArgs 
 				// A headless browser on a CI runner has no GPU, and its GPU process dies on the runner's sandbox, which stalls a page crashed on purpose.
 				"--disable-gpu",
 				...chromiumArgs,
-				`--disable-extensions-except=${extensionDir}`,
-				`--load-extension=${extensionDir}`,
+				`--disable-extensions-except=${extension}`,
+				`--load-extension=${extension}`,
 				"about:blank",
 			],
 			// Its own process group (POSIX), so stop() can end every process it starts.

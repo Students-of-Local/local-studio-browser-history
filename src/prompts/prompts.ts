@@ -4,6 +4,10 @@
  */
 
 import { PAGE_TOOLS_PROMPT } from "../bridge/page-tools.js";
+import sandboxLibraries from "./sandbox-libraries.json";
+
+/** True only in the Chrome Web Store build: scripts/build.mjs defines it from TYCHICUS_STORE_BUILD. */
+declare const __TYCHICUS_STORE__: boolean | undefined;
 
 // ============================================================================
 // System Prompt (for Agent initialization)
@@ -314,7 +318,31 @@ Pass the returned selector to act or get_page_text, or use it in browserjs().
 // JavaScript REPL Tool
 // ============================================================================
 
-export const REPL_TOOL_DESCRIPTION = (runtimeProviderDescriptions: string[]) => `# JavaScript REPL
+/** The release build's sandbox: code may import any package from a CDN its content security policy allows. */
+const RELEASE_REPL_SANDBOX = `- All browser APIs: DOM, Canvas, WebGL, Fetch, Web Workers, WebSockets, Crypto, etc.
+- Import any npm package: await import('https://esm.run/package-name')`;
+const RELEASE_REPL_LIBRARIES = `## Common Libraries
+- XLSX: const XLSX = await import('https://esm.run/xlsx');
+- CSV: const Papa = (await import('https://esm.run/papaparse')).default;
+- Chart.js: const Chart = (await import('https://esm.run/chart.js/auto')).default;
+- Three.js: const THREE = await import('https://esm.run/three');
+- PDF: const { PDFDocument } = await import('https://esm.run/pdf-lib');
+- Word: const docx = await import('https://esm.run/docx');`;
+
+/**
+ * The Chrome Web Store build's sandbox: no network, and only the libraries the build packs (src/prompts/sandbox-libraries.json,
+ * scripts/sandbox-libraries.mjs), imported by name through sandbox.html's import map.
+ */
+const STORE_REPL_SANDBOX = `- Browser APIs except the network: DOM, Canvas, WebGL, Web Workers, Crypto, etc. fetch() and WebSockets are blocked here; reach pages with browserjs() and navigate()
+- Import only the libraries listed below, by name. Nothing loads from outside the extension, so no other package is available`;
+const storeReplLibraries = () => `## Bundled Libraries
+${sandboxLibraries.modules.map((m) => `- ${m.what}: ${m.use}`).join("\n")}`;
+
+const replToolDescription = (
+	sandbox: string,
+	libraries: string,
+	runtimeProviderDescriptions: string[],
+) => `# JavaScript REPL
 
 Execute JavaScript with access to the user's current page and all browser capabilities.
 
@@ -326,18 +354,11 @@ Execute JavaScript with access to the user's current page and all browser capabi
 
 ## Environment
 - ES2023+ JavaScript (async/await, optional chaining, nullish coalescing, etc.)
-- All browser APIs: DOM, Canvas, WebGL, Fetch, Web Workers, WebSockets, Crypto, etc.
-- Import any npm package: await import('https://esm.run/package-name')
+${sandbox}
 - Clean sandbox (no page access unless using browserjs())
 - 120 second timeout
 
-## Common Libraries
-- XLSX: const XLSX = await import('https://esm.run/xlsx');
-- CSV: const Papa = (await import('https://esm.run/papaparse')).default;
-- Chart.js: const Chart = (await import('https://esm.run/chart.js/auto')).default;
-- Three.js: const THREE = await import('https://esm.run/three');
-- PDF: const { PDFDocument } = await import('https://esm.run/pdf-lib');
-- Word: const docx = await import('https://esm.run/docx');
+${libraries}
 
 ## Input
 - { title: "Extract every link", code: "const links = await browserjs(() => [...document.links].map(a => a.href)); return links;" }
@@ -385,6 +406,18 @@ await createOrUpdateArtifact('products.json', products);
 ## Helper Functions (Automatically Available)
 
 ${runtimeProviderDescriptions.join("\n\n")}`;
+
+/** The REPL tool description in the Chrome Web Store build. */
+export const STORE_REPL_TOOL_DESCRIPTION = (runtimeProviderDescriptions: string[]) =>
+	replToolDescription(STORE_REPL_SANDBOX, storeReplLibraries(), runtimeProviderDescriptions);
+/** The REPL tool description in the release and unpacked builds. */
+export const RELEASE_REPL_TOOL_DESCRIPTION = (runtimeProviderDescriptions: string[]) =>
+	replToolDescription(RELEASE_REPL_SANDBOX, RELEASE_REPL_LIBRARIES, runtimeProviderDescriptions);
+/** This build's. The test is written out here, not kept in a constant, so esbuild folds it and drops the other build's text. */
+export const REPL_TOOL_DESCRIPTION =
+	typeof __TYCHICUS_STORE__ !== "undefined" && __TYCHICUS_STORE__
+		? STORE_REPL_TOOL_DESCRIPTION
+		: RELEASE_REPL_TOOL_DESCRIPTION;
 
 // ============================================================================
 // Skill Management Tool
