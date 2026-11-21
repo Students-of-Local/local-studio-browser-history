@@ -117,7 +117,6 @@ export function runsView(onClose: () => void, rerender: () => void): TemplateRes
 				${icon(ArrowLeft, "sm")}
 			</button>
 			<h2 class="text-sm font-semibold">Runs</h2>
-			<span class="ml-auto text-xs text-muted-foreground pr-1">Every agent run in this browser</span>
 		</div>
 		${
 			log.runs.length === 0
