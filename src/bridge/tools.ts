@@ -70,7 +70,7 @@ import {
 	waitFor,
 } from "../browser/page.js";
 import { type BrowserSession, TabLimitError, takeNotices } from "../browser/session.js";
-import { IDLE_MS, settle, settleStart, unsettledNote, WAIT_SETTLE } from "../browser/settle.js";
+import { IDLE_MS, LOADED_QUIET_MS, settle, settleStart, unsettledNote, WAIT_SETTLE } from "../browser/settle.js";
 import { isPdfTab, pdfText } from "../offscreen/pdf-client.js";
 import {
 	added as addedEdit,
@@ -192,6 +192,8 @@ async function settleAfter(
 		changes?: Record<string, unknown> | (() => Promise<Record<string, unknown>>);
 		/** Click and fill: return sooner when the page shows no sign of reacting (settle.ts IDLE_MS, D50). */
 		idle?: boolean;
+		/** Navigate: a short quiet window once the load event has fired (settle.ts LOADED_QUIET_MS, D56). */
+		loaded?: boolean;
 	} = {},
 ): Promise<Record<string, unknown>> {
 	if (ctx.batch) {
@@ -212,6 +214,7 @@ async function settleAfter(
 			watched: options.watched ?? true,
 			...options.wait,
 			...(options.idle && !inFrame ? { idleMs: IDLE_MS } : {}),
+			...(options.loaded ? { loadedQuietMs: LOADED_QUIET_MS } : {}),
 		}).catch(() => undefined);
 		const out: Record<string, unknown> = settled ? unsettledNote(settled) : {};
 		const kinds = new Set<EffectKind>();
@@ -838,6 +841,7 @@ export const handlers: Record<string, Handler> = {
 			// The tab is new: settleStart had none to turn Network on in, so the wait does.
 			const settled = await settleAfter(ctx, tabId, since, landed, {
 				watched: false,
+				loaded: true,
 				// A 204 or a download loads nothing into the blank tab.
 				changes: async () => ({
 					...(await tabChanges(tabs, ctx.session.tabIds, tabUrl)),
@@ -884,8 +888,11 @@ export const handlers: Record<string, Handler> = {
 			since,
 			landed,
 			samePage
-				? { before }
-				: { changes: async () => ({ ...(await tabChanges(tabs, ctx.session.tabIds, tabUrl)), page }) },
+				? { before, loaded: true }
+				: {
+						loaded: true,
+						changes: async () => ({ ...(await tabChanges(tabs, ctx.session.tabIds, tabUrl)), page }),
+					},
 		);
 		return refuseGuardedLanding(ctx, tabId, { ...(await tabSummary(tabId)), ...settled });
 	},
