@@ -102,8 +102,17 @@ function Install-Tychicus {
 		if (-not $gh -or $gh -eq 'none') {
 			Write-Host "Skipped the build attestation check: the GitHub CLI (gh) is not installed. With it, this also runs gh attestation verify --repo $repo."
 		} else {
-			$out = & $gh attestation verify $archivePath --repo $repo --signer-workflow $workflow 2>&1
-			if ($LASTEXITCODE -ne 0) {
+			# gh prints progress on stderr. Under 'Stop', Windows PowerShell 5.1 turns any stderr line from a native
+			# program into a terminating error, so run it under 'Continue' and judge it by its exit code alone.
+			$saved = $ErrorActionPreference
+			$ErrorActionPreference = 'Continue'
+			try {
+				$out = & $gh attestation verify $archivePath --repo $repo --signer-workflow $workflow 2>&1
+				$code = $LASTEXITCODE
+			} finally {
+				$ErrorActionPreference = $saved
+			}
+			if ($code -ne 0) {
 				$out | Select-Object -Last 5 | ForEach-Object { Write-Host $_ }
 				Fail "gh attestation verify refused ${archive}: it was not built by $repo's release workflow, or gh could not check (run gh auth login). Nothing was installed."
 			}

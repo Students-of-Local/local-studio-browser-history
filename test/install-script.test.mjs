@@ -166,11 +166,18 @@ test("a release with no archive for this computer is refused by name", async () 
 	assert.match(r.out, new RegExp(`no archive for ${tag}`));
 });
 
-test("a failed gh attestation verify stops it; a passing one is reported", { skip: windows }, async () => {
+test("a failed gh attestation verify stops it; a passing one is reported, even when gh writes to stderr", async () => {
 	publish("9.9.0");
+	// gh prints progress on stderr. Windows PowerShell 5.1 turns that into a terminating error under 'Stop', so each
+	// fake gh writes a line there: only its exit code may decide.
 	const gh = (code) => {
+		if (windows) {
+			const file = join(work, `gh-${code}.cmd`);
+			writeFileSync(file, `@echo %* > "%USERPROFILE%\\gh.txt"\r\n@echo Loaded digest for the archive 1>&2\r\n@exit /b ${code}\r\n`);
+			return file;
+		}
 		const file = join(work, `gh-${code}`);
-		writeFileSync(file, `#!/bin/sh\necho "$*" > "$HOME/gh.txt"\nexit ${code}\n`);
+		writeFileSync(file, `#!/bin/sh\necho "$*" > "$HOME/gh.txt"\necho "Loaded digest for the archive" >&2\nexit ${code}\n`);
 		chmodSync(file, 0o755);
 		return file;
 	};
@@ -180,12 +187,15 @@ test("a failed gh attestation verify stops it; a passing one is reported", { ski
 	assert.equal(refused.calls, undefined, "the program ran after a failed attestation");
 
 	const ok = await install({ env: { TYCHICUS_GH: gh(0) } });
-	assert.equal(ok.status, 0, ok.out);
-	assert.match(ok.out, /built by baney75\/tychicus's release workflow/);
+	assert.match(ok.out, /built by baney75\/tychicus's release workflow/, ok.out);
+	assert.doesNotMatch(ok.out, /refused|NativeCommandError/);
 	assert.match(
 		readFileSync(join(ok.home, "gh.txt"), "utf8"),
-		/^attestation verify \S+tychicus-9\.9\.0-\S+ --repo baney75\/tychicus --signer-workflow baney75\/tychicus\/\.github\/workflows\/release\.yml$/m,
+		/^attestation verify \S+tychicus-9\.9\.0-\S+ --repo baney75\/tychicus --signer-workflow baney75\/tychicus\/\.github\/workflows\/release\.yml\s*$/m,
 	);
+	// On Windows the fake archive holds no tychicus.exe, so getting past gh ends at that check.
+	if (windows) assert.match(ok.out, /holds no tychicus\.exe/);
+	else assert.equal(ok.status, 0, ok.out);
 });
 
 test("as root it refuses unless --allow-root", { skip: windows }, async () => {
@@ -205,9 +215,12 @@ test("as root it refuses unless --allow-root", { skip: windows }, async () => {
 });
 
 test("the test-only base URL must be loopback", async () => {
-	const r = await install({ env: { TYCHICUS_INSTALL_BASE_URL: "https://example.com/releases" } });
-	assert.notEqual(r.status, 0, r.out);
-	assert.match(r.out, /TYCHICUS_INSTALL_BASE_URL is for tests/);
+	// The second starts with a loopback prefix but its host is example.invalid (127.0.0.1:1 is userinfo).
+	for (const url of ["https://example.com/releases", "http://127.0.0.1:1@example.invalid/releases", "http://localhost.example.invalid/releases"]) {
+		const r = await install({ env: { TYCHICUS_INSTALL_BASE_URL: url } });
+		assert.notEqual(r.status, 0, `${url}: ${r.out}`);
+		assert.match(r.out, /TYCHICUS_INSTALL_BASE_URL is for tests/, url);
+	}
 });
 
 test("install.ps1 downloads, checks and unpacks the Windows archive", { skip: !windows }, async () => {

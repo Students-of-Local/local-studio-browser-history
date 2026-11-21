@@ -315,6 +315,7 @@ test("a release with only release.yml's attested archives: the check finds it, t
 		const check = await run(appCli(), "update", "--check", "--json");
 		assert.equal(check.code, 100, check.out);
 		assert.equal(JSON.parse(check.out).latest, "9.2.1");
+		assert.match(JSON.parse(check.out).unsigned, /Tychicus 9\.2\.1 has no signed update archive/);
 		const r = await run(appCli(), "update");
 		assert.equal(r.code, 1, r.out);
 		assert.match(r.out, /Tychicus 9\.2\.1 has no signed update archive \(tychicus-9\.2\.1\.zip and SHA256SUMS\.minisig\)/);
@@ -443,11 +444,9 @@ test("usage errors exit 2", async () => {
 	assert.equal((await run(cli, "update", "--bogus")).code, 2);
 });
 
-test("the native host tells the extension an update is available", async () => {
-	writeFileSync(
-		join(home, ".config", "tychicus", "update-status.json"),
-		JSON.stringify({ checkedAt: Date.now(), channel: "stable", current: appVersion(), latest: "9.4.0", available: true }),
-	);
+/** The first update_status the native host sends after the extension's hello, given this cached check. */
+async function hostUpdateStatus(cached) {
+	writeFileSync(join(home, ".config", "tychicus", "update-status.json"), JSON.stringify(cached));
 	// The host reads the installed version of the copy it runs from: the release in app/.
 	const host = spawn(process.execPath, [appCli(), "host", `chrome-extension://${EXTENSION_ID}/`], { env: env() });
 	const hello = Buffer.from(JSON.stringify({ type: "hello", version: "9.3.0", protocol: 1, methods: [] }));
@@ -455,26 +454,42 @@ test("the native host tells the extension an update is available", async () => {
 	frame.writeUInt32LE(hello.length, 0);
 	hello.copy(frame, 4);
 	host.stdin.write(frame);
-	const message = await new Promise((resolve, reject) => {
-		let buf = Buffer.alloc(0);
-		const timer = setTimeout(() => reject(new Error("no update_status from the host")), 10000);
-		host.stdout.on("data", (chunk) => {
-			buf = Buffer.concat([buf, chunk]);
-			while (buf.length >= 4 && buf.length >= 4 + buf.readUInt32LE(0)) {
-				const len = buf.readUInt32LE(0);
-				const msg = JSON.parse(buf.subarray(4, 4 + len).toString("utf8"));
-				buf = buf.subarray(4 + len);
-				if (msg.type === "update_status") {
-					clearTimeout(timer);
-					resolve(msg);
+	try {
+		return await new Promise((resolve, reject) => {
+			let buf = Buffer.alloc(0);
+			const timer = setTimeout(() => reject(new Error("no update_status from the host")), 10000);
+			host.stdout.on("data", (chunk) => {
+				buf = Buffer.concat([buf, chunk]);
+				while (buf.length >= 4 && buf.length >= 4 + buf.readUInt32LE(0)) {
+					const len = buf.readUInt32LE(0);
+					const msg = JSON.parse(buf.subarray(4, 4 + len).toString("utf8"));
+					buf = buf.subarray(4 + len);
+					if (msg.type === "update_status") {
+						clearTimeout(timer);
+						resolve(msg);
+					}
 				}
-			}
+			});
 		});
-	});
-	host.kill();
+	} finally {
+		host.kill();
+	}
+}
+
+test("the native host tells the extension an update is available", async () => {
+	const message = await hostUpdateStatus({ checkedAt: Date.now(), channel: "stable", current: appVersion(), latest: "9.4.0", available: true });
 	assert.equal(message.available, true);
 	assert.equal(message.latest, "9.4.0");
 	assert.equal(message.current, appVersion());
+	assert.equal(message.blocked, undefined);
+});
+
+test("a newer release with no signed archive is shown but blocked, with the command that installs it", async () => {
+	const unsigned = "Tychicus 9.4.0 has no signed update archive (tychicus-9.4.0.zip and SHA256SUMS.minisig), so it can't be installed in place. Install it with: x";
+	const message = await hostUpdateStatus({ checkedAt: Date.now(), channel: "stable", current: appVersion(), latest: "9.4.0", available: true, unsigned });
+	assert.equal(message.available, true);
+	// UpdateNotice disables "Update now" on blocked, and the automatic install skips it (src/update/logic.ts).
+	assert.equal(message.blocked, unsigned);
 });
 
 /** `polycarp browser update --host ...` as the native host runs it: one JSON event per line. */

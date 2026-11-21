@@ -65,10 +65,12 @@ if [ "$(id -u)" = 0 ] && [ "$allow_root" != 1 ]; then
 fi
 
 if [ -n "${TYCHICUS_INSTALL_BASE_URL:-}" ]; then
-	case "$TYCHICUS_INSTALL_BASE_URL" in
-	http://127.0.0.1:* | http://127.0.0.1/* | http://localhost:* | http://localhost/*) BASE="${TYCHICUS_INSTALL_BASE_URL%/}" ;;
-	*) fail "TYCHICUS_INSTALL_BASE_URL is for tests and must be a loopback http:// address; it is $TYCHICUS_INSTALL_BASE_URL" ;;
-	esac
+	# The whole host must be loopback: a prefix match would let http://127.0.0.1:x@evil.example through.
+	if printf '%s\n' "$TYCHICUS_INSTALL_BASE_URL" | grep -Eq '^http://(127\.0\.0\.1|localhost)(:[0-9]{1,5})?(/[^@]*)?$'; then
+		BASE="${TYCHICUS_INSTALL_BASE_URL%/}"
+	else
+		fail "TYCHICUS_INSTALL_BASE_URL is for tests and must be a loopback http:// address; it is $TYCHICUS_INSTALL_BASE_URL"
+	fi
 	proto="=http"
 else
 	proto="=https"

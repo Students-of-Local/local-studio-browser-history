@@ -148,6 +148,8 @@ export interface UpdateStatus {
 	available: boolean;
 	url?: string;
 	error?: string;
+	/** The latest release has no signed update archive: why it can't install in place, and the command that installs it. */
+	unsigned?: string;
 	/** Absent in files written before checkout mode: a release check. */
 	mode?: InstallMode;
 	/** Checkout mode: HEAD and origin/main when the check ran. */
@@ -345,6 +347,7 @@ export async function checkForUpdate(channel: Channel): Promise<UpdateStatus> {
 			status.latest = release.version;
 			status.url = release.url;
 			status.available = isNewer(release.version, current);
+			if (!release.signed) status.unsigned = unsignedReleaseMessage(release);
 		}
 	} catch (err) {
 		status.error = err instanceof Error ? err.message : String(err);
@@ -621,6 +624,7 @@ export async function runUpdate(options: UpdateOptions): Promise<number> {
 			return 1;
 		}
 		if (!status.latest) log(`${sym.ok} No ${channel} release is published yet. ${c.dim(`(installed ${status.current})`)}`);
+		else if (status.available && status.unsigned) log(`${sym.warn} Update available: ${c.bold(status.latest)} ${c.dim(`(installed ${status.current})`)}. ${status.unsigned}`);
 		else if (status.available) log(`${sym.warn} Update available: ${c.bold(status.latest)} ${c.dim(`(installed ${status.current})`)} ${sym.arrow} ${c.bold(`${COMMAND_NAME} update`)}`);
 		else log(`${sym.ok} Up to date ${c.dim(`(${status.current}, latest ${channel} ${status.latest})`)}`);
 		return status.error ? 1 : status.available ? EXIT_UPDATE_AVAILABLE : 0;
@@ -636,6 +640,8 @@ export async function runUpdate(options: UpdateOptions): Promise<number> {
 		log(`${sym.ok} Up to date ${c.dim(`(${status.current})`)}`);
 		return 0;
 	}
+	// Say so before any prompt: downloadVerified would refuse it after the question.
+	if (status.unsigned) throw new UpdateError(status.unsigned);
 	if (!managed) {
 		// A source checkout (or npm link) is not replaced; the release goes to its own folder.
 		const target = appDir();
