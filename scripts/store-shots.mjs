@@ -433,7 +433,7 @@ try {
 		800,
 		panelSlide(
 			"Browser use for the AI agents you already use",
-			"Chat in the side panel, or connect Claude Code, Codex or any MCP agent. The extension holds no API keys.",
+			"Chat in the side panel, or connect Claude Code, Codex or any MCP agent. With Local Studio, no API key is needed.",
 			"No account · no analytics · open source",
 			raw.welcome,
 		),
@@ -456,8 +456,8 @@ try {
 		1280,
 		800,
 		panelSlide(
-			"Your models, no keys in the browser",
-			"Local Studio brings your local models and the plans you signed in to there. API keys are still an option.",
+			"Your models, no key needed",
+			"Local Studio brings your local models and the plans you signed in to there. Or add an API key from any major provider.",
 			"Local Studio · OpenRouter · API keys",
 			raw.models,
 		),
