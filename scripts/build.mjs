@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { build, context } from "esbuild";
 import { buildInfo } from "./build-info.mjs";
 import { stampPluginVersions } from "./plugin-version.mjs";
+import { storeVendorPrompts } from "./store-prompts.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -204,6 +205,37 @@ const localOnnxRuntime = (required) => ({
 });
 
 /**
+ * The Chrome Web Store build (scripts/build-store.sh sets TYCHICUS_STORE_BUILD=1) loads no code from outside its package.
+ * Its prompts name only the libraries it packs for the sandbox (src/prompts/sandbox-libraries.json): src/prompts/prompts.ts
+ * picks its variant from __TYCHICUS_STORE__, and this rewrites pi-web-ui's prompts (scripts/store-prompts.mjs), which
+ * otherwise offer esm.run, esm.sh and the Tailwind CDN. The build fails if pi-web-ui's prompts were not bundled.
+ */
+const STORE_BUILD = process.env.TYCHICUS_STORE_BUILD === "1";
+const storePrompts = (required) => ({
+	name: "store-prompts",
+	setup(b) {
+		if (!STORE_BUILD) return;
+		let applied = false;
+		b.onStart(() => {
+			applied = false;
+		});
+		b.onEnd((result) => {
+			if (required && !result.errors.length && !applied)
+				return {
+					errors: [
+						{ text: "pi-web-ui's prompts weren't bundled, so the store build's copy of them was not made" },
+					],
+				};
+		});
+		b.onLoad({ filter: /pi-mono[\\/]packages[\\/]web-ui[\\/]src[\\/]prompts[\\/]prompts\.ts$/ }, (args) => {
+			const libraries = JSON.parse(readFileSync(join(packageRoot, "src/prompts/sandbox-libraries.json"), "utf8"));
+			applied = true;
+			return { contents: storeVendorPrompts(readFileSync(args.path, "utf8"), libraries), loader: "ts" };
+		});
+	},
+});
+
+/**
  * highlight.js with every language, and KaTeX, are called synchronously while drawing, so they can't simply become
  * import(). In the panel these names mean small stand-ins that load the real library on first use (src/lazy/).
  */
@@ -314,6 +346,8 @@ const buildOptions = {
 		global: "globalThis",
 		// Set in run(), after the version bump: what this build was made from (src/update/build.ts).
 		__TABKYRA_BUILD__: "undefined",
+		// The store build's prompt variant (src/prompts/prompts.ts); see storePrompts.
+		__TYCHICUS_STORE__: JSON.stringify(STORE_BUILD),
 	},
 	inject: [join(packageRoot, "scripts/process-shim.js")],
 	// Let bare imports inside the bundled pi-mono source resolve against pi-mono's
@@ -346,7 +380,14 @@ const buildOptions = {
 const pageBuild = () => ({
 	...buildOptions,
 	entryPoints: pageEntryPoints,
-	plugins: [stripRemovedSignIns(true), unusedInExtensions, lazyLibraries, librarySkills, localOnnxRuntime(false)],
+	plugins: [
+		stripRemovedSignIns(true),
+		unusedInExtensions,
+		lazyLibraries,
+		librarySkills,
+		localOnnxRuntime(false),
+		storePrompts(true),
+	],
 	splitting: true,
 	// Beside the pages, not in a folder: PDF.js finds its worker relative to the file it's bundled into.
 	chunkNames: "[name]-[hash]",
@@ -354,7 +395,7 @@ const pageBuild = () => ({
 const singleFileBuild = () => ({
 	...buildOptions,
 	entryPoints: singleFileEntryPoints,
-	plugins: [stripRemovedSignIns(false), librarySkills, localOnnxRuntime(true)],
+	plugins: [stripRemovedSignIns(false), librarySkills, localOnnxRuntime(true), storePrompts(false)],
 });
 
 // ============================================================================

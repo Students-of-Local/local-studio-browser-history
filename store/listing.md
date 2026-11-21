@@ -96,7 +96,7 @@ Tychicus lets AI agents operate web pages in the user's browser on the user's be
 **Are you using remote code?** Yes.
 
 ```
-The agent's page actions run through the Debugger API and the User Scripts API, the two APIs the program policies permit for this, and only as those APIs document. Separately, the agent can write code that runs in sandbox.html, a sandboxed page isolated from extension APIs. That code can import packages from public CDNs (esm.run, jsDelivr, unpkg, cdnjs, esm.sh, Skypack, Tailwind), listed in the manifest's sandbox content security policy, for example to draw a chart or read a spreadsheet the user attached. All of the extension's own logic is in the package; nothing fetched remotely runs with extension API access.
+The extension loads no script, module or WebAssembly from outside its package. The agent's page actions run through the Debugger API and the optional User Scripts API, the two APIs the program policies permit for this, and only as those APIs document. Separately, code the agent writes for a task, for example to read a spreadsheet the user attached or draw a chart, runs in sandbox.html, a sandboxed page isolated from extension APIs. Its content security policy allows scripts only from the package itself, and the libraries that code can import (SheetJS, Papa Parse, Chart.js, Three.js, pdf-lib, docx and Tailwind CSS) ship in the package under sandbox-lib/, credited in THIRD_PARTY_NOTICES. Nothing fetched remotely runs with extension API access.
 ```
 
 **Data usage: what the extension handles.** Tick these:
