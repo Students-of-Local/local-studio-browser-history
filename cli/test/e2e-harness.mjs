@@ -222,6 +222,7 @@ export async function startHarness({ name = "dom-bench", onElicit, chromiumArgs 
 				"--remote-debugging-port=0",
 				// A headless browser on a CI runner has no GPU, and its GPU process dies on the runner's sandbox, which stalls a page crashed on purpose.
 				"--disable-gpu",
+				...chromiumArgs,
 				`--disable-extensions-except=${extensionDir}`,
 				`--load-extension=${extensionDir}`,
 				"about:blank",
