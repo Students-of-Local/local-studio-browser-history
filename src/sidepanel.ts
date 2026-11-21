@@ -124,6 +124,7 @@ import "./utils/i18n-extension.js";
 import { createArtifactViewer } from "./artifacts/viewers.js";
 import { bridgeQuestions, watchBridgeQuestions } from "./ask/bridge-panel.js";
 import { updateNotice, watchUpdateStatus } from "./components/UpdateNotice.js";
+import { handbackCards, watchHandbacks } from "./handback/panel.js";
 import { takeHandoff, watchHandoff } from "./handoff/panel.js";
 import { tabkyraTranscript } from "./transcript/render.js";
 import { starters } from "./tutorials.js";
@@ -1459,6 +1460,7 @@ const renderApp = () => {
 			</div>
 
 			${updateNotice()}
+			${handbackCards()}
 			${bridgeQuestions()}
 			${planBadge(agent?.state.model?.provider)}
 
@@ -1756,6 +1758,7 @@ async function initApp() {
 
 			renderApp();
 			void watchBridgeQuestions(renderApp).catch(() => {});
+			void watchHandbacks(renderApp).catch(() => {});
 			return;
 		} else {
 			// Session doesn't exist, redirect to new session
@@ -1782,6 +1785,7 @@ async function initApp() {
 	void watchUpdateStatus(renderApp).catch(() => {});
 	// External agents' questions (ask_user over the bridge) show above the chat.
 	void watchBridgeQuestions(renderApp).catch(() => {});
+	void watchHandbacks(renderApp).catch(() => {});
 
 	// If no API keys configured, show welcome dialog, open settings, then auto-select model
 	if (!(await hasAnyApiKey()) && !(await chrome.storage.local.get(WELCOME_SEEN_KEY))[WELCOME_SEEN_KEY]) {

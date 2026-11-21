@@ -9,7 +9,8 @@
  *   this one can open, so the agent and project names never reach the page's script.
  * - Its styles are `:host` rules marked important, which win over any important rule the page
  *   writes for it. It is fixed, covers the viewport, and has pointer-events: none, so it moves
- *   nothing and every click goes through, except on the pill's "Take over" button.
+ *   nothing and every click goes through, except on the pill's "Take over" button and, while the
+ *   agent waits for the user, its "Continue" button.
  * - The state lives in this isolated world's globals, which the page's own globals never see.
  */
 
@@ -52,8 +53,11 @@ export type VeilCommand =
 			/** Draw the pointer character (Settings > Agents). */
 			pointer: boolean;
 			mote: MoteNode;
+			/** The agent waits for the user: what it asked them to do. */
+			waiting?: string;
 	  }
-	| { op: "set"; interactive?: boolean; concealed?: boolean; pointer?: boolean }
+	/** `waiting`: a reason shows Continue, null takes it away. */
+	| { op: "set"; interactive?: boolean; concealed?: boolean; pointer?: boolean; waiting?: string | null }
 	| { op: "point"; cue: PagePointerCue }
 	| { op: "hide"; fade: boolean };
 
@@ -211,6 +215,28 @@ ${GROUP_COLORS}
 .take:hover { background: var(--accent); }
 .take:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .veil.locked .take, .veil.leaving .take, .veil.concealed .take { pointer-events: none; }
+.go {
+	display: none;
+	pointer-events: auto;
+	appearance: none;
+	margin: 0 0 0 3px;
+	padding: 2px 12px;
+	border-radius: 999px;
+	border: 1px solid var(--foreground);
+	background: var(--foreground);
+	color: var(--background);
+	font: inherit;
+	font-weight: 650;
+	cursor: pointer;
+}
+.go:hover { opacity: 0.86; }
+.go:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.veil.waiting .go { display: inline-block; }
+.veil.locked .go, .veil.leaving .go, .veil.concealed .go { pointer-events: none; }
+/* The user's turn: the page is theirs to use, so the moving parts stop and the tint goes. */
+.veil.waiting .scrim, .veil.waiting .ring { display: none; }
+.veil.waiting .glow, .veil.waiting .dot { animation: none; }
+.veil.waiting .status { color: var(--foreground); font-weight: 650; }
 .mote {
 	position: absolute;
 	left: 0;
@@ -284,6 +310,7 @@ ${GROUP_COLORS}
 	.status, .detail, .sep { color: CanvasText; }
 	.dot { background: Highlight; animation: none; }
 	.take { background: ButtonFace; color: ButtonText; border-color: ButtonText; }
+	.go { background: ButtonText; color: ButtonFace; border-color: ButtonText; }
 	.mote .fill { fill: Highlight; stroke: CanvasText; }
 	.mote .rim { fill: Canvas; stroke: Canvas; }
 	.mote .caret { background: Highlight; forced-color-adjust: none; }
@@ -348,6 +375,8 @@ export function veilPage(cmd: VeilCommand): VeilPageResult {
 		paint?: () => void;
 		mote?: HTMLElement;
 		react?: ReturnType<typeof setTimeout>;
+		/** The detail the pill shows while the agent works (a wait shows its reason instead). */
+		detail: string;
 	}
 	const g = globalThis as unknown as { __polycarpVeil?: Live };
 	const remove = (live: Live) => {
@@ -359,6 +388,16 @@ export function veilPage(cmd: VeilCommand): VeilPageResult {
 		if (g.__polycarpVeil === live) g.__polycarpVeil = undefined;
 	};
 	const live = g.__polycarpVeil;
+	/** The user's turn (a reason) or the agent's (null): the status, the detail and the Continue button. */
+	const showWaiting = (l: Live, reason: string | null) => {
+		l.box.classList.toggle("waiting", reason !== null);
+		const text = (cls: string, value: string) => {
+			const el = l.box.querySelector(cls);
+			if (el && el.textContent !== value) el.textContent = value;
+		};
+		text(".status", reason === null ? "working" : "your turn");
+		text(".detail", reason ?? l.detail);
+	};
 
 	if (cmd.op === "hide") {
 		if (!live) return {};
@@ -377,6 +416,7 @@ export function veilPage(cmd: VeilCommand): VeilPageResult {
 		if (!live) return {};
 		if (cmd.interactive !== undefined) live.box.classList.toggle("locked", !cmd.interactive);
 		if (cmd.pointer !== undefined) live.box.classList.toggle("nomote", !cmd.pointer);
+		if (cmd.waiting !== undefined) showWaiting(live, cmd.waiting);
 		if (cmd.concealed !== undefined) {
 			live.box.classList.toggle("concealed", cmd.concealed);
 			// Style now, so the capture that follows paints without the veil.
@@ -551,7 +591,22 @@ export function veilPage(cmd: VeilCommand): VeilPageResult {
 			box.classList.remove("on");
 			void chrome.runtime.sendMessage({ type: "polycarp-veil", action: "take-over" }).catch(() => undefined);
 		});
-		pill.append(take);
+		const go = document.createElement("button");
+		go.className = "go";
+		go.type = "button";
+		go.tabIndex = -1;
+		go.textContent = "Continue";
+		go.title = "Tell the agent you are done here. It goes on with this tab.";
+		go.addEventListener("click", (e) => {
+			// As with Take over: only the user's own click, and only while the agent waits here.
+			if (!e.isTrusted || !box.classList.contains("waiting")) return;
+			if (box.classList.contains("locked") || box.classList.contains("concealed")) return;
+			e.preventDefault();
+			e.stopPropagation();
+			box.classList.remove("waiting");
+			void chrome.runtime.sendMessage({ type: "polycarp-veil", action: "continue" }).catch(() => undefined);
+		});
+		pill.append(go, take);
 		box.append(pill);
 		// The pointer character. Its SVG comes in the command (MOTE), since only this function's text reaches the page.
 		const svgNs = "http://www.w3.org/2000/svg";
@@ -574,6 +629,7 @@ export function veilPage(cmd: VeilCommand): VeilPageResult {
 			observer: new MutationObserver(() => undefined),
 			reattached: 0,
 			mote,
+			detail: cmd.detail,
 		};
 		// A page that rewrites <html> drops the element; put it back, a few times at most.
 		made.observer = new MutationObserver(() => {
@@ -593,7 +649,8 @@ export function veilPage(cmd: VeilCommand): VeilPageResult {
 		if (el && el.textContent !== text) el.textContent = text;
 	};
 	set(".who", cmd.agent);
-	set(".detail", cmd.detail);
+	cur.detail = cmd.detail;
+	showWaiting(cur, cmd.waiting ?? null);
 	const colors = ["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"];
 	box.style.setProperty("--session", `var(--g-${colors.includes(cmd.color) ? cmd.color : "blue"})`);
 	const theme = cmd.theme;

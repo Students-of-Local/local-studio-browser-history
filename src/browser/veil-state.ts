@@ -11,6 +11,8 @@
  *   its client left, the tab closed): the veil goes at once, with no fade.
  * - A screenshot or a screencast (a live view or a recording) conceals it while it runs, so no
  *   capture shows it.
+ * - The agent hands the tab to the user and waits (tabs_show with wait, src/handback/): the pill
+ *   says it is the user's turn and shows Continue, and the veil never fades while it waits.
  */
 
 /** How long a session has been idle on a tab before its veil fades. Long enough that the gap
@@ -36,6 +38,8 @@ export interface VeilTab {
 	input: number;
 	/** When the last call on the tab began or ended (ms). */
 	lastActiveAt: number;
+	/** The agent waits for the user here: what it asked them to do. */
+	waiting?: string;
 }
 
 export interface VeilState {
@@ -55,12 +59,16 @@ export type VeilEvent =
 	| { type: "dropAll" }
 	/** The tab loaded a new document: the old veil went with the old one. */
 	| { type: "navigated"; tabId: number }
-	| { type: "conceal"; tabId: number; reason: "shot" | "cast"; on: boolean };
+	| { type: "conceal"; tabId: number; reason: "shot" | "cast"; on: boolean }
+	/** The agent waits for the user on the tab (`reason`), or stops waiting (no reason). */
+	| { type: "wait"; tabId: number; sessionId: string; view: VeilView; reason?: string; at: number };
 
 export type VeilEffect =
 	/** Draw (or redraw) the veil with this view; idempotent on the page side. */
-	| { kind: "show"; tabId: number; view: VeilView; interactive: boolean; concealed: boolean }
+	| { kind: "show"; tabId: number; view: VeilView; interactive: boolean; concealed: boolean; waiting?: string }
 	| { kind: "interactive"; tabId: number; on: boolean }
+	/** The pill's Continue: shown with what the user is asked to do, or gone (no reason). */
+	| { kind: "waiting"; tabId: number; reason?: string }
 	| { kind: "conceal"; tabId: number; on: boolean }
 	| { kind: "hide"; tabId: number; fade: boolean };
 
@@ -82,7 +90,7 @@ export function isConcealed(state: VeilState, tabId: number): boolean {
 export function nextWake(state: VeilState, idleMs = VEIL_IDLE_MS): number | undefined {
 	let wake: number | undefined;
 	for (const t of Object.values(state.tabs)) {
-		if (t.busy > 0) continue;
+		if (t.busy > 0 || t.waiting !== undefined) continue;
 		const at = t.lastActiveAt + idleMs;
 		if (wake === undefined || at < wake) wake = at;
 	}
@@ -139,6 +147,7 @@ export function veilStep(state: VeilState, event: VeilEvent, idleMs = VEIL_IDLE_
 					view: event.view,
 					interactive: old.input === 0,
 					concealed: isConcealed(state, event.tabId),
+					...(old.waiting !== undefined ? { waiting: old.waiting } : {}),
 				});
 			}
 			if (begin) {
@@ -160,7 +169,7 @@ export function veilStep(state: VeilState, event: VeilEvent, idleMs = VEIL_IDLE_
 		case "tick": {
 			const idle = event.idleMs ?? idleMs;
 			for (const [id, t] of Object.entries(tabs))
-				if (t.busy === 0 && event.at - t.lastActiveAt >= idle) drop(Number(id), true);
+				if (t.busy === 0 && t.waiting === undefined && event.at - t.lastActiveAt >= idle) drop(Number(id), true);
 			const s: VeilState = { tabs, concealed };
 			return { state: s, effects, wakeAt: nextWake(s, idle) };
 		}
@@ -182,7 +191,42 @@ export function veilStep(state: VeilState, event: VeilEvent, idleMs = VEIL_IDLE_
 					view: t.view,
 					interactive: t.input === 0,
 					concealed: isConcealed(state, event.tabId),
+					...(t.waiting !== undefined ? { waiting: t.waiting } : {}),
 				});
+			return next();
+		}
+		case "wait": {
+			const old = tabs[event.tabId];
+			if (event.reason === undefined) {
+				// Done waiting: the veil fades after the usual quiet time from now, unless the agent goes on.
+				if (!old || old.waiting === undefined) return next();
+				const { waiting: _done, ...rest } = old;
+				tabs[event.tabId] = { ...rest, lastActiveAt: Math.max(old.lastActiveAt, event.at) };
+				effects.push({ kind: "waiting", tabId: event.tabId });
+				return next();
+			}
+			if (!old) {
+				tabs[event.tabId] = {
+					sessionId: event.sessionId,
+					view: event.view,
+					busy: 0,
+					input: 0,
+					lastActiveAt: event.at,
+					waiting: event.reason,
+				};
+				effects.push({
+					kind: "show",
+					tabId: event.tabId,
+					view: event.view,
+					interactive: true,
+					concealed: isConcealed(state, event.tabId),
+					waiting: event.reason,
+				});
+				return next();
+			}
+			if (old.waiting === event.reason) return next();
+			tabs[event.tabId] = { ...old, waiting: event.reason };
+			effects.push({ kind: "waiting", tabId: event.tabId, reason: event.reason });
 			return next();
 		}
 		case "conceal": {

@@ -144,7 +144,7 @@ async function apply(effect: VeilEffect, late: { fired: boolean } = { fired: fal
 			// A navigation since this show read its tag gave the tab a new document and a show of its own.
 			const tagNow = late.fired ? await veilTag(tabId) : tag;
 			// Nothing is awaited from here to the inject.
-			let { interactive, concealed, view } = effect;
+			let { interactive, concealed, view, waiting } = effect;
 			if (late.fired) {
 				const now = state.tabs[tabId];
 				// No veil any more (a hide or a close came while it waited): the tag it stored goes, whatever else
@@ -158,6 +158,7 @@ async function apply(effect: VeilEffect, late: { fired: boolean } = { fired: fal
 				interactive = now.input === 0;
 				concealed = isConcealed(state, tabId);
 				view = now.view;
+				waiting = now.waiting;
 			}
 			const result = await inject(tabId, {
 				op: "show",
@@ -173,6 +174,7 @@ async function apply(effect: VeilEffect, late: { fired: boolean } = { fired: fal
 				// this inject must not undo that (PR 219's review, first-F1).
 				pointer: pointer ?? pointerShown,
 				mote: MOTE,
+				...(waiting !== undefined ? { waiting } : {}),
 			});
 			if (!result?.tag) await rememberVeilTag(tabId, undefined);
 			return;
@@ -180,6 +182,10 @@ async function apply(effect: VeilEffect, late: { fired: boolean } = { fired: fal
 		if (effect.kind === "hide") {
 			await rememberVeilTag(tabId, undefined);
 			await inject(tabId, { op: "hide", fade: effect.fade });
+			return;
+		}
+		if (effect.kind === "waiting") {
+			await inject(tabId, { op: "set", waiting: effect.reason ?? null });
 			return;
 		}
 		await inject(
@@ -352,6 +358,30 @@ export function veilSessionGone(sessionId: string): void {
 	void dispatch({ type: "dropSession", sessionId });
 }
 
+/**
+ * The agent waits for the user on one of its tabs (src/handback/worker.ts): the pill says it is their turn, with
+ * `reason` and a Continue button, until a call with no reason ends it. No veil, no pill: the panel's card still shows.
+ */
+export async function veilWait(session: BrowserSession, tabId: number, reason: string | undefined): Promise<void> {
+	if (!isAgentSession(session.id) || !(await veilOn())) return;
+	if (reason === undefined && !state.tabs[tabId]?.waiting) return;
+	await dispatch({
+		type: "wait",
+		tabId,
+		sessionId: session.id,
+		view: veilViewFor(session.record),
+		reason,
+		at: Date.now(),
+	});
+}
+
+const continueHandlers = new Set<(tabId: number) => void>();
+
+/** The user pressed Continue on a tab's pill. */
+export function onVeilContinue(handler: (tabId: number) => void): void {
+	continueHandlers.add(handler);
+}
+
 /** The user clicked "Take over": the same as dragging the tab out of the agent's group. */
 async function takeOver(tabId: number): Promise<void> {
 	await dispatch({ type: "drop", tabId });
@@ -435,12 +465,18 @@ export function startVeil(logger?: (line: string) => void): void {
 	});
 	chrome.runtime.onMessage.addListener((message, sender) => {
 		const m = message as { type?: unknown; action?: unknown } | undefined;
-		if (m?.type !== "polycarp-veil" || m.action !== "take-over") return;
+		if (m?.type !== "polycarp-veil" || (m.action !== "take-over" && m.action !== "continue")) return;
 		// Only the veil's own content script, in a page's top frame, on a tab that has a veil.
 		const tabId = sender.tab?.id;
 		if (sender.id !== chrome.runtime.id || tabId === undefined || sender.frameId !== 0) return;
 		if (sender.url?.startsWith("chrome-extension://") || !state.tabs[tabId]) return;
-		void takeOver(tabId).catch(() => undefined);
+		if (m.action === "take-over") {
+			void takeOver(tabId).catch(() => undefined);
+			return;
+		}
+		// Continue counts only while the agent waits on this tab.
+		if (state.tabs[tabId].waiting === undefined) return;
+		for (const handler of continueHandlers) handler(tabId);
 	});
 }
 

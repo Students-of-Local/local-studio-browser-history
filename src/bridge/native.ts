@@ -30,6 +30,7 @@ import { BrowserSession, listSessions, pruneSessions, type SessionMeta, sanitize
 import { probeUserScripts } from "../browser/userscripts-status.js";
 import { veilBegin, veilEnd, veilSessionGone } from "../browser/veil.js";
 import { COMMUNITY_STATUS_KEY } from "../community/status.js";
+import { cancelHandback, cancelHandbacksFor, handleHandback, startHandback } from "../handback/worker.js";
 import { handleThreads } from "../threads/bridge.js";
 import { resyncMirror, startThreadMirror } from "../threads/mirror.js";
 import { asBuildInfo, BUILD, type BuildInfo } from "../update/build.js";
@@ -265,6 +266,8 @@ async function onClientDisconnected(clientId: string): Promise<void> {
 	await stopScreencastsOwnedBy(clientId).catch(() => undefined);
 	// ask_user: a question from a client that left has nobody to answer to.
 	cancelQuestionsFor(clientId);
+	// A hand-back's Continue has nobody to hear it either.
+	cancelHandbacksFor(clientId);
 	// The files tool: content half moved for a client that left is dropped.
 	dropTransfersForClient(clientId);
 	// A restarted harness (same session key) can connect before its old socket closes; the
@@ -751,6 +754,39 @@ async function runAsk(state: ClientState, req: HostForwardedRequest): Promise<vo
 	}
 }
 
+/**
+ * handback and handback.cancel (src/handback/worker.ts): the agent waits for the user's Continue on one of its tabs.
+ * Like ask_user it runs beside the client's queue, so the agent's other calls are not held up behind a person.
+ */
+async function runHandback(state: ClientState, req: HostForwardedRequest): Promise<void> {
+	const respond = (r: { result?: unknown; error?: { code: string; message: string } }) =>
+		send({ type: "response", clientId: req.clientId, id: req.id, ...r });
+	try {
+		if (req.method === "handback.cancel")
+			return respond({ result: { cancelled: cancelHandback(state.clientId, req.params?.waitId) } });
+		await gateReady;
+		if (installGate())
+			return respond({
+				error: {
+					code: ERR.NOT_SENT,
+					message:
+						"Tychicus is installing an update and reloads in a few seconds. Call tabs_show again once the bridge reconnects.",
+				},
+			});
+		if (!(await isBridgeEnabled()))
+			return respond({
+				error: { code: ERR.DISABLED, message: "The Tychicus bridge is disabled in Settings > Agents." },
+			});
+		const session = await withTimeout(getSession(state), 15000, "session open");
+		// The client may have hung up during the awaits; nobody would hear the Continue.
+		if (clients.get(state.clientId) !== state) return;
+		respond({ result: await handleHandback({ clientId: state.clientId, session }, req.params ?? {}) });
+	} catch (err) {
+		const { error } = classify(err, req.method);
+		respond({ error: error.toRpc() });
+	}
+}
+
 /** Subscription sign-in frames go to the relay (src/subscriptions/relay.ts); "disconnected" when the host goes. */
 let subscriptionHandler: ((message: HostSubscription | "disconnected") => void) | undefined;
 
@@ -1087,6 +1123,10 @@ function onHostMessage(message: HostToExt): void {
 				void runAsk(state, message);
 				return;
 			}
+			if (message.method === "handback" || message.method === "handback.cancel") {
+				void runHandback(state, message);
+				return;
+			}
 			const current = state;
 			// A handle_dialog holds its box's Cancel from here, queued behind other calls included (dialog-guard.ts).
 			const answer =
@@ -1178,6 +1218,7 @@ function connect(): void {
 		}
 		clients.clear();
 		cancelQuestionsFor(undefined);
+		cancelHandbacksFor(undefined);
 		void stopScreencastsOwnedBy(undefined).catch(() => undefined);
 		scheduleReconnect(unregistered && hostNameIndex > 0);
 	});
@@ -1321,6 +1362,7 @@ export function startBridge(): void {
 	// Injected code has no runtime providers in the worker; echo so callers can probe the shim.
 	setCdpMessageHandler(async (message) => ({ echo: message }));
 	startAskBridge();
+	startHandback();
 	chrome.alarms.create(ALARM_NAME, { periodInMinutes: 0.5 });
 	chrome.alarms.onAlarm.addListener((alarm) => {
 		if (alarm.name === ALARM_NAME) {

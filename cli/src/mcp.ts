@@ -8,6 +8,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { ASK_USER_INSTRUCTION, registerAskUser } from "./ask.ts";
+import { waitForUser } from "./handback.ts";
 import { type FilesTool, registerFiles } from "./files-tool.ts";
 import { formatNodes, formatSnapshot, oneLine, type SnapNode } from "../../src/bridge/format.ts";
 import { FILE_ASK_TIMEOUT_MS } from "../../src/bridge/protocol.ts";
@@ -632,10 +633,15 @@ export function createMcpServer(options: McpServerOptions = {}): { server: McpSe
 		"tabs_show",
 		{
 			title: "Show a tab to the user",
-			description: "Bring one of your tabs in front of the user. This is the only tool that changes what the user sees: use it only when they asked to see the page or must act themselves (sign in, captcha, payment). Example: {\"tabId\":123}",
-			inputSchema: { tabId },
+			description: "Bring one of your tabs in front of the user. This is the only tool that changes what the user sees: use it only when they asked to see the page or must act themselves (sign in, captcha, payment). Example: {\"tabId\":123}. With wait:true and a reason, nothing takes focus and the call returns when the user presses Continue.",
+			inputSchema: {
+				tabId,
+				wait: z.boolean().optional().describe("Wait for Continue"),
+				reason: z.string().optional().describe("What to do there"),
+			},
 		},
-		(args) => call("tabs.show", args),
+		(args, extra) =>
+			args.wait ? waitForUser(client, { tabId: args.tabId, reason: args.reason }, extra) : call("tabs.show", { tabId: args.tabId }),
 	);
 	server.registerTool(
 		"navigate",

@@ -579,6 +579,8 @@ export const BRIDGE_METHODS = [
 	"files.pdf.begin",
 	"ask_user",
 	"ask_user.cancel",
+	"handback",
+	"handback.cancel",
 	"permission.respond",
 	"permission.allow",
 	"permission.setMode",

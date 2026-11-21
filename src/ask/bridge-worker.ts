@@ -11,6 +11,7 @@
  * can't write an answer.
  */
 
+import { showWaiting } from "../attention/badge.js";
 import { ERR, type RpcError } from "../bridge/protocol.js";
 import {
 	ASK_BRIDGE_TIMEOUT_MS,
@@ -74,23 +75,11 @@ function editPending(edit: (list: PendingQuestion[]) => PendingQuestion[]): Prom
 		const list = (data[PENDING_QUESTIONS_KEY] as PendingQuestion[] | undefined) ?? [];
 		const next = edit(list);
 		await chrome.storage.session.set({ [PENDING_QUESTIONS_KEY]: next });
-		await showBadge(next);
+		// One badge for everything waiting on the user: questions and hand-backs (src/attention/badge.ts).
+		await showWaiting("questions", next);
 	});
 	listOps = run.catch(() => undefined);
 	return run;
-}
-
-async function showBadge(list: PendingQuestion[]): Promise<void> {
-	const action = chrome.action;
-	try {
-		await action.setBadgeBackgroundColor?.({ color: "#1b4ed8" });
-		await action.setBadgeText?.({ text: list.length ? String(list.length) : "" });
-		await action.setTitle?.({
-			title: list.length ? `Tychicus: ${list[0].agentName} is asking you a question` : "Tychicus",
-		});
-	} catch {
-		// A badge is a hint; the panel shows the question either way.
-	}
 }
 
 /**
