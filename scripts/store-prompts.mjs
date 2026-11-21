@@ -15,9 +15,12 @@ export function storeVendorPrompts(source, libraries) {
 		],
 		[
 			`- Import ES modules from esm.sh: <script type="module">import X from 'https://esm.sh/pkg';</script>`,
-			`- Import only these bundled libraries, by name: ${specifiers.join(", ")}; for example <script type="module">import * as XLSX from 'xlsx';</script>. Nothing loads from outside the extension.`,
+			`- Import only these bundled libraries, by name: ${specifiers.join(", ")}; for example <script type="module">import * as XLSX from 'xlsx';</script>. Nothing loads from outside the extension, so an artifact that uses them runs only inside Tychicus; say so when the user downloads one.`,
 		],
-		['- Use Tailwind CDN: <script src="https://cdn.tailwindcss.com"></script>', `- Use Tailwind: ${tailwind.use}`],
+		[
+			'- Use Tailwind CDN: <script src="https://cdn.tailwindcss.com"></script>',
+			`- Use Tailwind CSS v${tailwind.version}: ${tailwind.use} There is no tailwind.config; set theme values in <style type="text/tailwindcss">@theme { --color-brand: #2563eb; }</style>.`,
+		],
 	];
 	let out = source;
 	for (const [from, to] of exact) {
