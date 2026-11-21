@@ -178,6 +178,9 @@ extraPages["/nav-tick"] = `<!doctype html><title>Polycarp tick</title><p id="m">
 extraPages["/nav-onload"] = `<!doctype html><title>Polycarp onload</title><p id="m">Placeholder</p>
 <script>addEventListener("load", () => { const c = new MessageChannel(); c.port1.onmessage = () => { m.textContent = "Drawn on load 5512"; }; c.port2.postMessage(0); });</script>`;
 // The fetch ends about when the page does; what it brings is drawn 150 ms later, with no request or change between.
+// The first navigate of a session (review second-F4): a fetch sent while the page parses, answered 300 ms later.
+extraPages["/nav-first-fetch"] = `<!doctype html><title>Polycarp first fetch</title><p id="m">Placeholder</p>
+<script>fetch("/settle/data300").then((r) => r.text()).then((t) => { m.textContent = t; });</script>`;
 extraPages["/nav-fetched"] = `<!doctype html><title>Polycarp fetched</title><p id="m">Placeholder</p>
 <script>fetch("/settle/ok").then(() => setTimeout(() => { m.textContent = "Fetched then drawn 6623"; }, 150));</script>`;
 extraPages["/nav-hop"] = `<!doctype html><title>Polycarp hop</title><p>Leaving 3390</p>
@@ -198,6 +201,7 @@ function serveSettle(req, res) {
 			res.writeHead(200, { "content-type": type });
 			res.end(body);
 		}, ms).unref();
+	if (path === "/settle/data300") return later(300, "text/plain", "First data 9956");
 	if (path === "/settle/slow") return later(700, "text/plain", "Late content 8181");
 	if (path === "/settle/suggest") return later(400, "application/json", JSON.stringify(["Paris, France", "Parma, Italy"]));
 	if (path === "/settle/poll") return later(60_000, "text/plain", "poll");
@@ -2650,6 +2654,22 @@ test("D56: navigate then get_page_text at once reads the new page as its scripts
 		const text = await tool("get_page_text");
 		assert.match(text, want, `${path}: ${text}`);
 		assert.doesNotMatch(text, /Old page 1111|Placeholder|Leaving 3390/, `${path}: ${text}`);
+	}
+});
+
+test("D56: a session's first navigate waits for a fetch the page sent while it parsed (review second-F4)", async () => {
+	await connected();
+	const project = join(home, "projects", "first-fetch");
+	mkdirSync(project, { recursive: true });
+	execFileSync("git", ["init", "-q", project]);
+	const agent = await agentIn(project);
+	try {
+		await on(agent, "navigate", { url: `${pageUrl}nav-first-fetch` });
+		const text = await on(agent, "get_page_text");
+		assert.match(text, /First data 9956/, text);
+		assert.doesNotMatch(text, /Placeholder/, text);
+	} finally {
+		await agent.close();
 	}
 });
 

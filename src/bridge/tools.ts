@@ -384,6 +384,9 @@ async function openCapturedTab(
 		: undefined;
 	if (failed) console.warn("[Bridge] capture did not start on a new tab:", failed);
 	if (!url) return { tab, ready: true, note };
+	// The settle counts requests from the first byte of the first load, so a fetch the page sends while it parses holds
+	// navigate's wait (review second-F4). Capture's Network.enable usually did this already; this does not depend on it.
+	await settleStart(tabId);
 	try {
 		const { timedOut, committed } = await navigateTabDetailed(tabId, url, { timeoutMs });
 		return { tab, ready: !timedOut, committed, note };
@@ -838,10 +841,11 @@ export const handlers: Record<string, Handler> = {
 			// The approval page is blanked before anything is run in it.
 			const landed = await refuseGuardedLanding(ctx, tabId, await tabSummary(tabId, !ready));
 			if (!ready) return { ...landed, ...(note ? { note } : {}), changes: { page: STILL_LOADING } };
-			// The tab is new: settleStart had none to turn Network on in, so the wait does.
+			// openCapturedTab turned Network on before the URL loaded. When capture could not start (note), the
+			// debugger may not have either: then the requests were not counted, and the short loaded window is not used.
 			const settled = await settleAfter(ctx, tabId, since, landed, {
 				watched: false,
-				loaded: true,
+				loaded: !note,
 				// A 204 or a download loads nothing into the blank tab.
 				changes: async () => ({
 					...(await tabChanges(tabs, ctx.session.tabIds, tabUrl)),

@@ -1914,7 +1914,10 @@ from the first probe and polled in 100 ms steps; every transport hop together co
 (`docs/verification/speed-trace.md`). Worst of 3 runners after: firstText 92 ms, fill 35 ms, click 63 ms.
 
 **Limits.** A page that redraws more than 50 ms after load with no request and no DOM change in between (a plain
-`setTimeout` of 100 ms) can be read before it redraws; D41's 300 ms window had the same limit at 300 ms. Click stays
+`setTimeout` of 100 ms) can be read before it redraws; D41's 300 ms window had the same limit at 300 ms. A click or
+fill whose input handler schedules its reaction 20 to 60 ms out (a `setTimeout` of 30 ms, with no request, DOM change
+or loader before it) now returns before that reaction; with D50's 60 ms idle window it was waited for. The change
+report then says nothing changed, and the next read shows the reaction. Click stays
 at about 60 ms: Chromium holds the page's tasks after a discrete input until a frame, and a hidden tab draws none
 (`DeferRendererTasksAfterInput`, measured in the trace).
 
