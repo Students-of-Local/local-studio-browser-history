@@ -176,13 +176,19 @@ interface ProbeReport {
 	parsing: boolean;
 	busy: string;
 	complete: boolean;
+	/**
+	 * Ms since the page's last data request ended (a fetch or XHR, or a script, stylesheet or frame that finished after
+	 * DOMContentLoaded), by its own Resource Timing; null when it made none. What such a request brings is often drawn
+	 * a task or a timer later, so a short window counts only once that end is a full quiet window old (D56).
+	 */
+	lateAgo: number | null;
 }
 type ProbeResult = ProbeReport | { guarded: true };
 
 /**
  * Page side: leave a MutationObserver in the document once, and say how long ago the page last
- * changed, whether it is still parsing, whether a loading marker is on screen and whether the load
- * event has fired. Self-contained.
+ * changed, whether it is still parsing, whether a loading marker is on screen, whether the load
+ * event has fired and when its last data request ended. Self-contained.
  * On a guarded page (the approval address, #94) it touches nothing and says so: a navigation can
  * commit there after the loop last read the tab's URL.
  * `drain`: look only after the page has run what is already queued (a MessageChannel turn, then a zero-delay timer),
@@ -264,11 +270,25 @@ function settleProbe(
 			}
 			busy = el.getAttribute("aria-busy") === "true" ? "aria-busy" : "loading placeholder";
 		}
+		const complete = document.readyState === "complete";
+		let lateAgo: number | null = null;
+		if (complete && drain) {
+			const nav = performance.getEntriesByType("navigation")[0] as PerformanceNavigationTiming | undefined;
+			const dcl = nav?.domContentLoadedEventStart ?? 0;
+			let end = -1;
+			for (const e of performance.getEntriesByType("resource") as PerformanceResourceTiming[]) {
+				const data = e.initiatorType === "fetch" || e.initiatorType === "xmlhttprequest";
+				const late = /^(script|link|css|iframe|frame)$/.test(e.initiatorType) && e.responseEnd >= dcl;
+				if ((data || late) && e.responseEnd > end) end = e.responseEnd;
+			}
+			if (end >= 0) lateAgo = Math.max(0, Math.round(now - end));
+		}
 		return {
 			since: Math.round(now - seen.last),
 			parsing: document.readyState === "loading",
 			busy,
-			complete: document.readyState === "complete",
+			complete,
+			lateAgo,
 		};
 	};
 	if (!drain) return report();
@@ -398,7 +418,10 @@ export async function settle(
 				} else if (page !== "refused" && !("guarded" in page)) {
 					// The probe's clock is the page's: its "since" is measured at the page, about when the call went out.
 					lastActivity = Math.max(lastActivity, at - page.since);
-					loaded = page.complete;
+					// The short window is for a page done loading whose data requests, if any, ended a full window ago.
+					const lateAgo = typeof page.lateAgo === "number" && Number.isFinite(page.lateAgo) ? page.lateAgo : null;
+					if (lateAgo !== null) lastActivity = Math.max(lastActivity, at - lateAgo);
+					loaded = page.complete === true && (lateAgo === null || lateAgo >= quietMs);
 					if (page.parsing || page.busy) {
 						waitingOn = "loading";
 						lastActivity = Date.now();

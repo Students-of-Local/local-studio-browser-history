@@ -330,9 +330,10 @@ test("an idle settle returns early on a quiet page, and a tab opened from the pa
 		[chrome.webNavigation.onCreatedNavigationTarget, { sourceTabId: tabId, tabId: 900, url: "https://example.com/quiet" }],
 		[chrome.tabs.onCreated, { id: 901, openerTabId: tabId }],
 	]) {
+		// Inside the idle window: a tab that opens after it is a reaction the idle settle does not wait for (D50's limit).
 		setTimeout(() => {
 			for (const fn of event.listeners) fn(arg);
-		}, 20);
+		}, IDLE_MS / 2);
 		const opened = await settle(tabId, { quietMs: 300, capMs: 2500, idleMs: IDLE_MS });
 		assert.equal(opened.settled, true, JSON.stringify(opened));
 		assert.ok(!opened.idle, `a new tab was not a reaction: ${JSON.stringify(opened)}`);

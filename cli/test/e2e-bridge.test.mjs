@@ -170,6 +170,24 @@ extraPages["/faded"] = `<!doctype html><title>Polycarp faded</title>
 <div style="visibility:hidden"><div class="loading" style="width:40px;height:40px"></div></div>
 <div class="skeleton-row" style="position:absolute;left:-9999px;top:10px;width:200px;height:20px"></div>
 <button onclick="document.getElementById('r').textContent='done'">Do it</button><p id="r">idle</p>`;
+// D56: pages that change after DOMContentLoaded, each in a way the navigate settle must wait for. A read right after
+// navigate shows the change, never the page before it or the placeholder.
+extraPages["/nav-old"] = `<!doctype html><title>Polycarp old</title><p>Old page 1111</p>`;
+extraPages["/nav-tick"] = `<!doctype html><title>Polycarp tick</title><p id="m">Placeholder</p>
+<script>document.addEventListener("DOMContentLoaded", () => setTimeout(() => { m.textContent = "Swapped 4471"; }, 0));</script>`;
+extraPages["/nav-onload"] = `<!doctype html><title>Polycarp onload</title><p id="m">Placeholder</p>
+<script>addEventListener("load", () => { const c = new MessageChannel(); c.port1.onmessage = () => { m.textContent = "Drawn on load 5512"; }; c.port2.postMessage(0); });</script>`;
+// The fetch ends about when the page does; what it brings is drawn 150 ms later, with no request or change between.
+extraPages["/nav-fetched"] = `<!doctype html><title>Polycarp fetched</title><p id="m">Placeholder</p>
+<script>fetch("/settle/ok").then(() => setTimeout(() => { m.textContent = "Fetched then drawn 6623"; }, 150));</script>`;
+extraPages["/nav-hop"] = `<!doctype html><title>Polycarp hop</title><p>Leaving 3390</p>
+<script>addEventListener("load", () => setTimeout(() => location.replace("/nav-landed"), 0));</script>`;
+extraPages["/nav-landed"] = `<!doctype html><title>Polycarp landed</title><p>Landed 8845</p>`;
+// D56: a click and a fill whose page answers a task later (a zero-delay timer, a MessageChannel message).
+extraPages["/next-task"] = `<!doctype html><title>Polycarp next task</title><button id="b">Mark done</button>
+<input id="i" aria-label="Echo field"><p id="r">pending</p><p id="o">no echo</p>
+<script>b.onclick = () => setTimeout(() => { r.textContent = "Done 5150"; }, 0);
+i.oninput = () => { const c = new MessageChannel(); c.port1.onmessage = () => { o.textContent = "Echo " + i.value; }; c.port2.postMessage(0); };</script>`;
 
 /** The settle pages' data: slow on purpose, and a long poll that answers only after the run. */
 function serveSettle(req, res) {
@@ -183,6 +201,8 @@ function serveSettle(req, res) {
 	if (path === "/settle/slow") return later(700, "text/plain", "Late content 8181");
 	if (path === "/settle/suggest") return later(400, "application/json", JSON.stringify(["Paris, France", "Parma, Italy"]));
 	if (path === "/settle/poll") return later(60_000, "text/plain", "poll");
+	// A page whose first byte comes 400 ms after the request: the old page stays in the tab until then.
+	if (path === "/settle/page-slow") return later(400, "text/html", "<!doctype html><title>Polycarp slow</title><p>New page 7734</p>");
 	if (path === "/settle/nocontent") {
 		res.writeHead(204);
 		return res.end();
@@ -2613,6 +2633,35 @@ test("settle: content drawn after the load, a debounced autocomplete and a skele
 	await tool("click", { ref: refFor(await tool("read_page", { filter: "interactive" }), "Load orders") });
 	const text = await tool("get_page_text");
 	assert.match(text, /Order 5521 shipped/);
+});
+
+test("D56: navigate then get_page_text at once reads the new page as its scripts drew it, never the old one", async () => {
+	const cases = [
+		["nav-tick", /Swapped 4471/],
+		["nav-onload", /Drawn on load 5512/],
+		["nav-fetched", /Fetched then drawn 6623/],
+		["settle/page-slow", /New page 7734/],
+		["nav-hop", /Landed 8845/],
+	];
+	for (const [path, want] of cases) {
+		await go("nav-old");
+		assert.match(await tool("get_page_text"), /Old page 1111/);
+		await tool("navigate", { url: `${pageUrl}${path}` });
+		const text = await tool("get_page_text");
+		assert.match(text, want, `${path}: ${text}`);
+		assert.doesNotMatch(text, /Old page 1111|Placeholder|Leaving 3390/, `${path}: ${text}`);
+	}
+});
+
+test("D56: a click or fill whose page answers a task later reports that change, and the next read sees it", async () => {
+	await go("next-task");
+	const page = await tool("read_page", { filter: "interactive" });
+	const clicked = JSON.parse(await tool("click", { ref: refFor(page, "Mark done") }));
+	assert.ok(clicked.effect.includes("dom"), JSON.stringify(clicked));
+	assert.match(await tool("get_page_text"), /Done 5150/);
+	const filled = JSON.parse(await tool("fill", { ref: refFor(page, "Echo field"), value: "abc" }));
+	assert.ok(filled.effect.includes("dom"), JSON.stringify(filled));
+	assert.match(await tool("get_page_text"), /Echo abc/);
 });
 
 test("settle: a box the page opens while it settles is the action's effect: ok with a note, never dialog_open", async () => {
