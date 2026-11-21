@@ -8,6 +8,8 @@
  * - every OAuth grant (access and refresh tokens) and every client registration, and the signing key, which ends approval
  *   forms and authorization codes issued before (codes live in serve's memory, bound to the key);
  * - every waiting connect code: approval codes, and a hub's device codes;
+ * - every hub device credential, when this folder holds a hub: a manager device sends its credential over the same tunnel, and
+ *   Tychicus can't tell which crossed it. A running hub closes their links within a second; each device links again;
  * - every static `tkr_` token but link tokens. A static token never passes through `/authorize`, so the passcode leak doesn't
  *   reach it, but any `/mcp` request relayed through the second connector carried its bearer token, and Tychicus can't tell
  *   which tokens were used through the tunnel. A link token is refused on any serve with a public route, so none that works
@@ -24,7 +26,7 @@
 import { closeSync, constants, existsSync, fstatSync, openSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { configHome } from "./files.ts";
-import { clearConnectCodes, liveConnectCodes } from "./hub-state.ts";
+import { clearConnectCodes, devicesFile, devicesReadable, hubFile, liveConnectCodes, loadDevices, loadHubConfig, removeAllDevices } from "./hub-state.ts";
 import { clearApprovalCodes, configDir, liveApprovalCodes, oauthCounts, passcodeMatches, passcodeProblem, resetOAuth } from "./oauth.ts";
 import { loadTokens, revokeStaticTokens, tokenLive } from "./remote.ts";
 import { askYes, closeInput, interactiveTerminal } from "./remote-guide.ts";
@@ -109,8 +111,8 @@ export interface ResetOptions {
 	yes: boolean;
 }
 
-/** What to do next, for an agent: the shape `remote fix` reports. */
-type Next = { kind: "run_command"; command: string };
+/** What to do next, for an agent: the shape `remote fix` reports. `relink` names each hub device to link again, with the command that makes its code. */
+type Next = { kind: "run_command"; command: string; message?: string; relink?: { device: string; command: string }[] };
 
 /** How many of each the reset ended. */
 interface Ended {
@@ -119,6 +121,7 @@ interface Ended {
 	approvalCodes: number;
 	deviceCodes: number;
 	staticRevoked: number;
+	devices: { id: string; name: string; manage: boolean }[];
 }
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -157,7 +160,7 @@ export async function remoteReset(options: ResetOptions): Promise<number> {
 		if (!sure) return refuse("declined", "Stopped: you said no.");
 	}
 
-	const ended: Ended = { clients: 0, grants: 0, approvalCodes: 0, deviceCodes: 0, staticRevoked: 0 };
+	const ended: Ended = { clients: 0, grants: 0, approvalCodes: 0, deviceCodes: 0, staticRevoked: 0, devices: [] };
 	const failed: { step: string; detail: string }[] = [];
 	const step = (name: string, fn: () => void) => {
 		try {
@@ -179,6 +182,9 @@ export async function remoteReset(options: ResetOptions): Promise<number> {
 	});
 	step("static_tokens", () => {
 		ended.staticRevoked = revokeStaticTokens();
+	});
+	step("hub_devices", () => {
+		ended.devices = removeAllDevices().map((d) => ({ id: d.id, name: d.name, manage: d.manage }));
 	});
 
 	// The read-back: a fresh read of every file, whatever the steps reported.
@@ -211,12 +217,29 @@ export async function remoteReset(options: ResetOptions): Promise<number> {
 		const still = live.filter((t) => t.kind !== "link");
 		return still.length ? `${plural(still.length, "static token")} still live: ${still.map((t) => t.id).join(", ")}` : undefined;
 	});
+	check("hub_devices", () => {
+		if (!existsSync(hubFile()) && !existsSync(devicesFile())) return undefined;
+		// A file the hub can't read keeps its links open (it is not a revocation), so it isn't proof either.
+		if (!devicesReadable()) return `${devicesFile()} can't be read, and a running hub keeps its links while it can't`;
+		const still = loadDevices().devices;
+		return still.length ? `${plural(still.length, "hub device")} still enrolled: ${still.map((d) => d.name).join(", ")}` : undefined;
+	});
 
 	const ok = failed.length === 0 && left.length === 0;
 	// Done: each assistant connects again with a one-time approval code. Not done: the same reset again, which is safe to repeat.
 	const next: Next = ok ? { kind: "run_command", command: `${COMMAND_NAME} token approval-code${options.json ? " --json" : ""}` } : { kind: "run_command", command: again("", true) };
+	if (ok && ended.devices.length) {
+		let hubUrl = "<hub url>";
+		try {
+			hubUrl = loadHubConfig()?.publicUrl ?? hubUrl;
+		} catch {
+			/* the hub's file is wrong: the person knows its address */
+		}
+		next.relink = ended.devices.map((d) => ({ device: d.name, command: `${COMMAND_NAME} hub code --name ${shellQuote(d.name)}${d.manage ? " --manage" : ""}` }));
+		next.message = `Link each removed device again: run its command here, then on that device ${COMMAND_NAME} link ${hubUrl} --code <code>.`;
+	}
 	const message = ok
-		? "The passcode is replaced, and every grant, client registration, connect code and static token is ended and read back. Every assistant must connect again with a new connect code."
+		? `The passcode is replaced, and every grant, client registration, connect code${ended.devices.length ? ", hub device" : ""} and static token is ended and read back. Every assistant must connect again with a new connect code${ended.devices.length ? ", and every device must link again" : ""}.`
 		: `Reset isn't complete: ${[...failed.map((f) => `${f.step} failed (${f.detail})`), ...left.map((l) => `${l.name}: ${l.detail}`)].join("; ")}. Run ${COMMAND_NAME} remote reset again before the tunnel comes back.`;
 	if (options.json) {
 		printReport({ ok, state: ok ? "done" : "failed", message, ended, kept: { linkTokens: linkKept }, failed, left, next });
@@ -228,9 +251,14 @@ export async function remoteReset(options: ResetOptions): Promise<number> {
 	}
 	if (!failed.some((f) => f.step === "approval_codes" || f.step === "device_codes")) say(`${sym.ok} Ended ${plural(ended.approvalCodes + ended.deviceCodes, "waiting connect code")}.`);
 	if (!failed.some((f) => f.step === "static_tokens")) say(`${sym.ok} Revoked ${plural(ended.staticRevoked, "static token")}${linkKept ? `; kept ${plural(linkKept, "link token")}, which no public route accepts` : ""}.`);
+	if (!failed.some((f) => f.step === "hub_devices") && ended.devices.length) say(`${sym.ok} Removed ${plural(ended.devices.length, "hub device")}: ${ended.devices.map((d) => d.name).join(", ")}. A running hub closes their links within a second.`);
 	if (ok) {
 		say(`${sym.ok} ${message} A running serve refuses the old tokens at once and closes their sessions within a second.`);
 		say(`  Connect each assistant again: ${next.command}`);
+		if (next.relink) {
+			say(`  ${next.message}`);
+			for (const r of next.relink) say(`    ${r.device}: ${r.command}`);
+		}
 	} else console.error(`${sym.fail} ${message}`);
 	return ok ? EXIT_RESET_DONE : EXIT_RESET_FAILED;
 }

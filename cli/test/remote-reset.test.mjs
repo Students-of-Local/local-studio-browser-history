@@ -21,6 +21,7 @@ const nodeOnly = join(root, "node-path");
 mkdirSync(nodeOnly, { recursive: true });
 symlinkSync(process.execPath, join(nodeOnly, "node"));
 const posix = process.platform !== "win32";
+const readJson = (path) => JSON.parse(readFileSync(path, "utf8"));
 
 const { passcodeMatches } = await loadTs(`export { passcodeMatches } from "@src/oauth.ts";`);
 
@@ -186,7 +187,7 @@ const MCP_HEADERS = { "content-type": "application/json", accept: "application/j
 		assert.equal(report.ok, true, r.stdout);
 		assert.equal(report.state, "done");
 		assert.deepEqual(report.next, { kind: "run_command", command: "tychicus token approval-code --json" }, "an agent knows to make a connect code");
-		assert.deepEqual(report.ended, { clients: 1, grants: 1, approvalCodes: 1, deviceCodes: 0, staticRevoked: 1 });
+		assert.deepEqual(report.ended, { clients: 1, grants: 1, approvalCodes: 1, deviceCodes: 0, staticRevoked: 1, devices: [] });
 		assert.deepEqual(report.left, []);
 		assert.ok(!r.out.includes(NEW_PASSCODE) && !r.out.includes(oldPasscode), "no passcode is printed");
 
@@ -355,4 +356,43 @@ const MCP_HEADERS = { "content-type": "application/json", accept: "application/j
 	// Run in the default folder, as `next` says, it is not refused for the folder.
 	const there = m.run(["remote", "reset", "--new-passcode-file", m.file("p2", NEW_PASSCODE, 0o600), "--yes", "--json"], { extra: { TYCHICUS_CONFIG_DIR: join(m.home, ".config", "tychicus") } });
 	assert.notEqual(JSON.parse(there.stdout).code, "config_folder", there.out);
+});
+
+(posix ? test : test.skip)("on a hub, remote reset removes every enrolled device: its credential is refused, its open link closes, and next says to link each again", async () => {
+	const { startHub, fakeDevice, tempRoot, teardown } = await import("./helpers/hub-fixture.mjs");
+	const hubRoot = tempRoot("tychicus-reset-hub-");
+	const hub = await startHub(hubRoot, "hub");
+	try {
+		// Enrolled through the hub's own /link/enroll: a device with an open link, and a manager device whose credential works.
+		const laptop = await fakeDevice(hub, "laptop");
+		const code = hub.json(["hub", "code", "--name", "admin pc", "--manage", "--json"]).code;
+		const admin = await (await fetch(`${hub.url}/link/enroll`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code, version: "9.9.9" }) })).json();
+		const managerCall = () => fetch(`${hub.url}/link/code`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${admin.deviceId}.${admin.secret}` }, body: JSON.stringify({ kind: "device" }) });
+		assert.notEqual((await managerCall()).status, 401, "the manager credential works before the reset");
+
+		// hub.json as `hub setup` writes it (the fixture serves with --public-url only): the address each device links to.
+		writeFileSync(join(hub.config, "hub.json"), JSON.stringify({ publicUrl: hub.url, port: hub.port }), { mode: 0o600 });
+		const file = join(hubRoot, "new-passcode");
+		writeFileSync(file, NEW_PASSCODE, { mode: 0o600 });
+		const r = spawnSync(process.execPath, [cli, "remote", "reset", "--new-passcode-file", file, "--yes", "--json"], { env: hub.env, encoding: "utf8", timeout: 20_000 });
+		assert.equal(r.status, 0, `${r.stdout}${r.stderr}`);
+		const report = JSON.parse(r.stdout);
+		assert.deepEqual(report.ended.devices.map((d) => [d.name, d.manage]).sort(), [["admin pc", true], ["laptop", false]]);
+		assert.deepEqual(report.left, []);
+		assert.deepEqual(readJson(join(hub.config, "hub-devices.json")).devices, [], "read back: no device is enrolled");
+		// In the order they enrolled; a name with a space is quoted for the shell.
+		assert.deepEqual(report.next.relink, [
+			{ device: "laptop", command: "tychicus hub code --name laptop" },
+			{ device: "admin pc", command: "tychicus hub code --name 'admin pc' --manage" },
+		]);
+		assert.match(report.next.message, new RegExp(`tychicus link ${hub.url.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} --code <code>`));
+
+		// The hub refuses the credential at once, and closes the open link within a few seconds.
+		assert.equal((await managerCall()).status, 401, "the manager credential is refused");
+		const deadline = Date.now() + 8000;
+		while (laptop.closedCode() === undefined && Date.now() < deadline) await new Promise((done) => setTimeout(done, 100));
+		assert.equal(laptop.closedCode(), 4001, "the device's open link was closed as removed");
+	} finally {
+		await teardown([() => hub.stop()], hubRoot);
+	}
 });

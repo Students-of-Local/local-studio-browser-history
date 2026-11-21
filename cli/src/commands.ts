@@ -257,7 +257,7 @@ export const COMMANDS: CommandSpec[] = [
 			{ name: "off", what: "Stop the service, close the tunnel or Funnel and remove remote.json", flags: ["--json"] },
 			{
 				name: "reset",
-				what: "After a tunnel token leaked: set the passcode from an owner-only file and end every OAuth grant, client, connect code and static token (a relayed /mcp request may have carried one; link tokens stay, no public route takes them). Asks first in a terminal; elsewhere and with --json it needs --yes. 0 done and read back, 1 left, 2 refused or not confirmed",
+				what: "After a tunnel token leaked: set the passcode from an owner-only file and end every OAuth grant, client, connect code, hub device credential and static token (a relayed request may have carried one, and which did can't be told; link tokens stay, no public route takes them). Asks first in a terminal; elsewhere and with --json it needs --yes. 0 done and read back, 1 left, 2 refused or not confirmed",
 				flags: ["--new-passcode-file", "--yes", "--json"],
 			},
 			{ name: "import-polycarp", what: "Move Polycarp's remote connector (same address, same sign-ins) to Tychicus, once (--dry-run to list)", flags: ["--dry-run", "--force"] },

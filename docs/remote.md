@@ -480,7 +480,13 @@ the reset again after a failure, and `token approval-code` once it is done.
 It also revokes every static `tkr_` token from `token create`. A static token never passes through
 `/authorize`, so the passcode leak doesn't reach it, but any `/mcp` request relayed through the
 second connector carried its bearer token, and Tychicus can't tell which tokens were used through
-the tunnel. Make new ones with `tychicus token create`. Link tokens stay: a serve with a public
+the tunnel. Make new ones with `tychicus token create`.
+
+On a hub (this folder has `hub.json` or `hub-devices.json`) it also removes every enrolled device, for
+the same reason: a manager device sends its credential over the same tunnel, and Tychicus can't tell
+which credentials crossed it. A running hub refuses them at once and closes their links within a
+second. The report lists the removed devices, and `next.relink` gives the `hub code` command for
+each; run it here, then `tychicus link <hub url> --code <code>` on that device. Link tokens stay: a serve with a public
 route refuses them, so none that works ever went through a tunnel, and a hub link keeps working.
 
 A running serve refuses the old tokens on the next request and closes their open sessions within
