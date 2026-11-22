@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { NATIVE_HOST_NAME, type UserScriptsStatus } from "../../src/bridge/protocol.ts";
 import { BridgeClient, listSockets } from "./client.ts";
 import { aliasFile, knownAliases, liveAlias, planMigration } from "./agent-migration.ts";
+import { ComputerClient, findHelper, HANDS_COMMAND, helperName } from "./computer.ts";
 import { harnesses, launcherBinary, launcherValid, MCP_NAME, shellJoin } from "./harness.ts";
 import { cliLauncherPath, extensionOrigins, hostTarget, installedBrowserDirs, launcherPath, launcherRunsOlder, manifestLauncherRuns, originsCurrent } from "./install.ts";
 import { EXTENSION_FILES, extensionDir, repoRoot } from "./paths.ts";
@@ -433,9 +434,34 @@ function polycarpAgentChecks(): Check[] {
 	return checks;
 }
 
+/** Which computer-use helper answers here (docs/hands-protocol.md), or that there is none. Never fails the run. */
+export async function computerCheck(timeout = 3000): Promise<Check> {
+	const found = findHelper();
+	if (!found) {
+		return {
+			id: "computer",
+			status: "warn",
+			label: "Computer use: no helper installed",
+			detail: `No ${HANDS_COMMAND}${process.platform === "darwin" ? " and no Polycarp polycarp-spaces" : ""} here, so agents get no computer_* tools. Browser tools work without it.`,
+		};
+	}
+	const client = new ComputerClient(found.path, "local");
+	try {
+		const hello = await client.hello(timeout);
+		const name = hello.serverInfo?.name ?? "an unnamed helper";
+		const version = hello.serverInfo?.version ? ` ${hello.serverInfo.version}` : "";
+		return { id: "computer", status: "ok", label: `Computer use: ${helperName(found)}, answered as ${name}${version}` };
+	} catch (err) {
+		const why = err instanceof Error ? (err.message === "timeout" ? `no answer within ${timeout / 1000} s` : err.message) : String(err);
+		return { id: "computer", status: "warn", label: `Computer use: ${helperName(found)} didn't answer`, detail: why };
+	} finally {
+		client.close();
+	}
+}
+
 export async function runDoctor(options: { json: boolean }): Promise<number> {
 	const connection = await connectionChecks();
-	const checks: Check[] = [nodeCheck(), buildCheck(), launcherCheck(), ...hostChecks(connection.holders), ...connection.checks, ...harnessChecks(), ...polycarpAgentChecks()];
+	const checks: Check[] = [nodeCheck(), buildCheck(), launcherCheck(), ...hostChecks(connection.holders), ...connection.checks, ...harnessChecks(), ...polycarpAgentChecks(), await computerCheck()];
 	const failed = checks.filter((check) => check.status === "fail").length;
 	if (options.json) {
 		process.stdout.write(`${JSON.stringify({ ok: failed === 0, version: VERSION, checks }, null, 2)}\n`);
