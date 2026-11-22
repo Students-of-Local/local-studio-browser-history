@@ -64,8 +64,18 @@ export interface ClientHello {
 		/** The project the agent works in (its git root or folder name), for the group title. */
 		project?: string;
 		version?: string;
+		/**
+		 * How capable the agent's model is (cli/src/model-tier.ts), for the "Match the model" site access mode
+		 * (docs/decisions.md, D60). Older CLIs send none; the extension treats a missing or unrecognized tier as unknown.
+		 */
+		tier?: ModelTier;
+		/** The model's name, when the client knows it (TYCHICUS_MODEL). */
+		model?: string;
 	};
 }
+
+/** "frontier" opens sites like Always allow in the "Match the model" mode; "small" and "unknown" ask first. */
+export type ModelTier = "frontier" | "small" | "unknown";
 
 export interface ClientRequest {
 	type: "request";

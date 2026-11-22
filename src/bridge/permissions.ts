@@ -1,18 +1,22 @@
 /**
  * Host permissions for bridge sessions.
  *
- * Mode "ask" (default): a harness may only navigate to hosts the user allowed.
+ * Mode "by_model" (default, docs/decisions.md D60): an agent on a frontier model opens any site, as in
+ * "allow_all"; an agent on a small or unknown model asks, as in "ask". The CLI says which in its hello
+ * (cli/src/model-tier.ts), and a client that says nothing is unknown.
+ * Mode "ask": a harness may only navigate to hosts the user allowed.
  * Unknown hosts raise a permission request that the harness shows (MCP
  * elicitation) or that the user answers in Settings > Agents. Mode "allow_all"
  * skips the check for people who trust their harness.
  */
+import type { ModelTier } from "./protocol.js";
 
 const ENABLED_KEY = "bridge_enabled";
 const MODE_KEY = "bridge_permission_mode";
 const HOSTS_KEY = "bridge_allowed_hosts";
 const PENDING_KEY = "bridge_pending_requests";
 
-export type PermissionMode = "ask" | "allow_all";
+export type PermissionMode = "by_model" | "ask" | "allow_all";
 export type PermissionDecision = "allow_once" | "allow_host" | "deny";
 
 export interface PendingRequest {
@@ -38,9 +42,22 @@ export async function setBridgeEnabled(enabled: boolean): Promise<void> {
 	await chrome.storage.local.set({ [ENABLED_KEY]: enabled });
 }
 
+/** The stored mode; nothing stored (or anything unrecognized) is "by_model". */
 export async function getPermissionMode(): Promise<PermissionMode> {
 	const data = await chrome.storage.local.get(MODE_KEY);
-	return data[MODE_KEY] === "allow_all" ? "allow_all" : "ask";
+	const stored = data[MODE_KEY];
+	return stored === "allow_all" || stored === "ask" ? stored : "by_model";
+}
+
+/** What a mode means for one client: "by_model" lets a frontier model open any site and makes the rest ask. */
+export function effectiveMode(mode: PermissionMode, tier: ModelTier | undefined): "ask" | "allow_all" {
+	if (mode !== "by_model") return mode;
+	return tier === "frontier" ? "allow_all" : "ask";
+}
+
+/** A hello's tier as the extension trusts it: anything but a known value, or none (older CLIs), is unknown. */
+export function asModelTier(value: unknown): ModelTier {
+	return value === "frontier" || value === "small" ? value : "unknown";
 }
 
 export async function setPermissionMode(mode: PermissionMode): Promise<void> {
@@ -141,9 +158,10 @@ export function isOwnExtensionUrl(url: string): boolean {
 	}
 }
 
-export async function isUrlAllowed(url: string): Promise<boolean> {
+/** `tier` is the calling client's (its hello); without one the client counts as unknown. */
+export async function isUrlAllowed(url: string, tier?: ModelTier): Promise<boolean> {
 	if (isOwnExtensionUrl(url)) return false;
-	if ((await getPermissionMode()) === "allow_all") return true;
+	if (effectiveMode(await getPermissionMode(), tier) === "allow_all") return true;
 	const host = hostOf(url);
 	if (!host) return url === "about:blank";
 	return hostAllowed(host, await getAllowedHosts());

@@ -32,6 +32,7 @@ import { VERSION } from "./version.ts";
 import { COMPUTER_INSTRUCTION, COMPUTER_STATUS_TOOL, type ComputerClient, LOCAL_COMPUTER_INSTRUCTION, LocalComputer } from "./computer.ts";
 import { COMMAND_NAME } from "./self.ts";
 import { envVar } from "./env.ts";
+import { type ModelTier, sessionTier } from "./model-tier.ts";
 import { chooseProfile, hideOutsideCore, peekClientName, SMALL_CORE, SMALL_INSTRUCTION } from "./small-profile.ts";
 import type { RosterDevice } from "./link-protocol.ts";
 
@@ -225,6 +226,8 @@ export interface McpServerOptions {
 	callCheck?: CallCheck;
 	/** "small": the core tools listed, the rest behind more_tools (cli/src/small-profile.ts). */
 	profile?: "small";
+	/** The model behind this session and its tier (model-tier.ts sessionTier), sent in the bridge hello. Unset: unknown. */
+	model?: { tier: ModelTier; model?: string };
 }
 
 /** What a session behind a hub knows about it: which device it runs on, and the hub's last roster (undefined until one arrives). */
@@ -403,6 +406,7 @@ export function createMcpServer(options: McpServerOptions = {}): { server: McpSe
 		// A name from --session or TYCHICUS_SESSION; a remote session's id is not one.
 		named: !options.session && choice.named === true,
 		project: "project" in choice ? choice.project : undefined,
+		...(options.model ? { tier: options.model.tier, ...(options.model.model ? { model: options.model.model } : {}) } : {}),
 		onEvent: (event, data) => {
 			if (event === "permission_request") void handlePermission(data);
 			// The same session under a new name: its saved files go with it.
@@ -1511,20 +1515,21 @@ export async function runMcpServer(options: { session?: string; profile?: "small
 		process.stderr.write(`[tychicus] installed native host manifests (${result.written.length} file(s))\n`);
 	}
 	const localComputer = new LocalComputer();
-	// A local model gets the small tool list unless told otherwise (D53). Its client names itself only in its first message,
-	// so that message is read before the server is built and handed on to the transport untouched.
-	const decided = options.profile || envVar("PROFILE") === "small" || envVar("PROFILE") === "full";
-	const peeked = decided ? undefined : await peekClientName(process.stdin);
-	const { profile, why } = chooseProfile({ flag: options.profile, env: envVar("PROFILE"), localModel: envVar("LOCAL_MODEL"), clientName: peeked?.clientName });
+	// A local model gets the small tool list unless told otherwise (D53), and the model's tier sets what "Match the model"
+	// site access allows (D60). The client names itself only in its first message, so that message is read before the
+	// server is built and handed on to the transport untouched.
+	const peeked = await peekClientName(process.stdin);
+	const { profile, why } = chooseProfile({ flag: options.profile, env: envVar("PROFILE"), localModel: envVar("LOCAL_MODEL"), clientName: peeked.clientName });
 	if (profile === "small" && !options.profile) process.stderr.write(`[tychicus] small tool profile: ${why} (--profile full for every tool)\n`);
-	const { server, client } = createMcpServer({ sessionFlag: options.session, localComputer, profile, serverName: options.serverName });
+	const model = sessionTier({ model: envVar("MODEL"), clientName: peeked.clientName, small: profile === "small" });
+	const { server, client } = createMcpServer({ sessionFlag: options.session, localComputer, profile, serverName: options.serverName, model });
 	process.stdin.on("end", () => localComputer.close());
 	// Community skills, about daily, in the background: many harnesses keep this server running.
 	// The whole reconciliation (skill.ts syncCommunity), not just the fetch: pulled skills lose their installed copies here too.
 	const sync = () => syncCommunity({ due: true }).catch(() => undefined);
 	void sync();
 	setInterval(sync, 6 * 60 * 60 * 1000).unref();
-	const transport = new StdioServerTransport(peeked?.stream ?? process.stdin);
+	const transport = new StdioServerTransport(peeked.stream);
 	await server.connect(transport);
 	// Connect lazily on the first call, but try once now so a missing extension is reported early.
 	client.connect().catch((err) => process.stderr.write(`[tychicus] ${err instanceof Error ? err.message : String(err)}\n`));
