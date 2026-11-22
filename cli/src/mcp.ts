@@ -20,6 +20,8 @@ import { saveCapture, type IncomingCapture } from "./captures.ts";
 import { addSource, cite, search, summary } from "./library.ts";
 import { chooseSession } from "./session-name.ts";
 import { execFileSync, spawn } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkSkill, listSkills, matchTask, readSkill, removeSkill, skillInfo, syncCommunity, writeSkill } from "./skill.ts";
@@ -32,7 +34,7 @@ import { VERSION } from "./version.ts";
 import { COMPUTER_INSTRUCTION, COMPUTER_STATUS_TOOL, type ComputerClient, LOCAL_COMPUTER_INSTRUCTION, LocalComputer } from "./computer.ts";
 import { COMMAND_NAME } from "./self.ts";
 import { envVar } from "./env.ts";
-import { type ModelTier, modelFlag, sessionTier } from "./model-tier.ts";
+import { configuredModel, launchOf, type ModelTier, type ProcessInfo, sessionTier } from "./model-tier.ts";
 import { chooseProfile, hideOutsideCore, peekClientName, SMALL_CORE, SMALL_INSTRUCTION } from "./small-profile.ts";
 import type { RosterDevice } from "./link-protocol.ts";
 
@@ -1508,23 +1510,50 @@ function registerSkillManagement(server: McpServer, library: <T>(fn: () => Promi
 	);
 }
 
-/** The `--model` the agent that started this server was launched with, from up to three parent processes. */
-function launchModel(): string | undefined {
-	if (process.platform === "win32") return undefined;
-	let pid = process.ppid;
-	for (let depth = 0; depth < 3 && pid > 1; depth++) {
-		let line: string;
-		try {
-			line = execFileSync("ps", ["-o", "ppid=,args=", "-p", String(pid)], { encoding: "utf8", timeout: 2000 }).trim();
-		} catch {
-			return undefined;
-		}
-		const [parent, ...args] = line.split(/\s+/);
-		const found = modelFlag(args);
-		if (found) return found;
-		pid = Number(parent);
+/** One process's parent and command line, from `ps`, or from CIM on Windows. */
+function readProcess(pid: number): ProcessInfo | undefined {
+	try {
+		const out =
+			process.platform === "win32"
+				? execFileSync(
+						"powershell.exe",
+						["-NoProfile", "-NonInteractive", "-Command", `$p = Get-CimInstance Win32_Process -Filter "ProcessId=${pid}"; if ($p) { "$($p.ParentProcessId) $($p.CommandLine)" }`],
+						{ encoding: "utf8", timeout: 5000, windowsHide: true },
+					)
+				: execFileSync(existsSync("/bin/ps") ? "/bin/ps" : "ps", ["-o", "ppid=,args=", "-p", String(pid)], { encoding: "utf8", timeout: 2000 });
+		const [parent, ...args] = out.trim().split(/\s+/);
+		if (!parent) return undefined;
+		return { ppid: Number(parent), args: args.map((arg) => arg.replace(/^"|"$/g, "")) };
+	} catch {
+		return undefined;
 	}
-	return undefined;
+}
+
+function readText(path: string): string | undefined {
+	try {
+		return readFileSync(path, "utf8");
+	} catch {
+		return undefined;
+	}
+}
+
+/** The model Claude Code or Codex runs, as far as this server can see it: launch flag, then env, then the client's config. */
+function clientLaunch(clientName: string | undefined): { clientModel?: string; baseUrl?: string; local: boolean } {
+	const client = clientName?.trim().toLowerCase() ?? "";
+	const claude = client.startsWith("claude");
+	const launch = launchOf(process.ppid, readProcess);
+	const config = claude
+		? configuredModel("claude", [
+				readText(join(process.cwd(), ".claude", "settings.local.json")),
+				readText(join(process.cwd(), ".claude", "settings.json")),
+				readText(join(process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"), "settings.json")),
+			])
+		: configuredModel("codex", [readText(join(process.env.CODEX_HOME || join(homedir(), ".codex"), "config.toml"))]);
+	return {
+		clientModel: launch.model || (claude ? process.env.ANTHROPIC_MODEL : undefined) || config.model,
+		baseUrl: claude ? process.env.ANTHROPIC_BASE_URL : process.env.OPENAI_BASE_URL,
+		local: launch.local || config.local,
+	};
 }
 
 export async function runMcpServer(options: { session?: string; profile?: "small" | "full"; serverName?: string } = {}): Promise<void> {
@@ -1540,14 +1569,7 @@ export async function runMcpServer(options: { session?: string; profile?: "small
 	const peeked = await peekClientName(process.stdin);
 	const { profile, why } = chooseProfile({ flag: options.profile, env: envVar("PROFILE"), localModel: envVar("LOCAL_MODEL"), clientName: peeked.clientName });
 	if (profile === "small" && !options.profile) process.stderr.write(`[tychicus] small tool profile: ${why} (--profile full for every tool)\n`);
-	const claudeClient = peeked.clientName?.trim().toLowerCase().startsWith("claude") === true;
-	const model = sessionTier({
-		model: envVar("MODEL"),
-		clientName: peeked.clientName,
-		small: profile === "small",
-		clientModel: (claudeClient ? process.env.ANTHROPIC_MODEL : undefined) || launchModel(),
-		baseUrl: process.env.ANTHROPIC_BASE_URL,
-	});
+	const model = sessionTier({ model: envVar("MODEL"), clientName: peeked.clientName, small: profile === "small", ...clientLaunch(peeked.clientName) });
 	const { server, client } = createMcpServer({ sessionFlag: options.session, localComputer, profile, serverName: options.serverName, model });
 	process.stdin.on("end", () => localComputer.close());
 	// Community skills, about daily, in the background: many harnesses keep this server running.

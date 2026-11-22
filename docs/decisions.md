@@ -1989,7 +1989,13 @@ own pages, guarded hosts (the approval page and local services) and upload quest
 The tier comes from the client's hello (`tier`, and `model` when known). `tychicus mcp` sets it with
 `sessionTier` in `cli/src/model-tier.ts`: a model named in `TYCHICUS_MODEL` (or `POLYCARP_MODEL`) decides it through
 `modelTier`; without one, a session on the small tool profile is small (checked first, so a local model run under
-Claude Code asks), Claude Code and Codex by their initialize name are frontier, and any other client is unknown. A
+Claude Code asks). Claude Code and Codex, by their initialize name, are rated by the model they run: the `--model`
+or `-m` their process (or one of its two parents) was started with, then `ANTHROPIC_MODEL`, then their own config
+(Claude Code's settings.json `model`, Codex's config.toml `model`). With none set they are frontier, since both
+default to a frontier model. Served off the vendor's endpoint (an `ANTHROPIC_BASE_URL` or `OPENAI_BASE_URL` that isn't
+Anthropic's or OpenAI's, Codex `--oss`, or a Codex `model_provider` other than OpenAI), a frontier name rates unknown.
+A `/model` switch inside a running session and a subagent on another model share the session and stay on its launch
+tier. Any other client is unknown. A
 client that sends no tier (an older CLI, the pi extension, a remote session) and any value but `frontier` or `small`
 count as unknown. A process on the bridge socket could claim `frontier`, but it could already set `allow_all` with
 `permission.setMode`, so the tier adds no trust it did not have.

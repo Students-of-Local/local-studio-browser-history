@@ -120,12 +120,61 @@ export function modelFlag(args: readonly string[]): string | undefined {
 	return undefined;
 }
 
-/** True when an Anthropic base URL points somewhere other than Anthropic, such as a local model or a proxy. */
-function offAnthropic(baseUrl: string | undefined): boolean {
+/** What started this server: the model a `--model` flag names, and whether `--oss` runs a local model. */
+export type Launch = { model?: string; local: boolean };
+
+/** One process as `ps` or Windows reports it: its parent and its command line. */
+export type ProcessInfo = { ppid: number; args: string[] };
+
+/** The launch flags of the agent that started this server, from it or up to two of its own parents. */
+export function launchOf(start: number, read: (pid: number) => ProcessInfo | undefined): Launch {
+	let pid = start;
+	let local = false;
+	for (let depth = 0; depth < 3 && pid > 1; depth++) {
+		const info = read(pid);
+		if (!info) break;
+		if (info.args.includes("--oss")) local = true;
+		const model = modelFlag(info.args);
+		if (model) return { model, local };
+		pid = info.ppid;
+	}
+	return { local };
+}
+
+/**
+ * The model a client's own config sets. Claude Code: the first settings.json text (highest precedence first) with a
+ * `model`. Codex: config.toml's top-level `model`, and `local` when `oss` is on or `model_provider` isn't OpenAI.
+ */
+export function configuredModel(client: "claude" | "codex", files: readonly (string | undefined)[]): Launch {
+	if (client === "claude") {
+		for (const text of files) {
+			if (!text) continue;
+			try {
+				const model = (JSON.parse(text) as { model?: unknown }).model;
+				if (typeof model === "string" && model.trim()) return { model: model.trim(), local: false };
+			} catch {}
+		}
+		return { local: false };
+	}
+	const text = files.find(Boolean);
+	if (!text) return { local: false };
+	const top: Record<string, string> = {};
+	for (const line of text.split(/\r?\n/)) {
+		if (/^\s*\[/.test(line)) break;
+		const match = /^\s*([A-Za-z_]+)\s*=\s*(.+?)\s*(#.*)?$/.exec(line);
+		if (match) top[match[1]] = match[2].replace(/^["']|["']$/g, "");
+	}
+	const provider = top.model_provider?.toLowerCase();
+	const local = top.oss === "true" || (provider !== undefined && provider !== "openai");
+	return top.model ? { model: top.model, local } : { local };
+}
+
+/** True when a base URL points somewhere other than the vendor's own host, such as a local model or a proxy. */
+function offVendor(baseUrl: string | undefined, vendor: string): boolean {
 	if (!baseUrl?.trim()) return false;
 	try {
 		const host = new URL(baseUrl.trim()).hostname.toLowerCase();
-		return host !== "anthropic.com" && !host.endsWith(".anthropic.com");
+		return host !== vendor && !host.endsWith(`.${vendor}`);
 	} catch {
 		return true;
 	}
@@ -133,12 +182,13 @@ function offAnthropic(baseUrl: string | undefined): boolean {
 
 /**
  * The tier an MCP session reports in its bridge hello. A model named in TYCHICUS_MODEL (or POLYCARP_MODEL) decides it.
- * Without one, a session on the small tool profile (a local model) is small. Claude Code and Codex are frontier unless
- * what they run on says otherwise: `clientModel` (ANTHROPIC_MODEL, or the `--model` the client was started with) is
- * rated like any model name, and an ANTHROPIC_BASE_URL that isn't Anthropic's makes Claude Code unknown. Every other
- * client is unknown.
+ * Without one, a session on the small tool profile (a local model) is small. Claude Code and Codex are rated by the
+ * model they run (`clientModel`: launch flag, env or their own config), and are frontier when none is set, because
+ * both default to a frontier model. A session served off the vendor's endpoint (a base URL that isn't Anthropic's or
+ * OpenAI's, or Codex `--oss` or another provider) is never frontier: its model name proves nothing. Every other client
+ * is unknown.
  */
-export function sessionTier(o: { model?: string; clientName?: string; small?: boolean; clientModel?: string; baseUrl?: string }): {
+export function sessionTier(o: { model?: string; clientName?: string; small?: boolean; clientModel?: string; baseUrl?: string; local?: boolean }): {
 	tier: ModelTier;
 	model?: string;
 } {
@@ -147,8 +197,9 @@ export function sessionTier(o: { model?: string; clientName?: string; small?: bo
 	if (o.small) return { tier: "small" };
 	const client = o.clientName?.trim().toLowerCase();
 	if (!client || !FRONTIER_CLIENTS.has(client)) return { tier: "unknown" };
+	const off = o.local === true || offVendor(o.baseUrl, client.startsWith("claude") ? "anthropic.com" : "openai.com");
 	const clientModel = o.clientModel?.trim();
-	if (clientModel) return { tier: modelTier(clientModel), model: clientModel.slice(0, 128) };
-	if (client.startsWith("claude") && offAnthropic(o.baseUrl)) return { tier: "unknown" };
-	return { tier: "frontier" };
+	const tier = clientModel ? modelTier(clientModel) : "frontier";
+	const rated: ModelTier = off && tier === "frontier" ? "unknown" : tier;
+	return clientModel ? { tier: rated, model: clientModel.slice(0, 128) } : { tier: rated };
 }

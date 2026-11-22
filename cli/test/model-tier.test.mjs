@@ -1,7 +1,7 @@
 // "Match the model" site access (docs/decisions.md, D60): which tier a model name gets, which tier an MCP session
 // reports, and that the bridge hello carries it. Local Studio's Rust copy of the rules gives the same 45 answers.
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -9,7 +9,7 @@ import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { modelFlag, modelTier, sessionTier } from "../src/model-tier.ts";
+import { configuredModel, launchOf, modelFlag, modelTier, sessionTier } from "../src/model-tier.ts";
 
 const cli = join(dirname(fileURLToPath(import.meta.url)), "..", "dist", "index.js");
 
@@ -97,13 +97,53 @@ test("sessionTier: Claude Code and Codex on a small or unknown model are not fro
 	assert.deepEqual(sessionTier({ clientName: "claude-code", baseUrl: "http://127.0.0.1:11434" }), { tier: U }, "a local endpoint");
 	assert.deepEqual(sessionTier({ clientName: "claude-code", baseUrl: "not a url" }), { tier: U });
 	assert.deepEqual(sessionTier({ clientName: "claude-code", baseUrl: "https://api.anthropic.com" }), { tier: F });
-	assert.deepEqual(sessionTier({ clientName: "codex", baseUrl: "http://127.0.0.1:11434" }), { tier: F }, "the Anthropic URL is Claude Code's only");
+	assert.deepEqual(sessionTier({ clientName: "codex", baseUrl: "https://api.openai.com/v1" }), { tier: F });
+	assert.deepEqual(sessionTier({ clientName: "codex", baseUrl: "http://127.0.0.1:11434/v1" }), { tier: U }, "Codex on a local OpenAI-style endpoint");
 	assert.deepEqual(sessionTier({ clientName: "cursor-vscode", clientModel: "opus" }), { tier: U }, "only Claude Code and Codex report a launch model");
 	assert.equal(modelFlag(["claude", "--model", "haiku"]), "haiku");
 	assert.equal(modelFlag(["codex", "exec", "-m", "gpt-6.1-sol"]), "gpt-6.1-sol");
 	assert.equal(modelFlag(["claude", "--model=sonnet"]), "sonnet");
 	assert.equal(modelFlag(["claude", "--model", "--print"]), undefined);
 	assert.equal(modelFlag(["node", "server.js"]), undefined);
+});
+
+test("sessionTier: off the vendor's endpoint a frontier name proves nothing, and a small one stays small", () => {
+	assert.deepEqual(sessionTier({ clientName: "claude-code", clientModel: "opus", baseUrl: "http://127.0.0.1:4000" }), { tier: U, model: "opus" });
+	assert.deepEqual(sessionTier({ clientName: "claude-code", clientModel: "haiku", baseUrl: "http://127.0.0.1:4000" }), { tier: S, model: "haiku" });
+	assert.deepEqual(sessionTier({ clientName: "codex", clientModel: "gpt-6.1-sol", local: true }), { tier: U, model: "gpt-6.1-sol" }, "codex --oss");
+	assert.deepEqual(sessionTier({ clientName: "codex", local: true }), { tier: U });
+	assert.deepEqual(sessionTier({ clientName: "codex", clientModel: "gpt-oss:20b", local: true }), { tier: S, model: "gpt-oss:20b" });
+});
+
+test("launchOf: walks up to three processes for --model and --oss, and stops at an unreadable one", () => {
+	const table = new Map([
+		[10, { ppid: 9, args: ["sh", "-c", "tychicus mcp"] }],
+		[9, { ppid: 8, args: ["node", "/usr/lib/codex.js", "--oss"] }],
+		[8, { ppid: 1, args: ["codex", "-m", "gpt-oss:20b"] }],
+		[20, { ppid: 19, args: ["node", "cli.js", "--model", "haiku"] }],
+		[30, { ppid: 29, args: ["a"] }],
+		[29, { ppid: 28, args: ["b"] }],
+		[28, { ppid: 27, args: ["c"] }],
+		[27, { ppid: 1, args: ["claude", "--model", "haiku"] }],
+	]);
+	const read = (pid) => table.get(pid);
+	assert.deepEqual(launchOf(10, read), { model: "gpt-oss:20b", local: true });
+	assert.deepEqual(launchOf(20, read), { model: "haiku", local: false });
+	assert.deepEqual(launchOf(30, read), { local: false }, "a fourth ancestor is too far to be the agent");
+	assert.deepEqual(launchOf(40, read), { local: false });
+	assert.deepEqual(launchOf(1, read), { local: false });
+});
+
+test("configuredModel: Claude Code settings in precedence order, Codex config.toml top-level keys", () => {
+	assert.deepEqual(configuredModel("claude", [undefined, '{"model":"haiku"}', '{"model":"opus"}']), { model: "haiku", local: false });
+	assert.deepEqual(configuredModel("claude", ["not json", '{"env":{}}', '{"model":"opus"}']), { model: "opus", local: false });
+	assert.deepEqual(configuredModel("claude", [undefined, undefined, undefined]), { local: false });
+	assert.deepEqual(configuredModel("codex", ['model = "gpt-5.1-codex-mini"\n']), { model: "gpt-5.1-codex-mini", local: false });
+	assert.deepEqual(configuredModel("codex", ['model = "qwen3"\nmodel_provider = "ollama"\n']), { model: "qwen3", local: true });
+	assert.deepEqual(configuredModel("codex", ["oss = true\n"]), { local: true });
+	assert.deepEqual(configuredModel("codex", ['[profiles.fast]\nmodel = "gpt-5.1-codex-mini"\n']), { local: false }, "a profile table is not the default");
+	assert.deepEqual(configuredModel("codex", ['model = "gpt-6.1-sol" # main\nmodel_provider = "openai"\n']), { model: "gpt-6.1-sol", local: false });
+	assert.deepEqual(sessionTier({ clientName: "claude-code", clientModel: configuredModel("claude", ['{"model":"haiku"}']).model }), { tier: S, model: "haiku" });
 });
 
 // ---- the hello the MCP server sends -------------------------------------------------------------
@@ -122,11 +162,20 @@ const frame = (m) => {
 };
 
 /** Start `mcp` as client `name` against a fake host and return the first frame it sends: its hello. */
-async function helloFrom(name, env = {}) {
+async function helloFrom(name, env = {}, { settings, launch } = {}) {
 	const dir = mkdtempSync(join(root, "sock-"));
 	chmodSync(dir, 0o700);
 	const home = join(dir, "home");
 	mkdirSync(home);
+	if (settings) {
+		mkdirSync(join(home, ".claude"));
+		writeFileSync(join(home, ".claude", "settings.json"), JSON.stringify(settings));
+	}
+	const wrapper = join(dir, "agent.mjs");
+	writeFileSync(
+		wrapper,
+		`import { spawn } from "node:child_process";\nconst child = spawn(process.execPath, [${JSON.stringify(cli)}, "mcp"], { stdio: "inherit" });\nchild.on("exit", (code) => process.exit(code ?? 0));\nprocess.on("SIGTERM", () => child.kill());\n`,
+	);
 	const path = join(dir, `${process.pid}.sock`);
 	let gotHello;
 	const hello = new Promise((resolve) => {
@@ -148,7 +197,7 @@ async function helloFrom(name, env = {}) {
 		await client.connect(
 			new StdioClientTransport({
 				command: process.execPath,
-				args: [cli, "mcp"],
+				args: launch ? [wrapper, ...launch] : [cli, "mcp"],
 				env: { HOME: home, PATH: dirname(process.execPath), TYCHICUS_SOCKET_DIR: dir, ...env },
 				stderr: "ignore",
 			}),
@@ -177,4 +226,14 @@ test("the bridge hello carries the session's tier, and the model when one is nam
 	assert.equal((await helloFrom("LM Studio")).client.tier, S, "a local-model client is small");
 	assert.equal((await helloFrom("codex-mcp-client", { TYCHICUS_LOCAL_MODEL: "1" })).client.tier, S);
 	assert.equal((await helloFrom("some-client")).client.tier, U);
+});
+
+test("the hello rates Claude Code by its --model launch flag and its settings.json model", async () => {
+	const flag = await helloFrom("claude-code", {}, { launch: ["--model", "haiku"] });
+	assert.equal(flag.client.tier, S, "claude --model haiku");
+	assert.equal(flag.client.model, "haiku");
+	assert.equal((await helloFrom("claude-code", {}, { launch: ["--model", "opus"] })).client.tier, F);
+	const settings = await helloFrom("claude-code", {}, { settings: { model: "haiku" } });
+	assert.equal(settings.client.tier, S, "model: haiku in ~/.claude/settings.json");
+	assert.equal((await helloFrom("claude-code", { ANTHROPIC_BASE_URL: "http://127.0.0.1:4000" }, { launch: ["--model", "opus"] })).client.tier, U);
 });
