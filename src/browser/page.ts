@@ -104,8 +104,9 @@ export async function runInPage<T = unknown>(
 // each one anew on every call, since each call's text held its own arguments: about 4 ms of a 5 ms evaluate. Each is now
 // a function installed once per document (and per world), under a key no page can guess before it is installed, and
 // called by that key with its arguments. The install script's text is the same for every document, so V8 takes it from
-// its compilation cache instead of compiling it again. A document that lacks the function (a new page, another world)
-// answers that it is missing, and gets the install and the call, sent together.
+// its compilation cache instead of compiling it again. A document not known to have the function (the tab's first call,
+// or the first after a navigation commits) gets the install and the call, sent together; one that answers that it is
+// missing gets them the same way.
 
 /** A page function: `source` is a function expression, self-contained, whose arguments are JSON. */
 export interface PageLib {
@@ -155,16 +156,43 @@ export function libCode(call: LibCall): string {
 	return `(${libScript(call.lib).source})(${libArgs(call.args)})`;
 }
 
+/** Keys installed in each tab's current top document, as far as this worker knows. A wrong guess costs a round trip. */
+const libTabs = new Map<number, Set<string>>();
+let libWatched = false;
+
+function libKnown(tabId: number): Set<string> {
+	if (!libWatched) {
+		libWatched = true;
+		// A new document has none of them.
+		chrome.webNavigation?.onCommitted?.addListener((d) => {
+			if (d.frameId === 0) libTabs.delete(d.tabId);
+		});
+		chrome.tabs?.onRemoved?.addListener((id) => libTabs.delete(id));
+	}
+	let known = libTabs.get(tabId);
+	if (!known) {
+		known = new Set();
+		libTabs.set(tabId, known);
+	}
+	return known;
+}
+
 /** Run a page function in the tab's top document: by its key when the document has it, else installed and run. */
 export async function runLib<T>(tabId: number, call: LibCall): Promise<T> {
 	const { key, install } = libScript(call.lib);
 	const byKey = `(() => { const L = globalThis.${LIB_GLOBAL}; const f = L && L[${key}]; return typeof f === "function" ? f(${libArgs(call.args)}) : ${JSON.stringify(LIB_MISS)}; })()`;
-	const got = await runInPage<T | typeof LIB_MISS>(tabId, byKey);
-	if (got !== LIB_MISS) return got as T;
-	// Sent one after the other without waiting, so they cost about one round trip: the debugger runs them in order.
+	const known = libKnown(tabId);
+	if (known.has(key)) {
+		const got = await runInPage<T | typeof LIB_MISS>(tabId, byKey);
+		if (got !== LIB_MISS) return got as T;
+	}
+	// A document not known to have it: the install and the call, sent one after the other without waiting, so they cost
+	// about one round trip (the debugger runs them in order). Installing twice is a no-op.
 	const installed = runInPage<boolean>(tabId, install).catch(() => false);
 	const again = runInPage<T | typeof LIB_MISS>(tabId, byKey);
-	await installed;
+	// Its failure is the caller's, but it may come while the install is awaited: handled from the start.
+	again.catch(() => undefined);
+	if (await installed) known.add(key);
 	const value = await again;
 	// A page that took the global, or the two arriving out of order: the whole code, which always runs.
 	return value === LIB_MISS ? runInPage<T>(tabId, libCode(call)) : (value as T);

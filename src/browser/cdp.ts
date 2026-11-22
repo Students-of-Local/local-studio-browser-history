@@ -1525,13 +1525,26 @@ export async function startScreencast(
 		await send(tabId, "Runtime.evaluate", { expression: options.initScript }).catch(() => undefined);
 	}
 	const format = options.format ?? "jpeg";
-	await send(tabId, "Page.startScreencast", {
-		format,
-		...(format === "jpeg" ? { quality: options.quality ?? 80 } : {}),
-		...(options.maxWidth ? { maxWidth: options.maxWidth } : {}),
-		...(options.maxHeight ? { maxHeight: options.maxHeight } : {}),
-		everyNthFrame: 1,
-	});
+	const start = () =>
+		send(tabId, "Page.startScreencast", {
+			format,
+			...(format === "jpeg" ? { quality: options.quality ?? 80 } : {}),
+			...(options.maxWidth ? { maxWidth: options.maxWidth } : {}),
+			...(options.maxHeight ? { maxHeight: options.maxHeight } : {}),
+			everyNthFrame: 1,
+		});
+	// The frame keeper's 1x1 cast (D62) gives way: Chrome runs one cast per tab, and this one draws the tab too.
+	const keeper = drawing.has(tabId);
+	forgetDrawing(tabId);
+	if (keeper) await sendRaw(tabId, "Page.stopScreencast").catch(() => undefined);
+	try {
+		await start();
+	} catch (err) {
+		// A keeper's cast still on its way when this one asked: stop it and ask once more.
+		if (!/already active/i.test(String(err instanceof Error ? err.message : err))) throw err;
+		await sendRaw(tabId, "Page.stopScreencast").catch(() => undefined);
+		await start();
+	}
 }
 
 export async function stopScreencast(tabId: number): Promise<boolean> {
@@ -1555,7 +1568,8 @@ export async function stopScreencast(tabId: number): Promise<boolean> {
 // or 50 ms (DeferRendererTasksAfterInput, kDiscreteInputResponseDeadline), so every input action waited those 50 ms
 // before it could see what the page did. A screencast makes the browser draw the tab while it lasts, seen or not. While
 // an agent acts in a tab, Tychicus keeps a 1x1 one going that nobody reads; it ends KEEP_DRAWING_MS after the last
-// action, so an idle agent tab draws nothing, as before. A live view or recording (startScreencast) already draws.
+// action, so an idle agent tab draws nothing, as before. A live view or recording (startScreencast) already draws, and
+// takes the tab's one cast over from the keeper when it starts.
 
 /** How long a tab keeps drawing after the last action that asked for it. Longer than an action's settle cap. */
 export const KEEP_DRAWING_MS = 3000;

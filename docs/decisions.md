@@ -2057,15 +2057,21 @@ messaging hops (about 1 ms each way together):
 - *Frame keeper.* Before an action's input goes out, `keepDrawing` (`src/browser/cdp.ts`) starts a 1x1 screencast
   whose frames are never acknowledged, so the tab draws its next frame and the hold ends there. It runs until 3 s
   (`KEEP_DRAWING_MS`) after the last action, then stops; a tab nobody acts on draws nothing, as before. A live view or
-  recording that already casts is left alone. Cost: no frames on a page that doesn't change; on a page with a running
+  recording that already casts is left alone, and one that starts takes the tab's one cast over from the keeper. Cost: no frames on a page that doesn't change; on a page with a running
   animation about a tenth of one core while the agent acts and for 3 s after.
 - *Settle.* `IDLE_MS` and `LOADED_QUIET_MS` are 0: the drained look (one message-channel turn, then a timer) is the
   answer. `Page.frameRequestedNavigation` now counts as a reaction, so a click whose navigation starts on a later
-  task still waits for it. Requests, loaders, new tabs and D56's Resource Timing rule hold the wait as before.
+  task still waits for it. Requests, loaders, new tabs and D56's Resource Timing rule hold the wait as before. The
+  old 20 ms window also caught a download a link began: the browser fetches the file before it creates the download,
+  after the page has gone quiet. The probe now notes a click on an `a` or `area` with `download` and `href` that the
+  page did not cancel, and settle waits for the download to begin, at most 1 s (`FILE_START_MS`). A script that
+  clicks an anchor it never put in the document is not seen this way; its download is reported when it begins
+  before the look after the action.
 - *Page library.* Each large page script is a function installed once per document and world, under a key that
   hashes its code and a salt chosen per service-worker run (`runLib`, `src/browser/page.ts`). A call sends only the
-  key and its JSON arguments. A document that lacks the function answers so, and gets the install (a constant
-  script, so V8's compilation cache serves it) and the call, sent together. Frames still get the whole expression.
+  key and its JSON arguments. A document not known to have the function (the tab's first call, or the first after
+  a navigation commits) gets the install (a constant script, so V8's compilation cache serves it) and the call, sent
+  together; one that answers that it lacks the function gets the same. Frames still get the whole expression.
   The entry is non-enumerable and non-writable. In the isolated world a page can't reach it. In the main-world
   fallback a page could learn a key and plant a function under it in a later document of the same run; that page
   already controls the main world's DOM and prototypes, so the report it could forge is no worse than before.

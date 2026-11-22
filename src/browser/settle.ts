@@ -14,7 +14,7 @@
 
 import { isGuardedUrl } from "../bridge/permissions.js";
 import { cdpSend, keepDrawing, onDebuggerSessionEnd, openDialog } from "./cdp.js";
-import { watchDownloads } from "./downloads.js";
+import { downloadBegun, watchDownloads } from "./downloads.js";
 import { runInPage } from "./page.js";
 import { veilTag } from "./veil-shared.js";
 
@@ -185,6 +185,9 @@ export interface SettleMark {
 	doc: Document;
 	owed: number;
 	drawn: Promise<void> | null;
+	/** The last click on a download link in this document, and when it came (fileAgo). */
+	file?: Event;
+	fileAt?: number;
 }
 
 /** What settleProbe says about the page: ms since it last changed, still parsing, a loader on screen, load fired. */
@@ -199,6 +202,12 @@ interface ProbeReport {
 	 * a task or a timer later, so a short window counts only once that end is a full quiet window old (D56).
 	 */
 	lateAgo: number | null;
+	/**
+	 * Ms since a click on a download link (an `a` or `area` with `download` and `href`) the page did not cancel; null
+	 * when none. The browser fetches the file and only then begins the download, after the page has gone quiet, so
+	 * settle waits for it (FILE_START_MS).
+	 */
+	fileAgo: number | null;
 }
 type ProbeResult = ProbeReport | { guarded: true };
 
@@ -252,6 +261,21 @@ function settleProbe(
 				),
 			);
 		}).observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
+		// First in the capture phase, so the page can't hide the click; whether it canceled it is read at report time.
+		addEventListener(
+			"click",
+			(e) => {
+				for (const n of e.composedPath() as Element[]) {
+					if (n.nodeType !== 1 || (n.localName !== "a" && n.localName !== "area")) continue;
+					if (n.hasAttribute("download") && n.hasAttribute("href")) {
+						mark.file = e;
+						mark.fileAt = performance.now();
+					}
+					return;
+				}
+			},
+			true,
+		);
 	}
 	const seen = s;
 	const report = (): ProbeReport => {
@@ -306,6 +330,10 @@ function settleProbe(
 			busy,
 			complete,
 			lateAgo,
+			fileAgo:
+				seen.file && seen.fileAt !== undefined && !seen.file.defaultPrevented
+					? Math.round(now - seen.fileAt)
+					: null,
 		};
 	};
 	if (!drain) return report();
@@ -392,6 +420,8 @@ export async function settle(
 			waitingOn = undefined;
 			/** This pass's probe saw the load event fired (loadedQuietMs). */
 			let loaded = false;
+			/** When this pass's probe says a download link was clicked, by this clock; 0 when none. */
+			let fileAsked = 0;
 			const tab = await chrome.tabs.get(tabId).catch(() => undefined);
 			// The cap came while the tab was read: no probe goes out after it.
 			if (over) return { settled: false, ms: Date.now() - start };
@@ -452,6 +482,7 @@ export async function settle(
 					if (lateAgo !== null) lastActivity = Math.max(lastActivity, at - lateAgo);
 					// Only a drained probe reads Resource Timing, so only its answer can show the data requests ended.
 					loaded = drain && page.complete === true && (lateAgo === null || lateAgo >= quietMs);
+					if (typeof page.fileAgo === "number" && Number.isFinite(page.fileAgo)) fileAsked = at - page.fileAgo;
 					if (page.parsing || page.busy) {
 						waitingOn = "loading";
 						lastActivity = Date.now();
@@ -472,6 +503,16 @@ export async function settle(
 			if (asked >= since) {
 				reacted = true;
 				lastActivity = Math.max(lastActivity, asked);
+			}
+			// A download link clicked since the action began: the file is fetched before the download begins, often after
+			// the page went quiet. Wait for it to begin (downloads.ts), then look again; a download that never begins
+			// holds the wait FILE_START_MS at most.
+			if (fileAsked >= since && now - fileAsked < FILE_START_MS && now < deadline) {
+				const left = Math.min(FILE_START_MS - (now - fileAsked), deadline - now);
+				if (!(await downloadBegun(tabId, since, 0))) {
+					await downloadBegun(tabId, since, left);
+					continue;
+				}
 			}
 			lastReason = waitingOn;
 			const quiet =
@@ -498,6 +539,9 @@ export async function settle(
 		clearTimeout(timer);
 	}
 }
+
+/** The longest settle waits for a download to begin after the page says a download link was clicked. */
+export const FILE_START_MS = 1000;
 
 /** The longest one DOM probe may take before the page counts as busy. */
 const PROBE_MS = 400;
