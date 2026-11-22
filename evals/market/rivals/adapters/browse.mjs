@@ -42,7 +42,10 @@ export default {
 	async stop(ctx) {
 		await ctx.mcp?.close().catch(() => {});
 		spawnSync("pkill", ["-f", `[${ctx.home[0]}]${ctx.home.slice(1)}`]);
-		spawnSync("sh", ["-c", `for p in $(pgrep -f '[d]ebug/browse serve'); do tr '\\0' '\\n' < /proc/$p/environ | grep -q 'OPENCODE_BROWSER_HOME=${ctx.home}' && kill $p; done`]);
+		// The relay outlives its client. Find it by the throwaway home in its environment: /proc on Linux, `ps -E` on macOS.
+		// A relay left behind holds the port with another token, and the next run's client gets 401.
+		const envOf = process.platform === "linux" ? `tr '\\0' '\\n' < /proc/$p/environ` : `ps -Eww -o command= -p $p`;
+		spawnSync("sh", ["-c", `for p in $(pgrep -f '[d]ebug/browse serve'); do ${envOf} | grep -q 'OPENCODE_BROWSER_HOME=${ctx.home}' && kill $p; done`]);
 		await ctx.chrome?.stop();
 	},
 	async between() {},
