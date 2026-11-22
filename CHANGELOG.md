@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Added
+- Computer use now looks for Tychicus's own helper, `tychicus-hands`, before Polycarp's, and `tychicus doctor` names it. The wire any helper speaks is written down in `docs/hands-protocol.md` (verbs, schemas, envelopes, the `--connector` cap), and `cli/test/hands-conformance.test.mjs` checks a helper against it: in CI against a fake helper, and against broken copies of the fake that it must fail (a missing verb, a connector that answers as local, gets Full Access or may move windows). `computer.ts` looks in `TYCHICUS_HANDS_BIN`, `POLYCARP_SPACES_BIN`, `tychicus-hands` on PATH, `~/.local/bin` and `Tychicus.app`, then Polycarp's `polycarp-spaces` on a Mac; a connector helper may answer as `tychicus-connector` or `polycarp-connector`. `computer_status` names the helper that answered, and with none says so. Issue #27. Tests: `cli/test/computer.test.mjs`, `cli/test/hands-conformance.test.mjs`.
+
 ### Changed
 - While Local Studio's hosted tunnel is on its waitlist, `tychicus remote setup` names Tailscale Funnel as the route for web assistants. On a `state: "waitlist"` answer from `local-studio tunnel setup`, it says the hosted route is waitlisted, gives the signup address, and says claude.ai, ChatGPT and grok.com use Tailscale Funnel meanwhile (`tychicus remote setup --tailscale`, free, no domain). With `--tailnet` it says before setting up that web assistants can't use a tailnet-only address, and the Funnel command starts with `tychicus remote off`. `--json` adds `waitlist` beside `localStudio`: `url`, `channel` and `next` (`kind`, `command`, `why`) for an agent. The route it sets up is unchanged. The connector skill and `docs/remote.md` say the same. Tests: `cli/test/one-tunnel.test.mjs`.
 

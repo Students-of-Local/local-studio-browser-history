@@ -283,7 +283,9 @@ test("with no helper the local server keeps its browser tools, and computer_stat
 	assert.deepEqual(tools.map((t) => t.name).filter((n) => n.startsWith("computer_")), ["computer_status"]);
 	assert.ok(tools.some((t) => t.name === "read_page"));
 	assert.doesNotMatch(client.getInstructions(), /computer_open/);
-	assert.match((await client.callTool({ name: "computer_status", arguments: {} })).content[0].text, /install Polycarp/);
+	const status = (await client.callTool({ name: "computer_status", arguments: {} })).content[0].text;
+	assert.match(status, /no computer-use helper is installed here/);
+	assert.match(status, /install Tychicus's tychicus-hands/);
 	await client.close();
 });
 
@@ -363,4 +365,74 @@ test("the local server's computer_run_steps takes its steps as objects and hands
 	const strings = await client.callTool({ name: "computer_open", arguments: { app: "TextEdit", targets: ["a.txt"] } });
 	assert.equal(strings.isError, false, "a list of strings still is one");
 	await client.close();
+});
+
+// Issue #27: Tychicus's own helper first, Polycarp's after it, and the status and doctor name whichever answered.
+function namedHelper(dir, name, serverName) {
+	mkdirSync(dir, { recursive: true });
+	const path = join(dir, name);
+	writeFileSync(path, `#!/bin/sh\nFAKE_SERVER_NAME=${serverName} exec ${JSON.stringify(helper)} "$@"\n`);
+	chmodSync(path, 0o755);
+	return path;
+}
+
+test("a connector session takes a helper that answers as tychicus-connector", async () => {
+	const tychicus = namedHelper(join(root, "tychicus-connector"), "tychicus-hands", "tychicus-connector");
+	const url = await serve({ TYCHICUS_HANDS_BIN: tychicus });
+	const client = await connect(url, token("tychicus-helper", "computer.read"));
+	assert.deepEqual(await computerTools(client), ["computer_snapshot", "computer_status", "computer_windows"]);
+	await client.close();
+});
+
+test("tychicus-hands wins over polycarp-spaces, and computer_status names the one that answered", async () => {
+	const dir = join(root, "both");
+	const ours = namedHelper(dir, "tychicus-hands", "tychicus-hands");
+	namedHelper(dir, "polycarp-spaces", "baneyspaces");
+	// PATH holds both, node and sh: tychicus-hands is found on PATH before polycarp-spaces is looked for.
+	const client = await local({ PATH: `${dir}:${bin}:/bin:/usr/bin` });
+	await client.listTools();
+	const status = (await client.callTool({ name: "computer_status", arguments: {} })).content[0].text;
+	assert.match(status, /Computer use is available/);
+	assert.ok(status.includes(`tychicus-hands (${ours})`), status);
+	assert.match(status, /answered as tychicus-hands/);
+	await client.close();
+});
+
+test("TYCHICUS_HANDS_BIN wins over POLYCARP_SPACES_BIN", async () => {
+	const ours = namedHelper(join(root, "env-both"), "tychicus-hands", "tychicus-hands");
+	const client = await local({ TYCHICUS_HANDS_BIN: ours, POLYCARP_SPACES_BIN: localHelper });
+	await client.listTools();
+	const status = (await client.callTool({ name: "computer_status", arguments: {} })).content[0].text;
+	assert.ok(status.includes(`tychicus-hands (${ours})`), status);
+	await client.close();
+});
+
+test("Polycarp's helper still answers when it's the only one, and the status says so", async () => {
+	const client = await local({ POLYCARP_SPACES_BIN: localHelper });
+	await client.listTools();
+	const status = (await client.callTool({ name: "computer_status", arguments: {} })).content[0].text;
+	assert.ok(status.includes(`Polycarp's polycarp-spaces (${localHelper})`), status);
+	assert.match(status, /answered as baneyspaces/);
+	await client.close();
+});
+
+function doctorComputer(extra) {
+	const r = spawnSync(process.execPath, [cli, "doctor", "--json"], { env: { ...base, ...extra }, encoding: "utf8", timeout: 30_000 });
+	return JSON.parse(r.stdout).checks.find((c) => c.id === "computer");
+}
+
+test("doctor names the helper that answered, or says there is none", () => {
+	const ours = namedHelper(join(root, "doctor"), "tychicus-hands", "tychicus-hands");
+	const found = doctorComputer({ TYCHICUS_HANDS_BIN: ours });
+	assert.equal(found.status, "ok");
+	assert.ok(found.label.includes(`tychicus-hands (${ours}), answered as tychicus-hands`), found.label);
+	const none = doctorComputer({ TYCHICUS_HANDS_BIN: join(root, "nope") });
+	assert.equal(none.status, "warn", "none is news, not a failure");
+	assert.match(none.label, /no helper installed/);
+	const silent = join(root, "doctor", "silent");
+	writeFileSync(silent, "#!/bin/sh\nexec sleep 30\n");
+	chmodSync(silent, 0o755);
+	const hung = doctorComputer({ TYCHICUS_HANDS_BIN: silent });
+	assert.equal(hung.status, "warn");
+	assert.match(hung.label, /didn't answer/);
 });
