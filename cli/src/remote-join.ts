@@ -292,7 +292,7 @@ export interface WaitlistAdvice {
 /**
  * What setup says and returns when Local Studio answers `state: "waitlist"`. The route setup goes on to make is the one asked for
  * (`asked`); this only says, before it starts, which route web assistants can use while the hosted one is waitlisted. After a
- * tailnet-only setup a Funnel setup needs `remote off` first, so that command starts with it.
+ * saved tailnet or Cloudflare route a Funnel setup refuses until `remote off`, so both commands start with it.
  */
 export function waitlistAdvice(answer: Record<string, unknown>, asked: "tailnet" | "cloudflare"): { lines: string[]; advice: WaitlistAdvice } {
 	const next = answer.next && typeof answer.next === "object" ? (answer.next as Record<string, unknown>) : {};
@@ -315,13 +315,13 @@ export function waitlistAdvice(answer: Record<string, unknown>, asked: "tailnet"
 		};
 	} else {
 		lines.push(
-			`  claude.ai, ChatGPT and grok.com need a public route. Your Cloudflare route is one. Without a domain on Cloudflare, Tailscale Funnel is the free one meanwhile: ${funnel}`,
+			`  claude.ai, ChatGPT and grok.com need a public route. Your Cloudflare route is one. Without a domain on Cloudflare, Tailscale Funnel is the free one meanwhile: ${COMMAND_NAME} remote off, then ${funnel}`,
 			`  ${COMMAND_NAME} sets up its own Cloudflare route now, as asked.`,
 		);
 		advice = {
 			next: {
 				kind: "run_command",
-				command: `${funnel} --no-passcode`,
+				command: `${COMMAND_NAME} remote off && ${funnel} --no-passcode`,
 				why: "Local Studio's hosted route is waitlisted. The Cloudflare route this setup makes is public, so run this only if that route can't be made (no domain on Cloudflare): Tailscale Funnel is the free public route for claude.ai, ChatGPT and grok.com meanwhile. Ask the person first: it changes what the internet can reach.",
 			},
 		};
