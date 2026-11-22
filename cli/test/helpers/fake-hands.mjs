@@ -4,7 +4,8 @@
 //
 // FAKE_HANDS_ACCESS is the person's access mode here (default full, so the connector cap has something to cap).
 // For the suite's own test, FAKE_HANDS_BREAK breaks it on purpose: `drop:<verb>` leaves a verb out of tools/list,
-// `connector-name` answers a connector as a local helper, `connector-access` gives a connector Full Access,
+// `connector-name` answers a connector as a local helper, `connector-access` gives a connector Full Access, `connector-readonly` raises a
+// Read Only connector to Default, `ignore-readonly` acts under Read Only,
 // `connector-manage` lets a connector call the managing verbs.
 import { createInterface } from "node:readline";
 
@@ -16,7 +17,8 @@ if (args[0] !== "mcp") {
 const connector = args.includes("--connector");
 const broken = process.env.FAKE_HANDS_BREAK ?? "";
 const mode = process.env.FAKE_HANDS_ACCESS ?? "full";
-const access = connector && broken !== "connector-access" && mode === "full" ? "default" : mode;
+const capped = connector && broken !== "connector-access" && mode === "full" ? "default" : mode;
+const access = connector && broken === "connector-readonly" ? "default" : capped;
 
 const S = "string";
 const I = "integer";
@@ -119,7 +121,7 @@ function perform(name, input) {
 	if (connector && MANAGING.has(name) && broken !== "connector-manage") {
 		return err("permission_denied", `${name} isn't open to an assistant connected from another machine`, "never", "Arranging, moving and closing windows are for agents on this Mac.");
 	}
-	if (access === "read_only" && ACTS.has(name)) return err("permission_denied", `agents have read-only access, so ${name} is refused`, "never");
+	if (access === "read_only" && ACTS.has(name) && broken !== "ignore-readonly") return err("permission_denied", `agents have read-only access, so ${name} is refused`, "never");
 	if (name === "windows") return { ok: true, data: { agent_workspace: 9, access, windows: [] } };
 	// No desktop behind it: every window is gone.
 	return err("window_not_found", "no such window (the fake helper has none)", "safe");

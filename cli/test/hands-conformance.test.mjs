@@ -31,11 +31,13 @@ const BREAKS = [
 	{ breaks: "connector-name", fails: /--connector answers initialize with a connector name/, why: "a connector that answers as a local helper" },
 	{ breaks: "connector-access", fails: /connector cap/, why: "a connector given Full Access" },
 	{ breaks: "connector-manage", fails: /connector cap/, why: "a connector allowed to move windows" },
+	{ breaks: "connector-readonly", env: { FAKE_HANDS_ACCESS: "read_only" }, fails: /connector cap|read only/, why: "a Read Only connector raised to Default" },
+	{ breaks: "ignore-readonly", env: { FAKE_HANDS_ACCESS: "read_only" }, fails: /read only/, why: "acting verbs that run under Read Only" },
 ];
 
-for (const { breaks, fails, why } of BREAKS) {
+for (const { breaks, env = {}, fails, why } of BREAKS) {
 	test(`the suite fails on ${why} (${breaks})`, { skip: real ? "runs against the fake only" : false }, async () => {
-		const failed = await runAll((args) => new HandsSession(process.execPath, [fake, ...args], { ...process.env, FAKE_HANDS_BREAK: breaks }));
+		const failed = await runAll((args) => new HandsSession(process.execPath, [fake, ...args], { ...process.env, ...env, FAKE_HANDS_BREAK: breaks }));
 		assert.ok(failed.length > 0, `the suite passed a helper with ${why}`);
 		assert.ok(
 			failed.some((f) => fails.test(f.name)),

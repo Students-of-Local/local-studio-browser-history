@@ -460,8 +460,9 @@ export async function computerCheck(timeout = 3000): Promise<Check> {
 }
 
 export async function runDoctor(options: { json: boolean }): Promise<number> {
-	const connection = await connectionChecks();
-	const checks: Check[] = [nodeCheck(), buildCheck(), launcherCheck(), ...hostChecks(connection.holders), ...connection.checks, ...harnessChecks(), ...polycarpAgentChecks(), await computerCheck()];
+	// The helper check runs beside the connection checks, so its timeout fits inside their deadline instead of adding to it.
+	const [connection, computer] = await Promise.all([connectionChecks(), computerCheck()]);
+	const checks: Check[] = [nodeCheck(), buildCheck(), launcherCheck(), ...hostChecks(connection.holders), ...connection.checks, ...harnessChecks(), ...polycarpAgentChecks(), computer];
 	const failed = checks.filter((check) => check.status === "fail").length;
 	if (options.json) {
 		process.stdout.write(`${JSON.stringify({ ok: failed === 0, version: VERSION, checks }, null, 2)}\n`);

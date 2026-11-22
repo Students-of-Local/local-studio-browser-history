@@ -345,15 +345,19 @@ export const CHECKS = [
 		},
 	},
 	{
-		name: "connector cap: access is never full, managing verbs are refused, lending is refused",
+		name: "connector cap: access is the person's mode capped at Default, managing verbs are refused, lending is refused",
 		async run(start) {
+			const local = await accessOf(start, ["mcp"]);
 			const s = start(["mcp", "--connector"]);
 			try {
 				await s.initialize();
 				const { result, envelope } = await s.call("windows");
 				assert.ok(envelope, result.content[0].text);
-				if (envelope.ok) assert.ok(["read_only", "default"].includes(envelope.data.access), `a connector works under ${envelope.data.access}`);
-				else assert.notEqual(envelope.error.code, "bad_arguments", "windows is a connector verb");
+				if (envelope.ok) {
+					assert.ok(["read_only", "default"].includes(envelope.data.access), `a connector works under ${envelope.data.access}`);
+					// Full Access becomes Default; Read Only stays Read Only (docs/hands-protocol.md).
+					if (local) assert.equal(envelope.data.access, local === "full" ? "default" : local, `the person's mode is ${local}, so a connector works under ${local === "full" ? "default" : local}`);
+				} else assert.notEqual(envelope.error.code, "bad_arguments", "windows is a connector verb");
 				for (const verb of MANAGING) {
 					const e = assertError(await s.call(verb, MANAGING_ARGS[verb]), "permission_denied", "never");
 					assert.match(e.message, new RegExp(`${verb} isn't open to an assistant connected from another machine`));
@@ -361,6 +365,24 @@ export const CHECKS = [
 				assertError(await s.call("lend", { app: "TextEdit" }), "needs_lend", "never");
 			} finally {
 				await s.close();
+			}
+		},
+	},
+	{
+		name: "read only: acting verbs are refused with permission_denied, shot is not",
+		async run(start) {
+			for (const args of [["mcp"], ["mcp", "--connector"]]) {
+				if ((await accessOf(start, args)) !== "read_only") continue;
+				const s = start(args);
+				try {
+					await s.initialize();
+					assertError(await s.call("toggle", { ref: "1" }), "permission_denied", "never");
+					assertError(await s.call("click_at", { window: 1, x: 1, y: 1 }), "permission_denied", "never");
+					const shot = await s.call("shot", { window: 1 });
+					assert.ok(!(shot.envelope && shot.envelope.ok === false && shot.envelope.error.code === "permission_denied"), `shot works under Read Only (${args.join(" ")})`);
+				} finally {
+					await s.close();
+				}
 			}
 		},
 	},
@@ -376,6 +398,18 @@ export const CHECKS = [
 		},
 	},
 ];
+
+/** The access a session with `args` reports from `windows`, or undefined when it can't say (no OS grant). */
+async function accessOf(start, args) {
+	const s = start(args);
+	try {
+		await s.initialize();
+		const { envelope } = await s.call("windows");
+		return envelope?.ok ? envelope.data.access : undefined;
+	} finally {
+		await s.close();
+	}
+}
 
 /** tools/list once per mode per run. */
 async function listed(start, cache, args = ["mcp"]) {
