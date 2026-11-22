@@ -2034,3 +2034,50 @@ the caller's session). A signed-in gh that refuses an artifact still refuses the
 and `--skip-attestation` are unchanged.
 
 **Why.** The check is extra assurance when gh can give it, not a gate that a missing sign-in closes. gh's English is never parsed, so a reworded message can't change the outcome.
+
+## D62. Input actions draw the tab, settle stops at the drained look, and page scripts are installed once (Claude, 2026-11-22)
+
+**Context.** The market eval's speed run (`evals/market/rivals/run.mjs`, same machine, same session) measured
+Tychicus's medians at click 71 ms, fill 43 ms and first page text 112 ms; agent-browser's were 24, 9 and 41. A hop
+trace (`TYCHICUS_TRACE`, `cli/src/hop-trace.ts`) put the time in four places, not in the MCP, socket or native
+messaging hops (about 1 ms each way together):
+1. After a click or a key, Chromium holds the page's deferrable tasks until the next frame or 50 ms
+   (`DeferRendererTasksAfterInput`, `kDiscreteInputResponseDeadline`). An agent's tab is out of sight and draws no
+   frames, so it always waited the 50 ms. In a background tab with a click handler that schedules `setTimeout(0)`,
+   the timer ran 50 to 60 ms after the click on 8 of 9 clicks; with a screencast running it ran 5 to 12 ms after on
+   9 of 9 (method in `docs/verification/speed-trace.md`).
+2. The settle after an action waited `IDLE_MS` (20 ms) for a sign the page reacted, and a navigation's settle waited
+   `LOADED_QUIET_MS` (50 ms) after the load event, though D56's drained look had already run everything the page had
+   queued.
+3. Every input call waited for a page call (the veil's pill turning its button off) before its handler began.
+4. The change report's look, fill and the click's locate are 15 to 25 KB scripts. Each call's text held its own
+   arguments, so V8 compiled each anew: about 4 ms of a 5 ms evaluate, three to four times per action.
+
+**Decision.**
+- *Frame keeper.* Before an action's input goes out, `keepDrawing` (`src/browser/cdp.ts`) starts a 1x1 screencast
+  whose frames are never acknowledged, so the tab draws its next frame and the hold ends there. It runs until 3 s
+  (`KEEP_DRAWING_MS`) after the last action, then stops; a tab nobody acts on draws nothing, as before. A live view or
+  recording that already casts is left alone. Cost: no frames on a page that doesn't change; on a page with a running
+  animation about a tenth of one core while the agent acts and for 3 s after.
+- *Settle.* `IDLE_MS` and `LOADED_QUIET_MS` are 0: the drained look (one message-channel turn, then a timer) is the
+  answer. `Page.frameRequestedNavigation` now counts as a reaction, so a click whose navigation starts on a later
+  task still waits for it. Requests, loaders, new tabs and D56's Resource Timing rule hold the wait as before.
+- *Page library.* Each large page script is a function installed once per document and world, under a key that
+  hashes its code and a salt chosen per service-worker run (`runLib`, `src/browser/page.ts`). A call sends only the
+  key and its JSON arguments. A document that lacks the function answers so, and gets the install (a constant
+  script, so V8's compilation cache serves it) and the call, sent together. Frames still get the whole expression.
+  The entry is non-enumerable and non-writable. In the isolated world a page can't reach it. In the main-world
+  fallback a page could learn a key and plant a function under it in a later document of the same run; that page
+  already controls the main world's DOM and prototypes, so the report it could forge is no worse than before.
+- *Veil before input.* Every input call waited for the veil's pill to turn its button off before the handler began:
+  a page call of 1 to 2.5 ms. Click, fill, type, press and scroll now start that change and wait for it in
+  `actionStart`, right before their first input, so it overlaps the look before. An input still never goes out
+  before the pill's button is off. Every other method waits where it did, and the call's end is counted only after
+  its begin, so the pill's counts stay paired when a call fails early.
+
+**Not done.** Folding the look before into the fill's call, and the look after into the settle's first probe, cut two
+page calls from a fill but measured no faster (22.6 and 22.0 ms over 25 runs each): the looks' page work, not the
+calls, is the cost. Both were left out.
+
+**Why.** Each cost was a fixed wait or repeated work that no page needed, and each fix keeps what the result reports.
+The dom-bench floor and the market tasks gate it.

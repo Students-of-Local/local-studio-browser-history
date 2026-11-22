@@ -6,8 +6,8 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { connect, type Socket } from "node:net";
 import { join } from "node:path";
-import type { ClientToHost, HostToClient, ModelTier, RpcError } from "../../src/bridge/protocol.ts";
-import { ERR, isIdempotent, MAX_FRAME_FROM_EXTENSION } from "../../src/bridge/protocol.ts";
+import type { ClientToHost, HostToClient, ModelTier, RpcError, TraceMark } from "../../src/bridge/protocol.ts";
+import { ERR, isIdempotent, MAX_FRAME_FROM_EXTENSION, traceNow } from "../../src/bridge/protocol.ts";
 import { encodeFrame, FrameParser } from "./framing.ts";
 import { assertSecurePath, socketDirs } from "./paths.ts";
 import { VERSION } from "./version.ts";
@@ -64,6 +64,10 @@ export interface ClientOptions {
 	onEvent?: (event: string, data: Record<string, unknown>) => void;
 	onExtensionStatus?: (connected: boolean) => void;
 	requestTimeoutMs?: number;
+	/** Set to trace every call (TYCHICUS_TRACE, hop-trace.ts): called with each answered call's marks, every hop's included. */
+	onTrace?: (method: string, marks: TraceMark[], context: unknown) => void;
+	/** Read when a traced call is sent; what it returns goes back to `onTrace` with that call's marks. */
+	traceContext?: () => unknown;
 }
 
 /**
@@ -134,7 +138,7 @@ export class BridgeClient {
 	private socketPath?: string;
 	private seq = 0;
 	/** Requests waiting for a reply, each with the socket it went out on. */
-	private pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: NodeJS.Timeout; socket: Socket }>();
+	private pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void; timer: NodeJS.Timeout; socket: Socket; method: string; traceContext?: unknown }>();
 	/** Shared reconnect attempts, one per browser wanted ("" for any): concurrent callers join. */
 	private reconnecting = new Map<string, Promise<void>>();
 	/** One connect at a time: a call that finds no socket waits on a dial already under way. */
@@ -358,6 +362,8 @@ export class BridgeClient {
 			if (!p) return;
 			this.pending.delete(msg.id);
 			clearTimeout(p.timer);
+			if (this.options.onTrace && Array.isArray(msg.trace))
+				this.options.onTrace(p.method, [...msg.trace, ["client.recv", traceNow()]], p.traceContext);
 			if (msg.error) p.reject(new BridgeRpcError(msg.error));
 			else p.resolve(msg.result);
 			this.dropIfIdle(p.socket);
@@ -532,8 +538,8 @@ export class BridgeClient {
 				reject(new Error(`${method} timed out after ${timeout} ms`));
 				this.dropIfIdle(socket);
 			}, timeout);
-			this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject, timer, socket });
-			const req: ClientToHost = { type: "request", id, method, params };
+			this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject, timer, socket, method, traceContext: this.options.traceContext?.() });
+			const req: ClientToHost = { type: "request", id, method, params, ...(this.options.onTrace ? { trace: [["client.send", traceNow()]] } : {}) };
 			socket.write(encodeFrame(req));
 		});
 	}
