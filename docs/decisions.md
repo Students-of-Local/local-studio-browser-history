@@ -2034,3 +2034,31 @@ the caller's session). A signed-in gh that refuses an artifact still refuses the
 and `--skip-attestation` are unchanged.
 
 **Why.** The check is extra assurance when gh can give it, not a gate that a missing sign-in closes. gh's English is never parsed, so a reworded message can't change the outcome.
+
+## D62. The Linux helper: agent windows by workspace or by process, hands.json for access, no physical input (Claude, 2026-11-22)
+
+**Context.** Issue #27 asks for `tychicus-hands` on Linux. Linux has no lend sheet and no one way to keep an app off
+the person's screen: Hyprland and Sway have workspaces another program can use, X11 window managers have none that
+stays hidden, and GNOME and KDE under Wayland give another program no window control at all. Tychicus had no access
+setting for computer use outside Polycarp's Mac app.
+
+**Decision.**
+- Which windows are an agent's: on Hyprland and Sway, those on the agent workspace (`special:tychicus`,
+  `tychicus-agent`); everywhere, those of processes an agent started (recorded in Tychicus's state folder). Every other
+  window is the person's.
+- Access is `hands.json` in Tychicus's config folder: `access` (`read_only`, `default`, `full`; anything else reads as
+  `default`) and `apps`, read on every call. Under `default` an agent uses only its own windows and may start editors,
+  calculators and viewers plus the listed apps. `full` opens every window to an agent on this computer. A connector is
+  capped at `default`, as the protocol says.
+- Browsers, mail, password managers and chat apps are never started for an agent, in any mode (`needs_sandbox`): an
+  agent copy would run in the person's own profile. Agent profiles for them are later work.
+- Opening: Hyprland's `exec [workspace special:tychicus silent]`; on Sway the app starts stopped, gets
+  `for_window [pid=N] move container to workspace tychicus-agent` and `no_focus [pid=N]`, then runs, so its dialogs
+  follow it and nothing takes focus (sway keeps the two rules for its session; they name only that process id); on X11
+  the helper watches focus for 1.2 s and gives it back through `_NET_ACTIVE_WINDOW`.
+- No physical input, ever: no XTest, uinput, ydotool or virtual keyboard. What AT-SPI can't do in the background
+  (`drag`, right clicks, keys with no accessibility meaning) answers `not_supported`.
+
+**Why.** The person's typing and pointer must never be shared with an agent, so input that could land in their window
+is out even where it would work most of the time. A file in the config folder is what `tychicus` already uses for
+settings, and reading it on every call makes a narrowing apply at once.
