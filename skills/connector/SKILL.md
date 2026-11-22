@@ -38,6 +38,7 @@ For driving the browser from an agent on this computer, use the `polycarp-browse
    | Tool | tailscale.com/download | developers.cloudflare.com/tunnel/downloads |
 
    If `routes` shows one signed in, suggest that one. With no domain on Cloudflare, suggest Tailscale.
+   Local Studio's hosted route is on a waitlist for now, so Tailscale Funnel is the route to use meanwhile.
    The easiest way is the Tychicus side panel's Settings > Agents > "Use Tychicus from Claude, ChatGPT and Grok", which has these steps as buttons.
 4. **Tailscale.** The person installs it and signs in. Then, with their yes, run `tychicus remote setup --no-passcode`. If `state` is `funnel_not_allowed`, give them `adminUrl`, wait for them to allow it, and run setup again.
 5. **Cloudflare.** The person installs `cloudflared`. Run `tychicus remote cloudflare login` and tell them their browser opened: they sign in and pick the domain. Then ask which name to use, and with their yes run `tychicus remote setup --no-passcode --cloudflare tychicus.example.com`.
@@ -63,6 +64,7 @@ For driving the browser from an agent on this computer, use the `polycarp-browse
 | `port_busy` | Something else uses the port. Tell them what the message says. Nothing changed. |
 | `dns` | The address is new. Public DNS takes minutes. Check again later. |
 | `no_browser_connected` | The person opens their browser with Tychicus's extension. |
+| `waitlist` (in `localStudio.state`) | Local Studio's hosted route is on a waitlist. Give the person `waitlist.url` to sign up. Meanwhile claude.ai, ChatGPT and grok.com need Tailscale Funnel; a tailnet-only route can't reach them. With their yes, run `waitlist.next.command`: `tychicus remote setup --tailscale --no-passcode`, after `tychicus remote off` when a tailnet route is on. |
 | `problem` | Read `message` and pass it on. |
 
 If an assistant says computer use isn't available, its `computer_status` tool explains why: Polycarp's Mac app isn't running here, or needs updating.

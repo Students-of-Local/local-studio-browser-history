@@ -223,9 +223,14 @@ Tychicus only reads it and never creates Local Studio's folder. The route carrie
   `local-studio tunnel setup` with that route and `--json` when `local-studio` is on PATH, then joins. A Local Studio
   folder alone proves nothing (`install --local-studio` makes one). Funnel, no route, `--public-url`, and a re-run on
   this install's own Funnel or Cloudflare route stay Tychicus's own setup; `remote join` moves that route.
-- Tunnel setup in Local Studio is on its dev channel only. When `local-studio tunnel setup` answers `state: "waitlist"`
-  (with `url`, `next` and `channel`), Tychicus says so, gives the waitlist address, and sets up its own route; `--json`
-  puts the whole answer in `localStudio`. A `local-studio` that answers no JSON (a build from before tunnel setup) also
+- Tunnel setup in Local Studio is on its dev channel only, so its hosted route is on a waitlist, and Tailscale Funnel is
+  the route for claude.ai, ChatGPT and grok.com meanwhile (free, no domain: `tychicus remote setup --tailscale`). When
+  `local-studio tunnel setup` answers `state: "waitlist"` (with `url`, `next` and `channel`), Tychicus says so, gives the
+  waitlist address and the Funnel command, then sets up the route that was asked for, its own. Asked for `--tailnet`, it
+  says first that web assistants can't use a tailnet-only address, and the Funnel command starts with `tychicus remote
+  off`. `--json` puts the whole answer in `localStudio`, and adds `waitlist`: `url`, `channel`, and `next`
+  (`{ "kind": "run_command", "command", "why" }`), the Funnel command an agent runs with the person's yes. The report's
+  own `next` is unchanged. A `local-studio` that answers no JSON (a build from before tunnel setup) also
   leaves Tychicus its own route. One that answers JSON and fails is a refusal with code `local_studio`.
 - Setup through Local Studio makes the passcode and connect code the way its own setup does: a passcode unless
   `--no-passcode`, a connect code for `--connect-code` or a person at a terminal, and code `connect_code` when one asked

@@ -104,6 +104,11 @@ export interface SetupReport {
 	step?: AgentStep;
 	/** Local Studio's waitlist answer from `local-studio tunnel setup --json`, unchanged, when setup used Tychicus's own route instead. */
 	localStudio?: Record<string, unknown>;
+	/**
+	 * On Local Studio's waitlist: its signup `url` and `channel`, and `next`, the command (with `why`) that gives claude.ai, ChatGPT and
+	 * grok.com a route meanwhile: Tailscale Funnel. The report's own `next` still says what this setup's route needs.
+	 */
+	waitlist?: { url?: string; channel?: string; next: { kind: "run_command"; command: string; why: string } };
 	message: string;
 	adminUrl?: string;
 	/**

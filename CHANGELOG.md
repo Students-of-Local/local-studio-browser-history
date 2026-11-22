@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Changed
+- While Local Studio's hosted tunnel is on its waitlist, `tychicus remote setup` names Tailscale Funnel as the route for web assistants. On a `state: "waitlist"` answer from `local-studio tunnel setup`, it says the hosted route is waitlisted, gives the signup address, and says claude.ai, ChatGPT and grok.com use Tailscale Funnel meanwhile (`tychicus remote setup --tailscale`, free, no domain). With `--tailnet` it says before setting up that web assistants can't use a tailnet-only address, and the Funnel command starts with `tychicus remote off`. `--json` adds `waitlist` beside `localStudio`: `url`, `channel` and `next` (`kind`, `command`, `why`) for an agent. The route it sets up is unchanged. The connector skill and `docs/remote.md` say the same. Tests: `cli/test/one-tunnel.test.mjs`.
+
 ### Fixed
 - The one-command install no longer stops when the GitHub CLI is installed but not signed in. `gh attestation verify` needs a token, so a signed-out gh can't check: `scripts/install.sh`, `scripts/install.ps1` and `tychicus install --release` now ask `gh auth status --hostname github.com` first (its exit code only; `GH_TOKEN` or `GITHUB_TOKEN` counts as signed in) and, when it fails, check `SHA256SUMS` only and say gh is installed but not signed in and that `gh auth login` turns the check on. The scripts then run the release's program with `TYCHICUS_GH=none`, so an older release's program doesn't try the check either. A signed-in gh that refuses an artifact still refuses the whole install. `ReleaseCheck.attestation` gains `gh-signed-out`. Decision D61. Tests: `test/install-script.test.mjs`, `cli/test/release-install.test.mjs`.
 
