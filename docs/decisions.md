@@ -2087,3 +2087,8 @@ calls, is the cost. Both were left out.
 
 **Why.** Each cost was a fixed wait or repeated work that no page needed, and each fix keeps what the result reports.
 The dom-bench floor and the market tasks gate it.
+
+**Results.** The rivals harness, 3 reps, same session, load 16: Tychicus click 27 ms, fill 16, first text 48, start
+1769; agent-browser 20, 9, 43 and 2049. Tasks 30/30 for both, dom-bench 54/54. The hop trace's click fell from 67.7 to
+29.9 ms, fill from 41.1 to 15.4 and navigate from 93.3 to 46.3. What keeps click, fill and first text above
+agent-browser's, which reports no changes and does not settle, is in `docs/verification/speed-trace.md`.
