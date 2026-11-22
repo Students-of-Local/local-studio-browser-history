@@ -55,7 +55,9 @@ import { HOST_CONNECTED_KEY } from "./host-state.js";
 import {
 	addPendingRequest,
 	allowHost,
+	asModelTier,
 	DECISION_KEY_PREFIX,
+	effectiveMode,
 	getPermissionMode,
 	hostOf,
 	isBridgeEnabled,
@@ -85,6 +87,7 @@ import {
 	type HostUpdateProgress,
 	type HostUpdateStatus,
 	MAX_FRAME_FROM_EXTENSION,
+	type ModelTier,
 	NATIVE_HOST_NAMES,
 	PROTOCOL_VERSION,
 	UPDATE_PROGRESS_KEY,
@@ -109,6 +112,8 @@ const PERMISSION_TIMEOUT_MS = 120000;
 interface ClientState {
 	clientId: string;
 	name: string;
+	/** How capable the client's model is, from its hello; "unknown" when it said nothing (D60). */
+	tier: ModelTier;
 	sessionKey: string;
 	/** Group label: the agent, then the project or session name ("claude · tabkyra"). */
 	label?: string;
@@ -218,6 +223,7 @@ async function onClientConnected(msg: HostClientConnected): Promise<void> {
 	const state: ClientState = {
 		clientId: msg.clientId,
 		name,
+		tier: asModelTier(msg.client.tier),
 		sessionKey: key,
 		label: subject && subject !== name ? `${name} · ${subject}` : name,
 		meta: { agent: name, ...(project ? { project } : {}), ...(sessionName ? { name: sessionName } : {}) },
@@ -233,7 +239,7 @@ async function onClientConnected(msg: HostClientConnected): Promise<void> {
 	clients.set(msg.clientId, state);
 	// Sessions open lazily on the first browser call: maintenance clients (status, debug,
 	// reload, allow) never touch tabs and must not leave session records behind.
-	console.log(`[Bridge] client ${msg.clientId} (${state.name}) connected as ${state.sessionKey}`);
+	console.log(`[Bridge] client ${msg.clientId} (${state.name}, ${state.tier} model) connected as ${state.sessionKey}`);
 }
 
 /** Point a client at a session and tell it the name to reconnect with. */
@@ -295,7 +301,7 @@ async function onClientDisconnected(clientId: string): Promise<void> {
 
 async function askPermission(state: ClientState, url: string): Promise<boolean> {
 	if (isOwnExtensionUrl(url)) return false;
-	if (await isUrlAllowed(url)) return true;
+	if (await isUrlAllowed(url, state.tier)) return true;
 	const host = hostOf(url);
 	if (!host) return false;
 	const requestId = `${state.clientId}:${crypto.randomUUID()}`;
@@ -534,14 +540,16 @@ async function runRequest(state: ClientState, req: HostForwardedRequest, answer?
 			},
 			isGuarded: (url: string) => isGuardedUrl(url, req.guardedHosts),
 			guardedHosts: req.guardedHosts ?? [],
+			tier: state.tier,
 			// A frame is the page's own when it is on the page's host; any other host needs the person's allow (D46).
 			frameAllowed: async (url, topUrl) =>
-				(!!topUrl && hostOf(url) === hostOf(topUrl) && !isOwnExtensionUrl(url)) || (await isUrlAllowed(url)),
+				(!!topUrl && hostOf(url) === hostOf(topUrl) && !isOwnExtensionUrl(url)) ||
+				(await isUrlAllowed(url, state.tier)),
 			askUpload: (url, files, askId) => askUpload(state, url, files, askId),
 			checkUrl: async (url: string) => {
 				if (isGuardedUrl(url, req.guardedHosts)) throw guardedError(url);
 				if (!(await askPermission(state, url))) {
-					const mode = await getPermissionMode();
+					const mode = effectiveMode(await getPermissionMode(), state.tier);
 					throw new BridgeError(
 						ERR.PERMISSION_DENIED,
 						isOwnExtensionUrl(url)
@@ -937,12 +945,12 @@ function onHostMessage(message: HostToExt): void {
 				// `polycarp browser allow-all` / `tabkyra ask`: a local user process flipping the site-permission mode,
 				// same trust as the Settings > Agents toggle.
 				const mode = String(message.params?.mode ?? "");
-				if (mode !== "ask" && mode !== "allow_all") {
+				if (mode !== "by_model" && mode !== "ask" && mode !== "allow_all") {
 					send({
 						type: "response",
 						clientId: message.clientId,
 						id: message.id,
-						error: { code: ERR.BAD_PARAMS, message: "mode must be ask or allow_all" },
+						error: { code: ERR.BAD_PARAMS, message: "mode must be by_model, ask or allow_all" },
 					});
 					return;
 				}
@@ -1138,6 +1146,8 @@ function onHostMessage(message: HostToExt): void {
 				state = {
 					clientId: message.clientId,
 					name: "harness",
+					// Its hello was missed, so nothing says which model it runs.
+					tier: "unknown",
 					sessionKey: `bridge-harness-${message.clientId}`,
 					queue: Promise.resolve(),
 					lastActivityAt: 0,

@@ -100,7 +100,7 @@ import {
 	sliceInfo,
 } from "./paging.js";
 import { getAllowedHosts, getPermissionMode } from "./permissions.js";
-import { ERR } from "./protocol.js";
+import { ERR, type ModelTier } from "./protocol.js";
 import { cleanRef, lookUpName, nodeLine, REF_RE } from "./ref-lookup.js";
 
 export { BridgeError, detachedError };
@@ -123,6 +123,8 @@ export interface HandlerContext {
 	isGuarded(url: string): boolean;
 	/** The hosts behind `isGuarded`, as the CLI sent them ("host" or "host:port"). */
 	guardedHosts?: readonly string[];
+	/** How capable the calling client's model is (its hello, D60); unset counts as unknown. */
+	tier?: ModelTier;
 	/**
 	 * Whether a frame at `url` on a page at `topUrl` may be read and acted in: its host is the page's or one the
 	 * person allowed for agents. Unset (the side panel): every frame that isn't guarded.

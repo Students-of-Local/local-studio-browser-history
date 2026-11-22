@@ -41,7 +41,7 @@ export class BridgeTab extends SettingsTab {
 	@state() private enabled = true;
 	@state() private veil = true;
 	@state() private pointer = true;
-	@state() private mode: PermissionMode = "ask";
+	@state() private mode: PermissionMode = "by_model";
 	@state() private hosts: string[] = [];
 	@state() private pending: PendingRequest[] = [];
 	@state() private sessions: Array<{ id: string; label: string; tabs: number }> = [];
@@ -232,6 +232,13 @@ export class BridgeTab extends SettingsTab {
 
 				<div class="space-y-2">
 					<div class="text-sm font-medium text-foreground">Site access</div>
+					<label class="flex items-start gap-2 text-sm text-foreground cursor-pointer">
+						<input type="radio" name="bridge-mode" value="by_model" .checked=${this.mode === "by_model"} @change=${async () => {
+							await setPermissionMode("by_model");
+							await this.load();
+						}} />
+						Match the model: agents on frontier models open any site; small or unknown models ask first
+					</label>
 					<label class="flex items-start gap-2 text-sm text-foreground cursor-pointer">
 						<input type="radio" name="bridge-mode" value="ask" .checked=${this.mode === "ask"} @change=${async () => {
 							await setPermissionMode("ask");

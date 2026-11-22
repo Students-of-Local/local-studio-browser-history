@@ -6,7 +6,7 @@
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { connect, type Socket } from "node:net";
 import { join } from "node:path";
-import type { ClientToHost, HostToClient, RpcError } from "../../src/bridge/protocol.ts";
+import type { ClientToHost, HostToClient, ModelTier, RpcError } from "../../src/bridge/protocol.ts";
 import { ERR, isIdempotent, MAX_FRAME_FROM_EXTENSION } from "../../src/bridge/protocol.ts";
 import { encodeFrame, FrameParser } from "./framing.ts";
 import { assertSecurePath, socketDirs } from "./paths.ts";
@@ -56,6 +56,10 @@ export interface ClientOptions {
 	named?: boolean;
 	/** The project's folder name, for the group title. */
 	project?: string;
+	/** How capable the agent's model is (model-tier.ts), sent in the hello for the "Match the model" site access mode. */
+	tier?: ModelTier;
+	/** The model's name, when known. */
+	model?: string;
 	/** Fires for permission prompts and other pushed events. */
 	onEvent?: (event: string, data: Record<string, unknown>) => void;
 	onExtensionStatus?: (connected: boolean) => void;
@@ -322,6 +326,8 @@ export class BridgeClient {
 					...(this.options.named ? { named: true } : {}),
 					...(this.options.project ? { project: this.options.project } : {}),
 					version: VERSION,
+					...(this.options.tier ? { tier: this.options.tier } : {}),
+					...(this.options.model ? { model: this.options.model } : {}),
 				},
 			};
 			socket.write(encodeFrame(hello));

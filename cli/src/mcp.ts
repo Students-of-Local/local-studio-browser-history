@@ -19,7 +19,9 @@ import { install, isInstalled } from "./install.ts";
 import { saveCapture, type IncomingCapture } from "./captures.ts";
 import { addSource, cite, search, summary } from "./library.ts";
 import { chooseSession } from "./session-name.ts";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkSkill, listSkills, matchTask, readSkill, removeSkill, skillInfo, syncCommunity, writeSkill } from "./skill.ts";
@@ -32,6 +34,7 @@ import { VERSION } from "./version.ts";
 import { COMPUTER_INSTRUCTION, COMPUTER_STATUS_TOOL, type ComputerClient, LOCAL_COMPUTER_INSTRUCTION, LocalComputer } from "./computer.ts";
 import { COMMAND_NAME } from "./self.ts";
 import { envVar } from "./env.ts";
+import { configuredModel, launchOf, type ModelTier, type ProcessInfo, sessionTier } from "./model-tier.ts";
 import { chooseProfile, hideOutsideCore, peekClientName, SMALL_CORE, SMALL_INSTRUCTION } from "./small-profile.ts";
 import type { RosterDevice } from "./link-protocol.ts";
 
@@ -225,6 +228,8 @@ export interface McpServerOptions {
 	callCheck?: CallCheck;
 	/** "small": the core tools listed, the rest behind more_tools (cli/src/small-profile.ts). */
 	profile?: "small";
+	/** The model behind this session and its tier (model-tier.ts sessionTier), sent in the bridge hello. Unset: unknown. */
+	model?: { tier: ModelTier; model?: string };
 }
 
 /** What a session behind a hub knows about it: which device it runs on, and the hub's last roster (undefined until one arrives). */
@@ -403,6 +408,7 @@ export function createMcpServer(options: McpServerOptions = {}): { server: McpSe
 		// A name from --session or TYCHICUS_SESSION; a remote session's id is not one.
 		named: !options.session && choice.named === true,
 		project: "project" in choice ? choice.project : undefined,
+		...(options.model ? { tier: options.model.tier, ...(options.model.model ? { model: options.model.model } : {}) } : {}),
 		onEvent: (event, data) => {
 			if (event === "permission_request") void handlePermission(data);
 			// The same session under a new name: its saved files go with it.
@@ -1504,6 +1510,52 @@ function registerSkillManagement(server: McpServer, library: <T>(fn: () => Promi
 	);
 }
 
+/** One process's parent and command line, from `ps`, or from CIM on Windows. */
+function readProcess(pid: number): ProcessInfo | undefined {
+	try {
+		const out =
+			process.platform === "win32"
+				? execFileSync(
+						"powershell.exe",
+						["-NoProfile", "-NonInteractive", "-Command", `$p = Get-CimInstance Win32_Process -Filter "ProcessId=${pid}"; if ($p) { "$($p.ParentProcessId) $($p.CommandLine)" }`],
+						{ encoding: "utf8", timeout: 5000, windowsHide: true },
+					)
+				: execFileSync(existsSync("/bin/ps") ? "/bin/ps" : "ps", ["-o", "ppid=,args=", "-p", String(pid)], { encoding: "utf8", timeout: 2000 });
+		const [parent, ...args] = out.trim().split(/\s+/);
+		if (!parent) return undefined;
+		return { ppid: Number(parent), args: args.map((arg) => arg.replace(/^"|"$/g, "")) };
+	} catch {
+		return undefined;
+	}
+}
+
+function readText(path: string): string | undefined {
+	try {
+		return readFileSync(path, "utf8");
+	} catch {
+		return undefined;
+	}
+}
+
+/** The model Claude Code or Codex runs, as far as this server can see it: launch flag, then env, then the client's config. */
+function clientLaunch(clientName: string | undefined): { clientModel?: string; baseUrl?: string; local: boolean } {
+	const client = clientName?.trim().toLowerCase() ?? "";
+	const claude = client.startsWith("claude");
+	const launch = launchOf(process.ppid, readProcess);
+	const config = claude
+		? configuredModel("claude", [
+				readText(join(process.cwd(), ".claude", "settings.local.json")),
+				readText(join(process.cwd(), ".claude", "settings.json")),
+				readText(join(process.env.CLAUDE_CONFIG_DIR || join(homedir(), ".claude"), "settings.json")),
+			])
+		: configuredModel("codex", [readText(join(process.env.CODEX_HOME || join(homedir(), ".codex"), "config.toml"))]);
+	return {
+		clientModel: launch.model || (claude ? process.env.ANTHROPIC_MODEL : undefined) || config.model,
+		baseUrl: claude ? process.env.ANTHROPIC_BASE_URL : process.env.OPENAI_BASE_URL,
+		local: launch.local || config.local,
+	};
+}
+
 export async function runMcpServer(options: { session?: string; profile?: "small" | "full"; serverName?: string } = {}): Promise<void> {
 	if (!isInstalled()) {
 		// First run from any harness completes setup; the extension reconnects on its alarm.
@@ -1511,20 +1563,21 @@ export async function runMcpServer(options: { session?: string; profile?: "small
 		process.stderr.write(`[tychicus] installed native host manifests (${result.written.length} file(s))\n`);
 	}
 	const localComputer = new LocalComputer();
-	// A local model gets the small tool list unless told otherwise (D53). Its client names itself only in its first message,
-	// so that message is read before the server is built and handed on to the transport untouched.
-	const decided = options.profile || envVar("PROFILE") === "small" || envVar("PROFILE") === "full";
-	const peeked = decided ? undefined : await peekClientName(process.stdin);
-	const { profile, why } = chooseProfile({ flag: options.profile, env: envVar("PROFILE"), localModel: envVar("LOCAL_MODEL"), clientName: peeked?.clientName });
+	// A local model gets the small tool list unless told otherwise (D53), and the model's tier sets what "Match the model"
+	// site access allows (D60). The client names itself only in its first message, so that message is read before the
+	// server is built and handed on to the transport untouched.
+	const peeked = await peekClientName(process.stdin);
+	const { profile, why } = chooseProfile({ flag: options.profile, env: envVar("PROFILE"), localModel: envVar("LOCAL_MODEL"), clientName: peeked.clientName });
 	if (profile === "small" && !options.profile) process.stderr.write(`[tychicus] small tool profile: ${why} (--profile full for every tool)\n`);
-	const { server, client } = createMcpServer({ sessionFlag: options.session, localComputer, profile, serverName: options.serverName });
+	const model = sessionTier({ model: envVar("MODEL"), clientName: peeked.clientName, small: profile === "small", ...clientLaunch(peeked.clientName) });
+	const { server, client } = createMcpServer({ sessionFlag: options.session, localComputer, profile, serverName: options.serverName, model });
 	process.stdin.on("end", () => localComputer.close());
 	// Community skills, about daily, in the background: many harnesses keep this server running.
 	// The whole reconciliation (skill.ts syncCommunity), not just the fetch: pulled skills lose their installed copies here too.
 	const sync = () => syncCommunity({ due: true }).catch(() => undefined);
 	void sync();
 	setInterval(sync, 6 * 60 * 60 * 1000).unref();
-	const transport = new StdioServerTransport(peeked?.stream ?? process.stdin);
+	const transport = new StdioServerTransport(peeked.stream);
 	await server.connect(transport);
 	// Connect lazily on the first call, but try once now so a missing extension is reported early.
 	client.connect().catch((err) => process.stderr.write(`[tychicus] ${err instanceof Error ? err.message : String(err)}\n`));

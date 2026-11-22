@@ -1978,3 +1978,40 @@ route with the same exact paths: a Cloudflare ingress of its nine paths then 404
 apps share one address without either catching the other's traffic. Design: baney75/local-studio `docs/tunnel.md`.
 
 **Proof.** `cli/test/one-tunnel.test.mjs`, and a live `remote setup --tailnet` with `remote test` passing.
+
+## D60. Site access matches the model: frontier models open any site, small and unknown models ask (Claude, 2026-11-22)
+
+**Decision.** The default site access mode is `by_model` ("Match the model"), used whenever nothing is stored. A bridge
+client on a frontier model behaves as in `allow_all`; one on a small or unknown model behaves as in `ask`. A stored
+`ask` or `allow_all` keeps its meaning for every client. What is refused or asked in every mode stays so: Tychicus's
+own pages, guarded hosts (the approval page and local services) and upload questions.
+
+The tier comes from the client's hello (`tier`, and `model` when known). `tychicus mcp` sets it with
+`sessionTier` in `cli/src/model-tier.ts`: a model named in `TYCHICUS_MODEL` (or `POLYCARP_MODEL`) decides it through
+`modelTier`; without one, a session on the small tool profile is small (checked first, so a local model run under
+Claude Code asks). Claude Code and Codex, by their initialize name, are rated by the model they run: the `--model`
+or `-m` their process (or one of its two parents) was started with, then `ANTHROPIC_MODEL`, then their own config
+(Claude Code's settings.json `model`, Codex's config.toml `model`). With none set they are frontier, since both
+default to a frontier model. Served off the vendor's endpoint (an `ANTHROPIC_BASE_URL` or `OPENAI_BASE_URL` that isn't
+Anthropic's or OpenAI's, Codex `--oss`, or a Codex `model_provider` other than OpenAI), a frontier name rates unknown.
+A `/model` switch inside a running session and a subagent on another model share the session and stay on its launch
+tier. Any other client is unknown. A
+client that sends no tier (an older CLI, the pi extension, a remote session) and any value but `frontier` or `small`
+count as unknown. A process on the bridge socket could claim `frontier`, but it could already set `allow_all` with
+`permission.setMode`, so the tier adds no trust it did not have.
+
+`modelTier` rules, in order: a small-line word as a piece of the name (haiku, mini, lite, oss, gemma, llama, mistral,
+devstral and the rest) is small; a size token under 100B ("27b", "8x7b") is small; then the family and version decide
+(opus 4.5, sonnet 4.6, any fable, gpt 5.2, gemini 3, grok 4.5, deepseek v4, kimi k2.6, glm 5.3, minimax m3, qwen 3.8
+and up are frontier, older ones small, a bare opus, sonnet or fable alias frontier, another family with no version
+unknown); anything else is unknown.
+
+**Why.** The owner asked that agents on smart models get full access by default and that small or unknown models ask
+before risky actions; for Tychicus the risky action is opening a site the user has not allowed. Frontier means about 75
+or more on Vals.ai SWE-bench Verified: Opus 4.5 76.4, Sonnet 4.6 77.4, GPT-5.2 75.8, Gemini 3 Pro 76.4, Gemini 3 Flash
+75.0, Grok 4.5 86.6, DeepSeek V4 Pro 96.4, Kimi K2.6 76.2, GLM 5.3 95.4, MiniMax M3 75.0, Qwen 3.8 Max 85.6. Below it:
+Haiku 4.5 66.6, Sonnet 4.5 70.0, GPT-5.1 69.8, GPT-5 mini 60.8, Grok 4 57.8, DeepSeek V3.2 67.6, Kimi K2.5 70.0, GLM 5
+71.4. A model small by size counts as small even when its score is high. Local Studio ships the same rules in Rust.
+
+**Proof.** `cli/test/model-tier.test.mjs` (the 45 agreed names, and the hello each kind of session sends) and
+`test/site-access-by-model.test.mjs` (the default, the decision for each tier, a stored `ask` asking a frontier client).

@@ -231,7 +231,9 @@ async function status(json: boolean): Promise<number> {
 		console.log(
 			report.permissionMode === "allow_all"
 				? `${sym.warn} Agents may open any site ${c.dim(`(${COMMAND_NAME} ask turns prompts back on)`)}`
-				: `${sym.ok} Agents ask before opening a new site. Allowed: ${allowed}`,
+				: report.permissionMode === "by_model"
+					? `${sym.ok} Agents on frontier models open any site; small or unknown models ask first. Allowed: ${allowed}`
+					: `${sym.ok} Agents ask before opening a new site. Allowed: ${allowed}`,
 		);
 	} else {
 		console.log(`${sym.fail} ${report.message}`);
