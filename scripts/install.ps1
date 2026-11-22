@@ -4,7 +4,7 @@
 #
 # It downloads this computer's archive and SHA256SUMS from the latest release of baney75/tychicus (or the one
 # TYCHICUS_VERSION names) into a temporary folder, checks the archive's SHA-256, checks its build attestation when the
-# GitHub CLI is on PATH, unpacks it and runs `tychicus.exe install --release <folder>`, which checks the files again and
+# GitHub CLI is on PATH and signed in, unpacks it and runs `tychicus.exe install --release <folder>`, which checks the files again and
 # registers the helper with each Chromium browser. It needs no administrator rights and refuses to run elevated.
 #
 # With options (anything but --allow-root goes to `tychicus install --release`: --local-studio, --force,
@@ -99,8 +99,23 @@ function Install-Tychicus {
 			$ghCommand = Get-Command gh -ErrorAction SilentlyContinue | Select-Object -First 1
 			if ($ghCommand) { $gh = $ghCommand.Source }
 		}
+		$ghSignedOut = $false
+		if ($gh -and $gh -ne 'none') {
+			# gh attestation verify needs a token, so a signed-out gh can't check. GH_TOKEN or GITHUB_TOKEN counts as
+			# signed in. gh prints on stderr: see the note below about 'Continue'.
+			$saved = $ErrorActionPreference
+			$ErrorActionPreference = 'Continue'
+			try {
+				$null = & $gh auth status --hostname github.com 2>&1
+				$ghSignedOut = $LASTEXITCODE -ne 0
+			} finally {
+				$ErrorActionPreference = $saved
+			}
+		}
 		if (-not $gh -or $gh -eq 'none') {
 			Write-Host "Skipped the build attestation check: the GitHub CLI (gh) is not installed. With it, this also runs gh attestation verify --repo $repo."
+		} elseif ($ghSignedOut) {
+			Write-Host "Skipped the build attestation check: the GitHub CLI (gh) is installed but not signed in, so the build attestation was not checked. Run gh auth login to turn the check on."
 		} else {
 			# gh prints progress on stderr. Under 'Stop', Windows PowerShell 5.1 turns any stderr line from a native
 			# program into a terminating error, so run it under 'Continue' and judge it by its exit code alone.
@@ -123,8 +138,17 @@ function Install-Tychicus {
 		$program = Join-Path (Join-Path $dir ([IO.Path]::GetFileNameWithoutExtension($archive))) 'tychicus.exe'
 		if (-not (Test-Path -LiteralPath $program)) { Fail "$archive holds no tychicus.exe." }
 
-		& $program install --release $dir @passOn
-		if ($LASTEXITCODE -ne 0) { Fail 'tychicus install --release failed; see above. Nothing changed if it stopped before registering.' }
+		# The program checks again; after a signed-out gh it must not try what gh just said it can't do. Restore the
+		# variable after, since `irm | iex` runs in the caller's own session.
+		$savedGh = $env:TYCHICUS_GH
+		if ($ghSignedOut) { $env:TYCHICUS_GH = 'none' }
+		try {
+			& $program install --release $dir @passOn
+			$code = $LASTEXITCODE
+		} finally {
+			$env:TYCHICUS_GH = $savedGh
+		}
+		if ($code -ne 0) { Fail 'tychicus install --release failed; see above. Nothing changed if it stopped before registering.' }
 		if ($dryRun) { return }
 
 		$localAppData = if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { Join-Path $HOME 'AppData\Local' }

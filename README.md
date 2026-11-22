@@ -71,7 +71,8 @@ irm https://github.com/baney75/tychicus/releases/latest/download/install.ps1 | i
 
 The command downloads the archive for your computer and `SHA256SUMS` from the latest release,
 checks the archive's SHA-256, checks its build attestation with `gh attestation verify` when the
-[GitHub CLI](https://cli.github.com) is installed (and says so when it isn't), then runs the
+[GitHub CLI](https://cli.github.com) is installed and signed in (and says so when it isn't; `gh auth
+login` turns the check on), then runs the
 release's own `tychicus install --release`, which checks again and registers the helper. It needs
 no sudo and refuses to run as root or administrator unless you pass `--allow-root`.
 `TYCHICUS_VERSION=1.2.3` installs that release instead of the latest, and options after
@@ -96,8 +97,9 @@ and shows the helper connected once the command has run.
    On Windows, in PowerShell: `tar -xf tychicus-<version>-win-x64.zip` and then
    `.\tychicus-<version>-win-x64\tychicus.exe install --release .`
    The installer checks every file against `SHA256SUMS`, and against its build attestation when
-   the [GitHub CLI](https://cli.github.com) is installed, and refuses the whole install on any
-   mismatch. It unpacks each version into a folder of its own under
+   the [GitHub CLI](https://cli.github.com) is installed and signed in, and refuses the whole
+   install on any mismatch. A gh that isn't signed in can't run the check, so the installer says
+   so and checks the sums only. It unpacks each version into a folder of its own under
    `~/.local/share/tychicus/versions/` (`%LOCALAPPDATA%\Tychicus\versions\` on Windows), registers
    the native host with each Chromium browser it finds, then points `release` at the new version
    and copies the extension to the fixed folder `~/.local/share/tychicus/extension`. An upgrade

@@ -2015,3 +2015,22 @@ Haiku 4.5 66.6, Sonnet 4.5 70.0, GPT-5.1 69.8, GPT-5 mini 60.8, Grok 4 57.8, Dee
 
 **Proof.** `cli/test/model-tier.test.mjs` (the 45 agreed names, and the hello each kind of session sends) and
 `test/site-access-by-model.test.mjs` (the default, the decision for each tier, a stored `ask` asking a frontier client).
+
+## D61. A signed-out gh is treated like no gh: SHA256SUMS only, with a note (Claude, 2026-11-22)
+
+**Context.** D57 made a failed `gh attestation verify` stop the install, "including a `gh` that isn't signed in". On a
+Mac with gh installed and never signed in, v1.4.0's one command printed gh's own sign-in hint and refused the install.
+The README promised the check runs when gh can run it and is skipped, with a note, when it can't; the attestation API
+needs a token, so a signed-out gh can't.
+
+**Decision.** This replaces D57's signed-out clause. Before `gh attestation verify`, `scripts/install.sh`,
+`scripts/install.ps1` and `install --release` (`ghSignedIn` in `cli/src/release.ts`) run `gh auth status --hostname
+github.com` and read only its exit code: zero means signed in (a stored account, or `GH_TOKEN`/`GITHUB_TOKEN`); any
+other result, a timeout included, means gh can't check. Then the install checks `SHA256SUMS` only and says gh is
+installed but not signed in and that `gh auth login` turns the check on; `ReleaseCheck.attestation` is
+`gh-signed-out`. The scripts run the release's program with `TYCHICUS_GH=none` after that answer, so a program from
+an older release doesn't try the check again and refuse (install.ps1 restores the variable, since `irm | iex` runs in
+the caller's session). A signed-in gh that refuses an artifact still refuses the whole install, and `TYCHICUS_GH=none`
+and `--skip-attestation` are unchanged.
+
+**Why.** The check is extra assurance when gh can give it, not a gate that a missing sign-in closes. gh's English is never parsed, so a reworded message can't change the outcome.

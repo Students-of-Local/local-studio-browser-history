@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- The one-command install no longer stops when the GitHub CLI is installed but not signed in. `gh attestation verify` needs a token, so a signed-out gh can't check: `scripts/install.sh`, `scripts/install.ps1` and `tychicus install --release` now ask `gh auth status --hostname github.com` first (its exit code only; `GH_TOKEN` or `GITHUB_TOKEN` counts as signed in) and, when it fails, check `SHA256SUMS` only and say gh is installed but not signed in and that `gh auth login` turns the check on. The scripts then run the release's program with `TYCHICUS_GH=none`, so an older release's program doesn't try the check either. A signed-in gh that refuses an artifact still refuses the whole install. `ReleaseCheck.attestation` gains `gh-signed-out`. Decision D61. Tests: `test/install-script.test.mjs`, `cli/test/release-install.test.mjs`.
+
 ## [1.4.0] - 2026-11-21
 
 ### Added

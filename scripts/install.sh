@@ -5,7 +5,7 @@
 #
 # It downloads this computer's archive and SHA256SUMS from the latest release of baney75/tychicus (or the one
 # TYCHICUS_VERSION names) into a temporary folder, checks the archive's SHA-256, checks its build attestation when the
-# GitHub CLI is on PATH, unpacks it and runs `tychicus install --release <folder>`, which checks the files again and
+# GitHub CLI is on PATH and signed in, unpacks it and runs `tychicus install --release <folder>`, which checks the files again and
 # registers the helper with each Chromium browser. It needs no sudo and refuses to run as root.
 #
 #   sh install.sh [--allow-root] [install options]   with curl: curl -fsSL <url> | sh -s -- --local-studio
@@ -156,6 +156,12 @@ gh="${TYCHICUS_GH:-}"
 if [ -z "$gh" ]; then gh=$(command -v gh 2>/dev/null || true); fi
 if [ "$gh" = none ] || [ -z "$gh" ]; then
 	say "Skipped the build attestation check: the GitHub CLI (gh) is not installed. With it, this also runs gh attestation verify --repo $REPO."
+elif ! "$gh" auth status --hostname github.com >/dev/null 2>&1; then
+	# gh attestation verify needs a token, so a signed-out gh can't check. GH_TOKEN or GITHUB_TOKEN counts as signed in.
+	say "Skipped the build attestation check: the GitHub CLI (gh) is installed but not signed in, so the build attestation was not checked. Run gh auth login to turn the check on."
+	# The program checks again below; it must not try what gh just said it can't do.
+	TYCHICUS_GH=none
+	export TYCHICUS_GH
 else
 	if ! "$gh" attestation verify "$dir/$archive" --repo "$REPO" --signer-workflow "$WORKFLOW" >"$dir/attestation.log" 2>&1; then
 		tail -n 5 "$dir/attestation.log" >&2

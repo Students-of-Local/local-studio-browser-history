@@ -45,7 +45,7 @@ function publish(version, { tamper = false, withArchive = true } = {}) {
 		const program = join(src, top, "tychicus");
 		writeFileSync(
 			program,
-			`#!/bin/sh\n{ echo "version ${version}"; echo "args $*"; ls "$3"; } > "$CALLS"\necho "Load unpacked: $HOME/.local/share/tychicus/extension"\n`,
+			`#!/bin/sh\n{ echo "version ${version}"; echo "args $*"; echo "gh \${TYCHICUS_GH:-}"; ls "$3"; } > "$CALLS"\necho "Load unpacked: $HOME/.local/share/tychicus/extension"\n`,
 		);
 		chmodSync(program, 0o755);
 		execFileSync("tar", ["-czf", join(work, `${top}.tar.gz`), "-C", src, top]);
@@ -166,27 +166,31 @@ test("a release with no archive for this computer is refused by name", async () 
 	assert.match(r.out, new RegExp(`no archive for ${tag}`));
 });
 
+/**
+ * A stand-in gh that logs each call to gh.txt in the home folder. `auth status` exits `auth` (0: signed in, 1: no
+ * account); `attestation verify` exits `verify`. Each writes a line on stderr, as gh does: Windows PowerShell 5.1 turns
+ * that into a terminating error under 'Stop', so only the exit code may decide.
+ */
+function fakeGh(auth, verify) {
+	if (windows) {
+		const file = join(work, `gh-${auth}-${verify}.cmd`);
+		writeFileSync(file, `@echo %* >> "%USERPROFILE%\\gh.txt"\r\n@echo Loaded digest for the archive 1>&2\r\n@if "%1"=="auth" exit /b ${auth}\r\n@exit /b ${verify}\r\n`);
+		return file;
+	}
+	const file = join(work, `gh-${auth}-${verify}`);
+	writeFileSync(file, `#!/bin/sh\necho "$*" >> "$HOME/gh.txt"\necho "Loaded digest for the archive" >&2\nif [ "$1" = auth ]; then exit ${auth}; fi\nexit ${verify}\n`);
+	chmodSync(file, 0o755);
+	return file;
+}
+
 test("a failed gh attestation verify stops it; a passing one is reported, even when gh writes to stderr", async () => {
 	publish("9.9.0");
-	// gh prints progress on stderr. Windows PowerShell 5.1 turns that into a terminating error under 'Stop', so each
-	// fake gh writes a line there: only its exit code may decide.
-	const gh = (code) => {
-		if (windows) {
-			const file = join(work, `gh-${code}.cmd`);
-			writeFileSync(file, `@echo %* > "%USERPROFILE%\\gh.txt"\r\n@echo Loaded digest for the archive 1>&2\r\n@exit /b ${code}\r\n`);
-			return file;
-		}
-		const file = join(work, `gh-${code}`);
-		writeFileSync(file, `#!/bin/sh\necho "$*" > "$HOME/gh.txt"\necho "Loaded digest for the archive" >&2\nexit ${code}\n`);
-		chmodSync(file, 0o755);
-		return file;
-	};
-	const refused = await install({ env: { TYCHICUS_GH: gh(1) } });
+	const refused = await install({ env: { TYCHICUS_GH: fakeGh(0, 1) } });
 	assert.notEqual(refused.status, 0, refused.out);
 	assert.match(refused.out, /gh attestation verify refused/);
 	assert.equal(refused.calls, undefined, "the program ran after a failed attestation");
 
-	const ok = await install({ env: { TYCHICUS_GH: gh(0) } });
+	const ok = await install({ env: { TYCHICUS_GH: fakeGh(0, 0) } });
 	assert.match(ok.out, /built by baney75\/tychicus's release workflow/, ok.out);
 	assert.doesNotMatch(ok.out, /refused|NativeCommandError/);
 	assert.match(
@@ -195,7 +199,29 @@ test("a failed gh attestation verify stops it; a passing one is reported, even w
 	);
 	// On Windows the fake archive holds no tychicus.exe, so getting past gh ends at that check.
 	if (windows) assert.match(ok.out, /holds no tychicus\.exe/);
-	else assert.equal(ok.status, 0, ok.out);
+	else {
+		assert.equal(ok.status, 0, ok.out);
+		assert.match(ok.calls, /^gh \S*gh-0-0$/m, "a signed-in gh is passed on to the program");
+	}
+});
+
+test("a gh that is not signed in is treated like no gh: SHA256SUMS only, with a note, and the install goes on", async () => {
+	publish("9.9.3");
+	// verify would refuse: reaching the program proves it was never asked.
+	const r = await install({ env: { TYCHICUS_GH: fakeGh(1, 1) } });
+	assert.match(r.out, /matches SHA256SUMS/, r.out);
+	assert.match(r.out, /gh\) is installed but not signed in, so the build attestation was not checked\. Run gh auth login to turn the check on\./);
+	assert.doesNotMatch(r.out, /refused|NativeCommandError/);
+	const gh = readFileSync(join(r.home, "gh.txt"), "utf8");
+	assert.match(gh, /^auth status --hostname github\.com\s*$/m);
+	assert.doesNotMatch(gh, /attestation/, "a signed-out gh was asked to verify");
+	if (windows) assert.match(r.out, /holds no tychicus\.exe/);
+	else {
+		assert.equal(r.status, 0, r.out);
+		// The program checks again; it is told not to try gh, which just said it can't.
+		assert.match(r.calls, /^gh none$/m);
+		assert.match(r.calls, /^args install --release \S+$/m);
+	}
 });
 
 test("as root it refuses unless --allow-root", { skip: windows }, async () => {
