@@ -16,7 +16,8 @@ here=$(cd "$(dirname "$0")" && pwd)
 if [ -z "${HANDS_SESSION_INNER:-}" ]; then
 	rt=$(mktemp -d "${TMPDIR:-/tmp}/hands-session.XXXXXX")
 	chmod 700 "$rt"
-	trap 'rm -rf "$rt" 2>/dev/null || { sleep 1; rm -rf "$rt"; }' EXIT INT TERM
+	# A document portal the session's bus started mounts itself in the runtime folder; unmount it before removing it.
+	trap 'for u in fusermount3 fusermount; do "$u" -u -z "$rt/doc" 2>/dev/null && break; done; rm -rf "$rt" 2>/dev/null || { sleep 1; rm -rf "$rt"; }' EXIT INT TERM
 	# Nothing of the person's session comes in: no display, compositor, bus or accessibility address.
 	env -u DISPLAY -u WAYLAND_DISPLAY -u HYPRLAND_INSTANCE_SIGNATURE -u SWAYSOCK -u I3SOCK -u AT_SPI_BUS_ADDRESS \
 		-u DBUS_SESSION_BUS_ADDRESS -u XAUTHORITY -u NO_AT_BRIDGE -u GTK_A11Y -u XDG_SESSION_TYPE -u XDG_CURRENT_DESKTOP -u DESKTOP_SESSION \

@@ -97,27 +97,50 @@ pub fn shots_dir() -> PathBuf {
 }
 
 /// `hands.json` in the config folder: `{"access": "read_only" | "default" | "full", "apps": ["gedit", "/opt/x/bin/y"]}`.
-/// A file that is missing or can't be read means Default and no extra apps.
+/// A missing file means Default and no extra apps. A file that is there but can't be read or parsed, or whose
+/// `access` isn't a string, means Read Only: the person may have chosen it, and a typo or a save in progress never
+/// widens access. `problem` says why, for `windows`.
 #[derive(Clone, Debug)]
 pub struct Settings {
     pub mode: Mode,
     pub apps: Vec<String>,
+    pub problem: Option<String>,
 }
 
 pub fn settings() -> Settings {
-    let path = config_dir().join("hands.json");
-    let parsed: Option<Value> = fs::read_to_string(&path)
-        .ok()
-        .and_then(|t| serde_json::from_str(&t).ok());
-    let mode = Mode::parse(
-        parsed
-            .as_ref()
-            .and_then(|v| v.get("access"))
-            .and_then(Value::as_str),
-    );
-    let apps = parsed
-        .as_ref()
-        .and_then(|v| v.get("apps"))
+    parse_settings(fs::read_to_string(config_dir().join("hands.json")))
+}
+
+pub fn parse_settings(read: std::io::Result<String>) -> Settings {
+    let unusable = |why: String| Settings {
+        mode: Mode::ReadOnly,
+        apps: vec![],
+        problem: Some(format!(
+            "hands.json {why}, so agents get Read Only until it is fixed"
+        )),
+    };
+    let text = match read {
+        Ok(t) => t,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Settings {
+                mode: Mode::Default,
+                apps: vec![],
+                problem: None,
+            }
+        }
+        Err(e) => return unusable(format!("can't be read ({e})")),
+    };
+    let v: Value = match serde_json::from_str(&text) {
+        Ok(v) => v,
+        Err(e) => return unusable(format!("isn't valid JSON ({e})")),
+    };
+    let mode = match v.get("access") {
+        None => Mode::Default,
+        Some(Value::String(s)) => Mode::parse(Some(s)),
+        Some(_) => return unusable("has an access that isn't a string".into()),
+    };
+    let apps = v
+        .get("apps")
         .and_then(Value::as_array)
         .map(|a| {
             a.iter()
@@ -125,7 +148,11 @@ pub fn settings() -> Settings {
                 .collect()
         })
         .unwrap_or_default();
-    Settings { mode, apps }
+    Settings {
+        mode,
+        apps,
+        problem: None,
+    }
 }
 
 /// The mode this session works under: the person's, capped at Default for a connector.
@@ -194,5 +221,43 @@ impl AgentProcesses {
             }
         }
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn read(t: &str) -> std::io::Result<String> {
+        Ok(t.to_string())
+    }
+
+    #[test]
+    fn settings_never_widen_on_a_bad_file() {
+        assert_eq!(
+            parse_settings(read(r#"{"access":"read_only"}"#)).mode,
+            Mode::ReadOnly
+        );
+        assert_eq!(
+            parse_settings(read(r#"{"access":"full"}"#)).mode,
+            Mode::Full
+        );
+        assert_eq!(
+            parse_settings(read(r#"{"access":"bogus"}"#)).mode,
+            Mode::Default
+        );
+        assert_eq!(parse_settings(read(r#"{}"#)).mode, Mode::Default);
+        let typo = parse_settings(read(r#"{"access":"read_only",}"#));
+        assert_eq!(typo.mode, Mode::ReadOnly);
+        assert!(typo.problem.is_some());
+        assert_eq!(parse_settings(read("")).mode, Mode::ReadOnly);
+        assert_eq!(parse_settings(read(r#"{"access":1}"#)).mode, Mode::ReadOnly);
+        let missing = parse_settings(Err(std::io::Error::from(std::io::ErrorKind::NotFound)));
+        assert_eq!(missing.mode, Mode::Default);
+        assert!(missing.problem.is_none());
+        let denied = parse_settings(Err(std::io::Error::from(
+            std::io::ErrorKind::PermissionDenied,
+        )));
+        assert_eq!(denied.mode, Mode::ReadOnly);
     }
 }

@@ -6,7 +6,7 @@
 //
 // CI runs it the same way under Xvfb with openbox and under headless sway (.github/workflows/hands-linux.yml).
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -22,6 +22,14 @@ const fixture = resolve(here, "..", "..", "hands", "linux", "test", "fixture.py"
 const cli = resolve(here, "..", "dist", "index.js");
 const skip = !bin ? "set TYCHICUS_HANDS_LIVE_BIN inside hands/linux/test/headless-session.sh" : false;
 const x11 = Boolean(process.env.DISPLAY) && !process.env.WAYLAND_DISPLAY;
+const xdotool = x11 && spawnSync("xdotool", ["version"]).status === 0;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/** Gives focus back to the person's window, the way the person would. */
+function focusPerson() {
+	if (xdotool) spawnSync("xdotool", ["search", "--name", "Person Window", "windowactivate", "--sync"]);
+	else if (process.env.SWAYSOCK) spawnSync("swaymsg", ['[title="^Person Window$"] focus']);
+}
 
 let root;
 let env;
@@ -238,15 +246,48 @@ test("refs: a browser ref, an unknown snapshot and a gone element answer in prot
 	assertError(await s.call("get", { ref: "1" }), "stale_bare_row", "after_snapshot");
 });
 
-test("shot pictures the window as a labeled PNG", { skip: skip || (x11 ? false : "grim on sway captures only outputs; covered where it runs") }, async () => {
-	const { data, result } = await ok("shot", { window: win });
-	assert.equal(result.content.length, 3);
-	assert.match(result.content[1].text, /untrusted/);
-	assert.equal(result.content[2].type, "image");
-	assert.equal(result.content[2].mimeType, "image/png");
-	assert.ok(existsSync(data.path));
-	assert.deepEqual([...readFileSync(data.path).subarray(1, 4)].map((c) => String.fromCharCode(c)).join(""), "PNG");
-	assert.ok(data.width > 100 && data.height > 100, JSON.stringify(data));
+test("shot pictures the window as a labeled PNG, and under Default only when nothing covers it", { skip: skip || (xdotool ? false : "needs X11 and xdotool to move the person's window") }, async () => {
+	const person = spawnSync("xdotool", ["search", "--name", "Person Window"]).stdout.toString().trim().split("\n")[0];
+	const geo = Object.fromEntries(
+		spawnSync("xdotool", ["getwindowgeometry", "--shell", String(win)])
+			.stdout.toString()
+			.trim()
+			.split("\n")
+			.map((l) => l.split("=")),
+	);
+	try {
+		// The person's window over the fixture: a picture would show it, so Default refuses.
+		spawnSync("xdotool", ["windowmove", "--sync", person, geo.X, geo.Y]);
+		spawnSync("xdotool", ["windowactivate", "--sync", person]);
+		const covered = await s.call("shot", { window: win });
+		assertError(covered, "not_supported", "safe");
+		assert.match(covered.envelope.error.message, /covers part of window/);
+		// Out of the way, the fixture is pictured (openbox animates the minimize, so its frame unmaps a moment later).
+		spawnSync("xdotool", ["windowminimize", "--sync", person]);
+		let shot = await s.call("shot", { window: win });
+		for (let i = 0; i < 30 && !shot.envelope?.ok; i++) {
+			await sleep(100);
+			shot = await s.call("shot", { window: win });
+		}
+		assert.ok(shot.envelope?.ok, shot.result.content[0].text);
+		const { data } = shot.envelope;
+		const { result } = shot;
+		assert.equal(result.content.length, 3);
+		assert.match(result.content[1].text, /untrusted/);
+		assert.equal(result.content[2].type, "image");
+		assert.equal(result.content[2].mimeType, "image/png");
+		assert.ok(existsSync(data.path));
+		assert.deepEqual([...readFileSync(data.path).subarray(1, 4)].map((c) => String.fromCharCode(c)).join(""), "PNG");
+		assert.ok(data.width > 100 && data.height > 100, JSON.stringify(data));
+	} finally {
+		focusPerson();
+	}
+});
+
+test("on wlroots, shot under Default refuses: grim would show whatever covers the window", { skip: skip || (process.env.SWAYSOCK ? false : "sway only") }, async () => {
+	const answer = await s.call("shot", { window: win });
+	assertError(answer, "not_supported");
+	assert.match(answer.envelope.error.message, /under default access/);
 });
 
 test("the person's window is off limits under Default and open under Full", { skip }, async () => {
@@ -307,6 +348,38 @@ test("after every verb, the person's typing still reaches their own window", { s
 test("open refuses apps that hold the person's data and apps not allowed", { skip }, async () => {
 	assertError(await s.call("open", { app: "firefox" }), "needs_sandbox", "never");
 	assertError(await s.call("open", { app: "/bin/true" }), "needs_lend", "never");
+});
+
+test("the person's own launch of an app an agent started opens in a process of theirs", { skip }, async () => {
+	// The fixture is single-instance per session bus. Were the agent's copy on the person's bus, this launch would
+	// open its window in the agent's process (an agent's window, on sway moved to the agent workspace).
+	const child = spawn("python3", [fixture], { env: process.env, stdio: "ignore", detached: true });
+	setAccess("full");
+	try {
+		let list = [];
+		let theirs;
+		for (let i = 0; i < 40 && !theirs; i++) {
+			list = (await ok("windows", {})).data.windows;
+			theirs = list.find((w) => w.title === "Hands Fixture" && w.id !== win);
+			if (!theirs) await sleep(250);
+		}
+		assert.ok(theirs, `the person's launch showed a window: ${JSON.stringify(list)}`);
+		const agents = list.find((w) => w.id === win);
+		assert.notEqual(theirs.pid, agents.pid, "a process of the person's, not the agent's copy");
+		assert.equal(theirs.scope, "person");
+		assert.notEqual(theirs.workspace, "tychicus-agent");
+	} finally {
+		try {
+			process.kill(child.pid);
+		} catch {}
+		for (let i = 0; i < 20; i++) {
+			const left = (await s.call("windows", {})).envelope?.data?.windows ?? [];
+			if (!left.some((w) => w.title === "Hands Fixture" && w.id !== win)) break;
+			await sleep(250);
+		}
+		setAccess("default");
+		focusPerson();
+	}
 });
 
 test("the person's window still has focus after every verb above", { skip }, async () => {

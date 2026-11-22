@@ -20,14 +20,15 @@ one outright.
 
 | Desktop | Windows from | Agent workspace | `open` | `shot` |
 | --- | --- | --- | --- | --- |
-| Hyprland | `hyprctl` socket | `special:tychicus` | `exec [workspace special:tychicus silent]` | grim, when the window is on screen |
-| Sway | sway IPC | `tychicus-agent` (a named workspace) | started stopped, then `for_window [pid=N]` and `no_focus [pid=N]`, then let go | grim, when the window is on screen |
-| X11 (EWMH window manager) | `_NET_CLIENT_LIST` | none: an agent's window is the one an agent started | started, focus watched 1.2 s and given back | X11 GetImage, clipped to the screen |
-| GNOME, KDE (Wayland) | AT-SPI frames only | none | started where the compositor puts it | not supported |
+| Hyprland | `hyprctl` socket | `special:tychicus` | `exec [workspace special:tychicus silent]` | Full Access: grim, when the window is on screen |
+| Sway | sway IPC | `tychicus-agent` (a named workspace) | started stopped, then `for_window [pid=N]` and `no_focus [pid=N]`, then let go | Full Access: grim, when the window is on screen |
+| X11 (EWMH window manager) | `_NET_CLIENT_LIST` | none: an agent's window is the one an agent started | started, focus watched 1.2 s and given back when the new app took it | X11 GetImage, clipped to the screen; under Default only when no window is stacked over it |
+| GNOME, KDE (Wayland) | AT-SPI frames only | none | Full Access only: started where the compositor puts it | not supported |
 
 GNOME and KDE on Wayland give another program no window list, no way to place a window off screen or keep it from
 focus, and no window pictures. There the helper reads and acts through AT-SPI only, an app it starts opens wherever the
-compositor puts it (often in front of the person), and `shot` and `close` answer `not_supported`. `windows` says which
+compositor puts it (often in front of the person, so `open` needs Full Access there), and `shot` and `close` answer
+`not_supported`. `windows` says which
 case it is in (`desktop: "atspi-only (GNOME)"`).
 
 ## Who may use what
@@ -45,8 +46,17 @@ The person's access mode and app list live in `hands.json` in Tychicus's config 
   start editors, calculators and viewers (`DEFAULT_APPS` in `src/engine.rs`) plus the apps in `apps`. The person's own
   windows are `outside_agent_workspace`.
 - Under `full`, every window is open to an agent on this computer, and any app may be started.
-- Browsers, mail, password managers and chat apps are never started for an agent, in any mode (`needs_sandbox`):
-  they hold the person's own data and sessions.
+- Browsers, mail, chat, file managers, password managers, contacts and calendars are never started for an agent, in
+  any mode (`needs_sandbox`): they hold the person's own data and sessions. The helper looks through `env`,
+  `flatpak run` and `snap run` and follows symlinks to the program at the end, matches names by family
+  (`google-chrome-stable`, `com.google.Chrome` and `microsoft-edge-beta` all count), and reads a desktop entry's
+  categories (`WebBrowser`, `Email`, `Chat` and the like). An app started through a shell, an interpreter or an opener
+  such as `xdg-open` is refused too: the helper can't tell what it starts.
+- An app an agent starts runs on a D-Bus session bus of its own (a private `dbus-daemon`, gone when the app exits),
+  with the accessibility bus passed by address. Most editors and viewers run one copy per session bus, so the person's
+  own later launch of the same app starts their own copy instead of opening in the agent's.
+- A `hands.json` that is there but can't be read or parsed means Read Only until it is fixed, and `windows` says why
+  (`settings_problem`). A missing file means Default.
 - `lend` and `return` answer `needs_lend`: Linux has no lend sheet yet.
 
 An action on an app the person is using (its window has focus) waits up to `wait` seconds, then answers `in_use`.
@@ -59,6 +69,9 @@ An action on an app the person is using (its window has focus) waits up to `wait
   window without typing into the person's. Return, Enter, space, ctrl+a, BackSpace, Delete, Home, End and single
   characters work, as accessibility actions or text edits.
 - `shot` of a window that isn't on screen on Hyprland or Sway (grim captures outputs), and anything on GNOME or KDE.
+  A picture is of the screen, so it shows whatever covers the window: under Default, X11 pictures a window only when
+  no window is stacked over it, and Hyprland and Sway picture nothing (notifications and panels aren't windows the
+  helper can see). Full Access lifts both.
 - GTK 3 menus: activating a menu bar item through accessibility posts its menus for a moment. `menu` waits until they
   close (`menus_closed` in its answer) before it returns.
 

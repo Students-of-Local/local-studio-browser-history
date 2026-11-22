@@ -5,6 +5,9 @@
     fixture.py --person   a plain window standing in for the person's own app (it takes focus, as a person's would)
 
 Every change the fixture sees lands in the "Status" label, so a test reads results back from the app itself.
+
+The fixture is a single-instance app, like most editors and viewers: a second launch on the same session bus opens
+another window in the running copy. That is what lets a test see whether the person's launch reaches an agent's copy.
 """
 
 import sys
@@ -29,10 +32,9 @@ def labeled(grid, row, text, widget):
     widget.get_accessible().set_name(text)
 
 
-def fixture():
-    win = Gtk.Window(title="Hands Fixture")
+def fixture(app):
+    win = Gtk.ApplicationWindow(application=app, title="Hands Fixture")
     win.set_default_size(520, 520)
-    win.connect("destroy", Gtk.main_quit)
     box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
     win.add(box)
 
@@ -116,7 +118,6 @@ def fixture():
             say("note cleared")
 
     win.show_all()
-    Gtk.main()
 
 
 def person():
@@ -129,5 +130,14 @@ def person():
     Gtk.main()
 
 
+def main():
+    if PERSON:
+        person()
+        return
+    app = Gtk.Application(application_id="dev.tychicus.HandsFixture")
+    app.connect("activate", fixture)
+    sys.exit(app.run([sys.argv[0]]))
+
+
 if __name__ == "__main__":
-    person() if PERSON else fixture()
+    main()

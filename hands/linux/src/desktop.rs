@@ -428,6 +428,7 @@ pub mod x11 {
     use x11rb::connection::Connection;
     use x11rb::protocol::xproto::{
         AtomEnum, ClientMessageEvent, ConnectionExt, EventMask, ImageFormat, MapState, Window,
+        WindowClass,
     };
     use x11rb::rust_connection::RustConnection;
 
@@ -593,6 +594,70 @@ pub mod x11 {
             .check()
             .map_err(|e| e.to_string())?;
         Ok(())
+    }
+
+    /// A mapped window stacked over `win`'s top-level (its window manager frame) that overlaps `win` on screen, named
+    /// by its id. X11 pictures a window from the screen, so whatever is over it would show in the picture.
+    pub fn covered_by(display: &str, win: Window) -> Result<Option<String>, String> {
+        let (conn, root) = connect(display)?;
+        let tree = |w: Window| -> Result<(Window, Vec<Window>), String> {
+            let t = conn
+                .query_tree(w)
+                .map_err(|e| e.to_string())?
+                .reply()
+                .map_err(|e| e.to_string())?;
+            Ok((t.parent, t.children))
+        };
+        let mut top = win;
+        for _ in 0..16 {
+            let (parent, _) = tree(top)?;
+            if parent == root || parent == 0 {
+                break;
+            }
+            top = parent;
+        }
+        let rect = |w: Window| -> Option<(i32, i32, i32, i32)> {
+            let g = conn.get_geometry(w).ok()?.reply().ok()?;
+            let at = conn
+                .translate_coordinates(w, root, 0, 0)
+                .ok()?
+                .reply()
+                .ok()?;
+            let b = g.border_width as i32;
+            Some((
+                at.dst_x as i32 - b,
+                at.dst_y as i32 - b,
+                g.width as i32 + 2 * b,
+                g.height as i32 + 2 * b,
+            ))
+        };
+        let mine = rect(win).ok_or("the window has no geometry")?;
+        let (_, stack) = tree(root)?;
+        let Some(at) = stack.iter().position(|&k| k == top) else {
+            return Err("can't find the window in the stacking order".into());
+        };
+        for &k in &stack[at + 1..] {
+            let Some(attrs) = conn
+                .get_window_attributes(k)
+                .ok()
+                .and_then(|c| c.reply().ok())
+            else {
+                continue;
+            };
+            if attrs.map_state != MapState::VIEWABLE || attrs.class == WindowClass::INPUT_ONLY {
+                continue;
+            }
+            if let Some(r) = rect(k) {
+                let apart = r.0 >= mine.0 + mine.2
+                    || mine.0 >= r.0 + r.2
+                    || r.1 >= mine.1 + mine.3
+                    || mine.1 >= r.1 + r.3;
+                if !apart && r.2 > 0 && r.3 > 0 {
+                    return Ok(Some(format!("X11 window 0x{k:x}")));
+                }
+            }
+        }
+        Ok(None)
     }
 
     /// The window's pixels as RGBA, when it is mapped and on screen.

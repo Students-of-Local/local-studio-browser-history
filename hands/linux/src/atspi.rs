@@ -68,6 +68,8 @@ impl Info {
 
 pub struct Atspi {
     conn: Connection,
+    /// The accessibility bus's address, handed to apps an agent starts on a bus of their own.
+    pub address: String,
 }
 
 fn runtime_dir() -> String {
@@ -111,7 +113,7 @@ impl Atspi {
             .build()
             .await
             .map_err(|e| format!("can't reach the accessibility bus ({e})"))?;
-        Ok(Atspi { conn })
+        Ok(Atspi { conn, address })
     }
 
     async fn call<B, R>(&self, o: &Obj, iface: &str, method: &str, body: &B) -> Result<R, String>

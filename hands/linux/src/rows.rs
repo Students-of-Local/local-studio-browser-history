@@ -335,7 +335,7 @@ mod tests {
         name: &str,
         ifaces: &[&str],
         value: Option<&str>,
-        parent: Option<usize>,
+        _parent: Option<usize>,
     ) -> Node {
         Node {
             obj: Obj {
@@ -350,8 +350,6 @@ mod tests {
                 states: (1 << state::ENABLED) | (1 << state::SHOWING),
                 ..Default::default()
             },
-            depth: 0,
-            parent,
             kids: vec![],
         }
     }

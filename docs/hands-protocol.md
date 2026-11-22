@@ -43,7 +43,9 @@ Hyprland, Sway or an X11 EWMH window manager, and on GNOME or KDE under Wayland 
 It never sends physical input. The person's access mode and app list are `hands.json` in Tychicus's config folder
 (`{"access": "read_only" | "default" | "full", "apps": [...]}`), read on every call. What Linux can't do in the
 background answers `not_supported`: `drag`, right clicks, `press` of a key with no accessibility meaning, `shot` of a
-window that isn't on screen on a wlroots compositor, and window management on GNOME and KDE. `lend` and `return`
+window that isn't on screen on a wlroots compositor, and window management on GNOME and KDE. Under Default a `shot`
+that could show another window (one stacked over it on X11, anything on a wlroots compositor) answers `not_supported`
+too. An app an agent starts gets a D-Bus session bus of its own, so the person's later launches never reach it. `lend` and `return`
 answer `needs_lend` as everywhere. Details, desktops and tests: `hands/linux/README.md`.
 
 ## Transport

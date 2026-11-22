@@ -9,7 +9,7 @@ use crate::access::{self, AgentProcesses, Mode};
 use crate::atspi::{
     self, state, Atspi, Info, Obj, TopLevel, ACTION, EDITABLE, SELECTION, TEXT, VALUE,
 };
-use crate::desktop::{Backend, WmWindow};
+use crate::desktop::{x11, Backend, WmWindow};
 use crate::envelope::{bad, Code, HResult, HandsError, Retry};
 use crate::rows::{self, Row};
 use crate::shot;
@@ -91,42 +91,171 @@ const DEFAULT_APPS: &[&str] = &[
     "atril",
     "xreader",
 ];
-/// Apps that hold the person's own data: never started for an agent, in any mode (`needs_sandbox`).
-const SANDBOX_APPS: &[&str] = &[
+/// Apps that hold the person's own data (browsers, mail, chat, files, passwords, contacts): never started for an agent,
+/// in any mode (`needs_sandbox`). A name matches when it contains one of `SANDBOX_PARTS`, or one of its words (split on
+/// `-`, `.`, `_`) is in `SANDBOX_WORDS`, so `google-chrome-stable`, `com.google.Chrome` and `microsoft-edge-beta` all do.
+const SANDBOX_PARTS: &[&str] = &[
     "firefox",
-    "firefox-esr",
+    "chrom",
     "librewolf",
-    "chromium",
-    "chromium-browser",
-    "google-chrome",
-    "google-chrome-stable",
-    "brave",
-    "brave-browser",
-    "helium",
+    "waterfox",
+    "floorp",
     "vivaldi",
-    "microsoft-edge",
     "epiphany",
+    "qutebrowser",
     "thunderbird",
+    "betterbird",
+    "mailspring",
+    "telegram",
+    "discord",
+    "whatsapp",
+    "keepass",
+    "bitwarden",
+    "1password",
+    "kwallet",
+];
+const SANDBOX_WORDS: &[&str] = &[
+    "brave",
+    "opera",
+    "edge",
+    "msedge",
+    "helium",
+    "zen",
+    "falkon",
+    "midori",
+    "browser",
+    "web",
+    "mail",
+    "email",
     "evolution",
     "geary",
     "kmail",
-    "signal-desktop",
-    "telegram-desktop",
-    "discord",
+    "signal",
     "slack",
-    "element-desktop",
+    "element",
+    "seahorse",
     "nautilus",
     "dolphin",
     "thunar",
     "nemo",
     "pcmanfm",
-    "keepassxc",
-    "1password",
-    "proton-pass",
-    "seahorse",
-    "gnome-contacts",
-    "gnome-calendar",
+    "contacts",
+    "calendar",
+    "proton",
+    "passwords",
+    "keyring",
 ];
+/// Desktop entry categories of apps like those.
+const SANDBOX_CATEGORIES: &[&str] = &[
+    "WebBrowser",
+    "Email",
+    "InstantMessaging",
+    "Chat",
+    "IRCClient",
+    "ContactManagement",
+    "Calendar",
+    "FileManager",
+    "Security",
+];
+/// Programs that start whatever their arguments say, which the helper can't read: an app behind one is refused.
+const OPAQUE_LAUNCHERS: &[&str] = &[
+    "sh",
+    "bash",
+    "dash",
+    "zsh",
+    "fish",
+    "ksh",
+    "csh",
+    "tcsh",
+    "python",
+    "perl",
+    "ruby",
+    "node",
+    "xdg-open",
+    "gio",
+    "gtk-launch",
+    "exo-open",
+    "kioclient",
+    "kde-open",
+    "gnome-open",
+    "sensible-browser",
+    "x-www-browser",
+    "www-browser",
+    "dex",
+    "busybox",
+];
+
+/// Whether `name` (a command, path, desktop id or flatpak id) is one of the person's data apps.
+pub fn is_sandbox_app(name: &str) -> bool {
+    let n = name.to_lowercase();
+    let n = n.rsplit('/').next().unwrap_or(&n);
+    SANDBOX_PARTS.iter().any(|p| n.contains(p))
+        || n.split(['-', '.', '_', ' '])
+            .any(|w| SANDBOX_WORDS.contains(&w))
+}
+
+fn basename(p: &str) -> String {
+    std::path::Path::new(p)
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| p.to_string())
+}
+
+/// What `argv` really starts: every name it goes by (as given, and after symlinks), looking through `env` and
+/// `flatpak run` or `snap run`, and the plain name of the program at the end. Err names a launcher whose target the
+/// helper can't tell (a shell, an interpreter, an opener).
+pub fn program_names(argv: &[String]) -> Result<(Vec<String>, String), String> {
+    let mut names = vec![];
+    let mut i = 0;
+    while i < argv.len() {
+        let raw = &argv[i];
+        let found = if raw.contains('/') {
+            Some(raw.clone())
+        } else {
+            which(raw)
+        };
+        let mut bases = vec![basename(raw)];
+        if let Some(real) = found.as_ref().and_then(|f| std::fs::canonicalize(f).ok()) {
+            bases.push(basename(&real.to_string_lossy()));
+        }
+        names.extend(bases.iter().cloned());
+        let plain: Vec<String> = bases
+            .iter()
+            .map(|b| {
+                b.to_lowercase()
+                    .trim_end_matches(|c: char| c.is_ascii_digit() || c == '.')
+                    .to_string()
+            })
+            .collect();
+        if plain.iter().any(|b| b == "env") {
+            i += 1;
+            while i < argv.len() && (argv[i].starts_with('-') || argv[i].contains('=')) {
+                i += 1;
+            }
+            continue;
+        }
+        if plain.iter().any(|b| b == "flatpak" || b == "snap") {
+            if let Some(run) = argv[i..].iter().position(|a| a == "run") {
+                let mut k = i + run + 1;
+                while k < argv.len() && argv[k].starts_with('-') {
+                    k += 1;
+                }
+                if let Some(id) = argv.get(k) {
+                    names.push(id.clone());
+                    let last = id.rsplit('.').next().unwrap_or(id).to_lowercase();
+                    names.push(last.clone());
+                    return Ok((names, last));
+                }
+            }
+            return Err(raw.clone());
+        }
+        if plain.iter().any(|b| OPAQUE_LAUNCHERS.contains(&b.as_str())) {
+            return Err(raw.clone());
+        }
+        return Ok((names, bases[0].clone()));
+    }
+    Err("nothing".into())
+}
 
 fn now_id() -> u64 {
     std::time::SystemTime::now()
@@ -568,7 +697,21 @@ impl Engine {
         }
         let w = self.window(window, mode)?;
         self.wait_free(&w, wait)?;
-        Ok(w)
+        // The wait may have been long: the person can narrow access or move the window meanwhile, so the mode and
+        // the window's scope are checked again right before the action is delivered.
+        let mode = self.mode();
+        if mode == Mode::ReadOnly {
+            return Err(read_only("this action"));
+        }
+        let now = self.window(window, mode)?;
+        if now.wm.pid != w.wm.pid {
+            return Err(HandsError::new(
+                Code::WindowNotFound,
+                format!("window {window} changed while the action waited"),
+            )
+            .next("windows", json!({})));
+        }
+        Ok(now)
     }
 
     fn toplevel_count(&mut self, pid: u32) -> Vec<(Obj, String, String)> {
@@ -638,12 +781,16 @@ impl Engine {
                 v
             })
             .collect();
-        Ok(Out::data(json!({
+        let mut data = json!({
             "agent_workspace": self.backend.agent_workspace(),
             "access": mode.as_str(),
             "desktop": self.backend.name(),
             "windows": list,
-        })))
+        });
+        if let Some(p) = access::settings().problem {
+            data["settings_problem"] = json!(p);
+        }
+        Ok(Out::data(data))
     }
 
     fn snapshot(&mut self, a: &Map<String, Value>) -> HResult<Out> {
@@ -659,7 +806,7 @@ impl Engine {
         let mut parts = vec![];
         let mut shot_info = None;
         if arg_b(a, "screenshot") {
-            let (info, p) = self.picture(&w, arg_str(a, "zoom"), None)?;
+            let (info, p) = self.picture(&w, mode, arg_str(a, "zoom"), None)?;
             shot_info = Some(info);
             parts = p;
         }
@@ -843,9 +990,29 @@ impl Engine {
     fn picture(
         &mut self,
         w: &Win,
+        mode: Mode,
         zoom: Option<String>,
         out: Option<String>,
     ) -> HResult<(Value, Vec<Value>)> {
+        // A picture is of the screen where the window is, so it shows whatever covers the window. Under Default an
+        // agent may see only its own windows: X11 pictures a window only when nothing is stacked over it, and on
+        // wlroots grim can't tell (notifications and panels aren't windows), so pictures there need Full.
+        if mode != Mode::Full {
+            match &self.backend {
+                Backend::X11(d) => {
+                    if let Some(over) = x11::covered_by(d, w.wm.id as u32).map_err(engine_err)? {
+                        return Err(not_supported(format!("another window ({over}) covers part of window {}, so a picture would show it", w.wm.id))
+                            .retry(Retry::Safe)
+                            .suggest("Read the window with snapshot, or try again once nothing covers it. Under Full Access pictures aren't limited."));
+                    }
+                }
+                Backend::Hyprland(_) | Backend::Sway(_) => {
+                    return Err(not_supported(format!("on {} a picture is of the screen, and anything over window {} (a notification, a panel, another window) would show in it; under {} access that isn't the agent's to see", self.backend.name(), w.wm.id, mode.as_str()))
+                        .suggest("Read the window with snapshot instead. The person can turn on Full Access in hands.json to allow pictures here."));
+                }
+                Backend::AtspiOnly(_) => {}
+            }
+        }
         let (pw, ph) = w.wm.rect.map(|r| (r.2, r.3)).unwrap_or((0, 0));
         let zoom = match zoom {
             Some(z) => {
@@ -925,7 +1092,7 @@ impl Engine {
             )
             .retry(Retry::Safe));
         }
-        let (mut info, parts) = self.picture(&w, arg_str(a, "zoom"), arg_str(a, "out"))?;
+        let (mut info, parts) = self.picture(&w, mode, arg_str(a, "zoom"), arg_str(a, "out"))?;
         info["cursor"] = json!(false);
         info["window"] = json!(w.wm.id);
         Ok(Out {
@@ -1792,20 +1959,28 @@ impl Engine {
             .next()
             .unwrap_or("")
             .to_lowercase();
-        if SANDBOX_APPS.contains(&named.as_str()) {
-            return Err(HandsError::new(Code::NeedsSandbox, format!("{app} holds the person's own data (mail, browsing, files or passwords), so agents don't open it on this computer"))
-                .suggest("Do the work in an agent sandbox, or ask the person."));
+        let personal = || {
+            HandsError::new(Code::NeedsSandbox, format!("{app} holds the person's own data (mail, browsing, chat, files or passwords), so agents don't open it on this computer"))
+                .suggest("Do the work in an agent sandbox, or ask the person.")
+        };
+        if is_sandbox_app(&named) || is_sandbox_app(app.trim()) {
+            return Err(personal());
         }
-        let (argv, label) = resolve_app(&app)?;
-        let base = std::path::Path::new(&argv[0])
-            .file_name()
-            .map(|s| s.to_string_lossy().to_string())
-            .unwrap_or_default();
-        if SANDBOX_APPS.contains(&base.as_str())
-            || SANDBOX_APPS.contains(&app.to_lowercase().as_str())
+        if matches!(self.backend, Backend::AtspiOnly(_)) && mode != Mode::Full {
+            return Err(not_supported(format!("{} gives the helper no way to keep an app it starts off the person's screen and out of their focus, so open needs Full Access here", self.backend.name()))
+                .suggest("Ask the person to open the app, or to turn on Full Access in hands.json."));
+        }
+        let (argv, label, categories) = resolve_app(&app)?;
+        let (names, base) = program_names(&argv).map_err(|launcher| {
+            HandsError::new(Code::NeedsSandbox, format!("{app} starts through {launcher}, so the helper can't tell which app it is; agents don't open those on this computer"))
+                .suggest("Name the app's own command or desktop file instead.")
+        })?;
+        if names.iter().any(|n| is_sandbox_app(n))
+            || categories
+                .iter()
+                .any(|c| SANDBOX_CATEGORIES.contains(&c.as_str()))
         {
-            return Err(HandsError::new(Code::NeedsSandbox, format!("{app} holds the person's own data (mail, browsing, files or passwords), so agents don't open it on this computer"))
-                .suggest("Do the work in an agent sandbox, or ask the person."));
+            return Err(personal());
         }
         let listed = settings
             .apps
@@ -1848,6 +2023,17 @@ impl Engine {
         {
             full.push(handoff_target(t.as_str().unwrap_or(""))?);
         }
+        // The app gets a session bus of its own, with the accessibility bus passed by address. Most editors and viewers
+        // run one copy per session bus: on the person's bus, their later launches of the same app would go to the
+        // agent's copy and open their documents in the agent's process.
+        let a11y = self.atspi()?.address.clone();
+        let Some(daemon) = which("dbus-daemon") else {
+            return Err(not_supported(
+                "open needs dbus-daemon, to start the app on a session bus of its own",
+            )
+            .suggest("Install the dbus package (it provides dbus-daemon)."));
+        };
+        let full = own_bus(&full, &a11y, &daemon);
         let before = self.backend.windows().unwrap_or_default();
         let had: HashSet<i64> = before.iter().map(|w| w.id).collect();
         let focused_before = before.iter().find(|w| w.focused).map(|w| w.id);
@@ -1874,12 +2060,16 @@ impl Engine {
                 let mut returned = false;
                 if self.backend.has_wm() {
                     // A window manager may hand the new window focus a moment after it maps: watch a little while
-                    // and give focus back to the window the person had.
+                    // and give focus back to the window the person had. Only a window of the new app counts: the
+                    // person moving between their own windows meanwhile is theirs to do.
                     let watch = Instant::now() + Duration::from_millis(1200);
                     while Instant::now() < watch {
                         let now = self.backend.windows().unwrap_or_default();
-                        let focused_now = now.iter().find(|x| x.focused).map(|x| x.id);
-                        if focused_now != focused_before {
+                        let took = now.iter().find(|x| x.focused).is_some_and(|x| {
+                            Some(x.id) != focused_before
+                                && (x.pid == pid || AgentProcesses::owns(&agent, x.pid))
+                        });
+                        if took {
                             changed = true;
                             if let Some(prev) = focused_before {
                                 self.backend.focus(prev);
@@ -2010,7 +2200,7 @@ pub fn match_frame(w: &WmWindow, tops: &[TopLevel], used: &mut HashSet<Obj>) -> 
 }
 
 /// `app` as a command line: a path, a desktop file id, or a command on PATH.
-fn resolve_app(app: &str) -> HResult<(Vec<String>, String)> {
+fn resolve_app(app: &str) -> HResult<(Vec<String>, String, Vec<String>)> {
     let app = app.trim();
     if app.is_empty() {
         return Err(bad("app is missing"));
@@ -2025,23 +2215,31 @@ fn resolve_app(app: &str) -> HResult<(Vec<String>, String)> {
         if !p.is_absolute() || !p.is_file() {
             return Err(HandsError::new(Code::AppNotFound, format!("{app} isn't a file; give an absolute path, a command name or a desktop file id")));
         }
-        return Ok((vec![app.to_string()], app.to_string()));
+        return Ok((vec![app.to_string()], app.to_string(), vec![]));
     }
     let id = app.trim_end_matches(".desktop");
     let dirs = desktop_dirs();
     for d in &dirs {
         let f = d.join(format!("{id}.desktop"));
         if let Ok(text) = std::fs::read_to_string(&f) {
-            if let Some(exec) = desktop_exec(&text) {
+            if let Some(exec) = desktop_key(&text, "Exec") {
                 let argv: Vec<String> = split_exec(&exec);
                 if !argv.is_empty() {
-                    return Ok((argv, format!("{id}.desktop")));
+                    let categories = desktop_key(&text, "Categories")
+                        .map(|c| {
+                            c.split(';')
+                                .filter(|x| !x.is_empty())
+                                .map(str::to_string)
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    return Ok((argv, format!("{id}.desktop"), categories));
                 }
             }
         }
     }
     if let Some(p) = which(app) {
-        return Ok((vec![p], app.to_string()));
+        return Ok((vec![p], app.to_string(), vec![]));
     }
     Err(HandsError::new(
         Code::AppNotFound,
@@ -2065,7 +2263,7 @@ fn desktop_dirs() -> Vec<std::path::PathBuf> {
     v
 }
 
-fn desktop_exec(text: &str) -> Option<String> {
+fn desktop_key(text: &str, key: &str) -> Option<String> {
     let mut in_entry = false;
     for l in text.lines() {
         let l = l.trim();
@@ -2074,7 +2272,7 @@ fn desktop_exec(text: &str) -> Option<String> {
             continue;
         }
         if in_entry {
-            if let Some(v) = l.strip_prefix("Exec=") {
+            if let Some(v) = l.strip_prefix(key).and_then(|r| r.strip_prefix('=')) {
                 return Some(v.to_string());
             }
         }
@@ -2168,6 +2366,51 @@ fn handoff_target(name: &str) -> HResult<String> {
     Ok(real.to_string_lossy().to_string())
 }
 
+/// Starts the app on a session bus of its own: a private dbus-daemon, the accessibility bus by address, then `exec`, so
+/// the process id the window rules name is still the app's. The bus starts no services (no service folders in its
+/// config): a portal, document portal or accessibility launcher started there would act on the person's session. The
+/// bus goes away when the app does.
+const OWN_BUS: &str = r#"a11y=$1; daemon=$2; shift 2
+dir=$(mktemp -d "${XDG_RUNTIME_DIR:-/tmp}/tychicus-bus.XXXXXX") || exit 127
+cat >"$dir/bus.conf" <<CONF
+<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
+<busconfig>
+  <type>session</type>
+  <listen>unix:dir=$dir</listen>
+  <auth>EXTERNAL</auth>
+  <policy context="default">
+    <allow send_destination="*" eavesdrop="true"/>
+    <allow eavesdrop="true"/>
+    <allow own="*"/>
+  </policy>
+</busconfig>
+CONF
+"$daemon" --config-file="$dir/bus.conf" --nofork --nopidfile --print-address=1 >"$dir/address" 2>/dev/null </dev/null &
+bus=$!
+i=0
+while [ ! -s "$dir/address" ] && [ $i -lt 100 ]; do sleep 0.05; i=$((i+1)); done
+addr=$(head -n 1 "$dir/address")
+[ -n "$addr" ] || { kill $bus 2>/dev/null; rm -rf "$dir"; exit 127; }
+app=$$
+(trap '' HUP; while kill -0 $app 2>/dev/null; do sleep 2; done; kill $bus 2>/dev/null; sleep 1; rm -rf "$dir") </dev/null >/dev/null 2>&1 &
+DBUS_SESSION_BUS_ADDRESS=$addr AT_SPI_BUS_ADDRESS=$a11y
+export DBUS_SESSION_BUS_ADDRESS AT_SPI_BUS_ADDRESS
+exec "$@""#;
+
+pub fn own_bus(argv: &[String], a11y: &str, daemon: &str) -> Vec<String> {
+    let mut v = vec![
+        "/bin/sh".to_string(),
+        "-c".into(),
+        OWN_BUS.into(),
+        "sh".into(),
+        a11y.into(),
+        daemon.into(),
+    ];
+    v.extend(argv.iter().cloned());
+    v
+}
+
 /// Starts `argv` in its own session, detached from this helper's input and output. On X11 its startup id carries user
 /// time 0, which tells an EWMH window manager not to give the new window focus (GTK and Qt pass it on).
 /// Starts `argv` stopped, runs `claim` with its process id before it can map a window, then lets it go. `exec` keeps
@@ -2184,7 +2427,11 @@ fn spawn_claimed(argv: &[String], claim: impl FnOnce(u32) -> Result<(), String>)
     let stopped = |pid: u32| {
         std::fs::read_to_string(format!("/proc/{pid}/stat"))
             .ok()
-            .and_then(|t| t.rsplit(')').next().map(|r| r.trim_start().starts_with('T')))
+            .and_then(|t| {
+                t.rsplit(')')
+                    .next()
+                    .map(|r| r.trim_start().starts_with('T'))
+            })
             .unwrap_or(false)
     };
     let deadline = Instant::now() + Duration::from_secs(2);
@@ -2253,9 +2500,88 @@ mod tests {
             vec!["/opt/My App/bin/app", "--new-window"]
         );
         assert_eq!(
-            desktop_exec("[Desktop Entry]\nName=X\nExec=x --y\n[Desktop Action new]\nExec=z"),
+            desktop_key(
+                "[Desktop Entry]\nName=X\nExec=x --y\n[Desktop Action new]\nExec=z",
+                "Exec"
+            ),
             Some("x --y".into())
         );
+        assert_eq!(
+            desktop_key(
+                "[Desktop Entry]\nExecutable=no\nCategories=Network;WebBrowser;",
+                "Categories"
+            ),
+            Some("Network;WebBrowser;".into())
+        );
+    }
+
+    fn v(a: &[&str]) -> Vec<String> {
+        a.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn the_persons_data_apps_are_known_by_any_name() {
+        for n in [
+            "firefox",
+            "chrome",
+            "/opt/google/chrome/chrome",
+            "google-chrome-stable",
+            "com.google.Chrome",
+            "microsoft-edge-stable",
+            "opera",
+            "brave-browser",
+            "org.mozilla.Thunderbird",
+            "signal-desktop",
+            "keepassxc",
+            "proton-pass",
+            "org.gnome.Nautilus",
+        ] {
+            assert!(is_sandbox_app(n), "{n}");
+        }
+        for n in DEFAULT_APPS {
+            assert!(!is_sandbox_app(n), "{n}");
+        }
+        assert!(!is_sandbox_app("fixture.py"));
+        assert!(!is_sandbox_app("io.elementary.calculator"));
+    }
+
+    #[test]
+    fn launchers_are_looked_through_or_refused() {
+        let (names, base) =
+            program_names(&v(&["/usr/bin/env", "MOZ_X=1", "firefox", "--new-window"])).unwrap();
+        assert!(names.iter().any(|n| is_sandbox_app(n)), "{names:?}");
+        assert_eq!(base, "firefox");
+        let (names, base) = program_names(&v(&[
+            "/usr/bin/flatpak",
+            "run",
+            "--branch=stable",
+            "com.google.Chrome",
+            "%U",
+        ]))
+        .unwrap();
+        assert!(names.iter().any(|n| is_sandbox_app(n)), "{names:?}");
+        assert_eq!(base, "chrome");
+        let (_, base) = program_names(&v(&["env", "GTK_THEME=Adwaita", "gedit"])).unwrap();
+        assert_eq!(base, "gedit");
+        assert!(program_names(&v(&["/bin/sh", "-c", "firefox"])).is_err());
+        assert!(program_names(&v(&["python3.12", "x.py"])).is_err());
+        assert!(program_names(&v(&["xdg-open", "https://example.com"])).is_err());
+        assert!(program_names(&v(&["flatpak", "list"])).is_err());
+    }
+
+    #[test]
+    fn own_bus_keeps_the_app_last_so_exec_keeps_its_pid() {
+        let a = own_bus(
+            &v(&["gedit", "a.txt"]),
+            "unix:path=/a11y",
+            "/usr/bin/dbus-daemon",
+        );
+        assert_eq!(a[0], "/bin/sh");
+        assert_eq!(
+            &a[4..],
+            &v(&["unix:path=/a11y", "/usr/bin/dbus-daemon", "gedit", "a.txt"])[..]
+        );
+        assert!(OWN_BUS.trim_end().ends_with("exec \"$@\""));
     }
 
     #[test]
