@@ -17,6 +17,7 @@ use crate::tools;
 use async_io::block_on;
 use serde_json::{json, Map, Value};
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
@@ -228,26 +229,22 @@ pub fn program_names(argv: &[String]) -> Result<(Vec<String>, String), String> {
             })
             .collect();
         if plain.iter().any(|b| b == "env") {
-            i += 1;
-            while i < argv.len() && (argv[i].starts_with('-') || argv[i].contains('=')) {
-                i += 1;
-            }
+            i = past_env_options(argv, i + 1).ok_or_else(|| raw.clone())?;
             continue;
         }
         if plain.iter().any(|b| b == "flatpak" || b == "snap") {
-            if let Some(run) = argv[i..].iter().position(|a| a == "run") {
-                let mut k = i + run + 1;
-                while k < argv.len() && argv[k].starts_with('-') {
-                    k += 1;
+            let flatpak = plain.iter().any(|b| b == "flatpak");
+            let (id, command) = run_target(argv, i + 1, flatpak).ok_or_else(|| raw.clone())?;
+            names.push(id.clone());
+            let last = id.rsplit('.').next().unwrap_or(&id).to_lowercase();
+            names.push(last.clone());
+            if let Some(c) = command {
+                if OPAQUE_LAUNCHERS.contains(&basename(&c).to_lowercase().as_str()) {
+                    return Err(raw.clone());
                 }
-                if let Some(id) = argv.get(k) {
-                    names.push(id.clone());
-                    let last = id.rsplit('.').next().unwrap_or(id).to_lowercase();
-                    names.push(last.clone());
-                    return Ok((names, last));
-                }
+                names.push(basename(&c));
             }
-            return Err(raw.clone());
+            return Ok((names, last));
         }
         if plain.iter().any(|b| OPAQUE_LAUNCHERS.contains(&b.as_str())) {
             return Err(raw.clone());
@@ -255,6 +252,78 @@ pub fn program_names(argv: &[String]) -> Result<(Vec<String>, String), String> {
         return Ok((names, bases[0].clone()));
     }
     Err("nothing".into())
+}
+
+/// The index of the command `env` runs, past its options and NAME=VALUE assignments. None for an option whose
+/// meaning isn't plain (`-S` splits a string into a new command line, `-C` and the signal options take values this
+/// doesn't follow): a command the helper can't name is refused.
+fn past_env_options(argv: &[String], mut i: usize) -> Option<usize> {
+    while i < argv.len() {
+        let a = argv[i].as_str();
+        if a == "--" {
+            return Some(i + 1).filter(|&k| k < argv.len());
+        }
+        if a == "-u" || a == "--unset" {
+            i += 2;
+        } else if a == "-" || a == "-i" || a == "--ignore-environment" || a == "-0" || a == "--null"
+        {
+            i += 1;
+        } else if (a.starts_with("-u") && a.len() > 2) || a.starts_with("--unset=") {
+            i += 1;
+        } else if a.starts_with('-') {
+            return None;
+        } else if a.contains('=') {
+            i += 1;
+        } else {
+            return Some(i);
+        }
+    }
+    None
+}
+
+/// The app id `flatpak run` or `snap run` starts, and flatpak's `--command`, found from `argv[i]` on. None when the
+/// line holds an option this doesn't know: an option's value could otherwise pass for the app id.
+fn run_target(argv: &[String], i: usize, flatpak: bool) -> Option<(String, Option<String>)> {
+    const FLATPAK_FLAGS: &[&str] = &[
+        "--user",
+        "--system",
+        "--devel",
+        "--die-with-parent",
+        "--a11y-bus",
+        "--no-a11y-bus",
+        "--session-bus",
+        "--no-session-bus",
+        "--no-documents-portal",
+        "--file-forwarding",
+        "--sandbox",
+        "--parent-expose-pids",
+        "--parent-share-pids",
+        "--clear-env",
+        "-v",
+        "--verbose",
+        "-d",
+    ];
+    let run = i + argv.get(i..)?.iter().position(|a| a == "run")?;
+    if argv[i..run]
+        .iter()
+        .any(|a| a != "--user" && a != "--system" && a != "-v")
+    {
+        return None;
+    }
+    let mut command = None;
+    let mut k = run + 1;
+    while k < argv.len() && argv[k].starts_with('-') {
+        let a = argv[k].as_str();
+        if let Some(c) = a.strip_prefix("--command=").filter(|_| flatpak) {
+            command = Some(c.to_string());
+        } else if !(flatpak
+            && (FLATPAK_FLAGS.contains(&a) || (a.contains('=') && a.starts_with("--"))))
+        {
+            return None;
+        }
+        k += 1;
+    }
+    argv.get(k).map(|id| (id.clone(), command))
 }
 
 fn now_id() -> u64 {
@@ -2033,16 +2102,43 @@ impl Engine {
             )
             .suggest("Install the dbus package (it provides dbus-daemon)."));
         };
-        let full = own_bus(&full, &a11y, &daemon);
+        // On Sway the app connects through a Wayland socket of its own, whose clients carry a security-context id made
+        // for this launch; the placement rules name that id. Without DISPLAY it can't slip out through Xwayland.
+        let agent_display = match &self.backend {
+            Backend::Sway(_) => Some(sway_agent_display(&self.backend)?),
+            _ => None,
+        };
+        let full = own_bus(
+            &full,
+            &a11y,
+            &daemon,
+            agent_display.as_ref().map(|d| d.dir.as_path()),
+        );
         let before = self.backend.windows().unwrap_or_default();
         let had: HashSet<i64> = before.iter().map(|w| w.id).collect();
         let focused_before = before.iter().find(|w| w.focused).map(|w| w.id);
-        let pid = match &self.backend {
-            Backend::Hyprland(_) => self.backend.hypr_exec(&full).map_err(engine_err)?,
-            Backend::X11(_) => spawn(&full, true)?,
-            Backend::Sway(_) => spawn_claimed(&full, |pid| self.backend.sway_claim(pid))?,
-            _ => spawn(&full, false)?,
+        let pid = match (&self.backend, &agent_display) {
+            (Backend::Hyprland(_), _) => self.backend.hypr_exec(&full).map_err(engine_err)?,
+            (Backend::X11(_), _) => spawn(&full, true, &[])?,
+            (Backend::Sway(_), Some(d)) => {
+                let socket = d.socket.to_string_lossy().into_owned();
+                let started = spawn(
+                    &full,
+                    false,
+                    &[
+                        ("WAYLAND_DISPLAY", Some(socket.as_str())),
+                        ("DISPLAY", None),
+                    ],
+                );
+                if started.is_err() {
+                    let _ = std::fs::remove_dir_all(&d.dir);
+                }
+                started?
+            }
+            _ => spawn(&full, false, &[])?,
         };
+        // The app holds the pipe's write end now: the compositor accepts on its socket for as long as the app lives.
+        drop(agent_display);
         AgentProcesses::add(pid);
         let wait = arg_i(a, "wait").unwrap_or(7).clamp(0, 7);
         let deadline = Instant::now() + Duration::from_secs(wait as u64);
@@ -2370,7 +2466,7 @@ fn handoff_target(name: &str) -> HResult<String> {
 /// the process id the window rules name is still the app's. The bus starts no services (no service folders in its
 /// config): a portal, document portal or accessibility launcher started there would act on the person's session. The
 /// bus goes away when the app does.
-const OWN_BUS: &str = r#"a11y=$1; daemon=$2; shift 2
+const OWN_BUS: &str = r#"a11y=$1; daemon=$2; extra=$3; shift 3
 dir=$(mktemp -d "${XDG_RUNTIME_DIR:-/tmp}/tychicus-bus.XXXXXX") || exit 127
 cat >"$dir/bus.conf" <<CONF
 <!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN"
@@ -2393,12 +2489,13 @@ while [ ! -s "$dir/address" ] && [ $i -lt 100 ]; do sleep 0.05; i=$((i+1)); done
 addr=$(head -n 1 "$dir/address")
 [ -n "$addr" ] || { kill $bus 2>/dev/null; rm -rf "$dir"; exit 127; }
 app=$$
-(trap '' HUP; while kill -0 $app 2>/dev/null; do sleep 2; done; kill $bus 2>/dev/null; sleep 1; rm -rf "$dir") </dev/null >/dev/null 2>&1 &
+(trap '' HUP; while kill -0 $app 2>/dev/null; do sleep 2; done; kill $bus 2>/dev/null; sleep 1; rm -rf "$dir" ${extra:+"$extra"}) </dev/null >/dev/null 2>&1 &
 DBUS_SESSION_BUS_ADDRESS=$addr AT_SPI_BUS_ADDRESS=$a11y
 export DBUS_SESSION_BUS_ADDRESS AT_SPI_BUS_ADDRESS
 exec "$@""#;
 
-pub fn own_bus(argv: &[String], a11y: &str, daemon: &str) -> Vec<String> {
+/// `cleanup` is a folder removed with the bus once the app exits (the app's own Wayland socket on Sway).
+pub fn own_bus(argv: &[String], a11y: &str, daemon: &str, cleanup: Option<&Path>) -> Vec<String> {
     let mut v = vec![
         "/bin/sh".to_string(),
         "-c".into(),
@@ -2406,61 +2503,51 @@ pub fn own_bus(argv: &[String], a11y: &str, daemon: &str) -> Vec<String> {
         "sh".into(),
         a11y.into(),
         daemon.into(),
+        cleanup
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_default(),
     ];
     v.extend(argv.iter().cloned());
     v
 }
 
-/// Starts `argv` in its own session, detached from this helper's input and output. On X11 its startup id carries user
-/// time 0, which tells an EWMH window manager not to give the new window focus (GTK and Qt pass it on).
-/// Starts `argv` stopped, runs `claim` with its process id before it can map a window, then lets it go. `exec` keeps
-/// the id all the way to the app. When `claim` fails the process is killed: its windows would land on the person's.
-fn spawn_claimed(argv: &[String], claim: impl FnOnce(u32) -> Result<(), String>) -> HResult<u32> {
-    let mut wrapped = vec![
-        "/bin/sh".to_string(),
-        "-c".into(),
-        "kill -STOP $$; exec \"$@\"".into(),
-        "sh".into(),
-    ];
-    wrapped.extend(argv.iter().cloned());
-    let pid = spawn(&wrapped, false)?;
-    let stopped = |pid: u32| {
-        std::fs::read_to_string(format!("/proc/{pid}/stat"))
-            .ok()
-            .and_then(|t| {
-                t.rsplit(')')
-                    .next()
-                    .map(|r| r.trim_start().starts_with('T'))
-            })
-            .unwrap_or(false)
+/// A Wayland socket of the app's own on Sway, tagged with a security-context id made for this launch, and the rules
+/// that send that id's windows to the agent workspace without focus. Any failure refuses the open: the app's windows
+/// would otherwise land on the person's workspace.
+fn sway_agent_display(backend: &Backend) -> HResult<crate::wl::AgentDisplay> {
+    let refuse = |why: String| {
+        not_supported(format!("can't keep the app off the person's workspace on Sway: {why}")).suggest(
+            "Sway 1.9 or later keeps an agent's app on its own workspace (security-context-v1 and sandbox criteria).",
+        )
     };
-    let deadline = Instant::now() + Duration::from_secs(2);
-    while !stopped(pid) && Instant::now() < deadline {
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    let claimed = if stopped(pid) {
-        claim(pid)
-    } else {
-        Err("the app didn't reach its start in 2 s".into())
-    };
-    if let Err(e) = claimed {
-        unsafe { libc::kill(pid as i32, libc::SIGKILL) };
-        return Err(HandsError::new(
-            Code::EngineError,
-            format!("can't place {} on the agent workspace: {e}", argv[0]),
-        ));
-    }
-    unsafe { libc::kill(pid as i32, libc::SIGCONT) };
-    Ok(pid)
+    let display =
+        crate::wl::display_socket().ok_or_else(|| refuse("WAYLAND_DISPLAY isn't set".into()))?;
+    let runtime = std::env::var_os("XDG_RUNTIME_DIR")
+        .filter(|d| !d.is_empty())
+        .map(std::path::PathBuf::from)
+        .ok_or_else(|| refuse("XDG_RUNTIME_DIR isn't set".into()))?;
+    let instance = crate::wl::instance_id().map_err(|e| HandsError::new(Code::EngineError, e))?;
+    // The rules go in first, so the app's first window already matches them.
+    backend.sway_claim(&instance).map_err(refuse)?;
+    crate::wl::agent_display(&display, &runtime, &instance).map_err(refuse)
 }
 
-fn spawn(argv: &[String], x11: bool) -> HResult<u32> {
+/// Starts `argv` in its own session, detached from this helper's input and output. On X11 its startup id carries user
+/// time 0, which tells an EWMH window manager not to give the new window focus (GTK and Qt pass it on).
+/// `env` sets (Some) or removes (None) variables for the app.
+fn spawn(argv: &[String], x11: bool, env: &[(&str, Option<&str>)]) -> HResult<u32> {
     use std::os::unix::process::CommandExt;
     let mut cmd = std::process::Command::new(&argv[0]);
     cmd.args(&argv[1..])
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
+    for (k, v) in env {
+        match v {
+            Some(v) => cmd.env(k, v),
+            None => cmd.env_remove(k),
+        };
+    }
     if x11 {
         cmd.env(
             "DESKTOP_STARTUP_ID",
@@ -2567,6 +2654,51 @@ mod tests {
         assert!(program_names(&v(&["python3.12", "x.py"])).is_err());
         assert!(program_names(&v(&["xdg-open", "https://example.com"])).is_err());
         assert!(program_names(&v(&["flatpak", "list"])).is_err());
+        // env's options take their values along: the program is the one after them, never a value.
+        for line in [
+            &["/usr/bin/env", "-u", "GTK_THEME", "firefox"][..],
+            &["env", "-uGTK_THEME", "firefox"],
+            &["env", "--unset", "GTK_THEME", "firefox"],
+            &["env", "--unset=GTK_THEME", "-i", "A=1", "firefox"],
+            &["env", "--", "firefox"],
+        ] {
+            let (names, base) = program_names(&v(line)).unwrap();
+            assert_eq!(base, "firefox", "{line:?}");
+            assert!(names.iter().any(|n| is_sandbox_app(n)), "{line:?}");
+        }
+        // Options whose command line the helper can't follow are refused, not guessed.
+        for line in [
+            &["env", "-S", "firefox --private"][..],
+            &["env", "--split-string=firefox"],
+            &["env", "-C", "/tmp", "firefox"],
+            &["env", "-u"],
+            &["flatpak", "run", "--arch", "x86_64", "org.mozilla.firefox"],
+            &["flatpak", "run", "--command=sh", "org.gnome.gedit"],
+            &["flatpak", "--installation=x", "run", "org.gnome.gedit"],
+            &["snap", "run", "--shell", "firefox"],
+        ] {
+            assert!(program_names(&v(line)).is_err(), "{line:?}");
+        }
+        let (names, _) = program_names(&v(&[
+            "flatpak",
+            "run",
+            "--command=firefox",
+            "org.example.Tool",
+        ]))
+        .unwrap();
+        assert!(names.iter().any(|n| is_sandbox_app(n)), "{names:?}");
+    }
+
+    #[test]
+    fn sway_rules_name_the_launch_never_a_process_id() {
+        let id = crate::wl::instance_id().unwrap();
+        for rule in crate::desktop::sway_claim_rules(&id) {
+            assert!(
+                rule.contains(&format!("[sandbox_instance_id=\"{id}\"]")),
+                "{rule}"
+            );
+            assert!(!rule.contains("pid="), "{rule}");
+        }
     }
 
     #[test]
@@ -2575,12 +2707,22 @@ mod tests {
             &v(&["gedit", "a.txt"]),
             "unix:path=/a11y",
             "/usr/bin/dbus-daemon",
+            Some(Path::new("/run/user/1/tychicus-wl.x")),
         );
         assert_eq!(a[0], "/bin/sh");
         assert_eq!(
             &a[4..],
-            &v(&["unix:path=/a11y", "/usr/bin/dbus-daemon", "gedit", "a.txt"])[..]
+            &v(&[
+                "unix:path=/a11y",
+                "/usr/bin/dbus-daemon",
+                "/run/user/1/tychicus-wl.x",
+                "gedit",
+                "a.txt"
+            ])[..]
         );
+        // The app's own Wayland folder goes with the bus's when the app exits.
+        assert!(OWN_BUS.contains(r#"rm -rf "$dir" ${extra:+"$extra"}"#));
+        assert_eq!(own_bus(&v(&["gedit"]), "a", "d", None)[6], "");
         assert!(OWN_BUS.trim_end().ends_with("exec \"$@\""));
     }
 

@@ -183,17 +183,15 @@ impl Backend {
         }
     }
 
-    /// Sends every window process `pid` maps, now and later (its dialogs too), to the agent workspace, and keeps sway
-    /// from focusing them. Called while the process is stopped, before it can map anything. Sway keeps the rules for
-    /// its whole session and has no way to drop one; they name only this process id.
-    pub fn sway_claim(&self, pid: u32) -> Result<(), String> {
+    /// Sends every window a client of the security context `instance` maps, now and later (its dialogs too), to the
+    /// agent workspace, and keeps sway from focusing them. Called before the app starts. Sway keeps the rules for its
+    /// whole session and has no way to drop one, so they name a random id made for this launch (`wl::instance_id`),
+    /// never a process id another process could reuse.
+    pub fn sway_claim(&self, instance: &str) -> Result<(), String> {
         let Backend::Sway(s) = self else {
             return Err("not sway".into());
         };
-        for cmd in [
-            format!("for_window [pid={pid}] move container to workspace {SWAY_AGENT}"),
-            format!("no_focus [pid={pid}]"),
-        ] {
+        for cmd in sway_claim_rules(instance) {
             if !sway_ok(s, &cmd) {
                 return Err(format!("sway refused: {cmd}"));
             }
@@ -349,6 +347,14 @@ fn sway(sock: &Path, kind: u32, payload: &str) -> Result<Vec<u8>, String> {
     let mut body = vec![0u8; len];
     s.read_exact(&mut body).map_err(|e| e.to_string())?;
     Ok(body)
+}
+
+/// The rules `sway_claim` adds. They match only clients of the one security context, never a process id.
+pub fn sway_claim_rules(instance: &str) -> [String; 2] {
+    [
+        format!("for_window [sandbox_instance_id=\"{instance}\"] move container to workspace {SWAY_AGENT}"),
+        format!("no_focus [sandbox_instance_id=\"{instance}\"]"),
+    ]
 }
 
 fn sway_ok(sock: &Path, cmd: &str) -> bool {

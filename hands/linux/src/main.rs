@@ -10,6 +10,7 @@ mod mcp;
 mod rows;
 mod shot;
 mod tools;
+mod wl;
 
 const USAGE: &str = "usage: tychicus-hands mcp [--connector]\n       tychicus-hands --version\n";
 

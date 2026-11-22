@@ -114,6 +114,16 @@ test("open starts the fixture as an agent window and gives focus back", { skip }
 		assert.equal(data.scope, "agent_workspace");
 		assert.equal(data.workspace, "tychicus-agent");
 		assert.equal(data.focus.changed, false);
+		// The rules that placed it name this launch's security context, never a process id another app could reuse.
+		const tree = JSON.parse(spawnSync("swaymsg", ["-r", "-t", "get_tree"], { encoding: "utf8" }).stdout);
+		const views = [];
+		const walk = (n) => {
+			if (n.id === win) views.push(n);
+			for (const c of [...(n.nodes ?? []), ...(n.floating_nodes ?? [])]) walk(c);
+		};
+		walk(tree);
+		assert.equal(views.length, 1);
+		assert.match(views[0].sandbox_instance_id ?? "", /^tychicus-[0-9a-f]{32}$/, JSON.stringify(views[0]).slice(0, 400));
 	}
 	const list = (await ok("windows", {})).data;
 	assert.equal(list.access, "default");

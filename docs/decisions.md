@@ -2059,9 +2059,12 @@ setting for computer use outside Polycarp's Mac app.
   the person's later launches into the agent's process.
 - Pictures under `default` only when nothing else can be in them: X11 checks the stacking order; Hyprland and Sway
   can't (layer surfaces), so they need `full`. On GNOME and KDE, `open` needs `full`.
-- Opening: Hyprland's `exec [workspace special:tychicus silent]`; on Sway the app starts stopped, gets
-  `for_window [pid=N] move container to workspace tychicus-agent` and `no_focus [pid=N]`, then runs, so its dialogs
-  follow it and nothing takes focus (sway keeps the two rules for its session; they name only that process id); on X11
+- Opening: Hyprland's `exec [workspace special:tychicus silent]`; on Sway the helper makes a Wayland socket for the app
+  through security-context-v1, tagged with a random instance id for this launch, and adds
+  `for_window [sandbox_instance_id="<id>"] move container to workspace tychicus-agent` and `no_focus` for the same id
+  before the app starts, so its dialogs follow it and nothing takes focus. Sway keeps rules for its whole session, so
+  they name the launch, not a process id a later app of the person's could reuse; the app runs without `DISPLAY`, so it
+  can't map through Xwayland outside the rules, and a Sway without the protocol refuses `open`; on X11
   the helper watches focus for 1.2 s and gives it back through `_NET_ACTIVE_WINDOW` when the new app took it.
 - No physical input, ever: no XTest, uinput, ydotool or virtual keyboard. What AT-SPI can't do in the background
   (`drag`, right clicks, keys with no accessibility meaning) answers `not_supported`.
