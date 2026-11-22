@@ -702,8 +702,8 @@ test("the waitlist advice names the signup page and Tailscale Funnel for web ass
 	assert.deepEqual({ url: tailnet.advice.url, channel: tailnet.advice.channel, kind: tailnet.advice.next.kind }, { url: WAITLIST, channel: "nightly", kind: "run_command" });
 
 	const cloudflare = mod.waitlistAdvice(answer, "cloudflare");
-	assert.match(cloudflare.lines.join("\n"), /need a public route\. Your Cloudflare route is one\. Without a domain on Cloudflare, Tailscale Funnel is the free one meanwhile: \S*tychicus remote setup --tailscale/);
-	assert.match(cloudflare.advice.next.command, /^\S*tychicus remote setup --tailscale --no-passcode$/);
+	assert.match(cloudflare.lines.join("\n"), /need a public route\. Your Cloudflare route is one\. Without a domain on Cloudflare, Tailscale Funnel is the free one meanwhile: \S*tychicus remote off, then \S*tychicus remote setup --tailscale/);
+	assert.match(cloudflare.advice.next.command, /^\S*tychicus remote off && \S*tychicus remote setup --tailscale --no-passcode$/);
 	assert.match(cloudflare.advice.next.why, /only if that route can't be made/);
 
 	// The URL may come only inside Local Studio's own next, and the channel may be missing.
