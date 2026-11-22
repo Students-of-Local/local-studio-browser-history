@@ -63,7 +63,10 @@ evals/market/rivals/install.sh                                     # into evals/
 node evals/market/rivals/run.mjs --tool playwright-mcp --repeat 3  # or agent-browser, browse, tychicus
 ```
 
-Each writes `results/rival-<tool>.json` in the format above. `MARKET_RIVALS_DIR` points at another install, and
+Each writes `results/rival-<tool>.json` in the format above, plus `startMs`: from nothing running to the first page's
+text (`t01-read`), in a session of its own, the same way for every tool (`detail.start.launchMs` is the tool's start
+alone; agent-browser launches its browser on its first command, so start alone read 0). `--no-start` skips it.
+`MARKET_RIVALS_DIR` points at another install, and
 `MARKET_CHROMIUM` at another Chromium. Model-driven runs (a local model given each tool's own MCP tools) and Browser
 Use's own agent are the weak-model track in #30 and still live in the study's runner.
 
