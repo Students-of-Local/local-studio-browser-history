@@ -1,7 +1,7 @@
 /**
  * `tychicus install --release <folder>`: install from a downloaded GitHub release. Every artifact in the folder is
  * checked against the release's SHA256SUMS, and against its build provenance attestation when the GitHub CLI is on
- * PATH (`gh attestation verify`), before anything is unpacked; one mismatch refuses the whole install. Then the
+ * PATH and signed in (`gh attestation verify`), before anything is unpacked; one mismatch refuses the whole install. Then the
  * archive for this computer is unpacked into a folder of its own under versions/, and the unpacked `tychicus install`
  * registers itself from there. Only after that works does the `release` pointer (a symlink, a junction on Windows)
  * move to the new version, and the extension is copied to one fixed real folder, so the browser keeps loading it
@@ -87,8 +87,20 @@ export interface ReleaseCheck {
 	sha256: string;
 	/** Every artifact the checksums covered. */
 	checked: string[];
-	/** How the attestations went: checked by gh, skipped on request, or not checked because gh isn't here. */
-	attestation: "verified" | "skipped" | "no-gh";
+	/**
+	 * How the attestations went: checked by gh, skipped on request, not checked because gh isn't here, or not checked
+	 * because gh is here but not signed in (`gh attestation verify` needs a token).
+	 */
+	attestation: "verified" | "skipped" | "no-gh" | "gh-signed-out";
+}
+
+/**
+ * True when gh has a github.com account or a GH_TOKEN/GITHUB_TOKEN to use: `gh auth status` exits non-zero otherwise.
+ * Judged by the exit code alone, never by gh's wording.
+ */
+export function ghSignedIn(gh: string): boolean {
+	const r = spawnSync(gh, ["auth", "status", "--hostname", "github.com"], { stdio: "ignore", timeout: 30_000 });
+	return r.status === 0;
 }
 
 /**
@@ -131,7 +143,14 @@ export function verifyRelease(dir: string, options: { skipAttestation?: boolean;
 		log("Attestations not checked (--skip-attestation): SHA256SUMS only.");
 	} else if (!gh) {
 		attestation = "no-gh";
-		log(`gh is not on PATH, so the build attestations were not checked: SHA256SUMS only. With the GitHub CLI installed, this also runs gh attestation verify --repo ${RELEASE_REPO}.`);
+		log(
+			process.env.TYCHICUS_GH === "none"
+				? "TYCHICUS_GH=none, so the build attestations were not checked: SHA256SUMS only."
+				: `gh is not on PATH, so the build attestations were not checked: SHA256SUMS only. With the GitHub CLI installed, this also runs gh attestation verify --repo ${RELEASE_REPO}.`,
+		);
+	} else if (!ghSignedIn(gh)) {
+		attestation = "gh-signed-out";
+		log("gh is installed but not signed in, so the build attestations were not checked: SHA256SUMS only. Run gh auth login to turn the check on.");
 	} else {
 		for (const file of artifacts) {
 			const r = spawnSync(gh, ["attestation", "verify", join(dir, file), "--repo", RELEASE_REPO, "--signer-workflow", RELEASE_WORKFLOW], { encoding: "utf8" });

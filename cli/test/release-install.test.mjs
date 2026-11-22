@@ -123,25 +123,42 @@ for (const [name, tamper, why] of [
 	});
 }
 
-test("install refuses a release whose attestation gh rejects, and accepts one gh verifies", { skip: process.platform === "win32" }, () => {
+/** A stand-in gh: `auth status` exits `auth` (0: signed in, 1: no account), `attestation verify` exits `verify`. */
+function fakeGh(auth, verify) {
 	const bin = join(scratch, "fake-gh");
 	mkdirSync(bin, { recursive: true });
-	const gh = (code) => {
-		const file = join(bin, `gh-${code}`);
-		writeFileSync(file, `#!/bin/sh\necho "$@" >> "${bin}/calls-${code}"\nexit ${code}\n`);
-		chmodSync(file, 0o755);
-		return file;
-	};
+	const file = join(bin, `gh-${auth}-${verify}`);
+	const calls = join(bin, `calls-${auth}-${verify}`);
+	writeFileSync(file, `#!/bin/sh\necho "$@" >> "${calls}"\nif [ "$1" = auth ]; then exit ${auth}; fi\nexit ${verify}\n`);
+	chmodSync(file, 0o755);
+	return { file, calls: () => (existsSync(calls) ? readFileSync(calls, "utf8") : "") };
+}
+
+test("install refuses a release whose attestation a signed-in gh rejects, and accepts one gh verifies", { skip: process.platform === "win32" }, () => {
 	const refused = freshHome();
 	const rel = makeRelease();
-	const bad = run(refused, ["install", "--release", rel.dir], { TYCHICUS_GH: gh(1) });
+	const rejecting = fakeGh(0, 1);
+	const bad = run(refused, ["install", "--release", rel.dir], { TYCHICUS_GH: rejecting.file });
 	assert.notEqual(bad.status, 0, bad.out);
-	assert.match(bad.out, /attestation/i);
+	assert.match(bad.out, /gh attestation verify refused/);
+	assert.match(rejecting.calls(), /^auth status --hostname github\.com$/m);
 	assert.equal(existsSync(join(refused, ".local", "share", "tychicus")), false);
-	const ok = run(freshHome(), ["install", "--release", rel.dir], { TYCHICUS_GH: gh(0) });
+	const verifying = fakeGh(0, 0);
+	const ok = run(freshHome(), ["install", "--release", rel.dir], { TYCHICUS_GH: verifying.file });
 	assert.equal(ok.status, 0, ok.out);
-	const calls = readFileSync(join(bin, "calls-0"), "utf8");
-	assert.match(calls, /attestation verify .*tychicus-9\.9\.9-.*--repo baney75\/tychicus --signer-workflow baney75\/tychicus\/.github\/workflows\/release.yml/);
+	assert.match(verifying.calls(), /attestation verify .*tychicus-9\.9\.9-.*--repo baney75\/tychicus --signer-workflow baney75\/tychicus\/.github\/workflows\/release.yml/);
+});
+
+test("a gh that is not signed in is treated like no gh: SHA256SUMS only, with a note, and the install goes on", { skip: process.platform === "win32" }, () => {
+	const home = freshHome();
+	const { dir } = makeRelease();
+	// verify would refuse: a finished install proves it was never asked.
+	const signedOut = fakeGh(1, 1);
+	const r = run(home, ["install", "--release", dir], { TYCHICUS_GH: signedOut.file });
+	assert.equal(r.status, 0, r.out);
+	assert.match(r.out, /gh is installed but not signed in, so the build attestations were not checked: SHA256SUMS only\. Run gh auth login to turn the check on\./);
+	assert.doesNotMatch(signedOut.calls(), /attestation/, "a signed-out gh was asked to verify");
+	assert.ok(existsSync(join(releaseRoot(home), "extension", "manifest.json")), r.out);
 });
 
 test("--dry-run checks the release and lists what it would write, writing nothing", () => {
