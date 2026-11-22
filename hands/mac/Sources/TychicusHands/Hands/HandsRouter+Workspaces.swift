@@ -1,5 +1,5 @@
 import AppKit
-import BaneySpacesCore
+import HandsCore
 
 /// Child windows (dialogs, alerts, sheets, palettes an app raises) and the verbs that let an agent manage its own workspace
 /// (`workspaces`, `arrange`, `move`, `close`). Donovan, 2026-11-10: "make it so spaces can be managed by the agents so they
@@ -166,86 +166,6 @@ extension HandsRouter {
         return nil
     }
 
-    // MARK: workspaces
-
-    func workspaces(_ req: HandsRequest) -> HandsEnvelope {
-        let (all, agent) = listWindows(fresh: true)
-        let rows = onMain { host.workspaceRows() }
-        let usable = all.map { (window: $0, scope: decide($0, agent, session: req.session ?? "")) }.filter { $0.scope.allowed }
-        return .success(WorkspaceList.json(rows: rows, agentWorkspace: agent, access: access, usable: usable))
-    }
-
-    /// The agent workspace windows this request may lay out, in order, each still in scope; or why not.
-    private func agentWindows(_ ids: [UInt32]?, session: String) -> Result<[HandsWindow], HandsError> {
-        let (all, agent) = listWindows(fresh: true)
-        guard let agent else { return .failure(HandsError(.agentWorkspaceOff, "there is no agent workspace", suggestion: "Ask Donovan to run `polycarp-spaces agent on`.", retry: .never)) }
-        // Its own windows, and the ones it moved there while their lend or Full Access holds.
-        let mine = all.filter { w in
-            guard w.workspace == agent else { return false }
-            let d = decide(w, agent, session: session)
-            return d == .onAgentWorkspace || (d.allowed && !HandsMovedIn.shared.onAgentsOwnWorkspace(w, agentWorkspace: agent))
-        }
-        guard let ids else { return .success(mine.sorted { $0.id < $1.id }) }
-        var out: [HandsWindow] = []
-        for id in ids {
-            guard let w = mine.first(where: { $0.id == id }) else {
-                return .failure(HandsError(.outsideAgentWorkspace, "window \(id) isn't a window of yours on the agent workspace",
-                                           suggestion: "arrange lays out only agent workspace windows; `workspaces` lists where yours are. Bring a lent one over with `move` first.", retry: .never))
-            }
-            out.append(w)
-        }
-        return .success(out)
-    }
-
-    func arrange(_ req: HandsRequest) -> HandsEnvelope {
-        let session = req.session ?? ""
-        guard let layout = req.string("layout").flatMap({ AgentArrange.Layout(rawValue: $0.lowercased()) }) else {
-            return .failure(HandsError(.badArguments, "layout is missing", suggestion: "usage: " + HandsParse.usageLine(HandsTools.tool(verb: "arrange")!), retry: .safe))
-        }
-        let items = req.args["windows"]?.array?.compactMap(\.string) ?? []
-        let area = onMain { host.agentArea() }
-        guard area.width > 0, area.height > 0 else { return .failure(HandsError(.engineError, "the screen's size couldn't be read", suggestion: "Try again.", retry: .safe)) }
-        var frames: [UInt32: CGRect] = [:]
-        let chosen: [HandsWindow]
-        if layout == .frames {
-            let parsed = items.compactMap(AgentArrange.parseFrame)
-            switch agentWindows(parsed.map(\.window), session: session) {
-            case .failure(let e): return .failure(e)
-            case .success(let ws): chosen = ws
-            }
-            for p in parsed { frames[p.window] = AgentArrange.place(p.frame, in: area) }
-        } else {
-            switch agentWindows(items.isEmpty ? nil : items.compactMap { UInt32($0) }, session: session) {
-            case .failure(let e): return .failure(e)
-            case .success(let ws): chosen = ws
-            }
-            for (w, f) in zip(chosen, AgentArrange.frames(layout, count: chosen.count, area: area)) { frames[w.id] = f }
-        }
-        guard !chosen.isEmpty else { return .success(.object(["layout": .string(layout.rawValue), "windows": .array([]), "note": "no window of yours is on the agent workspace"])) }
-        for w in chosen {
-            if let e = awaitUse(w, verb: "arrange", delivery: .posted, wait: req.int("wait"), session: session) { return .failure(e) }
-        }
-        // Read Only, a narrowed scope or Donovan back in the app since the wait: checked again for every window in the pass
-        // that applies the frames, and no frame is applied unless all of them pass.
-        let applied: [UInt32: String]
-        let busy = Self.busy(chosen.first?.app ?? "the app", verb: "arrange")
-        switch onProcessQueues(chosen.map(\.pid), busy: busy, { [self] cancelled in
-            mutateOnMain(chosen, verb: "arrange", session: session, perform: { _ in cancelled() ? .failure(busy) : .success(host.arrange(frames)) })
-        }) {
-        case .failure(let e): return .failure(e)
-        case .success(let a): applied = a
-        }
-        return .success(.object([
-            "layout": .string(layout.rawValue),
-            "area": .object(["x": .int(Int(area.minX)), "y": .int(Int(area.minY)), "width": .int(Int(area.width)), "height": .int(Int(area.height))]),
-            "windows": .array(chosen.map { w in
-                let f = frames[w.id] ?? .zero
-                return .object(["window": .int(Int(w.id)), "app": .string(w.app), "applied": .string(applied[w.id] ?? "skipped"),
-                                "frame": .object(["x": .int(Int(f.minX)), "y": .int(Int(f.minY)), "width": .int(Int(f.width)), "height": .int(Int(f.height))])])
-            }),
-        ]))
-    }
-
     static func busy(_ app: String, verb: String) -> HandsError {
         HandsError(.inUse, "another action on \(app) is still running", suggestion: "Try `\(verb)` again when it has answered.", retry: .safe)
     }
@@ -259,75 +179,6 @@ extension HandsRouter {
             return HandsEngine.shared.serialized(pid: pid, wait: Thread.isMainThread ? 0 : 10) { c in step(rest.dropFirst(), { cancelled() || c() }) } ?? .failure(busy)
         }
         return step(ArraySlice(Set(pids).sorted()), { false })
-    }
-
-    func move(_ req: HandsRequest) -> HandsEnvelope {
-        let session = req.session ?? ""
-        switch target(req) {
-        case .failure(let e): return .failure(e)
-        case .success(let (w, scope, _)):
-            let before = onMain { () -> MoveState in
-                let agent = host.agentWorkspace()
-                return MoveState(agentWorkspace: agent, window: w, scope: scope, agentShown: workspaceShown(agent), sourceShown: workspaceShown(w.workspace))
-            }
-            if let e = WorkspaceVerbs.moveRefusal(window: w, scope: scope, agentWorkspace: before.agentWorkspace, agentShown: before.agentShown, sourceShown: before.sourceShown) { return .failure(e) }
-            // Framing a window on the agent workspace while a display shows it waits, with view control or without (review F1, r2 first-F1).
-            let reframing = "framing window \(w.id) of \(w.app) on the agent workspace"
-            if req.string("frame") != nil, before.agentShown { return .failure(ViewControl.notWhileShown(reframing)) }
-            if let e = awaitUse(w, verb: "move", delivery: .posted, wait: req.int("wait"), session: session) { return .failure(e) }
-            if let e = actingCheck(w, verb: "move", delivery: .posted, session: session)() { return .failure(e) }
-            // After the wait: the agent workspace, the live window, its scope and whether it is shown, read together on the
-            // main thread and acted on in the same pass. The agent workspace may have been turned off or changed meanwhile.
-            var fromSeen: Int?
-            let relative = req.string("frame").flatMap { AgentArrange.parseFrame("0=" + $0)?.frame }
-            var framed: (frame: CGRect, applied: String)?
-            // The move and the frame are applied in the gate's own pass, so a frame is never applied outside it.
-            let busy = Self.busy(w.app, verb: "move")
-            let result = onProcessQueues([w.pid], busy: busy) { [self] cancelled in mutateOnMain([w], verb: "move", session: session) { agent -> Result<MoveDecision.Go, HandsError> in
-                if cancelled() { return .failure(busy) }
-                let live = host.live(w.id)
-                let now = live.map { decide($0, agent, session: session) }
-                    ?? .denied(HandsError(.windowNotFound, "window \(w.id) is gone", suggestion: "Run `polycarp-spaces agent windows`.", retry: .afterSnapshot))
-                let after = MoveState(agentWorkspace: agent, window: live, scope: now, agentShown: workspaceShown(agent), sourceShown: workspaceShown(live?.workspace))
-                let r = MoveDecision.decide(before: before, after: after)
-                if case .success = r, relative != nil, after.agentShown { return .failure(ViewControl.notWhileShown(reframing)) }
-                if case .success(let go) = r, go.moves, let live, let from = live.workspace {
-                    // What it may do there ends with the lend or Full Access that let it move, and then it goes back.
-                    let origin = MovedInWindows.origin(scope: now, agentOwned: host.agentOwned().contains(live.pid))
-                    HandsMovedIn.shared.record(window: live.id, pid: live.pid, origin: origin, from: from, to: go.to)
-                    if origin == .fullAccess { AgentAccess.shared.grant(live.pid) }
-                    host.move(live.id, go.to)
-                }
-                if case .success = r, let relative {
-                    let f = AgentArrange.place(relative, in: host.agentArea())
-                    framed = (f, host.arrange([w.id: f])[w.id] ?? "skipped")
-                }
-                fromSeen = live?.workspace
-                return r
-            } }
-            let go: MoveDecision.Go
-            switch result {
-            case .failure(let e): return .failure(e)
-            case .success(let g): go = g
-            }
-            let from = fromSeen
-            if go.moves { Trace.log("hands: moved window \(w.id) of \(w.app) from workspace \(from.map(String.init) ?? "?") to the agent workspace") }
-            var data: [String: JSONValue] = ["window": .int(Int(w.id)), "app": .string(w.app), "from": from.map(JSONValue.int) ?? .null, "to": .int(go.to), "moved": .bool(go.moves)]
-            if go.changed { data["note"] = "the agent workspace changed while the move waited; the window went to the new one" }
-            if go.moves, scope != .onAgentWorkspace {
-                data["goes_back"] = .string("it goes back to workspace \(from.map(String.init) ?? "?") when the lend or Full Access that let it move ends")
-            }
-            if let (f, applied) = framed {
-                data["frame"] = .object(["x": .int(Int(f.minX)), "y": .int(Int(f.minY)), "width": .int(Int(f.width)), "height": .int(Int(f.height))])
-                data["applied"] = .string(applied)
-            }
-            return .success(.object(data))
-        }
-    }
-
-    /// Whether workspace `n` is shown on a display now. Main thread.
-    private func workspaceShown(_ n: Int?) -> Bool {
-        n.map { n in host.workspaceRows().contains { $0.number == n && $0.shown } } ?? false
     }
 
     func close(_ req: HandsRequest) -> HandsEnvelope {
@@ -359,8 +210,8 @@ extension HandsRouter {
             case .success(let p): pressed = p
             }
             guard pressed else {
-                return .failure(HandsError(.notSupported, "window \(w.id) of \(w.app) has no close button Polycarp can press",
-                                           suggestion: "Leave it open; Polycarp never quits an app for an agent.", retry: .never))
+                return .failure(HandsError(.notSupported, "window \(w.id) of \(w.app) has no close button Tychicus can press",
+                                           suggestion: "Leave it open; Tychicus never quits an app for an agent.", retry: .never))
             }
             var data: [String: JSONValue] = ["window": .int(Int(w.id)), "app": .string(w.app), "pressed": "close", "target": targetJSON(w, scope)]
             if let opened = openedChildren(pid: w.pid, before: before, session: session) {

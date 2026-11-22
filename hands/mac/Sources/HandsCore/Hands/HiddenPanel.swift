@@ -66,11 +66,11 @@ public enum HiddenPanel {
 
     /// Why one is out of sight, said where `menu` answers and where `close` refuses.
     public static func why(_ w: ServerWindow, app: String) -> String {
-        "\(named(w)) is a panel \(app) shows only while it is the active app, and Polycarp never makes the agent's copy active, so it stays out of sight with nothing Polycarp can read or press"
+        "\(named(w)) is a panel \(app) shows only while it is the active app, and Tychicus never makes the agent's copy active, so it stays out of sight with nothing Tychicus can read or press"
     }
 
     /// `close` on one: it has no button to press, and it goes when the copy quits.
     public static func closeRefusal(_ w: ServerWindow, app: String) -> HandsError {
-        HandsError(.notSupported, why(w, app: app), suggestion: "Leave it; no one sees it, and it goes when the copy quits. Polycarp never quits an app for an agent.", retry: .never)
+        HandsError(.notSupported, why(w, app: app), suggestion: "Leave it; no one sees it, and it goes when the copy quits. Tychicus never quits an app for an agent.", retry: .never)
     }
 }

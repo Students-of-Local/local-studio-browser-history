@@ -1,6 +1,6 @@
 import AppKit
 import ApplicationServices
-import BaneySpacesCore
+import HandsCore
 
 /// Reads an accessibility element into the shape the panel check needs. Only reads. The bounded read and its fail-closed
 /// rule are `AXTreeRead` in the core: a sheet or dialog any part of which was cut off is unreadable, so it is refused.

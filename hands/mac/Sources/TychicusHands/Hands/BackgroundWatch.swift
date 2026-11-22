@@ -1,5 +1,5 @@
 import AppKit
-import BaneySpacesCore
+import HandsCore
 import Security
 
 /// Records every app the workspace activates, for as long as it lives. An action holds one from planning to the end

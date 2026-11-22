@@ -60,7 +60,7 @@ public struct SessionClipboard: Equatable, Sendable {
 
     /// The answer for anything that would reach the general pasteboard: a key, or a menu or context-menu item.
     public static func pasteboardRefusal(_ what: String) -> HandsError {
-        HandsError(.notSupported, "\(what) uses the Mac's clipboard, which is Donovan's, so Polycarp doesn't send it",
+        HandsError(.notSupported, "\(what) uses the Mac's clipboard, which is the person's, so Tychicus doesn't send it",
                    suggestion: #"Use the agent clipboard: {"ref":"5","copy":true} on computer_get, then {"ref":"7","paste":true} on computer_type. To delete a selection, press Delete."#,
                    retry: .never, nextCall: .null)
     }

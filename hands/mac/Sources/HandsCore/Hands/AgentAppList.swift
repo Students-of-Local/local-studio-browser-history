@@ -26,11 +26,11 @@ public enum AgentAppGrants {
 
     /// Why the copy at `appURL` is not the one Donovan allowed for `bundle`, or nil when it is (review of #533, second-F7).
     public static func copyProblem(bundle: String, at appURL: URL?) -> String? {
-        guard let allowed = copy(of: bundle) else { return "Polycarp has no record of the copy Donovan allowed" }
-        guard let appURL else { return "Polycarp can't find its bundle" }
+        guard let allowed = copy(of: bundle) else { return "Tychicus has no record of the copy the person allowed" }
+        guard let appURL else { return "Tychicus can't find its bundle" }
         if let why = AgentAppCopy.placeProblem(appURL, registered: NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundle)) { return why }
-        if AgentAppCopy.path(appURL) != allowed.path { return "it is not the copy Donovan allowed (\(allowed.path))" }
-        if !AgentAppCopy.meets(appURL, allowed.requirement) { return "its code is not signed as the copy Donovan allowed was" }
+        if AgentAppCopy.path(appURL) != allowed.path { return "it is not the copy the person allowed (\(allowed.path))" }
+        if !AgentAppCopy.meets(appURL, allowed.requirement) { return "its code is not signed as the copy the person allowed was" }
         return nil
     }
 
@@ -106,9 +106,9 @@ public struct AgentAppFacts: Equatable, Sendable {
 
     /// Why an app with these facts is never listed; nil when it may be.
     public var refusal: String? {
-        if opensWeb { return "it opens web links, so it is a browser, and a browser holds Donovan's logins" }
+        if opensWeb { return "it opens web links, so it is a browser, and a browser holds the person's logins" }
         if category == "public.app-category.developer-tools" { return "it is a developer tool, and those run code" }
-        if oneCopyOnly { return "it runs one copy only, so a new copy would reach Donovan's" }
+        if oneCopyOnly { return "it runs one copy only, so a new copy would reach the person's" }
         return nil
     }
 }
@@ -121,11 +121,11 @@ public enum ListedOpen {
     /// nil when the open did what a listed app must; else `needs_sandbox`, saying what happened.
     public static func refusal(app: String, newCopies: Int, oldCopyWindows: Int) -> HandsError? {
         let what: String
-        if oldCopyWindows > 0 { what = "the open reached the copy Donovan runs, which opened \(oldCopyWindows) window(s) on his side" }
+        if oldCopyWindows > 0 { what = "the open reached the copy the person runs, which opened \(oldCopyWindows) window(s) on his side" }
         else if newCopies == 0 { what = "no separate copy of it started" }
         else { return nil }
         return HandsError(.needsSandbox, "\(app): \(what), so it can't be an agent's",
-                          suggestion: "Ask Donovan to remove it (`polycarp-spaces agent allow --remove \(app)`) or to lend \(app) while he is away from it.",
+                          suggestion: "Ask the person to remove it (`computer_allow --remove \(app)`) or to lend \(app) while he is away from it.",
                           retry: .never)
     }
 }

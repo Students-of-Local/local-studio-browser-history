@@ -5,15 +5,15 @@ import Foundation
 /// the person can grant in System Settings.
 public enum AgentEverything {
     public static let title = "Give agents everything"
-    public static let why = "Full Access to this Mac, any site in your browser, and no prompts for Polycarp's tools in Claude Code."
+    public static let why = "Full Access to this Mac, any site in your browser, and no prompts for Tychicus's tools in Claude Code."
     public static let button = "Turn On Everything…"
     public static let on = "Everything is on"
     public static let consentTitle = "Turn on everything for agents?"
-    public static let consentBody = "Agents can read and act on every window on every workspace and start any app. They can open any site in your browser without asking, and Claude Code stops asking before it uses Polycarp's tools. They still can't drive an Open or Save panel, and assistants on the web stay limited to what you tick for them. You can turn any of this off in Settings > Agents."
+    public static let consentBody = "Agents can read and act on every window on every workspace and start any app. They can open any site in your browser without asking, and Claude Code stops asking before it uses Tychicus's tools. They still can't drive an Open or Save panel, and assistants on the web stay limited to what you tick for them. You can turn any of this off in Settings > Agents."
     public static let consentButton = "Turn On Everything"
-    public static let openBrowser = "Full Access is on. Open your browser with Polycarp's extension, then turn on Any site in Settings > Agents."
+    public static let openBrowser = "Full Access is on. Open your browser with Tychicus's extension, then turn on Any site in Settings > Agents."
     public static let finishing = "Full Access is on. Finishing the rest…"
-    public static let browserPartOff = "Full Access is on. Any site and Claude Code's setting need Polycarp's Browser part, in Settings > General."
+    public static let browserPartOff = "Full Access is on. Any site and Claude Code's setting need Tychicus's Browser part, in Settings > General."
 
     /// `anySite` is nil when no browser has answered. Claude Code counts only where it's set up, because the rule matches nothing otherwise.
     public static func isOn(access: AgentAccessMode, anySite: Bool?, claudeAllowed: Bool, claudeReady: Bool) -> Bool {
@@ -29,7 +29,7 @@ public enum HandsCaller {
     public static let capKey = "connector_cap"
     public static let capValue = "default"
     /// `serverInfo.name` from `mcp --connector`. A helper older than the flag ignores it and answers with its usual name, so `polycarp browser serve` won't use it.
-    public static let connectorServerName = "polycarp-connector"
+    public static let connectorServerName = "tychicus-connector"
     public static func isRemote(_ caller: String?) -> Bool { caller?.hasPrefix("remote ") == true }
 }
 
@@ -79,7 +79,7 @@ public enum AgentAccessMode: String, CaseIterable, Codable, Sendable {
         case .readOnly:
             return "Agents can list, read and capture the windows they could use in Default, and can't click, type, open apps, run commands, move windows or turn the agent workspace on."
         case .standard:
-            return "Agents work on the agent workspace, in apps Polycarp starts for them (TextEdit, Preview, Calculator) and in apps you lend."
+            return "Agents work on the agent workspace, in apps Tychicus starts for them (TextEdit, Preview, Calculator) and in apps you lend."
         case .full:
             return "Agents can read and act on every window on every workspace and start any app. They still work from behind: they never bring an app forward, move your pointer, type into the window you are using, or use an Open or Save panel, and an action in an app you are using waits until it has been out of the front for \(Int(UserUse.quiet)) seconds."
         }
@@ -110,7 +110,7 @@ public enum AgentAccessGate {
 
     static func readOnly(_ what: String) -> HandsError {
         HandsError(.permissionDenied, "agents have read-only access, so \(what) is refused",
-                   suggestion: "You can still list, snapshot, find, get and shot. Donovan sets agent access in Polycarp Settings > Agents.",
+                   suggestion: "You can still list, snapshot, find, get and shot. the person sets agent access in Tychicus Settings > Agents.",
                    retry: .never)
     }
 }

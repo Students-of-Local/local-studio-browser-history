@@ -1,6 +1,6 @@
 import AppKit
 import ApplicationServices
-import BaneySpacesCore
+import HandsCore
 
 /// Watches app activations while an agent starts an app, and gives your keyboard back if that app takes it (`FocusReturn`).
 /// Polycarp is a background app, and since macOS 14 `activate()` from the background may do nothing, so this goes through

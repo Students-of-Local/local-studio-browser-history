@@ -1,6 +1,6 @@
 import AppKit
 import ApplicationServices
-import BaneySpacesCore
+import HandsCore
 
 /// What a right click did: what was posted (for the pointer audit) and its answer.
 struct ContextPress {
@@ -23,10 +23,7 @@ extension HandsRouter {
 
     /// Whether the agent workspace is on screen now.
     func agentShown() -> Bool {
-        onMain {
-            guard let n = host.agentWorkspace() else { return false }
-            return host.workspaceRows().first { $0.number == n }?.shown ?? false
-        }
+        onMain { host.agentShown() }
     }
 
     /// A right click at `point` (window-local) and its context menu, on the process queue (`ContextMenu` has the rules).

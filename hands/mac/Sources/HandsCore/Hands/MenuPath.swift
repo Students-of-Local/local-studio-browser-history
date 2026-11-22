@@ -103,7 +103,7 @@ public enum MenuPath {
                               suggestion: "Pass a path of titles from the list.", retry: .safe,
                               nextCall: .null)
         case .disabled(let p) where background:
-            return HandsError(.notSupported, "\(p.joined(separator: " > ")) is greyed out because \(app) is in the background: macOS enables a window's commands only in the app in front, and Polycarp never brings an agent's copy forward",
+            return HandsError(.notSupported, "\(p.joined(separator: " > ")) is greyed out because \(app) is in the background: macOS enables a window's commands only in the app in front, and Tychicus never brings an agent's copy forward",
                               suggestion: "Retrying won't change it. Do it on the element instead: click, type, set-value, select or toggle by ref.", retry: .never, nextCall: .null)
         case .disabled(let p):
             return HandsError(.notSupported, "\(p.joined(separator: " > ")) is greyed out now", suggestion: "Snapshot the window: the command may need a selection first.", retry: .afterSnapshot,
@@ -130,7 +130,7 @@ public enum MenuPath {
     public static func refusal(app: String, window: UInt32, agentOwned: Bool, sessionOwns: Bool, otherWindows: Int, focusedWindow: UInt32?, panels: Set<UInt32> = [], front: Bool) -> HandsError? {
         let focusedWindow = focusedWindow.map { panels.contains($0) ? window : $0 }
         if !agentOwned {
-            return HandsError(.needsLend, "menus work only in the agent's own copy of \(app), one your `open` started; this window belongs to Donovan's copy",
+            return HandsError(.needsLend, "menus work only in the agent's own copy of \(app), one your `open` started; this window belongs to the person's copy",
                               suggestion: "Open your own copy with `open`, then run `menu` in that window.", retry: .never, nextCall: .null)
         }
         if !sessionOwns {
@@ -144,7 +144,7 @@ public enum MenuPath {
         }
         if focusedWindow != window {
             return HandsError(.notSupported, "window \(window) is not \(app)'s focused window (that is \(focusedWindow.map(String.init) ?? "none")), so a menu command would go elsewhere",
-                              suggestion: "Polycarp cannot focus a window without bringing it in front of Donovan, so no call fixes this. Act on the element with click, type or set-value instead.", retry: .never, nextCall: .null)
+                              suggestion: "Tychicus cannot focus a window without bringing it in front of the person, so no call fixes this. Act on the element with click, type or set-value instead.", retry: .never, nextCall: .null)
         }
         return nil
     }
@@ -196,7 +196,7 @@ public enum MenuPath {
     /// `policy`, or the refusal for a path whose items couldn't all be read (`steps` nil).
     public static func judge(_ steps: [Step]?, window: Int) -> HandsError? {
         guard let steps else {
-            return HandsError(.engineError, "the menu's key equivalents couldn't be read, so Polycarp can't tell whether the command is safe",
+            return HandsError(.engineError, "the menu's key equivalents couldn't be read, so Tychicus can't tell whether the command is safe",
                               suggestion: "Snapshot the window, then try the menu command again.", retry: .afterSnapshot, nextCall: HandsError.call("snapshot", ["window": .int(window)]))
         }
         return policy(steps)
@@ -304,9 +304,9 @@ public enum MenuPath {
     }
 
     static let appMenu = "the app menu's commands quit, hide or act on other apps (only About and Settings are used)"
-    static let windows = "it moves, raises, fills or tiles windows or switches to full screen, which changes what Donovan sees"
+    static let windows = "it moves, raises, fills or tiles windows or switches to full screen, which changes what the person sees"
     static let documents = "it opens documents, and an agent opens only files from the handoff folder"
-    static let outside = "it opens a window outside the agent workspace or reaches Donovan's microphone, speakers, printer or other apps"
+    static let outside = "it opens a window outside the agent workspace or reaches the person's microphone, speakers, printer or other apps"
     static let findText = "Use Selection for Find puts the selection on the find text every app shares"
 
     static func refuse(_ path: String, why: String) -> HandsError {
@@ -326,7 +326,7 @@ public enum MenuPath {
 
     /// Cut, copy and paste reach the Mac's clipboard, which is Donovan's.
     static func clipboard(_ path: String) -> HandsError {
-        HandsError(.notSupported, "\(path) uses the Mac's clipboard, which is Donovan's, so Polycarp doesn't send it",
+        HandsError(.notSupported, "\(path) uses the Mac's clipboard, which is the person's, so Tychicus doesn't send it",
                    suggestion: "Use the agent clipboard, held per session: `get` with copy, then `type` with paste. To delete a selection, press Delete.",
                    retry: .never, nextCall: .null)
     }
@@ -434,7 +434,7 @@ public enum MenuPath {
 
     /// `gone`: the panel was seen, but closed before Polycarp could cancel it (192 r1 first-F4).
     public static func panelRefusal(_ app: String, cancelled: Bool, gone: Bool = false) -> HandsError {
-        let after = gone ? "it closed before Polycarp cancelled it" : cancelled ? "it was cancelled" : "it could not be cancelled, so it is still open"
+        let after = gone ? "it closed before Tychicus cancelled it" : cancelled ? "it was cancelled" : "it could not be cancelled, so it is still open"
         return HandsError(.notSupported, "the command opened an Open or Save panel in \(app); agents never get one, and \(after)",
                    suggestion: "Work with files through the agent handoff folder: `open` the app with a file from it, and save to that document.", retry: .never, nextCall: .null)
     }
@@ -543,14 +543,14 @@ public enum MenuPath {
     public static func escapeRefusal(_ path: String, found: [Escape], gone: [Escape] = [], closed: Bool, window: Int) -> HandsError {
         func names(_ l: [Escape]) -> String { l.map { "a window of \($0.window.owner)" }.joined(separator: ", ") }
         let tied = found.filter(\.tied), went = gone.filter(\.tied), untied = (found + gone).filter { !$0.tied }
-        let other = untied.isEmpty ? "" : "; \(names(untied)) also appeared, which Polycarp couldn't tie to the command (Donovan may have opened it), so it was left alone"
+        let other = untied.isEmpty ? "" : "; \(names(untied)) also appeared, which Tychicus couldn't tie to the command (the person may have opened it), so it was left alone"
         let closedItself = went.isEmpty ? "" : "\(tied.isEmpty ? "" : "; ")\(names(went)) closed again on its own"
         guard tied.isEmpty && went.isEmpty else {
-            let state = tied.isEmpty ? "" : closed ? "it was closed" : "Polycarp couldn't close it, so it is still open"
-            return HandsError(.outsideAgentWorkspace, "\(path) opened \(names(tied + went)) outside the agent workspace, where Donovan would see it; \(state)\(closedItself)\(other)",
+            let state = tied.isEmpty ? "" : closed ? "it was closed" : "Tychicus couldn't close it, so it is still open"
+            return HandsError(.outsideAgentWorkspace, "\(path) opened \(names(tied + went)) outside the agent workspace, where the person would see it; \(state)\(closedItself)\(other)",
                               suggestion: "Don't use \(path) again: do it in the app's own window with click, type or set-value.", retry: .never, nextCall: .null)
         }
-        return HandsError(.outsideAgentWorkspace, "while \(path) ran, \(names(untied)) appeared outside the agent workspace; Polycarp couldn't tie it to the command (Donovan may have opened it), so it closed nothing",
+        return HandsError(.outsideAgentWorkspace, "while \(path) ran, \(names(untied)) appeared outside the agent workspace; Tychicus couldn't tie it to the command (the person may have opened it), so it closed nothing",
                           suggestion: "Snapshot the window to see whether the command did what you wanted.", retry: .afterSnapshot, nextCall: HandsError.call("snapshot", ["window": .int(window)]))
     }
 
@@ -631,7 +631,7 @@ public final class MenuWatch<Found: Sendable>: @unchecked Sendable {
 
     /// The call's error when the watch couldn't finish: the command may have opened something, so it never answers ok.
     public static func unknownRefusal(_ path: String, window: Int) -> HandsError {
-        HandsError(.engineError, "\(path) was sent, but the app didn't answer in time for Polycarp to check what it opened",
+        HandsError(.engineError, "\(path) was sent, but the app didn't answer in time for Tychicus to check what it opened",
                    suggestion: "Snapshot the window to see what the command did before anything else.", retry: .afterSnapshot, nextCall: HandsError.call("snapshot", ["window": .int(window)]))
     }
 }

@@ -82,7 +82,7 @@ public struct MovedInWindows: Equatable, Sendable {
         }
         let what = e.origin == .lent ? "while \(w.app) was lent, and the lend has ended" : "under Full Access, and agent access is \(mode.title) now"
         return .denied(HandsError(.needsLend, "window \(w.id) of \(w.app) was moved to the agent workspace \(what)",
-                                  suggestion: "It goes back to Donovan's workspace \(e.from). Work in a window `polycarp-spaces agent open` made, or ask Donovan to lend \(w.app) again.",
+                                  suggestion: "It goes back to the person's workspace \(e.from). Work in a window `computer_open` made, or ask the person to lend \(w.app) again.",
                                   retry: .never))
     }
 
@@ -177,13 +177,13 @@ public enum MoveDecision {
 
     public static func decide(before: MoveState, after: MoveState) -> Result<Go, HandsError> {
         guard let w = after.window else {
-            return .failure(HandsError(.windowNotFound, "window \(before.window.map { String($0.id) } ?? "?") is gone", suggestion: "Run `polycarp-spaces agent windows`.", retry: .afterSnapshot))
+            return .failure(HandsError(.windowNotFound, "window \(before.window.map { String($0.id) } ?? "?") is gone", suggestion: "Run `computer_windows`.", retry: .afterSnapshot))
         }
         if let b = before.window, b.pid != w.pid {
             return .failure(HandsError(.staleRef, "window \(w.id) belongs to a different process now", suggestion: "Take a new snapshot.", retry: .afterSnapshot))
         }
         guard let n = after.agentWorkspace else {
-            return .failure(HandsError(.agentWorkspaceOff, "the agent workspace was turned off while the move waited", suggestion: "Ask Donovan to run `polycarp-spaces agent on`.", retry: .never))
+            return .failure(HandsError(.agentWorkspaceOff, "the agent workspace was turned off while the move waited", suggestion: "Ask the person to run `computer_on`.", retry: .never))
         }
         if let e = WorkspaceVerbs.moveRefusal(window: w, scope: after.scope, agentWorkspace: n, agentShown: after.agentShown, sourceShown: after.sourceShown) { return .failure(e) }
         return .success(Go(to: n, moves: w.workspace != n, changed: before.agentWorkspace != n))

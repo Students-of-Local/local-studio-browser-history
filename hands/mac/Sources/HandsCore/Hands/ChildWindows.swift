@@ -125,8 +125,8 @@ public enum ChildWindowRule {
     public static func sheetOnWindowRefusal(window w: HandsWindow, sheetsAttributed: [Bool], split: Bool) -> HandsError? {
         guard split, sheetsAttributed.contains(false) else { return nil }
         return HandsError(.outsideAgentWorkspace,
-                          "window \(w.id) of \(w.app) holds a sheet your action didn't raise, and \(w.app) also has windows you may not use, so the sheet may be Donovan's (rule 2)",
-                          suggestion: "Leave it for Donovan; work in another window until the sheet closes.", retry: .never)
+                          "window \(w.id) of \(w.app) holds a sheet your action didn't raise, and \(w.app) also has windows you may not use, so the sheet may be the person's (rule 2)",
+                          suggestion: "Leave it for the person; work in another window until the sheet closes.", retry: .never)
     }
 
     /// Which rule refused a child window.
@@ -159,25 +159,25 @@ public enum ChildWindowRule {
                               selfPid: Int32? = nil) -> Decision {
         let kindName = c.kind?.rawValue ?? "window"
         if let me = selfPid, c.pid == me {
-            return .refused(.ownWindow, HandsError(.permissionDenied, "window \(c.id) is Polycarp's own",
-                                                   suggestion: "Agents never use Polycarp's windows; its settings are Donovan's.", retry: .never))
+            return .refused(.ownWindow, HandsError(.permissionDenied, "window \(c.id) is Tychicus's own",
+                                                   suggestion: "Agents never use Tychicus's windows; its settings are the person's.", retry: .never))
         }
         if isSystemPrompt(bundle: c.bundle, processName: c.processName) {
             return .refused(.systemPrompt, HandsError(.permissionDenied,
                 "window \(c.id) belongs to \(c.processName.isEmpty ? c.bundle : c.processName), a macOS authentication, password, keychain or permission prompt (rule 3)",
-                suggestion: "Agents never answer system prompts. Tell Donovan what asked and why, and let him answer it himself.", retry: .never))
+                suggestion: "Agents never answer system prompts. Tell the person what asked and why, and let him answer it himself.", retry: .never))
         }
         if c.panel { return .refused(.panel, PanelDetector.refusal(window: c.id, app: c.app)) }
         guard c.kind != nil else {
             return .refused(.notAChild, HandsError(.outsideAgentWorkspace,
-                "window \(c.id) of \(c.app) is not a dialog, alert, sheet or floating window, and Polycarp doesn't place it (rule 1)",
+                "window \(c.id) of \(c.app) is not a dialog, alert, sheet or floating window, and Tychicus doesn't place it (rule 1)",
                 suggestion: "A new document window is placed in a moment: run `windows` again. Menus are never an agent's.", retry: .safe))
         }
         let usable = placed.filter { $0.window.pid == c.pid && $0.scope.allowed }
         guard let first = usable.min(by: { $0.window.id < $1.window.id }) else {
             return .refused(.noUsableWindow, HandsError(.outsideAgentWorkspace,
                 "window \(c.id) is a \(kindName) of \(c.app), and no window of \(c.app) is one you may use (rule 1)",
-                suggestion: "A dialog is yours only when a window of the same app is on the agent workspace, lent to you, or open under Full Access. Leave this one for Donovan.", retry: .never))
+                suggestion: "A dialog is yours only when a window of the same app is on the agent workspace, lent to you, or open under Full Access. Leave this one for the person.", retry: .never))
         }
         let ofPid = placed.filter { $0.window.pid == c.pid }
         let all = !ofPid.isEmpty && ofPid.allSatisfy { $0.scope.allowed }
@@ -185,20 +185,20 @@ public enum ChildWindowRule {
         // is Donovan's, whoever acted last. Attribution only settles a child whose window is unknown.
         if let p = c.parent, !usable.contains(where: { $0.window.id == p }) {
             return .refused(.ownership, HandsError(.outsideAgentWorkspace,
-                "window \(c.id) is a \(kindName) of \(c.app) on window \(p), which is not one you may use, so it is Donovan's (rule 2)",
-                suggestion: "Leave it for Donovan. Work in a window of yours meanwhile.", retry: .never))
+                "window \(c.id) is a \(kindName) of \(c.app) on window \(p), which is not one you may use, so it is the person's (rule 2)",
+                suggestion: "Leave it for the person. Work in a window of yours meanwhile.", retry: .never))
         }
         // A child whose window is unknown is the agent's only when every window of that process is: on a split app it may
         // be Donovan's, whatever the timing says.
         if c.parent == nil, !all {
             return .refused(.ownership, HandsError(.outsideAgentWorkspace,
-                "window \(c.id) is a \(kindName) of \(c.app), which also has windows you may not use, and which window it belongs to is unknown, so it may be Donovan's (rule 2)",
-                suggestion: "Leave it for Donovan. Work in a window of yours meanwhile.", retry: .never))
+                "window \(c.id) is a \(kindName) of \(c.app), which also has windows you may not use, and which window it belongs to is unknown, so it may be the person's (rule 2)",
+                suggestion: "Leave it for the person. Work in a window of yours meanwhile.", retry: .never))
         }
         guard all || attributed else {
             return .refused(.ownership, HandsError(.outsideAgentWorkspace,
-                "window \(c.id) is a \(kindName) of \(c.app), which also has windows you may not use, and it did not appear within \(Int(attributionWindow)) s after one of your actions in \(c.app), so it may be Donovan's (rule 2)",
-                suggestion: "Leave it for Donovan. A dialog your own action raises is reported in that action's result as `opened`; act on it then. Meanwhile work in another window.", retry: .never))
+                "window \(c.id) is a \(kindName) of \(c.app), which also has windows you may not use, and it did not appear within \(Int(attributionWindow)) s after one of your actions in \(c.app), so it may be the person's (rule 2)",
+                suggestion: "Leave it for the person. A dialog your own action raises is reported in that action's result as `opened`; act on it then. Meanwhile work in another window.", retry: .never))
         }
         let parent = c.parent.flatMap { p in usable.first { $0.window.id == p } }
         return .usable(scope: (parent ?? first).scope, parent: c.parent, ownership: all ? "all_windows_usable" : "after_your_action")
@@ -405,9 +405,9 @@ public enum SheetMark {
 public enum OpenNote {
     public static func text(_ start: SessionWindows.OpenStart, app: String) -> String {
         switch start {
-        case .owns: return "Polycarp couldn't identify the window this open made yet, so this session owns none of it for now; if it appears within 30 s it becomes yours. Run `polycarp-spaces agent windows`"
-        case .noSession: return "Polycarp couldn't identify the window this open made yet; this open had no session, so no window of it is anyone's. Run `polycarp-spaces agent windows`"
-        case .overlap: return "Polycarp identified no window for this open: another open of \(app) is still waiting for its window or overlapped one in the last 30 s, so it can't tell whose new window is whose and gives it to neither; you may still use it, but `close` won't close it"
+        case .owns: return "Tychicus couldn't identify the window this open made yet, so this session owns none of it for now; if it appears within 30 s it becomes yours. Run `computer_windows`"
+        case .noSession: return "Tychicus couldn't identify the window this open made yet; this open had no session, so no window of it is anyone's. Run `computer_windows`"
+        case .overlap: return "Tychicus identified no window for this open: another open of \(app) is still waiting for its window or overlapped one in the last 30 s, so it can't tell whose new window is whose and gives it to neither; you may still use it, but `close` won't close it"
         }
     }
 }
@@ -555,7 +555,7 @@ public enum WorkspaceVerbs {
     public static func connectorRefusal(verb: String) -> HandsError? {
         guard manage.contains(verb) else { return nil }
         return HandsError(.permissionDenied, "\(verb) isn't open to an assistant connected from another machine",
-                          suggestion: "Connectors may read `workspaces`, and `open` an app on the agent workspace; arranging, moving and closing windows are for agents on this Mac.", retry: .never)
+                          suggestion: "Connectors may `open` an app on the agent workspace and act in it; arranging, moving and closing windows are for agents on this Mac.", retry: .never)
     }
 
     /// `move`: onto the agent workspace only. A window already there just stays (or takes `frame`); a lent or Full Access
@@ -564,7 +564,7 @@ public enum WorkspaceVerbs {
     public static func moveRefusal(window w: HandsWindow, scope: ScopeDecision, agentWorkspace: Int?, agentShown: Bool, sourceShown: Bool) -> HandsError? {
         if case .denied(let e) = scope { return e }
         guard let agent = agentWorkspace else {
-            return HandsError(.agentWorkspaceOff, "there is no agent workspace to move \(w.app) to", suggestion: "Ask Donovan to run `polycarp-spaces agent on`.", retry: .never)
+            return HandsError(.agentWorkspaceOff, "there is no agent workspace to move \(w.app) to", suggestion: "Ask the person to run `computer_on`.", retry: .never)
         }
         guard w.workspace != nil else {
             return HandsError(.notSupported, "window \(w.id) is a child window of \(w.app); it goes where its app's window goes",
@@ -572,13 +572,13 @@ public enum WorkspaceVerbs {
         }
         if w.workspace == agent { return nil }
         if agentShown {
-            return HandsError(.inUse, "Donovan is looking at the agent workspace, so nothing is moved onto it now",
+            return HandsError(.inUse, "the person is looking at the agent workspace, so nothing is moved onto it now",
                               suggestion: "Retry once he has left it, or work on a window already there. Do not ask him to switch away.", retry: .safe)
         }
         switch scope {
         case .lent, .fullAccess:
             guard sourceShown else { return nil }
-            return HandsError(.inUse, "Donovan is looking at workspace \(w.workspace.map(String.init) ?? "?"), where window \(w.id) of \(w.app) is, so it isn't taken from under him now",
+            return HandsError(.inUse, "the person is looking at workspace \(w.workspace.map(String.init) ?? "?"), where window \(w.id) of \(w.app) is, so it isn't taken from under him now",
                               suggestion: "Retry once he has left that workspace. Do not ask him to switch away.", retry: .safe)
         default:
             return HandsError(.needsLend, "window \(w.id) of \(w.app) isn't yours to move",
@@ -672,7 +672,7 @@ public enum WorkspaceList {
                 .object(["id": .int(Int(u.window.id)), "app": .string(u.window.app), "pid": .int(Int(u.window.pid)),
                          "workspace": u.window.workspace.map(JSONValue.int) ?? .null, "scope": .string(u.scope.reason)])
             }),
-            "note": .string("Agents never change which workspace is shown and never create, rename or delete workspaces. Work on the agent workspace; while it is shown Donovan is looking at it."),
+            "note": .string("Agents never change which workspace is shown and never create, rename or delete workspaces. Work on the agent workspace; while it is shown the person is looking at it."),
         ])
     }
 }
@@ -753,7 +753,7 @@ public enum MutationGate {
         if let e = AgentAccessGate.actingRefusal(mode: mode) { return e }
         for t in targets {
             guard let live = t.live else {
-                return HandsError(.windowNotFound, "window \(t.window.id) is gone", suggestion: "Run `polycarp-spaces agent windows`.", retry: .afterSnapshot)
+                return HandsError(.windowNotFound, "window \(t.window.id) is gone", suggestion: "Run `computer_windows`.", retry: .afterSnapshot)
             }
             guard live.pid == t.window.pid else {
                 return HandsError(.staleRef, "window \(t.window.id) belongs to a different process now", suggestion: "Take a new snapshot.", retry: .afterSnapshot)

@@ -1,6 +1,6 @@
 import AppKit
 import ApplicationServices
-import BaneySpacesCore
+import HandsCore
 
 // Item C: a menu-bar command by path, in one transaction on the app's queue. The menu bar is read into the evidence
 // store (it never costs the agent's saved snapshots or renumbers its refs), the item is pressed from that read (AXPress,
@@ -9,7 +9,7 @@ extension HandsRouter {
     func menu(_ req: HandsRequest) -> HandsEnvelope {
         let path = MenuPath.parse(req.string("path") ?? "")
         guard req.int("window") != nil, !path.isEmpty else {
-            return .failure(HandsError(.badArguments, "window and path are needed", suggestion: #"usage: polycarp-spaces agent menu --window <id> "Format > Font > Bold""#, retry: .safe, nextCall: .null))
+            return .failure(HandsError(.badArguments, "window and path are needed", suggestion: #"usage: tychicus-hands agent menu --window <id> "Format > Font > Bold""#, retry: .safe, nextCall: .null))
         }
         switch target(req) {
         case .failure(let e): return .failure(e)
@@ -222,7 +222,7 @@ extension HandsRouter {
         let read = HandsEngine.shared.snapshotInline(window: target, interactive: false, compact: false, depth: 12, evidence: true)
         if case .failed(let e) = read { return e }
         guard case .ok(let d) = read, let ref = MenuPath.cancelRef(d["tree"] ?? .null, title: title) else {
-            return HandsError(.actionFailed, "the panel has no Cancel button Polycarp can press", suggestion: "", retry: .never)
+            return HandsError(.actionFailed, "the panel has no Cancel button Tychicus can press", suggestion: "", retry: .never)
         }
         pressed?()
         if case .failed(let e) = HandsEngine.shared.actInline(window: target, ref: ref, kind: .click, evidence: true, check: scope, cancelled: cancelled) { return e }

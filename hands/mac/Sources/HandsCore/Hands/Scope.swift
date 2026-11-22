@@ -128,8 +128,8 @@ public enum ScopeGuard {
                              mode: AgentAccessMode = .standard, selfPid: Int32? = nil) -> ScopeDecision {
         // BaneySpaces' own windows (Settings, the consent sheets) are never an agent's, in any mode.
         if let me = selfPid, w.pid == me {
-            return .denied(HandsError(.permissionDenied, "window \(w.id) is Polycarp's own",
-                                      suggestion: "Agents never use Polycarp's windows; its settings are Donovan's.", retry: .never))
+            return .denied(HandsError(.permissionDenied, "window \(w.id) is Tychicus's own",
+                                      suggestion: "Agents never use Tychicus's windows; its settings are the person's.", retry: .never))
         }
         if let agent = agentWorkspace, w.workspace == agent { return .onAgentWorkspace }
         if lends.isLent(w, now: now) { return .lent }
@@ -137,12 +137,12 @@ public enum ScopeGuard {
         guard agentWorkspace != nil else {
             return .denied(HandsError(.agentWorkspaceOff,
                                       "there is no agent workspace, and \(w.app) isn't lent",
-                                      suggestion: "Ask Donovan to run `polycarp-spaces agent on`, or to lend \(w.app) (the Polycarp menu, Lend to Agents)."))
+                                      suggestion: "Ask the person to run `computer_on`, or to lend \(w.app) (the Tychicus menu, Lend to Agents)."))
         }
-        let where_ = w.workspace.map { "workspace \($0)" } ?? "a place Polycarp doesn't manage"
+        let where_ = w.workspace.map { "workspace \($0)" } ?? "a place Tychicus doesn't manage"
         return .denied(HandsError(.outsideAgentWorkspace,
                                   "window \(w.id) of \(w.app) is on \(where_), not the agent workspace",
-                                  suggestion: "Open a window of it on the agent workspace with `polycarp-spaces agent open \(w.app)`, or ask Donovan to lend this one (you can't lend: he runs `polycarp-spaces agent lend \(w.app)` or uses the Polycarp menu)."))
+                                  suggestion: "Open a window of it on the agent workspace with `computer_open \(w.app)`, or ask the person to lend this one (you can't lend: he runs `computer_lend \(w.app)` or uses the Tychicus menu)."))
     }
 
     /// A window BaneySpaces doesn't place, given what a fresh look at its app's children decided (`child`). With no
@@ -151,7 +151,7 @@ public enum ScopeGuard {
     /// aren't placed, so an Open panel of Donovan's would be acted on unchecked.
     public static func unplaced(_ w: HandsWindow, child: ScopeDecision?) -> ScopeDecision {
         child ?? .denied(HandsError(.windowNotFound, "window \(w.id) of \(w.app) isn't a child window an agent can use right now",
-                                    suggestion: "Run `polycarp-spaces agent windows` and use the id it lists.", retry: .afterSnapshot))
+                                    suggestion: "Run `computer_windows` and use the id it lists.", retry: .afterSnapshot))
     }
 
     /// The windows an agent may use now.

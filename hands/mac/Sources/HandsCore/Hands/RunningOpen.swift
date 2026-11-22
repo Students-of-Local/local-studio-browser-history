@@ -21,9 +21,9 @@ public final class RunningOpen: @unchecked Sendable {
         lock.lock(); let seen = strayed.contains(key); lock.unlock()
         guard seen || Self.comesForward.contains(where: { $0.lowercased() == key }) else { return nil }
         return HandsError(.needsSandbox,
-                          "\(app) is already running and opens its new windows on Donovan's workspace, so Polycarp can't make one the agent's"
+                          "\(app) is already running and opens its new windows on the person's workspace, so Tychicus can't make one the agent's"
                           + (seen ? " (it did on an earlier open)" : ""),
-                          suggestion: "Polycarp pressed nothing. Work with files directly, or ask Donovan to lend \(app).", retry: .never)
+                          suggestion: "Tychicus pressed nothing. Work with files directly, or ask the person to lend \(app).", retry: .never)
     }
 
     /// The new windows of `pid` (not in `known`) that are not on the agent workspace.
@@ -44,9 +44,9 @@ public final class RunningOpen: @unchecked Sendable {
         lock.lock(); strayed.insert(bundle.lowercased()); lock.unlock()
         let list = windows.map { "window \($0.id) on " + ($0.workspace.map { "workspace \($0)" } ?? "no workspace") }.joined(separator: ", ")
         return HandsError(.outsideAgentWorkspace,
-                          "\(app) opened \(list), not the agent workspace\(agent.map { " (\($0))" } ?? ""). Polycarp left it there: it is Donovan's"
+                          "\(app) opened \(list), not the agent workspace\(agent.map { " (\($0))" } ?? ""). Tychicus left it there: it is the person's"
                           + (keyboardReturned ? ", and the keyboard was given back" : ""),
-                          suggestion: "Don't act on or close it; tell Donovan which window it left. Polycarp won't ask \(app) for a window again while it runs.",
+                          suggestion: "Don't act on or close it; tell the person which window it left. Tychicus won't ask \(app) for a window again while it runs.",
                           retry: .never)
     }
 }

@@ -90,12 +90,12 @@ public struct HandsError: Codable, Equatable, Error, Sendable {
     /// listened, so nothing was sent and a retry is safe.
     public static func noReply(verb: String, connected: Bool) -> HandsError {
         guard connected else {
-            return HandsError(.notRunning, "Polycarp isn't running, or hasn't finished starting (it needs Accessibility)",
-                              suggestion: "Open Polycarp and run `polycarp-spaces doctor`.", retry: .safe)
+            return HandsError(.notRunning, "Tychicus isn't running, or hasn't finished starting (it needs Accessibility)",
+                              suggestion: "Open Tychicus and run `tychicus-hands doctor`.", retry: .safe)
         }
         let acts = HandsTools.tool(verb: verb)?.acts ?? false
-        return HandsError(.timeout, "Polycarp took the request but didn't answer: it may have quit, or still be busy", suggestion: acts
-            ? "The action may have landed: read the element back with `polycarp-spaces agent get` before trying again."
+        return HandsError(.timeout, "Tychicus took the request but didn't answer: it may have quit, or still be busy", suggestion: acts
+            ? "The action may have landed: read the element back with `computer_get` before trying again."
             : "Try again in a moment.", retry: acts ? .never : .safe)
     }
 
@@ -135,7 +135,7 @@ public enum EngineVerdict {
     public static func posted(_ data: JSONValue) -> HandsError? {
         guard let step = data["steps"]?.array?.first(where: { $0["mechanism"]?.string == "physical_synthetic" }) else { return nil }
         let label = step["label"]?.string ?? "a physical step"
-        return HandsError(.notSupported, "the engine posted input for this action (\(label)), which Polycarp never allows from a ref, so the call is refused",
+        return HandsError(.notSupported, "the engine posted input for this action (\(label)), which Tychicus never allows from a ref, so the call is refused",
                           suggestion: "Don't repeat it. The engine pin moved or broke its headless policy: check engine/PIN.", retry: .never, nextCall: .null)
     }
 
@@ -153,7 +153,7 @@ public enum EngineVerdict {
     /// available window IDs.", a command of the engine's own CLI that no Polycarp agent has (seen 11-12 on every window
     /// that quit mid-call): it names ours instead.
     public static func suggestion(_ engine: String) -> String {
-        if engine.contains("list-windows") { return "Run `polycarp-spaces agent windows` for the current ids." }
+        if engine.contains("list-windows") { return "Run `computer_windows` for the current ids." }
         // The engine's own advice for a field with no text write is "clipboard-set and the app's paste shortcut": both reach
         // the general pasteboard, which is Donovan's. Only that advice is replaced (198 r1 first-F6).
         if ["clipboard-set", "set_clipboard", "paste shortcut", "cmd+v"].contains(where: { engine.localizedCaseInsensitiveContains($0) }) {

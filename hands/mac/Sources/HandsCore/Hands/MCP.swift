@@ -1,10 +1,10 @@
 import Foundation
 
-/// The stdio MCP server behind `baneyspaces mcp`: JSON-RPC 2.0, one message per line. It owns no
+/// The stdio MCP server behind `tychicus-hands mcp`: JSON-RPC 2.0, one message per line. It owns no
 /// logic of its own; every tool call becomes a `HandsRequest` and goes to `perform`, which asks the
 /// BaneySpaces app, so Claude Code, Codex and a shell all get the same checks and the same answers.
 public struct HandsMCP {
-    public static let serverName = "baneyspaces"
+    public static let serverName = "tychicus-hands"
     public static let defaultProtocol = "2025-06-18"
     public static let instructions = """
     Polycarp's hands: read and act on apps on the user's Mac without touching their screen. \
@@ -28,6 +28,9 @@ public struct HandsMCP {
     public var readImage: (String) -> Data?
     /// The name this server answers `initialize` with.
     public var name = HandsMCP.serverName
+    /// Refuses a tool by name before its arguments are read, listed or not: a connector's managing verbs
+    /// (`WorkspaceVerbs.connectorRefusal`) answer permission_denied even where the helper doesn't offer them.
+    public var refuse: (String) -> HandsError? = { _ in nil }
 
     public init(version: String, session: String, perform: @escaping (HandsRequest) -> HandsEnvelope, readImage: @escaping (String) -> Data? = { _ in nil }) {
         self.version = version; self.session = session; self.perform = perform; self.readImage = readImage
@@ -86,12 +89,16 @@ public struct HandsMCP {
             guard let name = msg["params"]?["name"]?.string else { return reply(id: id, error: (-32602, "tools/call needs a name")) }
             let arguments = msg["params"]?["arguments"]?.object ?? [:]
             let envelope: HandsEnvelope
+            if let e = refuse(name) {
+                envelope = HandsNextCall.fill(.failure(e), window: arguments["window"]?.int)
+            } else {
             switch HandsParse.call(name: name, arguments: arguments, session: session) {
             case .failure(let e): envelope = HandsNextCall.fill(.failure(e), window: arguments["window"]?.int)
             case .success(var r):
                 // A model reads rows far cheaper than the tree: they are the default here, never on the command line.
                 if r.verb == "snapshot", r.args["format"] == nil { r.args["format"] = "rows" }
                 envelope = HandsNextCall.fill(perform(r), window: r.int("window"))
+            }
             }
             // Rows go out as they are: one line per element, not a JSON string full of escapes.
             let rows = envelope.ok && envelope.data?["format"]?.string == "rows" ? envelope.data?["text"]?.string : nil

@@ -1,5 +1,5 @@
 import AppKit
-import BaneySpacesCore
+import HandsCore
 
 /// What the hands need from the rest of the app. Everything here runs on the main thread.
 struct HandsHost {
@@ -23,29 +23,13 @@ struct HandsHost {
     var cursorMark: (UInt32) -> CursorMark? = { _ in nil }
     /// The session engine's `agent open <app> [files…]`.
     var open: ([String]) -> Wire.Reply = { _ in .init(ok: false, error: "not ready") }
-    /// `workspaces`: one row per workspace (number, shown, current, window count).
-    var workspaceRows: () -> [WorkspaceRow] = { [] }
-    /// The usable area of the screen the agent workspace shows on, in screen coordinates with the origin at the top left.
-    var agentArea: () -> CGRect = { .zero }
-    /// `arrange`: frames for agent workspace windows, applied without showing them; how each one was applied.
-    var arrange: ([UInt32: CGRect]) -> [UInt32: String] = { _ in [:] }
-    /// Sends a window to a workspace without going there (`Spaces.move`).
-    var move: (UInt32, Int) -> Void = { _, _ in }
+    /// Whether a display shows the agent workspace now.
+    var agentShown: () -> Bool = { false }
     /// Presses a window's close button from behind; false when it has none.
     var close: (UInt32) -> Bool = { _ in false }
     /// A full scan now, every app asked again (`Spaces.refresh(full:)`): a window an app still starting couldn't show
     /// a moment ago is placed.
     var rescan: () -> Void = {}
-    /// The agent API's facts (`Spaces.agentFacts`): the model, one window-server read, displays and the look.
-    var facts: () -> AgentAPI.Facts? = { nil }
-    /// Donovan's "Agents may change what you see" (`ViewControlSetting`): never stored, off at every launch.
-    var viewControl: () -> Bool = { false }
-    /// Shows workspace n on a display (the focused one when nil): `Spaces.use(display:)`, then `switchTo`.
-    var switchTo: (Int, String?) -> Void = { _, _ in }
-    /// Goes to workspace n and brings window id forward (`Spaces.focus(_:on:)`).
-    var focus: (UInt32, Int) -> Void = { _, _ in }
-    /// Sets one window's frame wherever it is (`Spaces.placeFrame`); how it was applied.
-    var setFrame: (UInt32, CGRect) -> String = { _, _ in "skipped" }
 }
 
 /// Runs one agent command: checks scope, calls the engine, returns evidence. Lives in the app process,
@@ -62,9 +46,6 @@ final class HandsRouter {
     let remote: Bool
 
     init(cap: @escaping (AgentAccessMode) -> AgentAccessMode = { $0 }, remote: Bool = false) { self.cap = cap; self.remote = remote }
-
-    /// `subscribe`: the event stream, through this router's scope (spec/agent-api.md).
-    lazy var events = AgentEventHub(self)
 
     /// Which child windows appeared after which session's action (`ChildAttribution`), and what each session opened.
     var attribution = ChildAttribution()
@@ -95,19 +76,12 @@ final class HandsRouter {
 
     // MARK: wire
 
-    /// The session socket's entry: `text` holds a HandsRequest as JSON, the reply carries the envelope.
-    func handleWire(_ r: Wire.Request) -> Wire.Reply {
-        let env: HandsEnvelope
-        if let data = r.text?.data(using: .utf8), let req = try? JSONDecoder().decode(HandsRequest.self, from: data) {
-            // A bare row number is resolved once, here: `handle` gets the full ref and the next call's window comes from it,
-            // also for a call refused before it acts (187 r1 first-F3, 192 r1 first-F6).
-            var resolved = req
-            if let r = req.string("ref"), SnapshotRows.browserRefError(r) == nil, let n = SnapshotRows.bareNumber(r), case .success(let full) = bareRef(n, req) { resolved.args["ref"] = .string(full) }
-            env = HandsNextCall.fill(handle(resolved), window: windowOf(resolved))
-        } else {
-            env = HandsNextCall.notACommand
-        }
-        return Wire.Reply(ok: true, info: ["envelope": env.line])
+    /// One tool call from the MCP server. A bare row number is resolved once, here: `handle` gets the full ref and the
+    /// next call's window comes from it, also for a call refused before it acts (187 r1 first-F3, 192 r1 first-F6).
+    func handleRequest(_ req: HandsRequest) -> HandsEnvelope {
+        var resolved = req
+        if let r = req.string("ref"), SnapshotRows.browserRefError(r) == nil, let n = SnapshotRows.bareNumber(r), case .success(let full) = bareRef(n, req) { resolved.args["ref"] = .string(full) }
+        return HandsNextCall.fill(handle(resolved), window: windowOf(resolved))
     }
 
     func handle(_ req: HandsRequest) -> HandsEnvelope {
@@ -141,14 +115,6 @@ final class HandsRouter {
         }
         switch req.verb {
         case "windows": return windows(session: req.session ?? "")
-        case "workspaces": return workspaces(req)
-        case "query": return query(req)
-        case "events": return events.poll(req)
-        case "arrange": return arrange(req)
-        case "move": return moveCommand(req)
-        case "switch": return switchWorkspace(req)
-        case "focus": return focusWindow(req)
-        case "frame": return frameWindow(req)
         case "close": return close(req)
         case "snapshot": return snapshot(req)
         case "find": return find(req)
@@ -189,7 +155,7 @@ final class HandsRouter {
         let mode = access
         Self.refusedLock.lock(); let bad = Self.refused.contains(w.id); Self.refusedLock.unlock()
         // Under Full Access Donovan's documents are open to agents, so a window refused for showing one is usable again.
-        if bad, mode != .full { return .denied(HandsError(.needsSandbox, "window \(w.id) showed a document of Donovan's", suggestion: "Open your own file from the handoff folder.", retry: .never)) }
+        if bad, mode != .full { return .denied(HandsError(.needsSandbox, "window \(w.id) showed a document of the person's", suggestion: "Open your own file from the handoff folder.", retry: .never)) }
         let book = lends.current()
         // Whether Donovan is using the app is not scope: reads never look at it, and actions wait for it (`awaitUse`).
         let base = ScopeGuard.check(w, agentWorkspace: agent, lends: book, now: Date(), mode: mode, selfPid: getpid())
@@ -200,7 +166,7 @@ final class HandsRouter {
         if d == .onAgentWorkspace, mode != .full, AgentAccess.shared.grantedUnderFull(w.pid) {
             if book.isLent(w, now: Date()) { return .lent }
             return .denied(HandsError(.needsSandbox, "\(w.app) was opened for agents under Full Access, and agent access is \(mode.title) now",
-                                      suggestion: "Ask Donovan to set Full Access again (Settings > Agents), or work in an app `polycarp-spaces agent open` starts in \(mode.title).", retry: .never))
+                                      suggestion: "Ask the person to set Full Access again (Settings > Agents), or work in an app `computer_open` starts in \(mode.title).", retry: .never))
         }
         return d
     }
@@ -254,7 +220,7 @@ final class HandsRouter {
         let bound = Thread.isMainThread ? 0 : InUseRule.bound(wait)
         let outcome = InUseWait.run(bound: bound, now: Date.init, sleep: { Thread.sleep(forTimeInterval: $0) }) { [self] in
             let (placed, agent) = onMain { (host.live(w.id), host.agentWorkspace()) }
-            guard let live = placed ?? (w.workspace == nil ? childWindow(w.id) : nil) else { return .refused(HandsError(.windowNotFound, "window \(w.id) is gone", suggestion: "Run `polycarp-spaces agent windows` and take a new snapshot.", retry: .afterSnapshot)) }
+            guard let live = placed ?? (w.workspace == nil ? childWindow(w.id) : nil) else { return .refused(HandsError(.windowNotFound, "window \(w.id) is gone", suggestion: "Run `computer_windows` and take a new snapshot.", retry: .afterSnapshot)) }
             guard live.pid == w.pid else { return .refused(HandsError(.staleRef, "window \(w.id) belongs to a different process now", suggestion: "Take a new snapshot.", retry: .afterSnapshot)) }
             let (state, verdict) = inUseVerdict(live, agent: agent, verb: verb, delivery: delivery)
             return InUseWait.step(mode: access, scope: decide(live, agent, session: session), state: state, verdict: verdict)
@@ -279,7 +245,7 @@ final class HandsRouter {
             let targets = ws.map { w -> MutationTarget in
                 let placed = host.live(w.id)
                 let live = MutationGate.live(w, placed: placed, child: children[w.id])
-                let scope = live.map { decide($0, agent, session: session) } ?? .denied(HandsError(.windowNotFound, "window \(w.id) is gone", suggestion: "Run `polycarp-spaces agent windows`.", retry: .afterSnapshot))
+                let scope = live.map { decide($0, agent, session: session) } ?? .denied(HandsError(.windowNotFound, "window \(w.id) is gone", suggestion: "Run `computer_windows`.", retry: .afterSnapshot))
                 let inUse = live.flatMap { l -> HandsError? in
                     let (state, verdict) = inUseVerdict(l, agent: agent, verb: verb, delivery: .posted)
                     return verdict == .wait ? InUseWait.refusal(app: w.app, state: state, waited: nil) : nil
@@ -309,7 +275,7 @@ final class HandsRouter {
     /// A move to one of Donovan's workspaces or a revoked lend between resolving and dispatching stops the call.
     func gate(_ w: HandsWindow, session: String = "") -> HandsError? {
         let (placed, agent) = onMain { (host.live(w.id), host.agentWorkspace()) }
-        guard let now = placed ?? (w.workspace == nil ? childWindow(w.id) : nil) else { return HandsError(.windowNotFound, "window \(w.id) is gone", suggestion: "Run `polycarp-spaces agent windows` and take a new snapshot.", retry: .afterSnapshot) }
+        guard let now = placed ?? (w.workspace == nil ? childWindow(w.id) : nil) else { return HandsError(.windowNotFound, "window \(w.id) is gone", suggestion: "Run `computer_windows` and take a new snapshot.", retry: .afterSnapshot) }
         guard now.pid == w.pid else { return HandsError(.staleRef, "window \(w.id) belongs to a different process now", suggestion: "Take a new snapshot.", retry: .afterSnapshot) }
         if case .denied(let e) = decide(now, agent, session: session) { return e }
         // A child's own panel check is part of its decision (`ChildWindowRule` rule 3).
@@ -332,7 +298,7 @@ final class HandsRouter {
             return PanelDetector.refusal(window: w.id, app: w.app)
         case .outsideDocument:
             return HandsError(.needsSandbox, "window \(w.id) of \(w.app) shows a document from outside the handoff folder",
-                              suggestion: "Agents work only on files from the handoff folder. Open the file with `polycarp-spaces agent open <app> <file in the handoff folder>`.", retry: .never)
+                              suggestion: "Agents work only on files from the handoff folder. Open the file with `computer_open <app> <file in the handoff folder>`.", retry: .never)
         }
     }
 
@@ -404,7 +370,7 @@ final class HandsRouter {
         if let id = req.int("window") {
             if !all.contains(where: { Int($0.id) == id }) { (all, agent) = listWindows(fresh: true) }
             guard let w = all.first(where: { Int($0.id) == id }) ?? UInt32(exactly: id).flatMap({ childWindow($0) }) else {
-                return .failure(HandsError(.windowNotFound, "no window \(id) that Polycarp tracks", suggestion: "Run `polycarp-spaces agent windows` for the ids you can use.", retry: .safe))
+                return .failure(HandsError(.windowNotFound, "no window \(id) that Tychicus tracks", suggestion: "Run `computer_windows` for the ids you can use.", retry: .safe))
             }
             let d = decide(w, agent, session: req.session ?? "")
             if case .denied(let e) = d { return .failure(e) }
@@ -416,14 +382,14 @@ final class HandsRouter {
         guard !ofApp.isEmpty else {
             let running = NSWorkspace.shared.runningApplications.contains { $0.localizedName?.caseInsensitiveCompare(name) == .orderedSame || $0.bundleIdentifier == name }
             return .failure(HandsError(running ? .windowNotFound : .appNotFound,
-                                       running ? "\(name) has no window Polycarp tracks" : "\(name) isn't running",
-                                       suggestion: running ? "Open one with `polycarp-spaces agent open \(name)`." : "Start it on the agent workspace with `polycarp-spaces agent open \(name)`.", retry: .safe))
+                                       running ? "\(name) has no window Tychicus tracks" : "\(name) isn't running",
+                                       suggestion: running ? "Open one with `computer_open \(name)`." : "Start it on the agent workspace with `computer_open \(name)`.", retry: .safe))
         }
         let decided = ofApp.map { ($0, decide($0, agent)) }
         let allowed = decided.filter { $0.1.allowed }
         guard !allowed.isEmpty else {
             if case .denied(let e) = decided[0].1 { return .failure(e) }
-            return .failure(HandsError(.outsideAgentWorkspace, "\(name) isn't on the agent workspace", suggestion: "Open it with `polycarp-spaces agent open \(name)`.", retry: .never))
+            return .failure(HandsError(.outsideAgentWorkspace, "\(name) isn't on the agent workspace", suggestion: "Open it with `computer_open \(name)`.", retry: .never))
         }
         let pids = Set(allowed.map(\.0.pid))
         guard pids.count == 1 else {
@@ -457,7 +423,7 @@ final class HandsRouter {
         case .ok(let data):
             // The engine must have read the window we asked for, never its neighbor.
             if let got = data["window"]?["id"]?.string, got != "w-\(w.id)" {
-                return .failure(HandsError(.windowNotFound, "the engine read \(got), not window \(w.id)", suggestion: "Run `polycarp-spaces agent windows` and try again.", retry: .safe))
+                return .failure(HandsError(.windowNotFound, "the engine read \(got), not window \(w.id)", suggestion: "Run `computer_windows` and try again.", retry: .safe))
             }
             if register, !remember(data, w) {
                 return .failure(HandsError(.engineError, "the snapshot's saved refs couldn't be checked", suggestion: "Take a new snapshot.", retry: .safe))
@@ -616,16 +582,16 @@ final class HandsRouter {
     /// window, a window that changed process, or one that left the agent's scope fails here.
     func resolve(_ ref: String?, session: String = "") -> Result<(HandsWindow, ScopeDecision), HandsError> {
         guard let ref, ref.hasPrefix("@s"), let colon = ref.firstIndex(of: ":") else {
-            return .failure(HandsError(.badArguments, "\(ref ?? "") isn't a ref", suggestion: "Refs look like @s8f3k2p9:e5 and come from `polycarp-spaces agent snapshot`.", retry: .safe))
+            return .failure(HandsError(.badArguments, "\(ref ?? "") isn't a ref", suggestion: "Refs look like @s8f3k2p9:e5 and come from `computer_snapshot`.", retry: .safe))
         }
         let sid = String(ref[ref.index(after: ref.startIndex)..<colon])
         lock.lock(); let snap = snaps[sid]; snaps[sid]?.at = Date(); lock.unlock()
         guard let snap else {
-            return .failure(HandsError(.unknownRef, "Polycarp didn't print \(ref)", suggestion: "Take a snapshot of the window and use the refs it prints.", retry: .afterSnapshot))
+            return .failure(HandsError(.unknownRef, "Tychicus didn't print \(ref)", suggestion: "Take a snapshot of the window and use the refs it prints.", retry: .afterSnapshot))
         }
         let (all, agent) = listWindows()
         guard let w = all.first(where: { $0.id == snap.window }) ?? childWindow(snap.window) else {
-            return .failure(HandsError(.staleRef, "window \(snap.window) is gone", suggestion: "Run `polycarp-spaces agent windows` and take a new snapshot.", retry: .afterSnapshot))
+            return .failure(HandsError(.staleRef, "window \(snap.window) is gone", suggestion: "Run `computer_windows` and take a new snapshot.", retry: .afterSnapshot))
         }
         guard w.pid == snap.pid else {
             return .failure(HandsError(.staleRef, "window \(snap.window) now belongs to a different process than the snapshot's", suggestion: "Take a new snapshot.", retry: .afterSnapshot))
@@ -665,7 +631,7 @@ final class HandsRouter {
     private func scroll(_ req: HandsRequest) -> HandsEnvelope {
         let dirs = ["up": 0, "down": 1, "left": 2, "right": 3]
         guard let d = dirs[(req.string("direction") ?? "").lowercased()] else {
-            return .failure(HandsError(.badArguments, "direction must be up, down, left or right", suggestion: "usage: polycarp-spaces agent scroll <ref> down", retry: .safe))
+            return .failure(HandsError(.badArguments, "direction must be up, down, left or right", suggestion: "usage: tychicus-hands agent scroll <ref> down", retry: .safe))
         }
         return act(req, .scroll, "scroll", direction: Int32(d), amount: UInt32(clamping: req.int("amount") ?? 3))
     }
@@ -677,7 +643,7 @@ final class HandsRouter {
 
     /// `pasted`: the text is what the session copied, read once the ref resolved and the app is free (198 r1 second-N1).
     private func act(_ req: HandsRequest, _ kind: HandsEngine.Kind, _ name: String, text: String? = nil, pasted: Bool = false, direction: Int32 = 1, amount: UInt32 = 3) -> HandsEnvelope {
-        guard let ref = req.string("ref") else { return .failure(HandsError(.badArguments, "ref is missing", suggestion: "usage: polycarp-spaces agent \(name) <ref>", retry: .safe)) }
+        guard let ref = req.string("ref") else { return .failure(HandsError(.badArguments, "ref is missing", suggestion: "usage: tychicus-hands agent \(name) <ref>", retry: .safe)) }
         let session = req.session ?? ""
         if let e = SessionClipboard.both(text: text, paste: pasted) { return .failure(e) }
         if kind == .click || kind == .select, let item = pasteboardItem(ref, option: kind == .select ? text : nil, session: session) {
@@ -851,7 +817,7 @@ final class HandsRouter {
     // MARK: apps
 
     private func open(_ req: HandsRequest) -> HandsEnvelope {
-        guard let app = req.string("app") else { return .failure(HandsError(.badArguments, "app is missing", suggestion: "usage: polycarp-spaces agent open <app>", retry: .safe)) }
+        guard let app = req.string("app") else { return .failure(HandsError(.badArguments, "app is missing", suggestion: "usage: tychicus-hands agent open <app>", retry: .safe)) }
         guard let url = SessionController.appURL(app) else {
             return .failure(HandsError(.appNotFound, "no app called \(app)", suggestion: "Use the app's name as in /Applications, or its bundle id.", retry: .safe))
         }
@@ -872,7 +838,7 @@ final class HandsRouter {
         try? FileManager.default.createDirectory(at: Self.handoffFolder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         // An app Donovan allowed in Polycarp's sheet (not a built-in): checked again after the launch (`ListedOpen`).
         let listed = access != .full && AgentAppPolicy.isListed(bundle: bundle)
-        if listed { Trace.log("agent open: \(display) (\(bundle)) is one Donovan allowed") }
+        if listed { Trace.log("agent open: \(display) (\(bundle)) is one the person allowed") }
         let files: [String]
         switch AgentOpenGate.check(app: display, bundle: bundle, targets: targets, handoff: Self.handoffFolder, appURL: url,
                                      probeFolder: ProbeAppTrust.folder, probeTrusted: bundle == AgentAppPolicy.canvasProbeBundle && ProbeAppTrust.trusted(url),
@@ -930,7 +896,7 @@ final class HandsRouter {
         }
         guard reply.ok else {
             let msg = reply.error ?? "couldn't open it"
-            if msg.contains("agent workspace is off") { return .failure(HandsError(.agentWorkspaceOff, msg, suggestion: "Ask Donovan to run `polycarp-spaces agent on`.", retry: .never)) }
+            if msg.contains("agent workspace is off") { return .failure(HandsError(.agentWorkspaceOff, msg, suggestion: "Ask the person to run `computer_on`.", retry: .never)) }
             if reply.info?["code"] == HandsErrorCode.inUse.rawValue {
                 return .failure(HandsError(.inUse, msg, suggestion: reply.info?["suggestion"] ?? InUseWait.suggestion(app: display, waited: nil), retry: .safe))
             }
@@ -1007,7 +973,7 @@ final class HandsRouter {
                         .map { AgentLaunchFocus.shared.giveBack(to: $0) } ?? false
                     return gaveBack || AgentLaunchFocus.shared.returns > returnsBefore
                 }
-                Trace.log("agent open \(display): left \(left.map { "window \($0.id) on workspace \($0.workspace.map(String.init) ?? "none")" }.joined(separator: ", ")) on Donovan's side; keyboard returned: \(returned)")
+                Trace.log("agent open \(display): left \(left.map { "window \($0.id) on workspace \($0.workspace.map(String.init) ?? "none")" }.joined(separator: ", ")) on the person's side; keyboard returned: \(returned)")
                 return .failure(RunningOpen.shared.escaped(app: display, bundle: bundle, windows: left, agent: agent, keyboardReturned: returned))
             }
         }
@@ -1031,7 +997,7 @@ final class HandsRouter {
         var data: [String: JSONValue] = (reply.info ?? [:]).mapValues(JSONValue.string)
         let (frontAfter, returnsAfter) = onMain { (NSWorkspace.shared.frontmostApplication?.processIdentifier, AgentLaunchFocus.shared.returns) }
         data["focus"] = .object(["changed": .bool(frontAfter != frontBefore), "returned": .bool(returnsAfter > returnsBefore)])
-        if frontAfter != frontBefore { data["focus_note"] = "the app in front changed while it opened; Polycarp did not switch workspaces, and gives the keyboard back when an agent's launch takes it" }
+        if frontAfter != frontBefore { data["focus_note"] = "the app in front changed while it opened; Tychicus did not switch workspaces, and gives the keyboard back when an agent's launch takes it" }
         if let window {
             data["window"] = .int(Int(window.id)); data["pid"] = .int(Int(window.pid))
             data["reused"] = .bool(false)
@@ -1043,14 +1009,14 @@ final class HandsRouter {
                                                                           before: pidsBefore, elapsed: Date().timeIntervalSince(requestStart)) {
             childLocked { sessionWindows.cancelOpen(token) }
             return .failure(HandsError(.needsSandbox, "\(display) didn't start a separate copy, so nothing of it is the agent's",
-                                       suggestion: "Close nothing; ask Donovan to quit \(display), or work in the sandbox.", retry: .never))
+                                       suggestion: "Close nothing; ask the person to quit \(display), or work in the sandbox.", retry: .never))
         } else {
             data["window_identified"] = .bool(false)
             // Its window may still come: when its own launch's window appears within 30 s it is this session's. An open that
             // overlapped another open of the same running app gets none.
             childLocked { sessionWindows.endOpen(token) }
             data["note"] = .string(OpenNote.text(start, app: display)
-                + (missLater ? ". If no window of it is on the agent workspace \(Int(OpenMiss.claimWait)) s after the open, Polycarp quits that copy" : ""))
+                + (missLater ? ". If no window of it is on the agent workspace \(Int(OpenMiss.claimWait)) s after the open, Tychicus quits that copy" : ""))
         }
         return .success(.object(data))
     }
@@ -1082,7 +1048,7 @@ final class HandsRouter {
             childLocked { sessionWindows.cancelOpen(token) }
             Self.quit(p)
             Trace.log("agent open \(display): quit its copy (pid \(p)), no window on the agent workspace in \(waited)s; window(s) elsewhere: \(elsewhere.isEmpty ? "none" : elsewhere.sorted().map(String.init).joined(separator: ","))")
-            return (nil, HandsError(.actionFailed, "\(display) opened no window Polycarp could put on the agent workspace, so that copy was quit",
+            return (nil, HandsError(.actionFailed, "\(display) opened no window Tychicus could put on the agent workspace, so that copy was quit",
                                     suggestion: "Run `open` again.", retry: .safe))
         case .leave:
             Trace.log("agent open \(display): pid \(pid) has no window on the agent workspace; not this request's copy, left alone")
@@ -1128,7 +1094,7 @@ final class HandsRouter {
     /// `agent lend <app|pid>` from the command line: not a grant. It checks the request, then asks Donovan in a
     /// sheet; only a real click on "Lend" in the app lends (`LendConsent`). Called on the main thread.
     func askToLend(target: String, duration: String?, session: String) -> HandsEnvelope {
-        guard !target.isEmpty else { return .failure(HandsError(.badArguments, "say which app", suggestion: "usage: polycarp-spaces agent lend <app|pid> [--for 30m]", retry: .safe)) }
+        guard !target.isEmpty else { return .failure(HandsError(.badArguments, "say which app", suggestion: "usage: tychicus-hands agent lend <app|pid> [--for 30m]", retry: .safe)) }
         let regular = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
         let found: [NSRunningApplication]
         if let pid = Int32(target) { found = regular.filter { $0.processIdentifier == pid } }
@@ -1136,7 +1102,7 @@ final class HandsRouter {
         guard !found.isEmpty else { return .failure(HandsError(.appNotFound, "\(target) isn't running", suggestion: "Open it first.", retry: .safe)) }
         guard found.count == 1, let app = found.first else {
             return .failure(HandsError(.ambiguous, "\(target) is running \(found.count) times: pids " + found.map { String($0.processIdentifier) }.joined(separator: ", "),
-                                       suggestion: "Lend by pid: `polycarp-spaces agent lend <pid>`.", retry: .safe))
+                                       suggestion: "Lend by pid: `computer_lend <pid>`.", retry: .safe))
         }
         let name = app.localizedName ?? "app"
         if lends.isLent(pid: app.processIdentifier) {
@@ -1152,10 +1118,10 @@ final class HandsRouter {
         // wait while he uses it (`awaitUse`).
         let ids = host.freshWindows().filter { $0.pid == app.processIdentifier }.map(\.id)
         guard !ids.isEmpty else {
-            return .failure(HandsError(.windowNotFound, "\(name) has no window Polycarp tracks", suggestion: "Open a window in it first.", retry: .safe))
+            return .failure(HandsError(.windowNotFound, "\(name) has no window Tychicus tracks", suggestion: "Open a window in it first.", retry: .safe))
         }
         guard host.askToLend(name, Int(seconds / 60), false) else {
-            return .failure(HandsError(.permissionDenied, "Donovan didn't lend \(name)", suggestion: "Nothing was lent. Work on the agent workspace with `polycarp-spaces agent open`.", retry: .never))
+            return .failure(HandsError(.permissionDenied, "the person didn't lend \(name)", suggestion: "Nothing was lent. Work on the agent workspace with `computer_open`.", retry: .never))
         }
         let entry = lends.lend(app: name, bundle: app.bundleIdentifier ?? "", pid: app.processIdentifier, windows: ids, session: session, for: seconds)
         let ending = session.isEmpty ? "" : " or session \(session) ends"
@@ -1174,7 +1140,7 @@ final class HandsRouter {
         func list() -> JSONValue { .array(AgentAppGrants.current.sorted().map(JSONValue.string)) }
         if verb == "list" { return .success(.object(["allowed": list()])) }
         guard !target.isEmpty, let url = SessionController.appURL(target) else {
-            return .failure(HandsError(.appNotFound, "no app called \(target)", suggestion: "usage: polycarp-spaces agent allow [--remove] <app>", retry: .safe))
+            return .failure(HandsError(.appNotFound, "no app called \(target)", suggestion: "usage: tychicus-hands agent allow [--remove] <app>", retry: .safe))
         }
         let bundle = Bundle(url: url)?.bundleIdentifier ?? ""
         let name = url.deletingPathExtension().lastPathComponent
@@ -1187,11 +1153,11 @@ final class HandsRouter {
         // The copy macOS opens for the id, in /Applications, signed: the sheet names it, and only it opens (second-F7).
         let copy = AgentAppCopy.read(url)
         if let why = AgentAppPolicy.neverListed(bundle: bundle) ?? AgentAppCopy.placeProblem(url, registered: NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundle))
-            ?? (copy == nil ? "Polycarp can't check its code signature" : nil) ?? (facts == nil ? "Polycarp can't read its bundle" : facts?.refusal) {
-            return .failure(HandsError(.needsSandbox, "\(name): \(why), so it can't be allowed", suggestion: "Ask Donovan to lend \(name) while he is away from it.", retry: .never))
+            ?? (copy == nil ? "Tychicus can't check its code signature" : nil) ?? (facts == nil ? "Tychicus can't read its bundle" : facts?.refusal) {
+            return .failure(HandsError(.needsSandbox, "\(name): \(why), so it can't be allowed", suggestion: "Ask the person to lend \(name) while he is away from it.", retry: .never))
         }
         guard let copy, host.askToAllow(name, bundle, copy.path) else {
-            return .failure(HandsError(.permissionDenied, "Donovan didn't allow \(name)", suggestion: "Nothing changed.", retry: .never))
+            return .failure(HandsError(.permissionDenied, "the person didn't allow \(name)", suggestion: "Nothing changed.", retry: .never))
         }
         AgentAppGrants.add(bundle, copy)
         return .success(.object(["allowed": list(), "added": .string(bundle)]))

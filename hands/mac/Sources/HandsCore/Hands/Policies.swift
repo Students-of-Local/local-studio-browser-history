@@ -44,9 +44,9 @@ public enum AgentAppPolicy {
     static let kinds: [(prefixes: [String], why: String)] = [
         (["com.google.Chrome", "org.mozilla.", "company.thebrowser.", "com.brave.Browser", "com.microsoft.edgemac", "com.apple.Safari", "com.apple.SafariTechnologyPreview", "net.imput.helium", "org.chromium.Chromium", "com.operasoftware.", "com.vivaldi.Vivaldi",
           "app.zen-browser.", "com.kagi.", "com.duckduckgo.", "org.torproject.", "com.sigmaos.", "com.openai.atlas"],
-         "a browser holds Donovan's logins (an agent gets its own browser profile in a later phase)"),
+         "a browser holds the person's logins (an agent gets its own browser profile in a later phase)"),
         (["com.1password", "com.agilebits", "com.apple.Passwords", "com.bitwarden", "com.apple.keychainaccess", "org.keepassxc", "com.lastpass"],
-         "it holds Donovan's passwords"),
+         "it holds the person's passwords"),
         (["com.apple.systempreferences", "com.apple.Terminal", "com.googlecode.iterm2", "com.mitchellh.ghostty", "dev.warp.Warp", "co.zeit.hyper",
           "net.kovidgoyal.kitty", "org.alacritty", "io.alacritty", "com.github.wez.wezterm", "com.raycast.", "com.runningwithcrayons.Alfred", "org.hammerspoon.",
           "com.stairways.keyboardmaestro.", "com.apple.Home", "com.apple.findmy"],
@@ -54,14 +54,14 @@ public enum AgentAppPolicy {
         (["com.apple.Notes", "com.apple.mail", "com.apple.MobileSMS", "com.apple.iCal", "com.apple.Photos", "com.apple.reminders", "com.apple.AddressBook", "com.apple.Music",
           "com.apple.FaceTime", "com.microsoft.", "com.apple.freeform", "com.apple.iBooksX", "com.apple.news", "com.apple.podcasts", "com.apple.TV", "com.apple.Maps",
           "com.apple.VoiceMemos", "com.apple.journal", "com.apple.Stocks", "md.obsidian", "notion.id", "com.spotify.client"],
-         "it holds Donovan's own data and exists once per user"),
+         "it holds the person's own data and exists once per user"),
         (["com.apple.ScriptEditor2", "com.apple.Automator", "com.apple.shortcuts", "com.apple.dt.", "com.apple.ActivityMonitor", "com.apple.Console",
           "com.apple.DiskUtility", "com.apple.finder", "com.apple.AppStore", "com.apple.systemevents", "com.todesktop.", "dev.zed.", "com.sublimetext.",
           "com.panic.", "com.jetbrains.", "com.docker.", "com.utmapp.", "com.parallels.", "org.vim.", "com.baney.polycarp", "com.anthropic.", "com.openai.",
           "com.vscodium", "com.barebones.", "com.visualstudio.", "com.github.GitHubClient"],
-         "it runs code, controls other apps or shows Donovan's files"),
+         "it runs code, controls other apps or shows the person's files"),
         (["com.tinyspeck.slackmacgap", "com.hnc.Discord", "ru.keepcoder.Telegram", "net.whatsapp.", "org.whispersystems.", "us.zoom.", "com.readdle.", "com.superhuman."],
-         "it is signed in to Donovan's accounts"),
+         "it is signed in to the person's accounts"),
     ]
 
     /// Why `bundle` is never opened for an agent, even when Donovan allows it; nil when it may be allowed. A hand-kept
@@ -84,11 +84,11 @@ public enum AgentAppPolicy {
         let moved = added.contains(bundle) && !separateInstance.contains(bundle) ? copyProblem(bundle, appURL) : nil
         let facts = added.contains(bundle) && moved == nil ? AgentAppFacts.read(appURL) : nil
         if moved == nil && allowed(bundle: bundle, added: added, facts: facts) || isProbeApp(bundle: bundle, at: appURL, in: probeFolder, trusted: probeTrusted) { return nil }
-        let kind = neverListed(bundle: bundle) ?? moved ?? (added.contains(bundle) ? facts?.refusal ?? "Polycarp can't read its bundle" : nil)
-        let why = kind ?? "Donovan hasn't allowed it"
+        let kind = neverListed(bundle: bundle) ?? moved ?? (added.contains(bundle) ? facts?.refusal ?? "Tychicus can't read its bundle" : nil)
+        let why = kind ?? "the person hasn't allowed it"
         let ask = kind == nil
-            ? "run `polycarp-spaces agent allow \(app)`: Polycarp asks Donovan in a sheet, and only his click on Allow lets agents open it"
-            : "ask Donovan to lend \(app) and be away from it while you work"
+            ? "run `computer_allow \(app)`: Tychicus asks the person in a sheet, and only his click on Allow lets agents open it"
+            : "ask the person to lend \(app) and be away from it while you work"
         let listed = added.filter { neverListed(bundle: $0) == nil }.sorted()
         return HandsError(.needsSandbox, "\(app): \(why)",
                           suggestion: "Do this work in the sandbox (arrives in a later phase), or \(ask). Apps an agent may start now: TextEdit and Preview on a file from the handoff folder, Calculator\(listed.isEmpty ? "" : ", and " + listed.joined(separator: ", ")). Work with files directly rather than through Finder.",
@@ -135,7 +135,7 @@ public enum AgentOpenGate {
             if t.hasPrefix(SettingsPaneLink.scheme) {
                 guard full, bundle == PermissionHelper.settingsBundleID, SettingsPaneLink.isLink(t) else {
                     return .failure(HandsError(.notSupported, "\(t) isn't a System Settings pane link that \(app) may open",
-                                               suggestion: "Under Full Access, open one in System Settings: `polycarp-spaces agent open \"System Settings\" x-apple.systempreferences:com.apple.Displays-Settings.extension`.",
+                                               suggestion: "Under Full Access, open one in System Settings: `computer_open \"System Settings\" x-apple.systempreferences:com.apple.Displays-Settings.extension`.",
                                                retry: .never))
                 }
                 files.append(t)
@@ -157,7 +157,7 @@ public enum AgentOpenGate {
         }
         if AgentAppPolicy.documentRequired.contains(bundle), files.isEmpty {
             return .failure(HandsError(.badArguments, "\(app) must be started with a file from the handoff folder, or it shows an Open panel",
-                                       suggestion: "Put a file in \(handoff.path) and pass its path: `polycarp-spaces agent open \(app) <file>`.", retry: .safe))
+                                       suggestion: "Put a file in \(handoff.path) and pass its path: `computer_open \(app) <file>`.", retry: .safe))
         }
         return .success(files)
     }
@@ -311,35 +311,6 @@ public enum UserEventSource {
     }
 }
 
-/// What the session socket refuses outright. Any process of this user can write to it, so the socket is not a place
-/// where Donovan's decisions can be made: lending and returning an app, and any grant of access, happen only
-/// through a consent sheet the app shows and a real click on it.
-public enum SocketPolicy {
-    public static let humanOnly: Set<String> = ["lend", "return", "grant"]
-
-    public static func refusal(for r: Wire.Request) -> String? {
-        // The cursor is how Donovan sees agent activity: an agent may pick its look, but only he switches it off (Settings).
-        if r.op == .agent, r.text?.lowercased() == "cursor", r.args?.first?.lowercased() == "off" {
-            return "turning the agent cursor off is Donovan's to do, in Polycarp Settings; agents may change its theme: `polycarp-spaces agent cursor theme <name>`"
-        }
-        // Agent access (Read Only, Default, Full Access) is set only in Settings, behind a real click: nothing on the socket changes it.
-        if r.op == .agent, r.text?.lowercased() == "mode", let want = r.args?.first, !want.isEmpty {
-            return "changing agent access to \(want) is Donovan's to do, in Polycarp Settings > Agents; `polycarp-spaces agent mode` shows the current one"
-        }
-        if r.op == .sandbox, r.text?.lowercased() == "images" {
-            return "deleting the sandbox's images (24 GB to download again) is Donovan's to do: Settings > Agents > Delete Images"
-        }
-        guard r.op == .agent, let text = r.text?.lowercased(), humanOnly.contains(text) else { return nil }
-        return "\(text) is Donovan's to do: `polycarp-spaces agent lend <app>` asks him in a sheet in Polycarp; nothing sent on this socket lends an app"
-    }
-
-    /// An agent caller may move a window to the agent workspace only if its process was started for an agent.
-    public static func mayMove(windowPid: Int32?, startedForAgents: Set<Int32>) -> Bool {
-        guard let pid = windowPid else { return false }
-        return startedForAgents.contains(pid)
-    }
-}
-
 /// What the engine may be asked a second time. Only a failure the engine itself reports as "nothing was delivered"
 /// (retry safe) is ever repeated, and only while the caller is still waiting and the scope still holds. A timeout or
 /// an unresponsive app after dispatch is unsafe or unknown: it goes back to the caller as `timeout`, `retry: never`.
@@ -462,7 +433,7 @@ public enum PanelDetector {
     /// The refusal for a window that is or holds an Open or Save panel. The same words wherever it is refused.
     public static func refusal(window: UInt32, app: String) -> HandsError {
         HandsError(.needsSandbox, "window \(window) of \(app) is or holds an Open or Save panel",
-                   suggestion: "Agents never drive an Open or Save panel. Wait for it to close, or open the file with `polycarp-spaces agent open <app> <file in the handoff folder>`.", retry: .never)
+                   suggestion: "Agents never drive an Open or Save panel. Wait for it to close, or open the file with `computer_open <app> <file in the handoff folder>`.", retry: .never)
     }
 }
 

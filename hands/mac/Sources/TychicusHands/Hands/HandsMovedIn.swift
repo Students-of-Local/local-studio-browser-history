@@ -1,5 +1,5 @@
 import Foundation
-import BaneySpacesCore
+import HandsCore
 
 /// The windows agents moved onto the agent workspace (`MovedInWindows`), shared by every router and by the code that sends
 /// them back when a lend or Full Access ends (`AppDelegate.sendBackMovedIn`). Any thread.

@@ -1,4 +1,4 @@
-import BaneySpacesCore
+import HandsCore
 import Foundation
 
 // Item 3: a click on a row of an outline, table or list that the press doesn't select falls back to the selection write.

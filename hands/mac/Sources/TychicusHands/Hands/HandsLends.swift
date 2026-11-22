@@ -1,5 +1,5 @@
 import AppKit
-import BaneySpacesCore
+import HandsCore
 
 /// The apps lent to agents right now, shared between the hands (which check scope against it) and
 /// Spaces (which parks a lent app's windows instead of hiding them, and writes state.json). Only

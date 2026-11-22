@@ -125,12 +125,12 @@ public enum InUseWait {
     public static func suggestion(app: String, waited: TimeInterval?) -> String {
         let how: String
         switch waited {
-        case nil: how = "Donovan came back to \(app) just before the action was delivered, so nothing was sent."
-        case let w? where w < 0.5: how = "Polycarp did not wait (wait was 0)."
-        case let w?: how = "Polycarp waited \(Int(w.rounded())) s."
+        case nil: how = "the person came back to \(app) just before the action was delivered, so nothing was sent."
+        case let w? where w < 0.5: how = "Tychicus did not wait (wait was 0)."
+        case let w?: how = "Tychicus waited \(Int(w.rounded())) s."
         }
         return how + " Retry later, with a longer `wait` (up to \(InUseRule.maxWait) s), or work on another window meanwhile; reads (snapshot, find, get, shot) work now. "
-            + "Do not ask Donovan to switch away from \(app) unless he asked for this result right now."
+            + "Do not ask the person to switch away from \(app) unless he asked for this result right now."
     }
 }
 

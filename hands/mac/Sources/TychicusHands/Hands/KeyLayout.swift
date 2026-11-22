@@ -1,5 +1,5 @@
 import Carbon.HIToolbox
-import BaneySpacesCore
+import HandsCore
 import Foundation
 
 /// What a key types in the Mac's current keyboard layout and in the ASCII-capable one command shortcuts use (a Russian

@@ -1,5 +1,5 @@
 import ApplicationServices
-import BaneySpacesCore
+import HandsCore
 import CoreGraphics
 import Darwin
 import Foundation

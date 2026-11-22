@@ -1,4 +1,4 @@
-import BaneySpacesCore
+import HandsCore
 import Foundation
 
 // A right click on a ref: `click` with `button: right`. The engine opens the element's context menu with AXShowMenu
@@ -6,7 +6,7 @@ import Foundation
 // posted right click (`contextMenu`, `ContextMenu`).
 extension HandsRouter {
     func contextClick(_ req: HandsRequest, item: String?) -> HandsEnvelope {
-        guard let ref = req.string("ref") else { return .failure(HandsError(.badArguments, "ref is missing", suggestion: "usage: polycarp-spaces agent click <ref> --button right", retry: .safe)) }
+        guard let ref = req.string("ref") else { return .failure(HandsError(.badArguments, "ref is missing", suggestion: "usage: tychicus-hands agent click <ref> --button right", retry: .safe)) }
         let session = req.session ?? ""
         switch resolve(ref, session: session) {
         case .failure(let e): return .failure(e)
@@ -21,7 +21,7 @@ extension HandsRouter {
                 // Rule 1, read when the work runs, not when it was queued: work ahead of it on this process's queue can hold it
                 // for up to the budget, long enough for Donovan to put the agent workspace away (231 r1 first-F1).
                 guard let frame = BackgroundAX.serverWindow(w.id)?.frame else {
-                    answer = .failure(HandsError(.windowNotFound, "window \(w.id) is gone", suggestion: "Run `polycarp-spaces agent windows`.", retry: .afterSnapshot))
+                    answer = .failure(HandsError(.windowNotFound, "window \(w.id) is gone", suggestion: "Run `computer_windows`.", retry: .afterSnapshot))
                     return .ok(.null)
                 }
                 let displays = ContextMenuAX.displays()

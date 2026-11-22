@@ -40,7 +40,7 @@ public enum HandsTools {
     public static let userOnly: Set<String> = ["lend", "return"]
 
     /// Every action takes it: how long to wait while Donovan is using the app (`InUseRule`, `InUseWait`).
-    public static let waitParam = HandsParam("wait", .integer, "Seconds to wait, 0 to \(InUseRule.maxWait) (default \(Int(InUseRule.defaultWait))), when Donovan is using the app; Polycarp waits on its own and goes ahead once the app is free. 0 answers in_use at once.")
+    public static let waitParam = HandsParam("wait", .integer, "Seconds to wait, 0 to \(InUseRule.maxWait) (default \(Int(InUseRule.defaultWait))), when the person is using the app; Tychicus waits on its own and goes ahead once the app is free. 0 answers in_use at once.")
 
     /// Every agent verb, for the help lines: made from `all`, so a verb is never left out of them.
     public static var verbLine: String { all.map(\.verb).joined(separator: "|") }
@@ -52,16 +52,7 @@ public enum HandsTools {
     }
 
     static let base: [HandsTool] = [
-        HandsTool(verb: "windows", summary: "List the windows an agent may use now: those on the agent workspace and those of lent apps, with their ids, plus the dialogs, alerts, sheets and palettes those apps raised (kind, parent, waiting: true when the app is blocked until it is answered). A dialog you may not use is listed with usable: false and the rule that refused it. A window of an app Donovan is using carries in_use: true and in_use_note; reads on it work now, and an action on it waits.", params: [], acts: false),
-        HandsTool(verb: "workspaces", summary: "Read only. List the workspaces (number, shown or not, which one is the agent workspace) and where each window you may use is. Use it before `move` or `arrange`, or to see whether Donovan is looking at the agent workspace (agent_workspace_shown). Agents never switch, create, rename or delete workspaces.", params: [], acts: false),
-        HandsTool(verb: "query", summary: "Read only, never waits. The window manager's state as one versioned JSON object (spec/agent-api.md): windows (id, app, title, workspace, display, frame, focused), workspaces, displays, focused, layout (each window's frame, and saved layouts), theme, or state for all of them at once. Lists only the windows you may use (scope agent), or every window under Full Access (scope all). Use it before `move`, `frame` or `layout`.", params: [
-            HandsParam("what", .string, "windows, workspaces, displays, focused, layout, theme or state (the default: all of them).", positional: true),
-        ], acts: false),
-        HandsTool(verb: "events", summary: "Read only. What changed since your last call, as the agent API's events (spec/agent-api.md): workspace_switched, window_focused, window_created, window_closed, window_moved, theme_changed, only for windows you may use. Call it first without since: it answers hello with the whole state and next. Then pass that next as since; with wait_ms it waits up to that long for the first event. A lagged event means some were missed: query state again.", params: [
-            HandsParam("since", .integer, "The next from your last events call. Leave it out to start again with hello."),
-            HandsParam("wait_ms", .integer, "Wait up to this long, 0 to \(AgentEventPoll.longestWait), when no event is waiting (default 0)."),
-            HandsParam("events", .string, "Without since: only these types, comma separated. hello and lagged always come."),
-        ], acts: false),
+        HandsTool(verb: "windows", summary: "List the windows an agent may use now: those on the agent workspace and those of lent apps, with their ids, plus the dialogs, alerts, sheets and palettes those apps raised (kind, parent, waiting: true when the app is blocked until it is answered). A dialog you may not use is listed with usable: false and the rule that refused it. A window of an app the person is using carries in_use: true and in_use_note; reads on it work now, and an action on it waits.", params: [], acts: false),
         HandsTool(verb: "snapshot", summary: "Read one window, one row per element: [N] role \"name\" =value (states), indented under its parent. Act on row N with ref \"N\" (this snapshot) or the full ref the header shows. After acting, read again with since: \"latest\" to see only what changed. Example: {\"window\":4211,\"query\":\"Save\"}", params: [
             HandsParam("app", .string, "App name or bundle id. With several windows on the agent workspace the newest is read; pass window to choose."),
             HandsParam("window", .integer, "Window id from `windows`, `open` or a previous snapshot."),
@@ -106,7 +97,7 @@ public enum HandsTools {
             refParam,
             HandsParam("value", .string, "The new value.", required: true, positional: true, rest: true),
         ], acts: true),
-        HandsTool(verb: "press", summary: "Press keys (Return, cmd+a, \"h i Return\") in a window that is not in front: posted to that one process, never to the session, without activating or raising anything. The ref names the window (and the element you expect to change). Refused unless Polycarp started the process, nothing else of its windows could take the key, and the window is where the app's keys go. Answers unverified (retry never) when nothing read back from the window shows the keys landed.", params: [
+        HandsTool(verb: "press", summary: "Press keys (Return, cmd+a, \"h i Return\") in a window that is not in front: posted to that one process, never to the session, without activating or raising anything. The ref names the window (and the element you expect to change). Refused unless Tychicus started the process, nothing else of its windows could take the key, and the window is where the app's keys go. Answers unverified (retry never) when nothing read back from the window shows the keys landed.", params: [
             refParam,
             HandsParam("key", .string, "Key name with optional modifiers, like cmd+shift+z; several keys are separated by spaces (at most 64).", required: true, positional: true, rest: true),
         ], acts: true),
@@ -135,7 +126,7 @@ public enum HandsTools {
             refParam,
             HandsParam("option", .string, "The text of the option to choose.", required: true, positional: true, rest: true),
         ], acts: true),
-        HandsTool(verb: "menu", summary: "Run a menu-bar command of the window's app by its titles, without opening the menu on screen. Only in a copy your own `open` started, with this its one window. Refused: the Apple, Window and Help menus, the app menu but About and Settings, full screen, Open and Open Recent, cut, copy and paste, and what leaves the app (Emoji, Dictation, Speech, Print, Share). A panel it raises within 1 s is cancelled and the call fails; so does a window it raises off the agent workspace, closed when Polycarp can. Example: {\"window\":4211,\"path\":\"Format > Font > Bold\"}", params: [
+        HandsTool(verb: "menu", summary: "Run a menu-bar command of the window's app by its titles, without opening the menu on screen. Only in a copy your own `open` started, with this its one window. Refused: the Apple, Window and Help menus, the app menu but About and Settings, full screen, Open and Open Recent, cut, copy and paste, and what leaves the app (Emoji, Dictation, Speech, Print, Share). A panel it raises within 1 s is cancelled and the call fails; so does a window it raises off the agent workspace, closed when Tychicus can. Example: {\"window\":4211,\"path\":\"Format > Font > Bold\"}", params: [
             HandsParam("window", .integer, "Window id from `windows`.", required: true),
             HandsParam("path", .string, "Menu titles from the menu bar down, separated by >.", required: true, positional: true, rest: true),
         ], acts: true),
@@ -143,37 +134,16 @@ public enum HandsTools {
             HandsParam("steps", .objectList, "The actions in order, each {tool, args} with the tool's own arguments.", required: true),
         ], acts: true),
         HandsTool(verb: "toggle", summary: "Flip a checkbox, switch or disclosure by ref. Prints the state it read back.", params: [refParam], acts: true),
-        HandsTool(verb: "shot", summary: "Capture one window as a PNG, even while it is parked out of view. Over MCP the picture comes back fitted to 1280 pixels, labeled untrusted, with how its pixels map to window points. Needs Screen Recording for Polycarp. Example: {\"window\":4211,\"zoom\":\"0,0,400,300\"}", params: [
+        HandsTool(verb: "shot", summary: "Capture one window as a PNG, even while it is parked out of view. Over MCP the picture comes back fitted to 1280 pixels, labeled untrusted, with how its pixels map to window points. Needs Screen Recording for Tychicus. Example: {\"window\":4211,\"zoom\":\"0,0,400,300\"}", params: [
             HandsParam("window", .integer, "Window id.", required: true),
-            HandsParam("out", .string, "A file name (no folder) for the PNG; it is written in Polycarp's own shots folder."),
+            HandsParam("out", .string, "A file name (no folder) for the PNG; it is written in Tychicus's own shots folder."),
             HandsParam("zoom", .string, "Only this region of the window, x,y,width,height in window points, like \"0,0,400,300\". Crops the MCP image; the saved file stays whole. A zoom outside the window is refused before anything is captured."),
             HandsParam("cursor", .boolean, "Draw the agent cursor where it last acted in this window, if it did in the last 30 seconds and was on screen. Off by default, so the picture is the app itself."),
         ], acts: true),
-        HandsTool(verb: "open", summary: "Start work in the background: open an app, or files from the agent handoff folder in it, on the agent workspace, without activating it or switching what Donovan sees. It answers with the new window's id once the window exists (it waits up to `wait` seconds, at most 7), and focus: {changed, returned} says whether macOS brought the app forward and Polycarp gave the keyboard back. Each call makes a fresh window by default (a separate copy, or New Window from behind in a running copy under Full Access; Donovan's windows never move); new_window: false reuses a window this session already opened in that app. Apps that hold the user's own data (Safari, Notes, Mail, Messages, Calendar, Photos) answer needs_sandbox; URLs wait for agent browser profiles.", params: [
+        HandsTool(verb: "open", summary: "Start work in the background: open an app, or files from the agent handoff folder in it, on the agent workspace, without activating it or switching what the person sees. It answers with the new window's id once the window exists (it waits up to `wait` seconds, at most 7), and focus: {changed, returned} says whether macOS brought the app forward and Tychicus gave the keyboard back. Each call makes a fresh window by default (a separate copy, or New Window from behind in a running copy under Full Access; the person's windows never move); new_window: false reuses a window this session already opened in that app. Apps that hold the user's own data (Safari, Notes, Mail, Messages, Calendar, Photos) answer needs_sandbox; URLs wait for agent browser profiles.", params: [
             HandsParam("app", .string, "App name or bundle id.", required: true, positional: true),
             HandsParam("targets", .stringList, "Files in the agent handoff folder to open in it. URLs need an agent browser profile (a later phase).", positional: true, rest: true),
             HandsParam("new_window", .boolean, "true (default): always a fresh window. false: reuse a window this session opened in the app, when there is one and no files are given."),
-        ], acts: true),
-        HandsTool(verb: "arrange", summary: "Lay out the agent workspace's windows so screenshots and reads are stable: full, halves, thirds, grid, or frames with explicit frames. Only windows on the agent workspace; while it is out of sight they keep their new size and take the position when it is shown. Never touches Donovan's workspaces.", params: [
-            HandsParam("layout", .string, "full, halves, thirds, grid or frames.", required: true, positional: true),
-            HandsParam("windows", .stringList, "Window ids in the order to place them (default: every agent workspace window you may use, oldest first). With frames: id=x,y,width,height in points from the top-left of the screen's usable area.", positional: true, rest: true),
-        ], acts: true),
-        HandsTool(verb: "move", summary: "Move a window you may use onto the agent workspace (a lent window, or any window under Full Access, comes off Donovan's workspace), or give a window already there a new frame. A moved window goes back when its lend ends or Full Access is narrowed. Never onto a workspace Donovan is looking at, never one of his windows he hasn't lent, never a dialog (it goes with its app).", params: [
-            HandsParam("window", .integer, "Window id from `windows`.", required: true),
-            HandsParam("frame", .string, "x,y,width,height in points from the top-left of the screen's usable area (optional)."),
-            HandsParam("workspace", .integer, "1 to 9: send it to this workspace instead. Off the agent workspace this needs view control (spec/agent-api.md)."),
-            HandsParam("display", .string, "A display id from `query displays`: send it to the workspace that display shows (needs view control)."),
-        ], acts: true),
-        HandsTool(verb: "switch", summary: "Show workspace 1 to 9 on a display (the focused one by default). It changes what Donovan sees, so it needs view control: this Mac, Full Access, and his setting \"\(ViewControl.settingTitle)\" (spec/agent-api.md). Answers with what the display shows after.", params: [
-            HandsParam("workspace", .integer, "1 to 9.", required: true, positional: true),
-            HandsParam("display", .string, "A display id from `query displays`."),
-        ], acts: true),
-        HandsTool(verb: "focus", summary: "Go to a window's workspace and bring the window forward with keyboard focus. Needs view control, always (spec/agent-api.md). Answers once the window is focused.", params: [
-            HandsParam("window", .integer, "Window id from `query windows`.", required: true),
-        ], acts: true),
-        HandsTool(verb: "frame", summary: "Set one window's position and size, in points with the origin at the top left of the main display, as `query windows` reports frames. On the agent workspace this needs nothing more, but answers in_use (retry safe) while a display shows it; anywhere else it needs view control. Answers with the frame read back.", params: [
-            HandsParam("window", .integer, "Window id from `query windows`.", required: true),
-            HandsParam("frame", .string, "x,y,width,height, like 0,40,800,600.", required: true, positional: true),
         ], acts: true),
         HandsTool(verb: "close", summary: "Close a window this session opened with `open`, through its close button, from behind. Anything else is refused, and no app is ever quit. If the app asks to save, the sheet appears in the result as opened: answer it (Don't Save or Cancel; a Save panel stays refused, so save first through a document you opened from the handoff folder).", params: [
             HandsParam("window", .integer, "Window id that your `open` returned.", required: true),
@@ -220,7 +190,7 @@ public enum HandsParse {
     public static func askedForLend(_ app: String?) -> HandsError {
         let name = app ?? "the app"
         return HandsError(.needsLend, "agents can't lend apps; \(name) is not on the agent workspace",
-                          suggestion: "Ask Donovan to lend it: he runs `polycarp-spaces agent lend \(name)` in a terminal he types in, or picks it in the Polycarp menu under Lend to Agents. Or do the work on the agent workspace with `polycarp-spaces agent open \(name)` (apps that hold his data go to the sandbox).",
+                          suggestion: "Ask the person to lend it: he runs `computer_lend \(name)` in a terminal he types in, or picks it in the Tychicus menu under Lend to Agents. Or do the work on the agent workspace with `computer_open \(name)` (apps that hold his data go to the sandbox).",
                           retry: .never)
     }
 
@@ -370,7 +340,7 @@ public enum HandsParse {
     }
 
     public static func usageLine(_ tool: HandsTool) -> String {
-        var parts = ["polycarp-spaces agent", tool.verb]
+        var parts = ["tychicus-hands agent", tool.verb]
         for p in tool.params {
             if p.positional { parts.append(p.required ? "<\(p.name)>" : "[\(p.name)\(p.rest ? "…" : "")]") }
             else {

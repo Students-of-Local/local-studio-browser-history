@@ -119,8 +119,8 @@ public enum PermissionHelper {
     }
 
     /// The one line on the helper.
-    public static let instruction = "Drag Polycarp into the list, then switch it on"
-    public static let doneLine = "Polycarp is on"
+    public static let instruction = "Drag Tychicus into the list, then switch it on"
+    public static let doneLine = "Tychicus is on"
 
     /// The file the tile carries: the app that is running, so macOS adds this copy. Nil when this isn't an app bundle
     /// (a `swift build` run), and then the helper never shows.
