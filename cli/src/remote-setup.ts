@@ -597,11 +597,13 @@ export async function remoteSetup(options: SetupOptions): Promise<number> {
 		if (options.publicUrl) return await runSetup(options);
 		const via = await setupThroughLocalStudio(options);
 		if (typeof via === "number") return via;
-		// Its own route instead; an app also gets Local Studio's waitlist answer, so it can show where to sign up.
+		// Its own route instead; an app also gets Local Studio's waitlist answer, so it can show where to sign up, and an agent the
+		// Funnel command web assistants need meanwhile.
 		const answer = via.localStudio;
+		const waitlist = via.waitlist;
 		const emit = options.report ?? printReport;
 		const json = options.json === true || options.report !== undefined;
-		return await runSetup(answer && json ? { ...options, report: (report) => emit({ ...report, localStudio: answer }) } : options);
+		return await runSetup(answer && json ? { ...options, report: (report) => emit({ ...report, localStudio: answer, ...(waitlist ? { waitlist } : {}) }) } : options);
 	} finally {
 		closeInput();
 	}

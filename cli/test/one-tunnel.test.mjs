@@ -45,6 +45,7 @@ export { cloudflareIngress, renderCloudflareConfig } from "@src/cloudflare.ts";
 export { planMounts, wantedMounts } from "@src/tailnet.ts";
 export { tailnetDnsCheck } from "@src/remote-test.ts";
 export { agentStep } from "@src/remote-state.ts";
+export { waitlistAdvice } from "@src/remote-join.ts";
 export { oauthForHost } from "@src/oauth.ts";
 `);
 
@@ -664,6 +665,14 @@ test("on Local Studio's waitlist, setup says the tunnel is dev-channel only, giv
 		const report = r.json();
 		assert.notEqual(report.state, "waitlist", r.out);
 		assert.deepEqual(report.localStudio, answer);
+		// An agent gets the Funnel step web assistants need, beside Local Studio's answer; the report's own next is unchanged.
+		assert.equal(report.waitlist.url, WAITLIST);
+		assert.equal(report.waitlist.channel, "stable");
+		assert.deepEqual(report.waitlist.next.kind, "run_command");
+		assert.match(report.waitlist.next.command, /^\S*tychicus remote off && \S*tychicus remote setup --tailscale --no-passcode$/);
+		assert.match(report.waitlist.next.why, /claude\.ai, ChatGPT or grok\.com/);
+		assert.match(report.waitlist.next.why, /Tailscale Funnel/);
+		assert.notEqual(report.next?.command, report.waitlist.next.command, "the report's own next is not replaced");
 		assert.deepEqual(s.calls().filter((x) => x.startsWith("local-studio")), ["local-studio tunnel setup --tailnet --json"]);
 		assert.deepEqual(s.remoteJson(), { publicUrl: `https://${DNS}`, port: local.port, route: "tailnet" }, "Tychicus's own tailnet route");
 		assert.equal(Object.keys(handlers(s)).length, TYCHICUS_PATHS.length);
@@ -672,9 +681,37 @@ test("on Local Studio's waitlist, setup says the tunnel is dev-channel only, giv
 		assert.match(text.out, /stable channel/);
 		assert.ok(text.out.includes(WAITLIST), text.out);
 		assert.doesNotMatch(text.out, /undefined/);
+		// Said up front, before the tailnet route is made: web assistants can't use it, and Funnel is the route meanwhile.
+		const warn = text.out.indexOf("can't use a tailnet-only address");
+		assert.ok(warn >= 0, text.out);
+		assert.match(text.out, /hosted route is on a waitlist/);
+		assert.match(text.out, /Tailscale Funnel, free and with no domain: \S*tychicus remote off, then \S*tychicus remote setup --tailscale/);
+		const tailnetNote = text.out.indexOf("Tailnet only:");
+		assert.ok(tailnetNote < 0 || warn < tailnetNote, "the Funnel advice comes before the route is set up");
 	} finally {
 		await local.close();
 	}
+});
+
+test("the waitlist advice names the signup page and Tailscale Funnel for web assistants, on either route asked for", () => {
+	const answer = { state: "waitlist", next: { kind: "open_page", url: WAITLIST }, url: WAITLIST, channel: "nightly" };
+	const tailnet = mod.waitlistAdvice(answer, "tailnet");
+	assert.match(tailnet.lines[0], /hosted route is on a waitlist.*nightly channel\. Join the waitlist: https:\/\/local-studio-waitlist/);
+	assert.match(tailnet.lines.join("\n"), /claude\.ai, ChatGPT and grok\.com .* can't use a tailnet-only address/);
+	assert.match(tailnet.advice.next.command, /remote off && \S*tychicus remote setup --tailscale --no-passcode$/);
+	assert.deepEqual({ url: tailnet.advice.url, channel: tailnet.advice.channel, kind: tailnet.advice.next.kind }, { url: WAITLIST, channel: "nightly", kind: "run_command" });
+
+	const cloudflare = mod.waitlistAdvice(answer, "cloudflare");
+	assert.match(cloudflare.lines.join("\n"), /need a public route\. Your Cloudflare route is one\. Without a domain on Cloudflare, Tailscale Funnel is the free one meanwhile: \S*tychicus remote setup --tailscale/);
+	assert.match(cloudflare.advice.next.command, /^\S*tychicus remote setup --tailscale --no-passcode$/);
+	assert.match(cloudflare.advice.next.why, /only if that route can't be made/);
+
+	// The URL may come only inside Local Studio's own next, and the channel may be missing.
+	const bare = mod.waitlistAdvice({ state: "waitlist", next: { url: WAITLIST } }, "tailnet");
+	assert.equal(bare.advice.url, WAITLIST);
+	assert.equal(bare.advice.channel, undefined);
+	assert.match(bare.lines[0], /dev channel only\. Join the waitlist/);
+	assert.doesNotMatch(bare.lines.join("\n"), /undefined/);
 });
 
 test("a local-studio without tunnel setup leaves Tychicus its own route; one whose tunnel setup fails is a refusal", { skip: unixOnly }, async () => {

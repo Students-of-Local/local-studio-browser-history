@@ -273,8 +273,63 @@ function runLocalStudio(bin: string, args: string[], quiet: boolean): Promise<{ 
 	});
 }
 
-/** What `remote setup` does when Local Studio doesn't run this machine's tunnel: Tychicus's own route, and Local Studio's answer, if any. */
-export type Standalone = { standalone: true; localStudio?: Record<string, unknown> };
+/**
+ * What `remote setup` does when Local Studio doesn't run this machine's tunnel: Tychicus's own route, and Local Studio's answer, if
+ * any. On Local Studio's waitlist, `waitlist` is what setup adds to its report.
+ */
+export type Standalone = { standalone: true; localStudio?: Record<string, unknown>; waitlist?: WaitlistAdvice };
+
+/**
+ * For an agent, on Local Studio's waitlist: where to sign up, and the one command that gives claude.ai, ChatGPT and grok.com a route
+ * meanwhile (Tailscale Funnel, free, no domain). `remote setup --json` puts it beside `localStudio`; its own `next` is unchanged.
+ */
+export interface WaitlistAdvice {
+	url?: string;
+	channel?: string;
+	next: { kind: "run_command"; command: string; why: string };
+}
+
+/**
+ * What setup says and returns when Local Studio answers `state: "waitlist"`. The route setup goes on to make is the one asked for
+ * (`asked`); this only says, before it starts, which route web assistants can use while the hosted one is waitlisted. After a
+ * tailnet-only setup a Funnel setup needs `remote off` first, so that command starts with it.
+ */
+export function waitlistAdvice(answer: Record<string, unknown>, asked: "tailnet" | "cloudflare"): { lines: string[]; advice: WaitlistAdvice } {
+	const next = answer.next && typeof answer.next === "object" ? (answer.next as Record<string, unknown>) : {};
+	const url = typeof answer.url === "string" ? answer.url : typeof next.url === "string" ? next.url : undefined;
+	const channel = typeof answer.channel === "string" ? answer.channel : undefined;
+	const funnel = `${COMMAND_NAME} remote setup --tailscale`;
+	const lines = [`${sym.warn} Local Studio's hosted route is on a waitlist: its tunnel is on its dev channel only${channel ? `, and this Local Studio is on the ${channel} channel` : ""}.${url ? ` Join the waitlist: ${url}` : ""}`];
+	let advice: WaitlistAdvice;
+	if (asked === "tailnet") {
+		lines.push(
+			`  claude.ai, ChatGPT and grok.com reach connectors from the internet, so they can't use a tailnet-only address. Meanwhile their route is Tailscale Funnel, free and with no domain: ${COMMAND_NAME} remote off, then ${funnel}`,
+			`  ${COMMAND_NAME} sets up its own tailnet-only route now, as asked, for agents on your tailnet devices.`,
+		);
+		advice = {
+			next: {
+				kind: "run_command",
+				command: `${COMMAND_NAME} remote off && ${funnel} --no-passcode`,
+				why: "Local Studio's hosted route is waitlisted, and the tailnet-only route this setup makes can't be reached by claude.ai, ChatGPT or grok.com. Tailscale Funnel is the free public route meanwhile; it needs no domain. Ask the person first: it changes what the internet can reach.",
+			},
+		};
+	} else {
+		lines.push(
+			`  claude.ai, ChatGPT and grok.com need a public route. Your Cloudflare route is one. Without a domain on Cloudflare, Tailscale Funnel is the free one meanwhile: ${funnel}`,
+			`  ${COMMAND_NAME} sets up its own Cloudflare route now, as asked.`,
+		);
+		advice = {
+			next: {
+				kind: "run_command",
+				command: `${funnel} --no-passcode`,
+				why: "Local Studio's hosted route is waitlisted. The Cloudflare route this setup makes is public, so run this only if that route can't be made (no domain on Cloudflare): Tailscale Funnel is the free public route for claude.ai, ChatGPT and grok.com meanwhile. Ask the person first: it changes what the internet can reach.",
+			},
+		};
+	}
+	if (url) advice.url = url;
+	if (channel) advice.channel = channel;
+	return { lines, advice };
+}
 
 /**
  * `remote setup` where Local Studio runs the tunnel: with a route record, join it. Without one, run `local-studio tunnel setup
@@ -319,14 +374,12 @@ export async function setupThroughLocalStudio(options: SetupOptions): Promise<nu
 	} else if (args && bin) {
 		say(`${sym.dot} Local Studio runs this machine's tunnel. Running: local-studio ${args.join(" ")}`);
 		const r = await runLocalStudio(bin, args, json);
-		// Stable and nightly Local Studio offer the tunnel by waitlist only: Tychicus's own route instead, and the person learns where to sign up.
+		// Stable and nightly Local Studio offer the tunnel by waitlist only: Tychicus's own route instead, and the person learns where to
+		// sign up and which route web assistants can use meanwhile (Tailscale Funnel).
 		if (r.answer?.state === "waitlist") {
-			const a = r.answer;
-			const next = a.next && typeof a.next === "object" ? (a.next as Record<string, unknown>) : {};
-			const url = typeof a.url === "string" ? a.url : typeof next.url === "string" ? next.url : undefined;
-			const channel = typeof a.channel === "string" ? `the ${a.channel} channel` : "this build";
-			if (!json) console.log(`${sym.warn} Local Studio's tunnel is on its dev channel only, and this Local Studio is on ${channel}.${url ? ` Join the waitlist: ${url}` : ""}\n  ${COMMAND_NAME} sets up its own route instead.`);
-			return { standalone: true, localStudio: a };
+			const { lines, advice } = waitlistAdvice(r.answer, options.tailnet ? "tailnet" : "cloudflare");
+			if (!json) console.log(lines.join("\n"));
+			return { standalone: true, localStudio: r.answer, waitlist: advice };
 		}
 		// A Local Studio from before tunnel setup doesn't know the command and answers no JSON: it runs no tunnel, so Tychicus does.
 		if (r.code !== 0 && !r.answer) {
