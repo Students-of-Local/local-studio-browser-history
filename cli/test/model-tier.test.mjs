@@ -9,7 +9,7 @@ import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { modelTier, sessionTier } from "../src/model-tier.ts";
+import { modelFlag, modelTier, sessionTier } from "../src/model-tier.ts";
 
 const cli = join(dirname(fileURLToPath(import.meta.url)), "..", "dist", "index.js");
 
@@ -87,6 +87,23 @@ test("sessionTier: a named model wins, then the small profile, then Claude Code 
 	assert.deepEqual(sessionTier({ clientName: "cursor-vscode" }), { tier: U });
 	assert.deepEqual(sessionTier({}), { tier: U });
 	assert.deepEqual(sessionTier({ model: "  ", clientName: "codex" }), { tier: F }, "a blank model names none");
+});
+
+test("sessionTier: Claude Code and Codex on a small or unknown model are not frontier", () => {
+	assert.deepEqual(sessionTier({ clientName: "claude-code", clientModel: "haiku" }), { tier: S, model: "haiku" }, "claude --model haiku");
+	assert.deepEqual(sessionTier({ clientName: "claude-code", clientModel: "claude-haiku-4-5" }), { tier: S, model: "claude-haiku-4-5" });
+	assert.deepEqual(sessionTier({ clientName: "claude-code", clientModel: "opus" }), { tier: F, model: "opus" });
+	assert.deepEqual(sessionTier({ clientName: "codex", clientModel: "gpt-5.1-codex-mini" }), { tier: S, model: "gpt-5.1-codex-mini" });
+	assert.deepEqual(sessionTier({ clientName: "claude-code", baseUrl: "http://127.0.0.1:11434" }), { tier: U }, "a local endpoint");
+	assert.deepEqual(sessionTier({ clientName: "claude-code", baseUrl: "not a url" }), { tier: U });
+	assert.deepEqual(sessionTier({ clientName: "claude-code", baseUrl: "https://api.anthropic.com" }), { tier: F });
+	assert.deepEqual(sessionTier({ clientName: "codex", baseUrl: "http://127.0.0.1:11434" }), { tier: F }, "the Anthropic URL is Claude Code's only");
+	assert.deepEqual(sessionTier({ clientName: "cursor-vscode", clientModel: "opus" }), { tier: U }, "only Claude Code and Codex report a launch model");
+	assert.equal(modelFlag(["claude", "--model", "haiku"]), "haiku");
+	assert.equal(modelFlag(["codex", "exec", "-m", "gpt-6.1-sol"]), "gpt-6.1-sol");
+	assert.equal(modelFlag(["claude", "--model=sonnet"]), "sonnet");
+	assert.equal(modelFlag(["claude", "--model", "--print"]), undefined);
+	assert.equal(modelFlag(["node", "server.js"]), undefined);
 });
 
 // ---- the hello the MCP server sends -------------------------------------------------------------

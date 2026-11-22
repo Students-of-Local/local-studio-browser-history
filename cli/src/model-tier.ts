@@ -110,15 +110,45 @@ export function modelTier(model: string): ModelTier {
 /** MCP clients that run a frontier model unless told otherwise: Claude Code and Codex, by their initialize name. */
 const FRONTIER_CLIENTS: ReadonlySet<string> = new Set(["claude-code", "claude-ai", "claude", "codex", "codex-mcp-client", "codex_cli"]);
 
+/** The model a `--model X`, `--model=X` or `-m X` flag in a command line names, if any. */
+export function modelFlag(args: readonly string[]): string | undefined {
+	for (let i = 0; i < args.length; i++) {
+		const arg = args[i];
+		if (arg.startsWith("--model=")) return arg.slice("--model=".length) || undefined;
+		if ((arg === "--model" || arg === "-m") && args[i + 1] && !args[i + 1].startsWith("-")) return args[i + 1];
+	}
+	return undefined;
+}
+
+/** True when an Anthropic base URL points somewhere other than Anthropic, such as a local model or a proxy. */
+function offAnthropic(baseUrl: string | undefined): boolean {
+	if (!baseUrl?.trim()) return false;
+	try {
+		const host = new URL(baseUrl.trim()).hostname.toLowerCase();
+		return host !== "anthropic.com" && !host.endsWith(".anthropic.com");
+	} catch {
+		return true;
+	}
+}
+
 /**
  * The tier an MCP session reports in its bridge hello. A model named in TYCHICUS_MODEL (or POLYCARP_MODEL) decides it.
- * Without one, a session on the small tool profile (a local model) is small, Claude Code and Codex are frontier, and
- * every other client is unknown. The small profile is checked first, so a local model run under Claude Code asks.
+ * Without one, a session on the small tool profile (a local model) is small. Claude Code and Codex are frontier unless
+ * what they run on says otherwise: `clientModel` (ANTHROPIC_MODEL, or the `--model` the client was started with) is
+ * rated like any model name, and an ANTHROPIC_BASE_URL that isn't Anthropic's makes Claude Code unknown. Every other
+ * client is unknown.
  */
-export function sessionTier(o: { model?: string; clientName?: string; small?: boolean }): { tier: ModelTier; model?: string } {
+export function sessionTier(o: { model?: string; clientName?: string; small?: boolean; clientModel?: string; baseUrl?: string }): {
+	tier: ModelTier;
+	model?: string;
+} {
 	const model = o.model?.trim();
 	if (model) return { tier: modelTier(model), model: model.slice(0, 128) };
 	if (o.small) return { tier: "small" };
-	if (o.clientName && FRONTIER_CLIENTS.has(o.clientName.trim().toLowerCase())) return { tier: "frontier" };
-	return { tier: "unknown" };
+	const client = o.clientName?.trim().toLowerCase();
+	if (!client || !FRONTIER_CLIENTS.has(client)) return { tier: "unknown" };
+	const clientModel = o.clientModel?.trim();
+	if (clientModel) return { tier: modelTier(clientModel), model: clientModel.slice(0, 128) };
+	if (client.startsWith("claude") && offAnthropic(o.baseUrl)) return { tier: "unknown" };
+	return { tier: "frontier" };
 }

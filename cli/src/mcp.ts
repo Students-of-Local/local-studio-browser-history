@@ -19,7 +19,7 @@ import { install, isInstalled } from "./install.ts";
 import { saveCapture, type IncomingCapture } from "./captures.ts";
 import { addSource, cite, search, summary } from "./library.ts";
 import { chooseSession } from "./session-name.ts";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { checkSkill, listSkills, matchTask, readSkill, removeSkill, skillInfo, syncCommunity, writeSkill } from "./skill.ts";
@@ -32,7 +32,7 @@ import { VERSION } from "./version.ts";
 import { COMPUTER_INSTRUCTION, COMPUTER_STATUS_TOOL, type ComputerClient, LOCAL_COMPUTER_INSTRUCTION, LocalComputer } from "./computer.ts";
 import { COMMAND_NAME } from "./self.ts";
 import { envVar } from "./env.ts";
-import { type ModelTier, sessionTier } from "./model-tier.ts";
+import { type ModelTier, modelFlag, sessionTier } from "./model-tier.ts";
 import { chooseProfile, hideOutsideCore, peekClientName, SMALL_CORE, SMALL_INSTRUCTION } from "./small-profile.ts";
 import type { RosterDevice } from "./link-protocol.ts";
 
@@ -1508,6 +1508,25 @@ function registerSkillManagement(server: McpServer, library: <T>(fn: () => Promi
 	);
 }
 
+/** The `--model` the agent that started this server was launched with, from up to three parent processes. */
+function launchModel(): string | undefined {
+	if (process.platform === "win32") return undefined;
+	let pid = process.ppid;
+	for (let depth = 0; depth < 3 && pid > 1; depth++) {
+		let line: string;
+		try {
+			line = execFileSync("ps", ["-o", "ppid=,args=", "-p", String(pid)], { encoding: "utf8", timeout: 2000 }).trim();
+		} catch {
+			return undefined;
+		}
+		const [parent, ...args] = line.split(/\s+/);
+		const found = modelFlag(args);
+		if (found) return found;
+		pid = Number(parent);
+	}
+	return undefined;
+}
+
 export async function runMcpServer(options: { session?: string; profile?: "small" | "full"; serverName?: string } = {}): Promise<void> {
 	if (!isInstalled()) {
 		// First run from any harness completes setup; the extension reconnects on its alarm.
@@ -1521,7 +1540,14 @@ export async function runMcpServer(options: { session?: string; profile?: "small
 	const peeked = await peekClientName(process.stdin);
 	const { profile, why } = chooseProfile({ flag: options.profile, env: envVar("PROFILE"), localModel: envVar("LOCAL_MODEL"), clientName: peeked.clientName });
 	if (profile === "small" && !options.profile) process.stderr.write(`[tychicus] small tool profile: ${why} (--profile full for every tool)\n`);
-	const model = sessionTier({ model: envVar("MODEL"), clientName: peeked.clientName, small: profile === "small" });
+	const claudeClient = peeked.clientName?.trim().toLowerCase().startsWith("claude") === true;
+	const model = sessionTier({
+		model: envVar("MODEL"),
+		clientName: peeked.clientName,
+		small: profile === "small",
+		clientModel: (claudeClient ? process.env.ANTHROPIC_MODEL : undefined) || launchModel(),
+		baseUrl: process.env.ANTHROPIC_BASE_URL,
+	});
 	const { server, client } = createMcpServer({ sessionFlag: options.session, localComputer, profile, serverName: options.serverName, model });
 	process.stdin.on("end", () => localComputer.close());
 	// Community skills, about daily, in the background: many harnesses keep this server running.
