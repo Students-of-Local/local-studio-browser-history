@@ -406,7 +406,10 @@ const othersOn = (tab: number, call: string) =>
 	[...(tabCalls.get(tab) ?? []), ...(stuckTabs.get(tab) ?? [])].some((c) => c !== call);
 /** The actions whose box the guard's notice may name (dialog-guard.ts); a hover, scroll or drag box has no known cause. */
 const CAUSE_KINDS = new Set(["click", "press", "type", "fill"]);
-/** Handlers that call actionStart before their first input, which waits for the veil's begin (ctx.inputReady). */
+/**
+ * Handlers that call actionStart before their first input, which waits for the veil's begin (ctx.inputReady). A pointer
+ * move into a cross-origin frame comes earlier, in locate, which waits for the same begin first (its beforeInput).
+ */
 const VEIL_AT_INPUT = new Set(["click", "fill", "type", "press", "scroll"]);
 
 /** The answer a single click or press set in advance, checked. `actions` takes none (D48): refused here. */

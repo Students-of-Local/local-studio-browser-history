@@ -341,6 +341,26 @@ test("an idle settle returns early on a quiet page, and a tab opened from the pa
 	}
 });
 
+// Review r1 first-F2: a document no settle has probed had no click listener for the action, so a download link's click
+// went unseen. That one settle keeps the 20 ms window a download needs to begin; a probed document does not.
+test("an idle settle whose first probe was the first in its document waits FRESH_IDLE_MS; a probed one does not", async () => {
+	const fake = installFakeChrome();
+	noEvents();
+	const { settle, IDLE_MS, FRESH_IDLE_MS } = await import(`../src/browser/settle.ts?ctx=${Math.random()}`);
+	const tabId = fake.addTab({ url: "https://example.com/", status: "complete" });
+	let fresh = true;
+	recordCommands((method) =>
+		method === "Runtime.evaluate" ? probeSays({ since: 100_000, parsing: false, busy: false, fresh }) : undefined,
+	);
+	const first = await settle(tabId, { quietMs: 300, capMs: 2500, idleMs: IDLE_MS });
+	assert.equal(first.idle, true, JSON.stringify(first));
+	assert.ok(first.ms >= FRESH_IDLE_MS - 2, `returned at ${first.ms} ms, inside the fresh document's window`);
+	fresh = false;
+	const known = await settle(tabId, { quietMs: 300, capMs: 2500, idleMs: IDLE_MS });
+	assert.equal(known.idle, true, JSON.stringify(known));
+	assert.ok(known.ms < FRESH_IDLE_MS, `took ${known.ms} ms on a probed document`);
+});
+
 // D56: the tab events for a target=_blank click can come after the 20 ms idle window on a loaded machine (the e2e change
 // report then listed no new tab). The page's own Page.windowOpen comes on the tab's session ahead of the probe's reply.
 test("D56: Page.windowOpen before the probe's reply holds an idle settle, with no tab event yet", async () => {

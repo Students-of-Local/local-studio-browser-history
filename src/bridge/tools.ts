@@ -507,7 +507,7 @@ async function pointFor(
 			ERR.BAD_PARAMS,
 			"Give a ref from read_page (best), a selector, or x and y from your latest screenshot.",
 		);
-	const rect = await locate(tabId, t, skipFor(ctx, tabId), act, before?.frame.hit);
+	const rect = await locate(tabId, t, skipFor(ctx, tabId), act, before?.frame.hit, () => ctx.inputReady?.());
 	return { x: rect.x, y: rect.y, ...(rect.aim ? { aim: rect.aim } : {}) };
 }
 
@@ -565,7 +565,7 @@ const pasteText: Handler = async (ctx, params) => {
 	const since = await actionStart(ctx, tabId);
 	const attempt = async (): Promise<"page" | "inserted"> => {
 		if (t.ref || t.selector) {
-			const rect = await locate(tabId, t, skipFor(ctx, tabId), "type", before?.frame.hit);
+			const rect = await locate(tabId, t, skipFor(ctx, tabId), "type", before?.frame.hit, () => ctx.inputReady?.());
 			await click(tabId, rect.x, rect.y, { stop: () => stopIfAborted(ctx), pointerThere: !!rect.aim });
 			await focusLanded(tabId, rect.aim, t.ref, "pasted");
 		}
@@ -1167,7 +1167,9 @@ export const handlers: Record<string, Handler> = {
 		const since = await actionStart(ctx, tabId);
 		const attempt = async () => {
 			if (t.ref || t.selector) {
-				const rect = await locate(tabId, t, skipFor(ctx, tabId), "type", before?.frame.hit);
+				const rect = await locate(tabId, t, skipFor(ctx, tabId), "type", before?.frame.hit, () =>
+					ctx.inputReady?.(),
+				);
 				await click(tabId, rect.x, rect.y, { stop: () => stopIfAborted(ctx), pointerThere: !!rect.aim });
 				await focusLanded(tabId, rect.aim, t.ref, "typed");
 			}

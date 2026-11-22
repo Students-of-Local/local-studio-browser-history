@@ -2037,6 +2037,8 @@ export async function locate(
 	act: "click" | "hover" | "fill" | "type" = "click",
 	/** The ref's frame, when the action already found it (its change report's first look). */
 	found?: { frame: PageFrame; inner: string },
+	/** Awaited before the pointer moves into a cross-origin frame: that move is the action's first input. */
+	beforeInput?: () => Promise<void> | undefined,
 ): Promise<{ x: number; y: number; width: number; height: number; aim?: Aim }> {
 	// What the errors call the action: "a click can't reach it", "which would take the click".
 	const aAct = act === "type" ? "typing" : `a ${act}`;
@@ -2098,6 +2100,7 @@ export async function locate(
 		);
 	if (act === "fill") return at;
 	const aim = { frame: now, id: aimId };
+	await beforeInput?.();
 	await aimInFrame(tabId, aim, at, `Ref ${target.ref}`, theAct);
 	return { ...at, aim };
 }

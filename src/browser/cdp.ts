@@ -1583,13 +1583,7 @@ const drawing = new Map<number, ReturnType<typeof setTimeout>>();
 export async function keepDrawing(tabId: number): Promise<void> {
 	installScreencastListener();
 	const timer = drawing.get(tabId);
-	const end = () => {
-		if (drawing.get(tabId) !== next) return;
-		drawing.delete(tabId);
-		if (!screencasts.has(tabId)) void sendRaw(tabId, "Page.stopScreencast").catch(() => undefined);
-	};
-	const next = setTimeout(end, KEEP_DRAWING_MS);
-	drawing.set(tabId, next);
+	armDrawing(tabId);
 	if (timer !== undefined) {
 		clearTimeout(timer);
 		return;
@@ -1603,10 +1597,24 @@ export async function keepDrawing(tabId: number): Promise<void> {
 			maxHeight: 1,
 			everyNthFrame: 1,
 		});
+		// A start that had to attach again went through forgetAttachment, which dropped the entry: the cast it
+		// started still needs its stop timer.
+		if (!drawing.has(tabId) && !screencasts.has(tabId)) armDrawing(tabId);
 	} catch {
-		if (drawing.get(tabId) === next) drawing.delete(tabId);
-		clearTimeout(next);
+		// No cast is running. An action that came in meanwhile saw the entry and sent nothing, so drop it whoever
+		// set it: the next action starts the cast.
+		forgetDrawing(tabId);
 	}
+}
+
+/** Set the keeper's stop timer for a tab, KEEP_DRAWING_MS from now. */
+function armDrawing(tabId: number): void {
+	const next = setTimeout(() => {
+		if (drawing.get(tabId) !== next) return;
+		drawing.delete(tabId);
+		if (!screencasts.has(tabId)) void sendRaw(tabId, "Page.stopScreencast").catch(() => undefined);
+	}, KEEP_DRAWING_MS);
+	drawing.set(tabId, next);
 }
 
 /** The keeper's cast is gone with the debugging session, the tab or a cast that replaced it. */

@@ -2057,7 +2057,9 @@ messaging hops (about 1 ms each way together):
 - *Frame keeper.* Before an action's input goes out, `keepDrawing` (`src/browser/cdp.ts`) starts a 1x1 screencast
   whose frames are never acknowledged, so the tab draws its next frame and the hold ends there. It runs until 3 s
   (`KEEP_DRAWING_MS`) after the last action, then stops; a tab nobody acts on draws nothing, as before. A live view or
-  recording that already casts is left alone, and one that starts takes the tab's one cast over from the keeper. Cost: no frames on a page that doesn't change; on a page with a running
+  recording that already casts is left alone, and one that starts takes the tab's one cast over from the keeper. A
+  start that had to attach the debugger again still gets its stop timer, and a start that fails clears the entry so
+  the next action sends the cast again. Cost: no frames on a page that doesn't change; on a page with a running
   animation about a tenth of one core while the agent acts and for 3 s after.
 - *Settle.* `IDLE_MS` and `LOADED_QUIET_MS` are 0: the drained look (one message-channel turn, then a timer) is the
   answer. `Page.frameRequestedNavigation` now counts as a reaction, so a click whose navigation starts on a later
@@ -2066,7 +2068,9 @@ messaging hops (about 1 ms each way together):
   after the page has gone quiet. The probe now notes a click on an `a` or `area` with `download` and `href` that the
   page did not cancel, and settle waits for the download to begin, at most 1 s (`FILE_START_MS`). A script that
   clicks an anchor it never put in the document is not seen this way; its download is reported when it begins
-  before the look after the action.
+  before the look after the action. The listener is left by the settle's first probe in a document, so a settle whose first
+  probe was the first in its document (a tab the page opened, or one handed over) keeps a 20 ms idle window
+  (`FRESH_IDLE_MS`) for a download its listener could not see.
 - *Page library.* Each large page script is a function installed once per document and world, under a key that
   hashes its code and a salt chosen per service-worker run (`runLib`, `src/browser/page.ts`). A call sends only the
   key and its JSON arguments. A document not known to have the function (the tab's first call, or the first after

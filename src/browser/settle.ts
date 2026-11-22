@@ -29,6 +29,12 @@ export const ACTION_SETTLE = { quietMs: 300, capMs: 2500, longMs: 2000 };
  */
 export const IDLE_MS = 0;
 /**
+ * The idle window when the settle's first probe was the first in its document (a tab the page opened, or one handed
+ * over): the probe's click listener was not there for the action, so a download link's click went unseen. The old
+ * 20 ms window covered a download beginning; this keeps it for that one settle (review r1 first-F2).
+ */
+export const FRESH_IDLE_MS = 20;
+/**
  * After a navigation, once the load event has fired and nothing else holds the wait (no request, loader or pending
  * navigation): how long the page must stay quiet. ACTION_SETTLE's 300 ms until D56, 50 ms until D62: the drained look
  * runs what the load queued, and a navigation that queued work asks for is counted (Page.frameRequestedNavigation).
@@ -208,6 +214,8 @@ interface ProbeReport {
 	 * settle waits for it (FILE_START_MS).
 	 */
 	fileAgo: number | null;
+	/** This probe was the first in its document, so it saw nothing of the action (FRESH_IDLE_MS). */
+	fresh: boolean;
 }
 type ProbeResult = ProbeReport | { guarded: true };
 
@@ -230,6 +238,7 @@ function settleProbe(
 	if (guarded(location.href, hosts)) return { guarded: true };
 	const w = window as unknown as { __tabkyraSettle?: SettleMark };
 	let s = w.__tabkyraSettle;
+	const fresh = !s || s.doc !== document;
 	if (!s || s.doc !== document) {
 		s = { last: performance.now(), doc: document, owed: 0, drawn: null };
 		w.__tabkyraSettle = s;
@@ -334,6 +343,7 @@ function settleProbe(
 				seen.file && seen.fileAt !== undefined && !seen.file.defaultPrevented
 					? Math.round(now - seen.fileAt)
 					: null,
+			fresh,
 		};
 	};
 	if (!drain) return report();
@@ -409,6 +419,8 @@ export async function settle(
 		let lastActivity = start;
 		/** Something on the page answered the action (idleMs): never reset once set. */
 		let reacted = options.idleMs === undefined;
+		/** The idle window: FRESH_IDLE_MS once a probe was the first in its document. */
+		let idleMs = options.idleMs ?? 0;
 		/** Probes refused in a row. A page the extension may not script (a store page, a viewer) is judged by its requests alone. */
 		let refused = 0;
 		/** The document the refusals were counted on: a new one may be scriptable. */
@@ -483,6 +495,7 @@ export async function settle(
 					// Only a drained probe reads Resource Timing, so only its answer can show the data requests ended.
 					loaded = drain && page.complete === true && (lateAgo === null || lateAgo >= quietMs);
 					if (typeof page.fileAgo === "number" && Number.isFinite(page.fileAgo)) fileAsked = at - page.fileAgo;
+					if (page.fresh === true) idleMs = Math.max(idleMs, FRESH_IDLE_MS);
 					if (page.parsing || page.busy) {
 						waitingOn = "loading";
 						lastActivity = Date.now();
@@ -518,7 +531,7 @@ export async function settle(
 			const quiet =
 				loaded && options.loadedQuietMs !== undefined ? Math.min(quietMs, options.loadedQuietMs) : quietMs;
 			if (!waitingOn && now - lastActivity >= quiet) return { settled: true, ms: now - start };
-			const idleLeft = reacted ? Number.POSITIVE_INFINITY : (options.idleMs ?? 0) - (now - start);
+			const idleLeft = reacted ? Number.POSITIVE_INFINITY : idleMs - (now - start);
 			if (!waitingOn && idleLeft <= 0) return { settled: true, ms: now - start, idle: true };
 			if (now >= deadline) return { settled: false, ms: now - start, waitingOn: waitingOn ?? "dom" };
 			// The next look comes when the quiet window would end (or the idle one, or the cap), and at least every 100 ms.
