@@ -77,11 +77,24 @@ export interface ClientHello {
 /** "frontier" opens sites like Always allow in the "Match the model" mode; "small" and "unknown" ask first. */
 export type ModelTier = "frontier" | "small" | "unknown";
 
+/**
+ * One timestamp of a traced call (TYCHICUS_TRACE, cli/src/hop-trace.ts): a label and the time in ms since the Unix
+ * epoch, to a fraction of a ms (`performance.timeOrigin + performance.now()`). Each hop appends its own marks.
+ */
+export type TraceMark = [label: string, at: number];
+
+/** Now, for a TraceMark: every process on the machine reads the same clock. */
+export function traceNow(): number {
+	return performance.timeOrigin + performance.now();
+}
+
 export interface ClientRequest {
 	type: "request";
 	id: number;
 	method: string;
 	params?: Record<string, unknown>;
+	/** Present only when the client traces its calls: the marks so far, which each hop extends and the reply returns. */
+	trace?: TraceMark[];
 }
 
 export type ClientToHost = ClientHello | ClientRequest;
@@ -113,6 +126,8 @@ export interface HostResponse {
 	id: number;
 	result?: unknown;
 	error?: RpcError;
+	/** The request's trace with every hop's marks added, when it was traced. */
+	trace?: TraceMark[];
 }
 
 export interface HostEvent {
@@ -169,6 +184,8 @@ export interface ExtResponse {
 	id: number;
 	result?: unknown;
 	error?: RpcError;
+	/** The request's trace with the extension's marks added, when it was traced. */
+	trace?: TraceMark[];
 }
 
 export interface ExtEvent {
@@ -278,6 +295,8 @@ export interface HostForwardedRequest {
 	 * (issue #94). Read by the host for each request, so a new `remote setup` takes effect at once.
 	 */
 	guardedHosts?: string[];
+	/** The client's trace with the host's marks added, when the client traces its calls. */
+	trace?: TraceMark[];
 }
 
 export interface HostPing {

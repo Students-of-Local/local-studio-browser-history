@@ -98,6 +98,110 @@ export async function runInPage<T = unknown>(
 	return unwrap<T>(first.result);
 }
 
+// ---- Page library (D62) ------------------------------------------------------
+//
+// The large page scripts (the change report's look, fill, the click's locate) are 15 to 25 KB each, and V8 compiled
+// each one anew on every call, since each call's text held its own arguments: about 4 ms of a 5 ms evaluate. Each is now
+// a function installed once per document (and per world), under a key no page can guess before it is installed, and
+// called by that key with its arguments. The install script's text is the same for every document, so V8 takes it from
+// its compilation cache instead of compiling it again. A document not known to have the function (the tab's first call,
+// or the first after a navigation commits) gets the install and the call, sent together; one that answers that it is
+// missing gets them the same way.
+
+/** A page function: `source` is a function expression, self-contained, whose arguments are JSON. */
+export interface PageLib {
+	name: string;
+	source: () => string;
+}
+
+/** A call of a page function. */
+export interface LibCall {
+	lib: PageLib;
+	args: unknown[];
+}
+
+/** The global the functions hang on, in whichever world runs them. Not enumerable, and an entry can't be replaced. */
+const LIB_GLOBAL = "__tychicusLib";
+const LIB_MISS = "__tychicus_lib_missing";
+/** Per service worker run: a page that read one key can't plant a function under the next run's (D62). */
+const LIB_SALT = Math.random().toString(36).slice(2, 10);
+const libScripts = new Map<string, { key: string; source: string; install: string }>();
+
+function libScript(lib: PageLib): { key: string; source: string; install: string } {
+	let got = libScripts.get(lib.name);
+	if (!got) {
+		const source = lib.source();
+		// FNV-1a: the key changes with the code, so a document never runs another build's version.
+		let h = 0x811c9dc5;
+		for (let i = 0; i < source.length; i++) h = Math.imul(h ^ source.charCodeAt(i), 0x01000193) >>> 0;
+		const key = JSON.stringify(`${lib.name}_${h.toString(36)}_${LIB_SALT}`);
+		const install = `(() => {
+			let L = globalThis.${LIB_GLOBAL};
+			if (!L) { L = Object.create(null); Object.defineProperty(globalThis, ${JSON.stringify(LIB_GLOBAL)}, { value: L }); }
+			if (!Object.prototype.hasOwnProperty.call(L, ${key})) Object.defineProperty(L, ${key}, { value: (${source}) });
+			return true;
+		})()`;
+		got = { key, source, install };
+		libScripts.set(lib.name, got);
+	}
+	return got;
+}
+
+function libArgs(args: unknown[]): string {
+	return args.map((a) => (a === undefined ? "undefined" : JSON.stringify(a))).join(", ");
+}
+
+/** The whole call as one expression, for a world that keeps nothing (a cross-origin frame's isolated world). */
+export function libCode(call: LibCall): string {
+	return `(${libScript(call.lib).source})(${libArgs(call.args)})`;
+}
+
+/** Keys installed in each tab's current top document, as far as this worker knows. A wrong guess costs a round trip. */
+const libTabs = new Map<number, Set<string>>();
+let libWatched = false;
+
+function libKnown(tabId: number): Set<string> {
+	if (!libWatched) {
+		libWatched = true;
+		// A new document has none of them.
+		chrome.webNavigation?.onCommitted?.addListener((d) => {
+			if (d.frameId === 0) libTabs.delete(d.tabId);
+		});
+		chrome.tabs?.onRemoved?.addListener((id) => libTabs.delete(id));
+	}
+	let known = libTabs.get(tabId);
+	if (!known) {
+		known = new Set();
+		libTabs.set(tabId, known);
+	}
+	return known;
+}
+
+/** Run a page function in the tab's top document: by its key when the document has it, else installed and run. */
+export async function runLib<T>(tabId: number, call: LibCall): Promise<T> {
+	const { key, install } = libScript(call.lib);
+	const byKey = `(() => { const L = globalThis.${LIB_GLOBAL}; const f = L && L[${key}]; return typeof f === "function" ? f(${libArgs(call.args)}) : ${JSON.stringify(LIB_MISS)}; })()`;
+	const known = libKnown(tabId);
+	if (known.has(key)) {
+		const got = await runInPage<T | typeof LIB_MISS>(tabId, byKey);
+		if (got !== LIB_MISS) return got as T;
+	}
+	// A document not known to have it: the install and the call, sent one after the other without waiting, so they cost
+	// about one round trip (the debugger runs them in order). Installing twice is a no-op.
+	const installed = runInPage<boolean>(tabId, install).catch(() => false);
+	const again = runInPage<T | typeof LIB_MISS>(tabId, byKey);
+	// Its failure is the caller's, but it may come while the install is awaited: handled from the start.
+	again.catch(() => undefined);
+	if (await installed) known.add(key);
+	const value = await again;
+	// A page that took the global, or the two arriving out of order: the whole code, which always runs.
+	return value === LIB_MISS ? runInPage<T>(tabId, libCode(call)) : (value as T);
+}
+
+function isLibCall(c: string | LibCall): c is LibCall {
+	return typeof c !== "string";
+}
+
 /** Page code as an expression that always resolves: its value, or the error it threw. */
 function wrapCode(code: string): string {
 	return `(async () => { try { const __v = await (${code}); return { ok: true, value: __v }; } catch (e) { return { ok: false, error: String(e && e.stack || e) }; } })()`;
@@ -116,14 +220,21 @@ export async function runInFrame<T = unknown>(tabId: number, frame: PageFrame, c
 async function runForRef<T>(
 	tabId: number,
 	ref: string | undefined,
-	code: (ref: string | undefined, inFrame: boolean) => string,
+	code: (ref: string | undefined, inFrame: boolean) => string | LibCall,
 	rule: FrameRule = FRAMES_CLOSED,
 	found?: { frame: PageFrame; inner: string },
 ): Promise<{ value: T; frame?: PageFrame }> {
 	const hit = found ?? (ref ? await frameForRef(tabId, ref, rule) : undefined);
-	if (!hit) return { value: await runInPage<T>(tabId, code(ref, false)) };
+	if (!hit) {
+		const top = code(ref, false);
+		return { value: await (isLibCall(top) ? runLib<T>(tabId, top) : runInPage<T>(tabId, top)) };
+	}
 	try {
-		return { value: await runInFrame<T>(tabId, hit.frame, code(hit.inner, true)), frame: hit.frame };
+		const inner = code(hit.inner, true);
+		return {
+			value: await runInFrame<T>(tabId, hit.frame, isLibCall(inner) ? libCode(inner) : inner),
+			frame: hit.frame,
+		};
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
 		// Refs in the frame's own errors are the frame's (e12): the agent's carry the frame's tag (f1a2be12). That covers
@@ -1513,6 +1624,20 @@ export function refsRenewed(gone: string[], listed: Set<string>): Record<string,
 	return out;
 }
 
+/** The change report's look (changeLook): the page's controls and text, which earlier refs left, the focus. */
+const LOOK_LIB: PageLib = {
+	name: "look",
+	source: () => `(refs, hosts, maxNodes) => {
+		if ((${isGuardedUrl.toString()})(location.href, hosts)) return "guarded";
+		if (document.getElementsByTagName("*").length > ${LARGE_PAGE}) return "large";
+		const s = (${pageSnapshot.toString()})(maxNodes, 20000, "interactive", ${refLive.toString()}, ${refPrint.toString()}, true, ${frameShown.toString()}, ${JSON.stringify(FRAME_STATES)});
+		const listed = new Set(s.nodes.map((n) => n.ref));
+		const gone = (${refsGone.toString()})(refs.filter((r) => !listed.has(r)), ${refLive.toString()}, ${refPrint.toString()});
+		const same = (${refsRenewed.toString()})(gone, listed);
+		return { url: s.url, title: s.title, nodes: s.nodes, gone, same, text: s.text, ...(${focusProbe.toString()})() };
+	}`,
+};
+
 /**
  * One side of the change report, in one round trip: the interactive elements with their refs (the
  * same refs read_page gives, so they stay valid), focus, the document, and which of `before` went.
@@ -1528,15 +1653,7 @@ export async function changeLook(
 ): Promise<ChangeLook | "guarded" | "large"> {
 	// The approval page (#94) can commit between the URL check and this script: the script checks
 	// again before it touches anything. A page this big is not read twice per action (D43).
-	const code = (refs: string[]) => `(() => {
-		if ((${isGuardedUrl.toString()})(location.href, ${JSON.stringify(guardedHosts)})) return "guarded";
-		if (document.getElementsByTagName("*").length > ${LARGE_PAGE}) return "large";
-		const s = (${pageSnapshot.toString()})(${maxNodes}, 20000, "interactive", ${refLive.toString()}, ${refPrint.toString()}, true, ${frameShown.toString()}, ${JSON.stringify(FRAME_STATES)});
-		const listed = new Set(s.nodes.map((n) => n.ref));
-		const gone = (${refsGone.toString()})(${JSON.stringify(refs)}.filter((r) => !listed.has(r)), ${refLive.toString()}, ${refPrint.toString()});
-		const same = (${refsRenewed.toString()})(gone, listed);
-		return { url: s.url, title: s.title, nodes: s.nodes, gone, same, text: s.text, ...(${focusProbe.toString()})() };
-	})()`;
+	const code = (refs: string[]): LibCall => ({ lib: LOOK_LIB, args: [refs, guardedHosts, maxNodes] });
 	const split = frame?.ref ? splitFrameRef(frame.ref) : undefined;
 	const mine = split ? before.filter((r) => r.startsWith(split.tag)).map((r) => r.slice(split.tag.length)) : [];
 	const inFrame = async (): Promise<ChangeLook | "gone" | undefined> => {
@@ -1553,7 +1670,7 @@ export async function changeLook(
 		const end = Date.now() + FRAME_SHOWN_MS;
 		const left = () => Math.max(0, end - Date.now());
 		const run = (hit: { frame: PageFrame }, again = false) => {
-			const look = runInFrame<ChangeLook | "guarded" | "large">(tabId, hit.frame, code(mine));
+			const look = runInFrame<ChangeLook | "guarded" | "large">(tabId, hit.frame, libCode(code(mine)));
 			return Promise.all([
 				again ? bounded(look, left()) : look.catch(() => undefined),
 				frameState(tabId, hit.frame, end).catch(() => undefined),
@@ -1584,7 +1701,7 @@ export async function changeLook(
 		return got;
 	};
 	const [look, inner] = await Promise.all([
-		runInPage<ChangeLook | "guarded" | "large">(tabId, code(before.filter((r) => !splitFrameRef(r)))),
+		runLib<ChangeLook | "guarded" | "large">(tabId, code(before.filter((r) => !splitFrameRef(r)))),
 		inFrame(),
 	]);
 	if (typeof look === "string") return look;
@@ -1802,26 +1919,13 @@ export function elementCode(target: { ref?: string; selector?: string }): string
 		if (!el.isConnected) throw new Error("Element is no longer in the page. Call read_page for fresh refs.");`;
 }
 
-/** Resolve a ref (from a snapshot) or CSS selector to its viewport center. */
-export async function locate(
-	tabId: number,
-	target: { ref?: string; selector?: string },
-	rule: FrameRule = FRAMES_CLOSED,
-	act: "click" | "hover" | "fill" | "type" = "click",
-	/** The ref's frame, when the action already found it (its change report's first look). */
-	found?: { frame: PageFrame; inner: string },
-): Promise<{ x: number; y: number; width: number; height: number; aim?: Aim }> {
-	// What the errors call the action: "a click can't reach it", "which would take the click".
-	const aAct = act === "type" ? "typing" : `a ${act}`;
-	const theAct = act === "type" ? "the typing" : `the ${act}`;
-	// Names this call's record of where the pointer went, in a frame (aimInFrame, pressLanded).
-	const aimId = crypto.randomUUID();
-	const code = (r: string | undefined, inFrame: boolean) => `(async () => {
+/** locate in the page: find the element, bring it into view, check nothing covers it, and give its point. */
+const LOCATE_LIB: PageLib = {
+	name: "locate",
+	source: () => `async (ref, sel, theAct, aAct, markActed, aimHere, aimId) => {
 		delete window.__tabkyraRefound;
 		let el = null;
 		let viaRef = false;
-		const ref = ${JSON.stringify(r ?? "")};
-		const sel = ${JSON.stringify(inFrame ? "" : (target.selector ?? ""))};
 		// A ref that no longer resolves falls back to a selector given with it, as before.
 		if (ref) {
 			try { el = (${resolveRef.toString()})(ref, ${refLive.toString()}, ${refPrint.toString()}); viaRef = true; }
@@ -1853,15 +1957,15 @@ export async function locate(
 			throw new Error((ref ? "Ref " + ref : "That element") + " isn't shown now (hidden or closed). Call read_page for fresh refs.");
 		const spot = (${refPoint.toString()})(el);
 		const who = ref ? "Ref " + ref : "That element";
-		const covered = (by) => new Error(who + " is covered by " + by + ", which would take ${theAct}. Close or dismiss it, or click that instead, then call read_page.");
-		if (spot.offscreen) throw new Error(who + " is outside the visible page (kept off screen), so ${aAct} can't reach it.");
+		const covered = (by) => new Error(who + " is covered by " + by + ", which would take " + theAct + ". Close or dismiss it, or click that instead, then call read_page.");
+		if (spot.offscreen) throw new Error(who + " is outside the visible page (kept off screen), so " + aAct + " can't reach it.");
 		if (spot.cover) throw covered(spot.cover);
 		const frameCover = (${refFrameCover.toString()})(el, spot.x, spot.y);
-		if (frameCover && typeof frameCover === "object") throw new Error(who + " is outside the visible page (kept off screen), so ${aAct} can't reach it.");
+		if (frameCover && typeof frameCover === "object") throw new Error(who + " is outside the visible page (kept off screen), so " + aAct + " can't reach it.");
 		if (frameCover) throw covered(frameCover);
 		// The ref counts as acted on only once the input reaches its element: a click that lands on something else, or
 		// never goes out, leaves it as it was (resolveRef).
-		if (viaRef && ${JSON.stringify(act === "click" || act === "type")}) {
+		if (viaRef && markActed) {
 			const win = el.ownerDocument.defaultView || window;
 			const types = ["pointerdown", "mousedown", "click"];
 			const off = () => { for (const t of types) win.removeEventListener(t, on, true); clearTimeout(timer); };
@@ -1871,10 +1975,10 @@ export async function locate(
 		}
 		// In a cross-origin frame, where the input goes out at a point in the tab and the browser routes it: what the
 		// pointer reached, for aimInFrame (a move before the press) and pressLanded (the press itself).
-		if (${JSON.stringify(inFrame && act !== "fill")}) {
+		if (aimHere) {
 			const win = el.ownerDocument.defaultView || window;
 			if (window.__tabkyraAim && window.__tabkyraAim.off) window.__tabkyraAim.off();
-			const aim = { id: ${JSON.stringify(aimId)}, moved: false, pressed: "" };
+			const aim = { id: aimId, moved: false, pressed: "" };
 			const what = (t) => {
 				const n = t && t.nodeType === 1 ? t : t && t.parentElement;
 				if (!n) return "the frame's page";
@@ -1922,7 +2026,37 @@ export async function locate(
 		const refound = window.__tabkyraRefound;
 		delete window.__tabkyraRefound;
 		return { x, y, width: w, height: h, refound };
-	})()`;
+	}`,
+};
+
+/** Resolve a ref (from a snapshot) or CSS selector to its viewport center. */
+export async function locate(
+	tabId: number,
+	target: { ref?: string; selector?: string },
+	rule: FrameRule = FRAMES_CLOSED,
+	act: "click" | "hover" | "fill" | "type" = "click",
+	/** The ref's frame, when the action already found it (its change report's first look). */
+	found?: { frame: PageFrame; inner: string },
+	/** Awaited before the pointer moves into a cross-origin frame: that move is the action's first input. */
+	beforeInput?: () => Promise<void> | undefined,
+): Promise<{ x: number; y: number; width: number; height: number; aim?: Aim }> {
+	// What the errors call the action: "a click can't reach it", "which would take the click".
+	const aAct = act === "type" ? "typing" : `a ${act}`;
+	const theAct = act === "type" ? "the typing" : `the ${act}`;
+	// Names this call's record of where the pointer went, in a frame (aimInFrame, pressLanded).
+	const aimId = crypto.randomUUID();
+	const code = (r: string | undefined, inFrame: boolean): LibCall => ({
+		lib: LOCATE_LIB,
+		args: [
+			r ?? "",
+			inFrame ? "" : (target.selector ?? ""),
+			theAct,
+			aAct,
+			act === "click" || act === "type",
+			inFrame && act !== "fill",
+			aimId,
+		],
+	});
 	const framed = found ?? (target.ref ? await frameForRef(tabId, target.ref, rule) : undefined);
 	if (framed) await scrollFrameIntoView(tabId, framed.frame);
 	const { value: got, frame } = await runForRef<{
@@ -1966,6 +2100,7 @@ export async function locate(
 		);
 	if (act === "fill") return at;
 	const aim = { frame: now, id: aimId };
+	await beforeInput?.();
 	await aimInFrame(tabId, aim, at, `Ref ${target.ref}`, theAct);
 	return { ...at, aim };
 }
@@ -2046,20 +2181,13 @@ export async function pressLanded(tabId: number, aim: Aim): Promise<string | und
 	}
 }
 
-/** Set a form control's value the way frameworks expect (native setter + input/change). */
-export async function fillElement(
-	tabId: number,
-	target: { ref?: string; selector?: string },
-	value: string,
-	rule: FrameRule = FRAMES_CLOSED,
-	found?: { frame: PageFrame; inner: string },
-): Promise<void> {
-	const code = (r: string | undefined, inFrame: boolean) => `(async () => {
+/** fillElement in the page: find the field by ref or selector, check it is shown and editable, set its value. */
+const FILL_LIB: PageLib = {
+	name: "fill",
+	source: () => `async (ref, sel, value) => {
 		delete window.__tabkyraRefound;
 		let el = null;
 		let byRef = false;
-		const ref = ${JSON.stringify(r ?? "")};
-		const sel = ${JSON.stringify(inFrame ? "" : (target.selector ?? ""))};
 		// A ref that no longer resolves falls back to a selector given with it, as before.
 		if (ref) {
 			try { el = (${resolveRef.toString()})(ref, ${refLive.toString()}, ${refPrint.toString()}); byRef = true; }
@@ -2100,7 +2228,6 @@ export async function fillElement(
 		}
 		// Every check passed and the value goes in now: from here the ref is one an action went through (resolveRef).
 		if (byRef) (${refActed.toString()})(ref);
-		const value = ${JSON.stringify(value)};
 		// The element's own window: one in a frame belongs to another realm, where this
 		// window's HTMLInputElement and its value setter don't apply.
 		const W = el.ownerDocument.defaultView || window;
@@ -2132,7 +2259,21 @@ export async function fillElement(
 			return window.__tabkyraRefound || true;
 		}
 		throw new Error("Element is not a form control: use click or type on it instead of fill.");
-	})()`;
+	}`,
+};
+
+/** Set a form control's value the way frameworks expect (native setter + input/change). */
+export async function fillElement(
+	tabId: number,
+	target: { ref?: string; selector?: string },
+	value: string,
+	rule: FrameRule = FRAMES_CLOSED,
+	found?: { frame: PageFrame; inner: string },
+): Promise<void> {
+	const code = (r: string | undefined, inFrame: boolean): LibCall => ({
+		lib: FILL_LIB,
+		args: [r ?? "", inFrame ? "" : (target.selector ?? ""), value],
+	});
 	// A field in a frame: the frame's own document can't see a banner over the frame, so the page
 	// around it is checked as a click would be, before anything is written.
 	const framed =

@@ -155,3 +155,109 @@ headless tab that took 2 to 12 ms, and with `--disable-features=DeferRendererTas
 `setTimeout(0)` reaction to the click was held for the same time, so returning earlier would miss it. The agent's tab is
 hidden and draws no frame on its own, which matches the 50 ms seen on CI. A flag in the user's own Chrome is not ours to
 set, so click stays at about 60 ms.
+
+## 2026-11-22: beating agent-browser on click, fill and first text (D62)
+
+The goal: Tychicus's click, fill and firstText medians under agent-browser's in the market eval's rivals harness
+(`evals/market/rivals/run.mjs --repeat 3`), same machine and session, with startMs no worse than any rival once every tool
+is timed the same way, tasks at 30/30 and dom-bench at 54/54. The machine is a shared 32-core host whose load swung from
+16 to 50 during the work, from other people's jobs; every comparison below pairs the two tools in one session.
+
+### How it was measured
+
+`TYCHICUS_TRACE` (off by default; `cli/src/hop-trace.ts`) adds a mark at every hop: the MCP server, the client, the native
+host in both directions, the service worker, and named steps inside the handlers. Set to a file, each tool call appends one
+JSON line. `evals/market/tasks/speed.mjs N` drove the calls; the table gives medians in ms from the MCP server receiving the
+call. Before: 18 calls per tool on the branch point (b5df132). After: 15 on 9149b13, load 20.
+
+| Call | Hop | Before | After |
+|---|---|---|---|
+| click | MCP, socket, host, native messaging to the handler | 1.9 | 1.3 |
+| click | resolve the tab, look before, locate | 7.9 | 5.4 |
+| click | action start, mouse input | 3.3 | 3.7 |
+| click | settle: input to a drained look | 50.3 | 15.2 |
+| click | change report, back to the MCP server | 4.3 | 4.3 |
+| click | total | 67.7 | 29.9 |
+| fill | to the handler | 1.9 | 1.3 |
+| fill | resolve, look before, action start | 4.3 | 6.2 |
+| fill | set the value (`fillElement`) | 5.0 | 2.5 |
+| fill | settle | 22.1 | 2.4 |
+| fill | change report, back | 7.8 | 3.0 |
+| fill | total | 41.1 | 15.4 |
+| navigate | to the handler, resolve, start | 3.2 | 3.8 |
+| navigate | the load (DOMContentLoaded and load) | 33.4 | 38.2 |
+| navigate | settle after the load | 55.1 | 3.5 |
+| navigate | total | 93.3 | 46.3 |
+| get_page_text | total | 4.7 | 5.7 |
+
+The transport (MCP stdio, the Unix socket, the native host and native messaging) is 1 to 2 ms in and about 1 ms back, before and
+after. The cost was in the browser and in fixed waits.
+
+### What the trace found
+
+1. **A hidden tab holds the page's tasks for 50 ms after a click or key.** Chromium's `DeferRendererTasksAfterInput`
+   defers a page's tasks after discrete input until the next frame, at most `kDiscreteInputResponseDeadline` (50 ms). An
+   agent's tab is out of sight and draws no frames, so every click waited the deadline before the settle's drained look
+   could run. The experiment: a headless Chromium, a background tab (`Target.createTarget` with `background: true`), a
+   radio button whose click handler records when its `setTimeout(0)`, `MessageChannel` and `requestAnimationFrame` run,
+   a CDP click, then a drained probe. With nothing else, the timer ran 50 ms after the click on 7 of 9 clicks (the first
+   two came while the page still drew its load frames). With a 16x16 screencast started once and its frames never
+   acknowledged, it ran 6 to 13 ms after on 9 of 9. An earlier run gave 8 of 9
+   held and 5 to 12 ms with the cast. Focus emulation,
+   an overlay, an extra `Runtime.evaluate`, a mouse move and `Page.setWebLifecycleState` did not end the hold.
+2. **Fixed windows after the drained look.** The settle waited `IDLE_MS` (20 ms) after a click or fill that showed no
+   reaction and `LOADED_QUIET_MS` (50 ms) after a navigation's load event, though D56's drained look had already run
+   what the page queued.
+3. **The veil's page call ran before every input handler,** 1 to 2.5 ms.
+4. **Each large page script was compiled on every call.** The look, fill and locate scripts are 15 to 25 KB, and each
+   call's text held its arguments, so V8 compiled each anew: about 4 ms of a 5 ms evaluate.
+
+### What changed
+
+The four fixes in D62: a 1x1 screencast while an agent acts (`keepDrawing`, ends 3 s after the last action); `IDLE_MS`
+and `LOADED_QUIET_MS` at 0, with `Page.frameRequestedNavigation` counted as a reaction; the page library (functions
+installed once per document, called by a salted key); and the veil's call overlapped with the look before.
+
+The e2e gate then caught two regressions, both fixed before the pull request. A click on an `<a download>` link
+returned before the browser began the download, which the old 20 ms window had covered: the probe now notes such a
+click and settle waits up to `FILE_START_MS` (1 s) for `Page.downloadWillBegin` (e2e "a click on a download link
+reports the file it started (D49)"). A recording started while the keeper's cast ran failed with "Screencast is
+already active": it now takes the cast over (e2e "capture: a recording of a background tab is a WebM that plays").
+
+Tried and left out: folding the look before into the fill's call and the look after into the settle's first probe
+removed two page calls from a fill and saved 0.6 ms (22.0 against 22.6 ms, 25 calls each), inside the noise.
+
+### Results
+
+The rivals harness, 3 reps each, medians in ms. startMs is timed the same way for every tool since the fairness fix
+(start, open t01-read, first text); the baseline row for agent-browser predates it and reads 0.
+
+| Run | Load | Tool | click | fill | firstText | startMs | tasks |
+|---|---|---|---|---|---|---|---|
+| baseline, b5df132 | | tychicus | 71 | 43 | 112 | 2253 | 30/30 |
+| baseline | | agent-browser | 24 | 9 | 41 | 0 (unmeasured) | 30/30 |
+| after, 9149b13 (run 1) | 29 | tychicus | 40 | 21 | 61 | 2285 | 30/30 |
+| same session | 25 | agent-browser | 32 | 20 | 135 | 3894 | 30/30 |
+| after, 9149b13 (run 2) | 16 | tychicus | 27 | 16 | 48 | 1769 | 30/30 |
+| same session | 15 | agent-browser | 20 | 9 | 43 | 2049 | 30/30 |
+
+On the quieter pair, startMs is under agent-browser's, and click, fill and firstText are 7, 7 and 5 ms over it.
+`npm run evals:market` passes its floors (tasks 30/30, dom-bench 54/54).
+
+### What still blocks click, fill and firstText
+
+agent-browser's driver runs its CLI once per call against a CDP daemon and returns when the input is acknowledged: no
+settle and no change report. Tychicus's results say what each action changed, which needs a look before, a drained look
+after and a settle that waits for what the page queued. From the after trace:
+
+- **click (27 against 20).** 15.2 ms go from the input to the drained look. About 2.5 ms of it is the probe's round
+  trip; the rest is the page's tasks waiting for the next frame (`DeferRendererTasksAfterInput`), which comes on the
+  60 Hz frame clock, up to 16.7 ms after the input. The page's own reaction to the click (its `setTimeout(0)`) is held
+  for the same frame, so returning before it would report "nothing changed" for a click that changed the page (D56).
+  Without the frame wait the click would be about 18 ms. A browser flag can lift the hold, and the person's own Chrome
+  is not ours to set.
+- **fill (16 against 9).** The two looks and the settle probe are 8.5 ms of the 15.4; the transport, resolve and the
+  fill itself are about 7.
+- **firstText (48 against 43).** The page load is 38 ms of Tychicus's navigate, which no change here touches; Tychicus adds the
+  settle's drained look after the load (3.5 ms), which D56 needs for pages that draw at DOMContentLoaded or load, and
+  about 2 ms of transport each for navigate and get_page_text.
