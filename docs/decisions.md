@@ -2096,3 +2096,48 @@ The dom-bench floor and the market tasks gate it.
 1769; agent-browser 20, 9, 43 and 2049. Tasks 30/30 for both, dom-bench 54/54. The hop trace's click fell from 67.7 to
 29.9 ms, fill from 41.1 to 15.4 and navigate from 93.3 to 46.3. What keeps click, fill and first text above
 agent-browser's, which reports no changes and does not settle, is in `docs/verification/speed-trace.md`.
+
+## D63. The Linux helper: agent windows by workspace or by process, hands.json for access, no physical input (Claude, 2026-11-22)
+
+**Context.** Issue #27 asks for `tychicus-hands` on Linux. Linux has no lend sheet and no one way to keep an app off
+the person's screen: Hyprland and Sway have workspaces another program can use, X11 window managers have none that
+stays hidden, and GNOME and KDE under Wayland give another program no window control at all. Tychicus had no access
+setting for computer use outside Polycarp's Mac app.
+
+**Decision.**
+- Which windows are an agent's: on Hyprland and Sway, those on the agent workspace (`special:tychicus`,
+  `tychicus-agent`); everywhere, those of processes an agent started (recorded in Tychicus's state folder). Every other
+  window is the person's.
+- Access is `hands.json` in Tychicus's config folder: `access` (`read_only`, `default`, `full`; an unknown value reads
+  as `default`) and `apps`, read on every call. A file that is there but can't be read or parsed reads as `read_only`:
+  a typo must never widen what the person chose. Under `default` an agent uses only its own windows and may start editors,
+  calculators and viewers plus the listed apps. `full` opens every window to an agent on this computer. A connector is
+  capped at `default`, as the protocol says.
+- Browsers, mail, password managers and chat apps are never started for an agent, in any mode (`needs_sandbox`): an
+  agent copy would run in the person's own profile. The check follows `env`, `flatpak run`, `snap run` and symlinks,
+  matches name families and desktop categories, and refuses launchers it can't see through. Agent profiles for them
+  are later work.
+- An agent's app runs on a session bus of its own, so a single-instance app (most editors and viewers) can't take
+  the person's later launches into the agent's process.
+- Pictures under `default` only when nothing else can be in them: X11 checks the stacking order; Hyprland and Sway
+  can't (layer surfaces), so they need `full`. On GNOME and KDE, `open` needs `full`.
+- Opening: Hyprland's `exec [workspace special:tychicus silent]`; on Sway the helper makes a Wayland socket for the app
+  through security-context-v1, tagged with a random instance id for this launch, and adds
+  `for_window [sandbox_instance_id="<id>"] move container to workspace tychicus-agent` and `no_focus` for the same id
+  before the app starts, so its dialogs follow it and nothing takes focus. Sway keeps rules for its whole session, so
+  they name the launch, not a process id a later app of the person's could reuse; the app runs without `DISPLAY`, so it
+  can't map through Xwayland outside the rules. Sway before 1.10 (Ubuntu 24.04 ships 1.9) has no sandbox criteria:
+  there `tychicus-hands hold` starts the app stopped, adds `[pid=N]` rules, lets it run and never reaps it, so the pid
+  stays taken (a zombie once the app exits) until Sway's process exits and its rules with it. The holder ends on that
+  process (its pid and start time, from the socket's peer credentials), never on a missed IPC reply, and ignores
+  SIGTERM, SIGHUP and SIGINT. Once a rule may name the pid, a failure kills the app unstarted and keeps holding. Rules
+  can name only the started process, so `flatpak run` and `snap run` are refused there, and a window that still lands
+  off the agent workspace (an app that forks its window's process) is closed with its app and the open fails. The hold
+  route is taken only when Sway reports a version below 1.10; any other failure to make the socket refuses the open. On
+  X11 the helper watches focus for 1.2 s and gives it back through `_NET_ACTIVE_WINDOW` when the new app took it.
+- No physical input, ever: no XTest, uinput, ydotool or virtual keyboard. What AT-SPI can't do in the background
+  (`drag`, right clicks, keys with no accessibility meaning) answers `not_supported`.
+
+**Why.** The person's typing and pointer must never be shared with an agent, so input that could land in their window
+is out even where it would work most of the time. A file in the config folder is what `tychicus` already uses for
+settings, and reading it on every call makes a narrowing apply at once.

@@ -1404,7 +1404,7 @@ function registerLocalComputer(server: McpServer, local: LocalComputer): void {
 	server.registerTool(
 		COMPUTER_STATUS_TOOL,
 		{
-			description: "Whether computer use (computer_* tools for native Mac apps) is available here, and what to tell the user if it isn't. Example: {}",
+			description: "Whether computer use (computer_* tools for native apps) is available here, and what to tell the user if it isn't. Example: {}",
 			inputSchema: {},
 			annotations: { readOnlyHint: true, openWorldHint: false },
 		},

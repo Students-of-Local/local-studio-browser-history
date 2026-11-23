@@ -15,6 +15,7 @@ truth and this page is wrong: fix the page and the suite together.
 | Helper | Command | Answers `initialize` as | Connector name |
 | --- | --- | --- | --- |
 | Tychicus, macOS | `tychicus-hands mcp [--connector]` | `tychicus-hands` | `tychicus-connector` |
+| Tychicus, Linux (`hands/linux`) | `tychicus-hands mcp [--connector]` | `tychicus-hands` | `tychicus-connector` |
 | Polycarp before the removal (legacy) | `polycarp-spaces mcp [--connector]` | `baneyspaces` | `polycarp-connector` |
 
 `computerHelper()` in `cli/src/computer.ts` looks in this order and takes the first that exists:
@@ -28,6 +29,24 @@ truth and this page is wrong: fix the page and the suite together.
    `/Applications/Polycarp.app/Contents/Resources/bin/polycarp-spaces`, then `polycarp-spaces` on `PATH`. Only on a Mac.
 
 `computer_status` and `tychicus doctor` name the helper that was found and whether it answered, or say there is none.
+
+A connector's helper runs with a small environment of its own (`connectorHelperEnv`): `HOME`, `PATH`, the way to the
+person's desktop (`DISPLAY`, `XAUTHORITY`, `WAYLAND_DISPLAY`, `HYPRLAND_INSTANCE_SIGNATURE`, `SWAYSOCK`,
+`XDG_RUNTIME_DIR`, `XDG_CURRENT_DESKTOP`, `DBUS_SESSION_BUS_ADDRESS`, `AT_SPI_BUS_ADDRESS`) and where the person's
+Tychicus settings live (`XDG_CONFIG_HOME`, `TYCHICUS_CONFIG_DIR` and its inherited names). Nothing else of the
+service's reaches it.
+
+### The Linux helper
+
+`hands/linux` is a static Rust binary (x86_64 and aarch64, musl). It reads and acts through AT-SPI, takes windows from
+Hyprland, Sway or an X11 EWMH window manager, and on GNOME or KDE under Wayland works through AT-SPI alone and says so.
+It never sends physical input. The person's access mode and app list are `hands.json` in Tychicus's config folder
+(`{"access": "read_only" | "default" | "full", "apps": [...]}`), read on every call. What Linux can't do in the
+background answers `not_supported`: `drag`, right clicks, `press` of a key with no accessibility meaning, `shot` of a
+window that isn't on screen on a wlroots compositor, and window management on GNOME and KDE. Under Default a `shot`
+that could show another window (one stacked over it on X11, anything on a wlroots compositor) answers `not_supported`
+too. An app an agent starts gets a D-Bus session bus of its own, so the person's later launches never reach it. `lend` and `return`
+answer `needs_lend` as everywhere. Details, desktops and tests: `hands/linux/README.md`.
 
 ## Transport
 
@@ -244,3 +263,6 @@ managing verbs and lending refused).
 - Against a real helper: `TYCHICUS_HANDS_CONFORMANCE_BIN=/path/to/tychicus-hands node --test test/hands-conformance.test.mjs`
   from `cli/`. To see the cap hold over Full Access, set the person's mode to Full Access first; the suite checks that a
   connector never reports it.
+- The Linux helper runs it in CI against its own static binary in a headless desktop (Xvfb with openbox, and headless
+  sway), at Full, Default and Read Only, beside `cli/test/hands-linux-live.test.mjs`, which drives every verb on a GTK
+  fixture (`.github/workflows/hands-linux.yml`).
