@@ -72,6 +72,7 @@ import {
 import { type BrowserSession, TabLimitError, takeNotices } from "../browser/session.js";
 import { IDLE_MS, LOADED_QUIET_MS, settle, settleStart, unsettledNote, WAIT_SETTLE } from "../browser/settle.js";
 import { isPdfTab, pdfText } from "../offscreen/pdf-client.js";
+import { parseFilterValue } from "../site-edits/feed-match.js";
 import {
 	added as addedEdit,
 	change as changeEdits,
@@ -610,7 +611,18 @@ const editHandlers: Record<string, Handler> = {
 		const only = host ? normalizeHost(host) : undefined;
 		return {
 			adBlock: state.adBlock,
-			edits: state.edits.filter((e) => !only || e.host === only || only.endsWith(`.${e.host}`)),
+			edits: state.edits
+				.filter((e) => !only || e.host === only || only.endsWith(`.${e.host}`))
+				// A filter is listed as its words and handles, not the JSON it is kept as.
+				.map((e) => {
+					if (e.kind !== "filter") return e;
+					try {
+						const { value: _value, ...rest } = e;
+						return { ...rest, filter: parseFilterValue(e.value) };
+					} catch {
+						return e;
+					}
+				}),
 		};
 	},
 	"edits.add": async (ctx, params) => {
@@ -657,7 +669,9 @@ const editHandlers: Record<string, Handler> = {
 				note:
 					edit.kind === "script" && !edit.on
 						? "Saved, and off until the person turns it on in Settings > Sites: a script runs with their sign-in on every visit. Tell them it's waiting."
-						: "On now, for every visit. The person can undo it in Settings > Sites.",
+						: edit.kind === "filter"
+							? "On now, for every visit, in open tabs too. Each filtered page shows how many posts it hid, and a click shows them. The person can undo it in Settings > Sites."
+							: "On now, for every visit. The person can undo it in Settings > Sites.",
 			};
 		} catch (err) {
 			if (err instanceof SiteEditError) throw new BridgeError(ERR.BAD_PARAMS, err.message);

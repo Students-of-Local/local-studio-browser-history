@@ -2097,6 +2097,7 @@ The dom-bench floor and the market tasks gate it.
 29.9 ms, fill from 41.1 to 15.4 and navigate from 93.3 to 46.3. What keeps click, fill and first text above
 agent-browser's, which reports no changes and does not settle, is in `docs/verification/speed-trace.md`.
 
+<<<<<<< HEAD
 ## D63. The Linux helper: agent windows by workspace or by process, hands.json for access, no physical input (Claude, 2026-11-22)
 
 **Context.** Issue #27 asks for `tychicus-hands` on Linux. Linux has no lend sheet and no one way to keep an app off
@@ -2141,3 +2142,49 @@ setting for computer use outside Polycarp's Mac app.
 **Why.** The person's typing and pointer must never be shared with an agent, so input that could land in their window
 is out even where it would work most of the time. A file in the config folder is what `tychicus` already uses for
 settings, and reading it on every call makes a narrowing apply at once.
+=======
+## D64. Feed filters are a site edit kind with their own tool, run by the extension's own content script (Claude, 2026-11-23)
+
+**Context.** Owners ask agents to filter feeds in plain words: "hide every post about X on x.com", "remove Shorts from
+YouTube", "hide posts from these accounts on Reddit". The only way to do that before was `site_script`, which stays off
+until the person turns it on, and which every agent had to write anew per site, with a selector that breaks when the site
+changes.
+
+**Decision.**
+- *A new edit kind, `filter`, with its own MCP tool, `site_filter`.* The kind lives in the same store as hide, block and
+  script (`tk-site-edits`), so Settings > Sites, `site_edit list`, `off` and `remove`, the 300-edit cap and the
+  guarded-host check all cover it unchanged. The tool is separate rather than a `filter` action on `site_edit` because a
+  filter takes two lists and an optional selector, and `site_edit` has one string `value`: folding them in would mean
+  either JSON inside a string, which small local models get wrong, or three more optional arguments every `site_edit`
+  call carries. `site_filter`'s schema is five flat fields; `words` and `handles` are string arrays that also accept one
+  comma-separated string, since local models often send that. It sits behind `more_tools` in the small profile, and
+  `SMALL_INSTRUCTION` names it.
+- *The value is canonical JSON* (`{"words":[...],"handles":[...],"items":"..."}`): trimmed, duplicates dropped, handles as
+  `name` or `r/name`, so the same filter asked twice is one edit, and older builds that don't know the kind ignore it.
+- *On at once, like hide.* A filter is data, not code: the extension's own content script (`feed-filter.js`, an IIFE
+  registered with `chrome.scripting.registerContentScripts` for each site with a filter on, at `document_start`, and
+  injected into tabs already open there) finds posts and adds a class. Nothing an agent writes runs in the page.
+- *The page asks; storage stays in the worker.* The content script never touches `chrome.storage`: it asks the service
+  worker for its own page's filters (`tk-feed-filter:get`, answered only for this extension's script in a top frame of an
+  http(s) page), and after every site edit change the worker sends each web tab its filters again (`tk-feed-filter:set`),
+  so a removed or switched-off filter shows its posts at once. A storage listener in the page would have handed every
+  change to `chrome.storage.local` (allowed hosts, run records, mirrored settings) to each filtered site's renderer.
+  The only page-shaping input is the optional `items` selector, which goes through the same `checkSelectors` as hide and
+  is used with `querySelectorAll`, never as CSS. A regex that nests one repeat in another is refused (it could freeze the
+  page on every visit), and a post's text is read up to 10,000 characters.
+- *Hide, never remove; count and reveal.* Matched posts (or the list cell around them, on X) get `tk-feed-hidden`, and one
+  stylesheet hides that class unless `<html>` has `tk-feed-reveal`. A badge in an open shadow root says how many are
+  hidden; a click toggles the reveal, and its x closes it for that page. `html`, `body`, `main` and `[role=main]` are never
+  hidden, whatever selector a filter names.
+- *Batching.* A MutationObserver gathers added nodes; they are handled once per animation frame (before the frame is
+  drawn), or on a timer in a hidden tab, which draws no frames but which an agent may read. Text is read with a text-node
+  walk that puts a line break between block elements, because `textContent` runs a name, a time and the post together
+  ("1hcrypto") and word edges then miss; `innerText` would force layout on every post.
+- *Word matching.* Whole words at Unicode letter and digit edges, any case, all plain words in one alternation so a post
+  costs one scan. `/regex/` with no flags is case-insensitive; written flags are used as given, without `g`, `y` or `d`.
+  On YouTube the word `Shorts` is a format check (Shorts shelves, tiles and `/shorts/` links), not text.
+
+**Results.** In Chromium (`cli/test/e2e-feed-filter.test.mjs`, macOS, Apple silicon): the first pass over 2,000 posts
+took 16.1 ms, a 2,000-post scroll batch 14.7 ms, and a recheck of 4,000 posts after the filters changed 16.4 ms. The
+test fails over 50 ms per batch.
+>>>>>>> 1743b19 (Add site_filter: hide a site's feed posts by words or accounts)

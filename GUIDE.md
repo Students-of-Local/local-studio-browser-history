@@ -184,6 +184,7 @@ connector, see [Remote MCP and tunnels](#remote-mcp-and-tunnels).
 | `tabs_show` | Bring a tab in front of you, when you need to sign in or see it |
 | `ask_user` | Ask you 1 to 4 multiple-choice questions in the side panel and wait for your answer (you can always type your own). The toolbar icon shows a badge while one waits; it gives up after 5 minutes, or sooner if your harness's tool timeout is shorter (Claude Code: `MCP_TOOL_TIMEOUT`, in ms; Codex: `tool_timeout_sec` on the server). Giving up takes the question off the panel |
 | `library_add`, `library_search`, `library_cite` | Save verified sources and cite them (see [Library](#library)) |
+| `site_edit`, `site_filter`, `site_script` | Change a site for you on every visit: hide parts of it, block its requests, turn on ad blocking, filter its feed by topic or account, or propose a script you turn on yourself (see [Site edits and feed filters](#site-edits-and-feed-filters)) |
 | `computer_status`, `computer_*` | On a Mac with Polycarp's app: native apps on the agent workspace, in the background, never taking focus (below) |
 
 **How much a read returns.** Each read tool answers with a bounded part and says when it cut, with the call that reads on, so one page can't fill an agent's context: `get_page_text` and `get_page_html` 50,000 characters (a PDF tab by pages), `run_js` values 50,000 (an `offset` reads on from the value kept, without running the code again) and `page_markdown` 40,000, all with `offset`; `read_page` 300 elements and 3,000 characters of text; `read_console` and `read_network` the newest 100 entries at 2,000 characters each, older ones by `offset` (after `clear` they are gone, and the note says so); `crawl` 3,000 characters a page; `files` `read` 50 KB of text (up to 200 KB with `max_bytes`) and `offset`, cut on a character boundary. No tool result is longer than 100,000 characters.
@@ -200,6 +201,45 @@ computer. They act on the agent workspace and apps you lend, or more if you chos
 app's Settings > Agents, and never take focus. Browser tools are for web pages; computer tools are for native apps.
 A helper that is missing, slow (over 2 seconds) or stopped never holds up the browser tools, and
 `computer_status` says why the computer tools aren't there. On Linux and Windows they are absent.
+
+## Site edits and feed filters
+
+An agent can change how a site looks for you, and the change stays on every visit. Each one is listed in the side panel
+under **Settings > Sites**, with a switch and a Remove button.
+
+- `site_edit` hides a fixed part of a page by CSS selector (a sidebar, a banner), blocks a request pattern on one site,
+  or turns ad blocking on. Its `list`, `off` and `remove` actions cover every kind of edit, filters included.
+- `site_script` saves JavaScript for a site. It stays off until you turn it on in Settings > Sites, because it runs signed
+  in as you.
+- `site_filter` hides feed posts by what they say or who posted them. Ask in plain words:
+
+| You say | The agent calls |
+| --- | --- |
+| "Hide every post about crypto on x.com" | `site_filter {"host":"x.com","words":["crypto","bitcoin","/airdrops?/"]}` |
+| "Remove Shorts from YouTube" | `site_filter {"host":"youtube.com","words":["Shorts"]}` |
+| "Hide posts from these accounts on Reddit" | `site_filter {"host":"reddit.com","handles":["u/spez","r/politics"]}` |
+| "Hide anything about the election on Hacker News" | `site_filter {"host":"news.ycombinator.com","words":["election","ballot"]}` |
+
+How a filter matches:
+
+- **Words** match whole words and phrases in any case: `ai` hides "New AI model" but not "she said"; `machine learning`
+  matches across line breaks. A word written `/like this/` is a regular expression, in any case unless you write flags
+  (`/AI/u` is case-sensitive). A pattern that nests one repeat inside another, like `(a+)+`, is refused because it can
+  freeze a page.
+- **Handles** are accounts: `@name`, `u/name` and `name` are the same account; `r/name` is a subreddit. On YouTube a
+  handle is the channel's `@handle`.
+- **On YouTube**, the word `Shorts` hides Shorts shelves and Shorts videos, not every title that says "shorts".
+- **Where posts are** is built in for x.com and twitter.com, YouTube, Reddit (new and old), Hacker News, Bluesky and
+  LinkedIn. Elsewhere a post is an `article` or `[role=article]`. When that misses, the agent passes `items`, a CSS
+  selector for one post.
+- **The host** covers its subdomains: `reddit.com` covers `old.reddit.com`. `*.reddit.com` means the same.
+
+A filter is on as soon as it is saved, in tabs already open too. It needs no extra switch: Tychicus's own content script
+does the hiding, and it only reads text and adds a class, never runs code from the agent. Hidden posts stay in the page
+(nothing is removed), so the site keeps working. A small count at the bottom left says how many it hid, like
+"12 hidden by your filter": click it to show them outlined, click again to hide them, or close it with the x for that
+page. Posts that load as you scroll are checked before they are drawn; on 2,000 posts a pass takes about 15 ms in
+Chromium (`cli/test/e2e-feed-filter.test.mjs` fails over 50 ms).
 
 ## Sessions and tab groups
 

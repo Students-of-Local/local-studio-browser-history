@@ -12,7 +12,7 @@
  * Left out of the panel, and why: tabs_* (the panel's navigate tool lists, opens, switches, shows and
  * closes its tabs), run_js and get_page_html (the REPL), files (its upload approval is the bridge's
  * own question flow), read_console, read_network, inspect_page and capture (debugging and evidence
- * for outside agents), site_edit and site_script (Settings > Sites), search, crawl, skills, library
+ * for outside agents), site_edit, site_filter and site_script (Settings > Sites), search, crawl, skills, library
  * and threads (the helper's or the panel's own tools).
  */
 
