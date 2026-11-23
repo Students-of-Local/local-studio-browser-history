@@ -379,3 +379,37 @@ test("a post's text keeps blocks apart and inline runs whole, so word edges hold
 	assert.equal(core.itemText(doc.getElementById("a"), 4), "1h\nc");
 	window.close();
 });
+
+test("the content script starts once per page however often it is injected, and an orphaned copy steps aside", async () => {
+	installFakeChrome();
+	const window = page("x.com", `<article data-testid="tweet" id="p1">crypto moon</article>`);
+	const saved = { document: globalThis.document, window: globalThis.window, location: globalThis.location };
+	Object.assign(globalThis, { document: window.document, window, location: window.location });
+	try {
+		chrome.runtime.sendMessage = async () => [{ words: ["crypto"], handles: [] }];
+		const listeners = chrome.runtime.onMessage.listeners;
+		const before = listeners.length;
+		// Every site-edit change injects the script into open tabs again.
+		await import("../src/site-edits/feed-filter.ts?inject=1");
+		await import("../src/site-edits/feed-filter.ts?inject=2");
+		await import("../src/site-edits/feed-filter.ts?inject=3");
+		for (let i = 0; i < 5; i++) await tick();
+		assert.equal(window.document.querySelectorAll("[data-tychicus=feed-filter]").length, 1, "one badge");
+		assert.equal(listeners.length - before, 1, "one listener for new filters");
+		assert.equal(hidden(window.document).length, 1);
+
+		// The extension reloads: the old copy can't reach it, so the next injection takes over and shows one badge still.
+		const running = globalThis.__tychicusFeedFilter;
+		running.alive = () => false;
+		await import("../src/site-edits/feed-filter.ts?inject=4");
+		for (let i = 0; i < 5; i++) await tick();
+		assert.notEqual(globalThis.__tychicusFeedFilter, running, "the new copy took over");
+		assert.equal(window.document.querySelectorAll("[data-tychicus=feed-filter]").length, 1, "still one badge");
+		assert.equal(hidden(window.document).length, 1);
+	} finally {
+		globalThis.__tychicusFeedFilter?.stop();
+		globalThis.__tychicusFeedFilter = undefined;
+		Object.assign(globalThis, saved);
+		window.close();
+	}
+});

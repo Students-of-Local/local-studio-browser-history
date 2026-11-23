@@ -38,6 +38,22 @@ if (previous && !previous.alive()) {
 
 if (!scope[STARTED] && typeof chrome !== "undefined" && reachable() && typeof document !== "undefined") {
 	let filter: FeedFilter | undefined;
+	const listening = new AbortController();
+	let onSet: ((message: unknown) => undefined) | undefined;
+	// Set first, so a second injection into this page (every site-edit change injects into open tabs) does nothing.
+	scope[STARTED] = {
+		alive: reachable,
+		stop: () => {
+			filter?.stop();
+			filter = undefined;
+			listening.abort();
+			try {
+				if (onSet) chrome.runtime.onMessage.removeListener(onSet);
+			} catch {
+				// An orphaned copy can no longer reach its runtime: nothing more to remove.
+			}
+		},
+	};
 	/** Set once the worker has sent filters: an answer to the first question can't be newer, so it is dropped. */
 	let pushed = false;
 	const apply = (specs: unknown) => {
@@ -46,13 +62,14 @@ if (!scope[STARTED] && typeof chrome !== "undefined" && reachable() && typeof do
 		if (filter) filter.update(list);
 		else if (list.length) filter = startFeedFilter(document, list, { hostname: location.hostname });
 	};
-	chrome.runtime.onMessage.addListener((message: unknown) => {
+	onSet = (message: unknown) => {
 		const m = message as { type?: unknown; filters?: unknown } | null;
 		if (m?.type !== FEED_FILTER_SET) return undefined;
 		pushed = true;
 		apply(m.filters);
 		return undefined;
-	});
+	};
+	chrome.runtime.onMessage.addListener(onSet);
 	const ask = () => {
 		const asked = pushed;
 		chrome.runtime
@@ -65,13 +82,21 @@ if (!scope[STARTED] && typeof chrome !== "undefined" && reachable() && typeof do
 	};
 	ask();
 	// A prerendered page or one restored from the back/forward cache missed changes sent while it was hidden: ask again.
-	document.addEventListener("prerenderingchange", () => {
-		pushed = false;
-		ask();
-	});
-	window.addEventListener("pageshow", (e) => {
-		if (!e.persisted) return;
-		pushed = false;
-		ask();
-	});
+	document.addEventListener(
+		"prerenderingchange",
+		() => {
+			pushed = false;
+			ask();
+		},
+		{ signal: listening.signal },
+	);
+	window.addEventListener(
+		"pageshow",
+		(e) => {
+			if (!e.persisted) return;
+			pushed = false;
+			ask();
+		},
+		{ signal: listening.signal },
+	);
 }
