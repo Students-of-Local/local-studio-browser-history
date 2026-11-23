@@ -2128,8 +2128,13 @@ setting for computer use outside Polycarp's Mac app.
   they name the launch, not a process id a later app of the person's could reuse; the app runs without `DISPLAY`, so it
   can't map through Xwayland outside the rules. Sway before 1.10 (Ubuntu 24.04 ships 1.9) has no sandbox criteria:
   there `tychicus-hands hold` starts the app stopped, adds `[pid=N]` rules, lets it run and never reaps it, so the pid
-  stays taken (a zombie once the app exits) until Sway exits and its rules with it; on X11
-  the helper watches focus for 1.2 s and gives it back through `_NET_ACTIVE_WINDOW` when the new app took it.
+  stays taken (a zombie once the app exits) until Sway's process exits and its rules with it. The holder ends on that
+  process (its pid and start time, from the socket's peer credentials), never on a missed IPC reply, and ignores
+  SIGTERM, SIGHUP and SIGINT. Once a rule may name the pid, a failure kills the app unstarted and keeps holding. Rules
+  can name only the started process, so `flatpak run` and `snap run` are refused there, and a window that still lands
+  off the agent workspace (an app that forks its window's process) is closed with its app and the open fails. The hold
+  route is taken only when Sway reports a version below 1.10; any other failure to make the socket refuses the open. On
+  X11 the helper watches focus for 1.2 s and gives it back through `_NET_ACTIVE_WINDOW` when the new app took it.
 - No physical input, ever: no XTest, uinput, ydotool or virtual keyboard. What AT-SPI can't do in the background
   (`drag`, right clicks, keys with no accessibility meaning) answers `not_supported`.
 

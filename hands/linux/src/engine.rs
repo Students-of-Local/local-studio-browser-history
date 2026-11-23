@@ -254,6 +254,43 @@ pub fn program_names(argv: &[String]) -> Result<(Vec<String>, String), String> {
     Err("nothing".into())
 }
 
+/// Whether `argv` starts its app through a launcher that runs the app as another process (`flatpak run` through
+/// bwrap, `snap run` under confinement), so the app's windows don't carry the pid the helper started.
+pub fn launcher_forks(argv: &[String]) -> bool {
+    let mut i = 0;
+    while i < argv.len() {
+        let raw = &argv[i];
+        let found = if raw.contains('/') {
+            Some(raw.clone())
+        } else {
+            which(raw)
+        };
+        let mut bases = vec![basename(raw)];
+        if let Some(real) = found.and_then(|f| std::fs::canonicalize(f).ok()) {
+            bases.push(basename(&real.to_string_lossy()));
+        }
+        let plain: Vec<String> = bases
+            .iter()
+            .map(|b| {
+                b.to_lowercase()
+                    .trim_end_matches(|c: char| c.is_ascii_digit() || c == '.')
+                    .to_string()
+            })
+            .collect();
+        if plain.iter().any(|b| b == "env") {
+            match past_env_options(argv, i + 1) {
+                Some(k) => {
+                    i = k;
+                    continue;
+                }
+                None => return false,
+            }
+        }
+        return plain.iter().any(|b| b == "flatpak" || b == "snap");
+    }
+    false
+}
+
 /// The index of the command `env` runs, past its options and NAME=VALUE assignments. None for an option whose
 /// meaning isn't plain (`-S` splits a string into a new command line, `-C` and the signal options take values this
 /// doesn't follow): a command the helper can't name is refused.
@@ -2105,10 +2142,20 @@ impl Engine {
         // On Sway the app connects through a Wayland socket of its own, whose clients carry a security-context id made
         // for this launch; the placement rules name that id. Without DISPLAY it can't slip out through Xwayland.
         // A Sway before 1.10 has no sandbox criteria; there `hold` starts the app and keeps its pid from reuse.
-        let agent_display = match &self.backend {
+        let held = match &self.backend {
             // TYCHICUS_HANDS_SWAY_HOLD=1 takes the older route on a newer Sway too, for its tests.
-            Backend::Sway(_) if std::env::var_os("TYCHICUS_HANDS_SWAY_HOLD").is_some() => None,
-            Backend::Sway(_) => sway_agent_display(&self.backend).ok(),
+            Backend::Sway(sock) => {
+                std::env::var_os("TYCHICUS_HANDS_SWAY_HOLD").is_some()
+                    || crate::desktop::sway_version(sock).is_some_and(|v| v < (1, 10))
+            }
+            _ => false,
+        };
+        if held && launcher_forks(&argv) {
+            return Err(not_supported(format!("{app} starts through a launcher that runs it as another process, and on Sway before 1.10 the helper can keep only the process it starts off the person's workspace"))
+                .suggest("Name the app's own command, or update Sway to 1.10 or later."));
+        }
+        let agent_display = match &self.backend {
+            Backend::Sway(_) if !held => Some(sway_agent_display(&self.backend)?),
             _ => None,
         };
         let full = own_bus(
@@ -2155,6 +2202,23 @@ impl Engine {
                     && (w.frame.is_some() || self.backend.has_wm())
             });
             if let Some(w) = fresh.cloned() {
+                if matches!(self.backend, Backend::Sway(_))
+                    && w.wm.workspace.as_deref() != Some(crate::desktop::SWAY_AGENT)
+                {
+                    // The placement rules missed it (a process the app forked maps it): the window and the app go.
+                    let _ = self.backend.close(w.wm.id);
+                    kill_tree(pid);
+                    if w.wm.focused {
+                        if let Some(prev) = focused_before {
+                            self.backend.focus(prev);
+                        }
+                    }
+                    return Err(not_supported(format!(
+                        "{label} put a window on {} instead of the agent workspace, so the helper closed it and stopped the app",
+                        w.wm.workspace.as_deref().unwrap_or("the person's workspace")
+                    ))
+                    .suggest("Its windows come from a process the placement rules don't name. Update Sway to 1.10 or later, or ask the person to open it."));
+                }
                 self.opened.push((w.wm.id, app.clone()));
                 let mut changed = false;
                 let mut returned = false;
@@ -2521,7 +2585,7 @@ pub fn own_bus(argv: &[String], a11y: &str, daemon: &str, cleanup: Option<&Path>
 fn sway_agent_display(backend: &Backend) -> HResult<crate::wl::AgentDisplay> {
     let refuse = |why: String| {
         not_supported(format!("can't keep the app off the person's workspace on Sway: {why}")).suggest(
-            "Sway 1.9 or later keeps an agent's app on its own workspace (security-context-v1 and sandbox criteria).",
+            "Sway 1.10 or later keeps an agent's app on its own workspace (security-context-v1 and sandbox criteria).",
         )
     };
     let display =
@@ -2537,9 +2601,10 @@ fn sway_agent_display(backend: &Backend) -> HResult<crate::wl::AgentDisplay> {
 }
 
 /// Starts `argv` through `tychicus-hands hold` (src/hold.rs) on a Sway without sandbox criteria, and answers the app's
-/// process id once its placement rules are in.
+/// process id once its placement rules are in. The holder is never killed from here: once a rule may name the pid, only
+/// the holder can keep it from reuse. A holder that hasn't answered in time finds its pipe closed when it does, and then
+/// kills its app unstarted.
 fn spawn_held(sock: &Path, argv: &[String]) -> HResult<u32> {
-    use std::io::BufRead;
     use std::os::unix::process::CommandExt;
     let fail = |why: String| {
         HandsError::new(
@@ -2552,6 +2617,8 @@ fn spawn_held(sock: &Path, argv: &[String]) -> HResult<u32> {
     cmd.arg("hold")
         .arg(sock)
         .args(argv)
+        // Without DISPLAY the app can't slip out through Xwayland, where a missing _NET_WM_PID escapes the pid rules.
+        .env_remove("DISPLAY")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null());
@@ -2566,23 +2633,71 @@ fn spawn_held(sock: &Path, argv: &[String]) -> HResult<u32> {
         .stdout
         .take()
         .ok_or_else(|| fail("no output".into()))?;
-    let (tx, rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        let mut line = String::new();
-        let _ = std::io::BufReader::new(out).read_line(&mut line);
-        let _ = tx.send(line);
-    });
-    let line = rx.recv_timeout(Duration::from_secs(5)).unwrap_or_default();
-    let answer = line.trim();
-    let pid = answer.parse::<u32>().ok();
-    if pid.is_none() {
-        let _ = child.kill();
-    }
+    // Two rules at up to 3 s each, after up to 2 s for the app to stop at its start, fit well inside this.
+    let line = read_line_by(out, Instant::now() + Duration::from_secs(20));
     // The holder runs until Sway exits; reap it then, so it never lingers as a zombie of this helper.
     std::thread::spawn(move || {
         let _ = child.wait();
     });
-    pid.ok_or_else(|| fail(answer.strip_prefix("error ").unwrap_or(answer).to_string()))
+    let answer = line.trim();
+    answer.parse::<u32>().map_err(|_| {
+        fail(match answer {
+            "" => "the holder didn't answer within 20 s".to_string(),
+            a => a.strip_prefix("error ").unwrap_or(a).to_string(),
+        })
+    })
+}
+
+/// One line from `out`, or what came before `deadline`. Dropping `out` on return closes the pipe's read end.
+fn read_line_by(mut out: std::process::ChildStdout, deadline: Instant) -> String {
+    use std::io::Read;
+    use std::os::fd::AsRawFd;
+    let mut got = Vec::new();
+    while !got.contains(&b'\n') {
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            break;
+        }
+        let mut p = libc::pollfd {
+            fd: out.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        if unsafe { libc::poll(&mut p, 1, left.as_millis().min(i32::MAX as u128) as i32) } <= 0 {
+            break;
+        }
+        let mut buf = [0u8; 256];
+        match out.read(&mut buf) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => got.extend_from_slice(&buf[..n]),
+        }
+    }
+    let end = got.iter().position(|&b| b == b'\n').unwrap_or(got.len());
+    String::from_utf8_lossy(&got[..end]).into_owned()
+}
+
+/// Kills `pid` and every process that descends from it, children first found, so none is left to reparent and run on.
+fn kill_tree(pid: u32) {
+    let mut all = vec![pid];
+    for e in std::fs::read_dir("/proc").into_iter().flatten().flatten() {
+        let Ok(p) = e.file_name().to_string_lossy().parse::<u32>() else {
+            continue;
+        };
+        let mut up = p;
+        for _ in 0..32 {
+            match access::parent_of(up) {
+                Some(q) if q == pid => {
+                    all.push(p);
+                    break;
+                }
+                Some(q) if q > 1 => up = q,
+                _ => break,
+            }
+        }
+    }
+    for p in all {
+        unsafe { libc::kill(p as i32, libc::SIGKILL) };
+    }
 }
 
 /// Starts `argv` in its own session, detached from this helper's input and output. On X11 its startup id carries user
@@ -2740,6 +2855,28 @@ mod tests {
         ]))
         .unwrap();
         assert!(names.iter().any(|n| is_sandbox_app(n)), "{names:?}");
+    }
+
+    #[test]
+    fn launchers_that_run_the_app_as_another_process_are_named() {
+        let v = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert!(launcher_forks(&v(&[
+            "flatpak",
+            "run",
+            "org.gnome.TextEditor"
+        ])));
+        assert!(launcher_forks(&v(&[
+            "/usr/bin/flatpak",
+            "run",
+            "--user",
+            "org.gnome.TextEditor"
+        ])));
+        assert!(launcher_forks(&v(&[
+            "env", "-u", "X", "A=b", "flatpak", "run", "org.x.Y"
+        ])));
+        assert!(launcher_forks(&v(&["snap", "run", "gedit"])));
+        assert!(!launcher_forks(&v(&["gnome-calculator"])));
+        assert!(!launcher_forks(&v(&["env", "A=b", "gedit", "flatpak"])));
     }
 
     #[test]

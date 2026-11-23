@@ -422,6 +422,35 @@ test("the person's own launch of an app an agent started opens in a process of t
 	}
 });
 
+test("on sway, an app whose window comes from a process it forked is placed (1.10 and later) or refused and closed (before)", { skip: skip || (process.env.SWAYSOCK ? false : "sway only") }, async () => {
+	// A launcher that forks instead of exec: the window's pid is not the pid the helper started.
+	const forked = join(root, "forked-app");
+	writeFileSync(forked, `#!/bin/sh\npython3 '${fixture}' &\nwait\n`, { mode: 0o755 });
+	setAccess("default", [fixture, forked]);
+	try {
+		const had = new Set((await ok("windows", {})).data.windows.map((w) => w.id));
+		const call = await s.call("open", { app: forked });
+		if (swayHolds) {
+			// The pid rules miss the forked process's window: the helper closes it, stops the app and says so.
+			assertError(call, "not_supported", "never");
+			let left = [];
+			for (let i = 0; i < 20; i++) {
+				left = ((await s.call("windows", {})).envelope?.data?.windows ?? []).filter((w) => !had.has(w.id));
+				if (!left.length) break;
+				await sleep(250);
+			}
+			assert.deepEqual(left, [], "the stray window is gone");
+		} else {
+			// Every client of the launch's own socket carries its security context, the forked one too.
+			assert.ok(call.envelope?.ok, call.result.content[0].text);
+			assert.equal(call.envelope.data.workspace, "tychicus-agent");
+			await ok("close", { window: call.envelope.data.window });
+		}
+	} finally {
+		setAccess("default");
+	}
+});
+
 test("the person's window still has focus after every verb above", { skip }, async () => {
 	setAccess("full");
 	try {

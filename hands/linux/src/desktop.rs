@@ -363,9 +363,37 @@ pub fn sway_claim_pid(sock: &Path, pid: u32) -> Result<(), String> {
     Ok(())
 }
 
-/// True while Sway answers on `sock`.
-pub fn sway_alive(sock: &Path) -> bool {
-    sway(sock, 7, "").is_ok()
+/// The process behind Sway's IPC socket (the kernel's peer credentials, not anything Sway says), with its start time
+/// so a later process given the same pid isn't taken for it.
+pub fn sway_process(sock: &Path) -> Option<(u32, u64)> {
+    use std::os::fd::AsRawFd;
+    let s = UnixStream::connect(sock).ok()?;
+    let mut cred: libc::ucred = unsafe { std::mem::zeroed() };
+    let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
+    let r = unsafe {
+        libc::getsockopt(
+            s.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_PEERCRED,
+            &mut cred as *mut libc::ucred as *mut libc::c_void,
+            &mut len,
+        )
+    };
+    if r != 0 || cred.pid <= 0 {
+        return None;
+    }
+    let pid = cred.pid as u32;
+    Some((pid, crate::access::start_time(pid)?))
+}
+
+/// Sway's (major, minor) version, from GET_VERSION. None when it doesn't answer.
+pub fn sway_version(sock: &Path) -> Option<(u64, u64)> {
+    let reply = sway(sock, 7, "").ok()?;
+    sway_version_of(&serde_json::from_slice(&reply).ok()?)
+}
+
+pub fn sway_version_of(v: &Value) -> Option<(u64, u64)> {
+    Some((v["major"].as_u64()?, v["minor"].as_u64()?))
 }
 
 /// The rules `sway_claim` adds. They match only clients of the one security context, never a process id.
@@ -732,6 +760,21 @@ pub mod x11 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sway_versions_read_from_get_version() {
+        let v: Value =
+            serde_json::from_str(r#"{"major":1,"minor":9,"patch":0,"human_readable":"1.9"}"#)
+                .unwrap();
+        assert_eq!(sway_version_of(&v), Some((1, 9)));
+        assert!(sway_version_of(&v).is_some_and(|v| v < (1, 10)));
+        let v: Value = serde_json::from_str(r#"{"major":1,"minor":12}"#).unwrap();
+        assert!(!sway_version_of(&v).is_some_and(|v| v < (1, 10)));
+        assert_eq!(
+            sway_version_of(&serde_json::json!({"human_readable":"1.9"})),
+            None
+        );
+    }
 
     #[test]
     fn hyprland_clients_parse_with_the_agent_workspace_hidden() {
