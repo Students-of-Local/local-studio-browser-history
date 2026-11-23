@@ -6,6 +6,7 @@ mod atspi;
 mod desktop;
 mod engine;
 mod envelope;
+mod hold;
 mod mcp;
 mod rows;
 mod shot;
@@ -25,6 +26,8 @@ fn main() {
             }
             std::process::exit(mcp::serve(rest.iter().any(|a| a == "--connector")));
         }
+        // Internal: how `open` starts an agent's app on a Sway before 1.10 (src/hold.rs).
+        Some("hold") => std::process::exit(hold::run(&args[1..])),
         Some("--version") | Some("version") => println!("tychicus-hands {}", mcp::VERSION),
         Some("--help") | Some("-h") | Some("help") => print!("{USAGE}"),
         _ => {

@@ -2104,8 +2104,11 @@ impl Engine {
         };
         // On Sway the app connects through a Wayland socket of its own, whose clients carry a security-context id made
         // for this launch; the placement rules name that id. Without DISPLAY it can't slip out through Xwayland.
+        // A Sway before 1.10 has no sandbox criteria; there `hold` starts the app and keeps its pid from reuse.
         let agent_display = match &self.backend {
-            Backend::Sway(_) => Some(sway_agent_display(&self.backend)?),
+            // TYCHICUS_HANDS_SWAY_HOLD=1 takes the older route on a newer Sway too, for its tests.
+            Backend::Sway(_) if std::env::var_os("TYCHICUS_HANDS_SWAY_HOLD").is_some() => None,
+            Backend::Sway(_) => sway_agent_display(&self.backend).ok(),
             _ => None,
         };
         let full = own_bus(
@@ -2135,6 +2138,7 @@ impl Engine {
                 }
                 started?
             }
+            (Backend::Sway(sock), None) => spawn_held(sock, &full)?,
             _ => spawn(&full, false, &[])?,
         };
         // The app holds the pipe's write end now: the compositor accepts on its socket for as long as the app lives.
@@ -2489,7 +2493,7 @@ while [ ! -s "$dir/address" ] && [ $i -lt 100 ]; do sleep 0.05; i=$((i+1)); done
 addr=$(head -n 1 "$dir/address")
 [ -n "$addr" ] || { kill $bus 2>/dev/null; rm -rf "$dir"; exit 127; }
 app=$$
-(trap '' HUP; while kill -0 $app 2>/dev/null; do sleep 2; done; kill $bus 2>/dev/null; sleep 1; rm -rf "$dir" ${extra:+"$extra"}) </dev/null >/dev/null 2>&1 &
+(trap '' HUP; while kill -0 $app 2>/dev/null && [ "$(sed 's/.*) //' /proc/$app/stat 2>/dev/null | cut -c1)" != Z ]; do sleep 2; done; kill $bus 2>/dev/null; sleep 1; rm -rf "$dir" ${extra:+"$extra"}) </dev/null >/dev/null 2>&1 &
 DBUS_SESSION_BUS_ADDRESS=$addr AT_SPI_BUS_ADDRESS=$a11y
 export DBUS_SESSION_BUS_ADDRESS AT_SPI_BUS_ADDRESS
 exec "$@""#;
@@ -2530,6 +2534,55 @@ fn sway_agent_display(backend: &Backend) -> HResult<crate::wl::AgentDisplay> {
     // The rules go in first, so the app's first window already matches them.
     backend.sway_claim(&instance).map_err(refuse)?;
     crate::wl::agent_display(&display, &runtime, &instance).map_err(refuse)
+}
+
+/// Starts `argv` through `tychicus-hands hold` (src/hold.rs) on a Sway without sandbox criteria, and answers the app's
+/// process id once its placement rules are in.
+fn spawn_held(sock: &Path, argv: &[String]) -> HResult<u32> {
+    use std::io::BufRead;
+    use std::os::unix::process::CommandExt;
+    let fail = |why: String| {
+        HandsError::new(
+            Code::EngineError,
+            format!("can't place {} on the agent workspace: {why}", argv[0]),
+        )
+    };
+    let exe = std::env::current_exe().map_err(|e| fail(e.to_string()))?;
+    let mut cmd = std::process::Command::new(exe);
+    cmd.arg("hold")
+        .arg(sock)
+        .args(argv)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null());
+    unsafe {
+        cmd.pre_exec(|| {
+            libc::setsid();
+            Ok(())
+        });
+    }
+    let mut child = cmd.spawn().map_err(|e| fail(e.to_string()))?;
+    let out = child
+        .stdout
+        .take()
+        .ok_or_else(|| fail("no output".into()))?;
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut line = String::new();
+        let _ = std::io::BufReader::new(out).read_line(&mut line);
+        let _ = tx.send(line);
+    });
+    let line = rx.recv_timeout(Duration::from_secs(5)).unwrap_or_default();
+    let answer = line.trim();
+    let pid = answer.parse::<u32>().ok();
+    if pid.is_none() {
+        let _ = child.kill();
+    }
+    // The holder runs until Sway exits; reap it then, so it never lingers as a zombie of this helper.
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
+    pid.ok_or_else(|| fail(answer.strip_prefix("error ").unwrap_or(answer).to_string()))
 }
 
 /// Starts `argv` in its own session, detached from this helper's input and output. On X11 its startup id carries user

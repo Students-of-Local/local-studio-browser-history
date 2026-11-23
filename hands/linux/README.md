@@ -21,7 +21,7 @@ one outright.
 | Desktop | Windows from | Agent workspace | `open` | `shot` |
 | --- | --- | --- | --- | --- |
 | Hyprland | `hyprctl` socket | `special:tychicus` | `exec [workspace special:tychicus silent]` | Full Access: grim, when the window is on screen |
-| Sway | sway IPC | `tychicus-agent` (a named workspace) | its own Wayland socket (security-context-v1) with a random instance id; `for_window` and `no_focus` name that id | Full Access: grim, when the window is on screen |
+| Sway | sway IPC | `tychicus-agent` (a named workspace) | its own Wayland socket (security-context-v1) with a random instance id; `for_window` and `no_focus` name that id. Before Sway 1.10: `[pid=N]` rules, with the pid held by `tychicus-hands hold` until Sway exits | Full Access: grim, when the window is on screen |
 | X11 (EWMH window manager) | `_NET_CLIENT_LIST` | none: an agent's window is the one an agent started | started, focus watched 1.2 s and given back when the new app took it | X11 GetImage, clipped to the screen; under Default only when no window is stacked over it |
 | GNOME, KDE (Wayland) | AT-SPI frames only | none | Full Access only: started where the compositor puts it | not supported |
 

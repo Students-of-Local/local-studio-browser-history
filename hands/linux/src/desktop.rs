@@ -349,6 +349,25 @@ fn sway(sock: &Path, kind: u32, payload: &str) -> Result<Vec<u8>, String> {
     Ok(body)
 }
 
+/// Sway before 1.10 has no sandbox criteria: there the rules name process `pid`, which `hold` keeps from reuse for
+/// as long as Sway (and so the rules) lives.
+pub fn sway_claim_pid(sock: &Path, pid: u32) -> Result<(), String> {
+    for cmd in [
+        format!("for_window [pid={pid}] move container to workspace {SWAY_AGENT}"),
+        format!("no_focus [pid={pid}]"),
+    ] {
+        if !sway_ok(sock, &cmd) {
+            return Err(format!("sway refused: {cmd}"));
+        }
+    }
+    Ok(())
+}
+
+/// True while Sway answers on `sock`.
+pub fn sway_alive(sock: &Path) -> bool {
+    sway(sock, 7, "").is_ok()
+}
+
 /// The rules `sway_claim` adds. They match only clients of the one security context, never a process id.
 pub fn sway_claim_rules(instance: &str) -> [String; 2] {
     [

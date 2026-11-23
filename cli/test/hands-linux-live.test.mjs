@@ -35,6 +35,33 @@ let root;
 let env;
 let s;
 let win;
+let winPid;
+// Sway 1.10 added the sandbox criteria. Before it (or with TYCHICUS_HANDS_SWAY_HOLD) open takes the pid route.
+const swayHolds = (() => {
+	if (!process.env.SWAYSOCK) return false;
+	if (process.env.TYCHICUS_HANDS_SWAY_HOLD) return true;
+	try {
+		const { major, minor } = JSON.parse(spawnSync("swaymsg", ["-r", "-t", "get_version"], { encoding: "utf8" }).stdout);
+		return major < 1 || (major === 1 && minor < 10);
+	} catch {
+		return false;
+	}
+})();
+const statFields = (pid) => {
+	try {
+		return readFileSync(`/proc/${pid}/stat`, "utf8").replace(/^.*\) /s, "").split(" ");
+	} catch {
+		return [];
+	}
+};
+const procState = (pid) => statFields(pid)[0] ?? "";
+const holderOf = (pid) => {
+	try {
+		return readFileSync(`/proc/${statFields(pid)[1]}/cmdline`, "utf8");
+	} catch {
+		return "";
+	}
+};
 
 function setAccess(access, apps = [fixture]) {
 	writeFileSync(join(env.TYCHICUS_CONFIG_DIR, "hands.json"), JSON.stringify({ access, apps }));
@@ -114,7 +141,8 @@ test("open starts the fixture as an agent window and gives focus back", { skip }
 		assert.equal(data.scope, "agent_workspace");
 		assert.equal(data.workspace, "tychicus-agent");
 		assert.equal(data.focus.changed, false);
-		// The rules that placed it name this launch's security context, never a process id another app could reuse.
+		// The rules that placed it name this launch's security context (Sway 1.10 and later), never a process id another
+		// app could reuse. Before 1.10 they name the pid, and a `tychicus-hands hold` parent keeps it from reuse.
 		const tree = JSON.parse(spawnSync("swaymsg", ["-r", "-t", "get_tree"], { encoding: "utf8" }).stdout);
 		const views = [];
 		const walk = (n) => {
@@ -123,7 +151,9 @@ test("open starts the fixture as an agent window and gives focus back", { skip }
 		};
 		walk(tree);
 		assert.equal(views.length, 1);
-		assert.match(views[0].sandbox_instance_id ?? "", /^tychicus-[0-9a-f]{32}$/, JSON.stringify(views[0]).slice(0, 400));
+		winPid = data.pid;
+		if (swayHolds) assert.match(holderOf(winPid), /tychicus-hands\0hold\0/, "the app's parent holds its pid");
+		else assert.match(views[0].sandbox_instance_id ?? "", /^tychicus-[0-9a-f]{32}$/, JSON.stringify(views[0]).slice(0, 400));
 	}
 	const list = (await ok("windows", {})).data;
 	assert.equal(list.access, "default");
@@ -407,6 +437,16 @@ test("close shuts the window this session opened", { skip }, async () => {
 	const { data } = await ok("close", { window: win });
 	assert.equal(data.verified, true, JSON.stringify(data));
 	assertError(await s.call("snapshot", { window: win }), "window_not_found");
+	if (swayHolds) {
+		// The app is gone, but its pid stays taken (a zombie of the holder) for as long as Sway keeps its pid rules.
+		let state = "";
+		for (let i = 0; i < 40 && state !== "Z"; i++) {
+			state = procState(winPid);
+			if (state !== "Z") await sleep(250);
+		}
+		assert.equal(state, "Z", "the agent app's pid is held after it exits");
+		assert.match(holderOf(winPid), /tychicus-hands\0hold\0/);
+	}
 });
 
 test("through tychicus mcp: computer_open the fixture, type into its text field, read it back", { skip: skip || (existsSync(cli) ? false : "build the CLI first (cd cli && npm run build)") }, async () => {

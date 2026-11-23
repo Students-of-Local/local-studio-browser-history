@@ -2064,7 +2064,9 @@ setting for computer use outside Polycarp's Mac app.
   `for_window [sandbox_instance_id="<id>"] move container to workspace tychicus-agent` and `no_focus` for the same id
   before the app starts, so its dialogs follow it and nothing takes focus. Sway keeps rules for its whole session, so
   they name the launch, not a process id a later app of the person's could reuse; the app runs without `DISPLAY`, so it
-  can't map through Xwayland outside the rules, and a Sway without the protocol refuses `open`; on X11
+  can't map through Xwayland outside the rules. Sway before 1.10 (Ubuntu 24.04 ships 1.9) has no sandbox criteria:
+  there `tychicus-hands hold` starts the app stopped, adds `[pid=N]` rules, lets it run and never reaps it, so the pid
+  stays taken (a zombie once the app exits) until Sway exits and its rules with it; on X11
   the helper watches focus for 1.2 s and gives it back through `_NET_ACTIVE_WINDOW` when the new app took it.
 - No physical input, ever: no XTest, uinput, ydotool or virtual keyboard. What AT-SPI can't do in the background
   (`drag`, right clicks, keys with no accessibility meaning) answers `not_supported`.
