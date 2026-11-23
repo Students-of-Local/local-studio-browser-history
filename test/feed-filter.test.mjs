@@ -54,6 +54,14 @@ test("/regex/ terms: any case unless flags are written, and the same answer ever
 	assert.ok(match.nestedQuantifier("(x{2,})+"));
 	assert.ok(!match.nestedQuantifier("(ab)+c*"));
 	assert.ok(!match.nestedQuantifier("a+b*"));
+	// A quantifier deeper than one group, or behind extra parentheses, is still a nested repeat.
+	assert.ok(match.nestedQuantifier("((a+))+$"));
+	assert.ok(match.nestedQuantifier("((\\w+\\s?))+$"));
+	assert.ok(match.nestedQuantifier("(x(y(z*)))*"));
+	// Escaped parentheses and character classes are not groups.
+	assert.ok(!match.nestedQuantifier("\\(a+\\)+"));
+	assert.ok(!match.nestedQuantifier("[(a+)]+"));
+	assert.ok(!match.nestedQuantifier("(a)(b+)"));
 });
 
 test("handles: @name, u/name, a profile link and the bare name are one account; r/name is a subreddit", () => {
@@ -82,6 +90,7 @@ test("the store keeps a filter in one canonical form and refuses what can't work
 		["not json", /JSON/],
 		[JSON.stringify({ words: [], handles: [] }), /words or handles/],
 		[JSON.stringify({ words: ["/(a+)+/"] }), /freeze/],
+		[JSON.stringify({ words: ["/((\\w+\\s?))+$/"] }), /freeze/],
 		[JSON.stringify({ words: ["/[/"] }), /can read/],
 		[JSON.stringify({ words: ["x".repeat(201)] }), /200/],
 		[JSON.stringify({ handles: ["two words"] }), /account name/],
@@ -159,6 +168,12 @@ test("the worker answers only its own content script in a web page's top frame, 
 	const page = { id: chrome.runtime.id, frameId: 0, url: "https://x.com/home", tab: { id: xTab.id } };
 	assert.deepEqual(await ask(page), [{ words: ["crypto"], handles: [] }]);
 	assert.deepEqual(await ask({ ...page, frameId: 3 }), [], "a frame inside the page gets nothing");
+	assert.deepEqual(
+		await ask({ ...page, frameId: 7, frameType: "outermost_frame" }),
+		[{ words: ["crypto"], handles: [] }],
+		"a prerendered page is a top document though not frame 0",
+	);
+	assert.deepEqual(await ask({ ...page, frameType: "sub_frame" }), [], "a frame inside the page gets nothing, whatever its number");
 	assert.deepEqual(await ask({ ...page, id: "another-extension" }), [], "another extension gets nothing");
 	assert.deepEqual(await ask({ ...page, url: "chrome-extension://fake/sidepanel.html" }), [], "only web pages ask");
 	assert.deepEqual(await ask({ ...page, url: "https://example.com/" }), [], "a page gets its own site's filters only");
@@ -322,6 +337,20 @@ test("Reddit, Hacker News and the generic fallback find their posts and authors;
 	window = page("example.com", `<div class="card" id="c1">crypto card</div><div class="card" id="c2">ok card</div>`);
 	core.startFeedFilter(window.document, [{ words: ["crypto"], handles: [], items: "div.card, body" }], { hostname: "example.com", badge: false });
 	assert.deepEqual(hidden(window.document).map((e) => e.id), ["c1"], "the page itself is never hidden, whatever the selector");
+	window.close();
+});
+
+test("two filters whose selectors overlap both get a say on a post", () => {
+	const window = page("example.com", `<main><article id="a">nba tonight</article><article id="b">fine</article></main>`);
+	core.startFeedFilter(
+		window.document,
+		[
+			{ words: ["crypto"], handles: [], items: "main article" },
+			{ words: ["nba"], handles: [] },
+		],
+		{ hostname: "example.com", badge: false },
+	);
+	assert.deepEqual(hidden(window.document).map((e) => e.id), ["a"]);
 	window.close();
 });
 

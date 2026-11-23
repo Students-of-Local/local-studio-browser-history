@@ -38,7 +38,34 @@ export function regexTerm(term: string): { source: string; flags: string } | und
  * Refused, since one would freeze the page on every visit.
  */
 export function nestedQuantifier(source: string): boolean {
-	return /\((?:[^()\\]|\\.)*[*+}](?:[^()\\]|\\.)*\)[*+{]/.test(source);
+	// One frame per open group: whether anything inside it repeats. Escapes and character classes are skipped whole.
+	const stack: boolean[] = [false];
+	const repeats = (c: string | undefined) => c === "*" || c === "+" || c === "{";
+	for (let i = 0; i < source.length; i++) {
+		const c = source[i];
+		if (c === "\\") {
+			i++;
+			continue;
+		}
+		if (c === "[") {
+			for (i++; i < source.length && source[i] !== "]"; i++) if (source[i] === "\\") i++;
+			continue;
+		}
+		if (c === "(") {
+			stack.push(false);
+			continue;
+		}
+		if (c === ")") {
+			if (stack.length < 2) continue;
+			const inner = stack.pop() as boolean;
+			const quantified = repeats(source[i + 1]);
+			if (quantified && inner) return true;
+			stack[stack.length - 1] ||= inner || quantified;
+			continue;
+		}
+		if (repeats(c)) stack[stack.length - 1] = true;
+	}
+	return false;
 }
 
 function escapeRegex(text: string): string {

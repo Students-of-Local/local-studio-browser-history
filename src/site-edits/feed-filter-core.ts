@@ -156,21 +156,28 @@ export function startFeedFilter(
 		}
 	}
 
-	function check(item: Element, group: Group) {
+	/** An item every group whose selector it matches has a say on: hidden when any of them hits. */
+	function check(item: Element, matched: Group[]) {
 		if (item.matches(PAGE_ROOTS)) return;
-		const text = group.profile.text?.(item) ?? itemText(item);
-		let handles: string[] | undefined;
-		const itemHandles = () => {
-			handles ??= group.profile.handles(item).filter(Boolean);
-			return handles;
-		};
-		const hit = group.filters.some((f) => f.test(text, itemHandles, item));
-		const targets = [
-			group.profile.target?.(item) ?? item,
-			...(group.custom ? [] : (group.profile.also?.(item) ?? [])),
-		].filter((t) => !t.matches(PAGE_ROOTS));
-		if (hit) hide(item, targets);
-		else show(item, targets);
+		const all: Element[] = [];
+		for (const group of matched) {
+			const text = group.profile.text?.(item) ?? itemText(item);
+			let handles: string[] | undefined;
+			const itemHandles = () => {
+				handles ??= group.profile.handles(item).filter(Boolean);
+				return handles;
+			};
+			const targets = [
+				group.profile.target?.(item) ?? item,
+				...(group.custom ? [] : (group.profile.also?.(item) ?? [])),
+			].filter((t) => !t.matches(PAGE_ROOTS));
+			if (group.filters.some((f) => f.test(text, itemHandles, item))) {
+				hide(item, targets);
+				return;
+			}
+			all.push(...targets);
+		}
+		show(item, all);
 	}
 
 	function batch() {
@@ -182,18 +189,23 @@ export function startFeedFilter(
 		const start = now();
 		const roots = [...pending];
 		pending.clear();
-		const found = new Map<Element, Group>();
+		const found = new Map<Element, Group[]>();
+		const add = (el: Element, group: Group) => {
+			const list = found.get(el);
+			if (!list) found.set(el, [group]);
+			else if (!list.includes(group)) list.push(group);
+		};
 		for (const root of roots) {
 			if (!root.isConnected) continue;
 			for (const group of groups) {
 				// Text that arrived inside a post already on the page: check the post again.
 				const up = root.closest(group.selector);
-				if (up && !found.has(up)) found.set(up, group);
-				for (const el of root.querySelectorAll(group.selector)) if (!found.has(el)) found.set(el, group);
+				if (up) add(up, group);
+				for (const el of root.querySelectorAll(group.selector)) add(el, group);
 			}
 		}
 		if (found.size) ensureStyle();
-		for (const [item, group] of found) check(item, group);
+		for (const [item, matched] of found) check(item, matched);
 		for (const item of hiddenItems) if (!item.isConnected) hiddenItems.delete(item);
 		const ms = now() - start;
 		stats.batches++;

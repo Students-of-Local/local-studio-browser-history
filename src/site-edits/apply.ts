@@ -227,6 +227,17 @@ function sameHost(a: string, b: string): boolean {
 
 let started = false;
 
+/**
+ * Whether a message came from a page's top document. A prerendered page (Chrome prerenders a confident address-bar
+ * suggestion) or a page in the back/forward cache is a top document too, but not frame 0, so the frame number alone would
+ * leave it unfiltered once it is shown.
+ */
+function topDocument(sender: chrome.runtime.MessageSender): boolean {
+	const frameType = (sender as { frameType?: string }).frameType;
+	if (frameType !== undefined) return frameType === "outermost_frame";
+	return sender.frameId === 0;
+}
+
 export function startSiteEdits(): void {
 	if (started) return;
 	started = true;
@@ -253,7 +264,7 @@ export function startSiteEdits(): void {
 	// The feed filter's question: its own page's filters, for this extension's content script in a page's top frame only.
 	chrome.runtime?.onMessage?.addListener((message: unknown, sender, sendResponse: (filters: unknown) => void) => {
 		if ((message as { type?: unknown } | null)?.type !== FEED_FILTER_GET) return undefined;
-		if (sender.id !== chrome.runtime.id || sender.frameId !== 0 || !/^https?:/.test(sender.url ?? "")) {
+		if (sender.id !== chrome.runtime.id || !topDocument(sender) || !/^https?:/.test(sender.url ?? "")) {
 			sendResponse([]);
 			return undefined;
 		}

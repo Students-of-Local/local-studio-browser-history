@@ -12,10 +12,31 @@ import { type FeedFilter, startFeedFilter } from "./feed-filter-core.js";
 import type { FeedFilterSpec } from "./feed-match.js";
 
 const STARTED = "__tychicusFeedFilter";
-const scope = globalThis as typeof globalThis & { [STARTED]?: boolean };
 
-if (!scope[STARTED] && typeof chrome !== "undefined" && chrome.runtime?.id && typeof document !== "undefined") {
-	scope[STARTED] = true;
+/** What a running copy leaves on the page: whether its extension is still there, and how to stop it. */
+interface Running {
+	alive(): boolean;
+	stop(): void;
+}
+const scope = globalThis as typeof globalThis & { [STARTED]?: Running };
+
+/** False once the extension reloads or updates: this copy can no longer reach the worker. */
+const reachable = () => {
+	try {
+		return !!chrome.runtime?.id;
+	} catch {
+		return false;
+	}
+};
+
+const previous = scope[STARTED];
+// A copy orphaned by an extension update or reload can't hear new filters: it steps aside for this one.
+if (previous && !previous.alive()) {
+	previous.stop();
+	scope[STARTED] = undefined;
+}
+
+if (!scope[STARTED] && typeof chrome !== "undefined" && reachable() && typeof document !== "undefined") {
 	let filter: FeedFilter | undefined;
 	/** Set once the worker has sent filters: an answer to the first question can't be newer, so it is dropped. */
 	let pushed = false;
@@ -32,10 +53,25 @@ if (!scope[STARTED] && typeof chrome !== "undefined" && chrome.runtime?.id && ty
 		apply(m.filters);
 		return undefined;
 	});
-	chrome.runtime
-		.sendMessage({ type: FEED_FILTER_GET })
-		.then((specs: unknown) => {
-			if (!pushed) apply(specs);
-		})
-		.catch(() => undefined);
+	const ask = () => {
+		const asked = pushed;
+		chrome.runtime
+			.sendMessage({ type: FEED_FILTER_GET })
+			.then((specs: unknown) => {
+				// An answer older than a pushed change is dropped.
+				if (pushed === asked) apply(specs);
+			})
+			.catch(() => undefined);
+	};
+	ask();
+	// A prerendered page or one restored from the back/forward cache missed changes sent while it was hidden: ask again.
+	document.addEventListener("prerenderingchange", () => {
+		pushed = false;
+		ask();
+	});
+	window.addEventListener("pageshow", (e) => {
+		if (!e.persisted) return;
+		pushed = false;
+		ask();
+	});
 }
