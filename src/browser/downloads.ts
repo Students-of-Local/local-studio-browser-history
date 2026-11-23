@@ -42,6 +42,7 @@ export function watchDownloads(): void {
 			const url = raw.startsWith("data:") ? `${raw.slice(0, raw.indexOf(",") + 1)}...` : maskUrl(raw).slice(0, 300);
 			list.set(guid, { name, ...(ext ? { type: ext } : {}), url, state: "started", at: Date.now() });
 			if (list.size > 20) list.delete(list.keys().next().value as string);
+			for (const check of [...begun]) check();
 		} else if (method === "Page.downloadProgress") {
 			const d = byTab.get(tabId)?.get(guid);
 			if (!d || p.state === "inProgress") return;
@@ -52,6 +53,30 @@ export function watchDownloads(): void {
 	});
 	onDebuggerSessionEnd((tabId) => byTab.delete(tabId));
 	chrome.tabs.onRemoved.addListener((tabId) => byTab.delete(tabId));
+}
+
+/** Called on every download that begins: downloadBegun's waiters. */
+const begun = new Set<() => void>();
+
+/**
+ * Wait up to `ms` for the tab to begin a download at or after `since`. Settle calls it when the page says a download
+ * link was clicked: the browser fetches the file before it creates the download, after the page has gone quiet.
+ */
+export async function downloadBegun(tabId: number, since: number, ms: number): Promise<boolean> {
+	const has = () => [...(byTab.get(tabId)?.values() ?? [])].some((d) => d.at >= since);
+	if (has() || ms <= 0) return has();
+	return new Promise<boolean>((done) => {
+		const finish = () => {
+			clearTimeout(timer);
+			begun.delete(check);
+			done(has());
+		};
+		const check = () => {
+			if (has()) finish();
+		};
+		const timer = setTimeout(finish, ms);
+		begun.add(check);
+	});
 }
 
 /** Downloads the tab began at or after `since`, waiting up to `waitMs` for those still going to end. */

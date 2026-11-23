@@ -34,6 +34,7 @@ import { VERSION } from "./version.ts";
 import { COMPUTER_INSTRUCTION, COMPUTER_STATUS_TOOL, type ComputerClient, LOCAL_COMPUTER_INSTRUCTION, LocalComputer } from "./computer.ts";
 import { COMMAND_NAME } from "./self.ts";
 import { envVar } from "./env.ts";
+import { hopTracer } from "./hop-trace.ts";
 import { configuredModel, launchOf, type ModelTier, type ProcessInfo, sessionTier } from "./model-tier.ts";
 import { chooseProfile, hideOutsideCore, peekClientName, SMALL_CORE, SMALL_INSTRUCTION } from "./small-profile.ts";
 import type { RosterDevice } from "./link-protocol.ts";
@@ -401,6 +402,7 @@ export function createMcpServer(options: McpServerOptions = {}): { server: McpSe
 	// Last, so a hidden tool's handler is the one the gates above wrapped.
 	const addMoreTools = small ? hideOutsideCore(server) : undefined;
 	const choice = options.session ? { name: options.session, auto: false } : chooseSession({ flag: options.sessionFlag });
+	const tracer = hopTracer();
 	const client = new BridgeClient({
 		name: options.name ?? harnessName(),
 		session: choice.name,
@@ -409,6 +411,7 @@ export function createMcpServer(options: McpServerOptions = {}): { server: McpSe
 		named: !options.session && choice.named === true,
 		project: "project" in choice ? choice.project : undefined,
 		...(options.model ? { tier: options.model.tier, ...(options.model.model ? { model: options.model.model } : {}) } : {}),
+		...tracer?.client,
 		onEvent: (event, data) => {
 			if (event === "permission_request") void handlePermission(data);
 			// The same session under a new name: its saved files go with it.
@@ -511,11 +514,13 @@ export function createMcpServer(options: McpServerOptions = {}): { server: McpSe
 	{
 		const register = server.registerTool.bind(server) as (...args: unknown[]) => unknown;
 		(server as unknown as { registerTool: (...args: unknown[]) => unknown }).registerTool = (name: unknown, config: unknown, cb: unknown, ...rest: unknown[]) => {
-			if (name === "run_js" || typeof cb !== "function") return register(name, config, cb, ...rest);
+			if (typeof cb !== "function") return register(name, config, cb, ...rest);
 			const handler = cb as (...a: unknown[]) => unknown;
+			const traced = tracer ? tracer.wrap(String(name), handler) : handler;
+			if (name === "run_js") return register(name, config, traced, ...rest);
 			return register(name, config, (...a: unknown[]) => {
 				lastValue = undefined;
-				return handler(...a);
+				return traced(...a);
 			}, ...rest);
 		};
 	}

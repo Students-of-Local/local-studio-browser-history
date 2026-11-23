@@ -90,6 +90,7 @@ import {
 	type ModelTier,
 	NATIVE_HOST_NAMES,
 	PROTOCOL_VERSION,
+	traceNow,
 	UPDATE_PROGRESS_KEY,
 	UPDATE_STATUS_KEY,
 } from "./protocol.js";
@@ -405,6 +406,11 @@ const othersOn = (tab: number, call: string) =>
 	[...(tabCalls.get(tab) ?? []), ...(stuckTabs.get(tab) ?? [])].some((c) => c !== call);
 /** The actions whose box the guard's notice may name (dialog-guard.ts); a hover, scroll or drag box has no known cause. */
 const CAUSE_KINDS = new Set(["click", "press", "type", "fill"]);
+/**
+ * Handlers that call actionStart before their first input, which waits for the veil's begin (ctx.inputReady). A pointer
+ * move into a cross-origin frame comes earlier, in locate, which waits for the same begin first (its beforeInput).
+ */
+const VEIL_AT_INPUT = new Set(["click", "fill", "type", "press", "scroll"]);
 
 /** The answer a single click or press set in advance, checked. `actions` takes none (D48): refused here. */
 function wantedPreset(method: string, params: Record<string, unknown>): WantedPreset | undefined {
@@ -442,13 +448,22 @@ function targetTabs(
 }
 
 async function runRequest(state: ClientState, req: HostForwardedRequest, answer?: DialogAnswer): Promise<void> {
-	const reply = (result?: unknown, error?: BridgeError) =>
+	/** The client's trace (TYCHICUS_TRACE): this call's marks go on it and back with the reply. */
+	const marks = Array.isArray(req.trace) && req.trace.length < 200 ? req.trace : undefined;
+	const mark = (label: string) => {
+		if (marks && marks.length < 200) marks.push([label, traceNow()]);
+	};
+	mark("ext.run");
+	const reply = (result?: unknown, error?: BridgeError) => {
+		mark("ext.out");
 		send({
 			type: "response",
 			clientId: req.clientId,
 			id: req.id,
 			...(error ? { error: error.toRpc() } : { result }),
+			...(marks ? { trace: marks } : {}),
 		});
+	};
 
 	// Aborted from the moment it is taken off the queue: the host can go away during any await
 	// below, and once it has, the agent was told this may have run and may repeat it.
@@ -491,6 +506,7 @@ async function runRequest(state: ClientState, req: HostForwardedRequest, answer?
 	let work: Promise<unknown> | undefined;
 	/** The session and the tab the in-use veil counted this call on (src/browser/veil.ts). */
 	let veiled: { session: BrowserSession; tabId: number | undefined; currentBefore: number | undefined } | undefined;
+	let veilBegun: Promise<number | undefined> | undefined;
 	/** The session this call ran in, for its step in the Runs view (src/runs/). */
 	let runSession: BrowserSession | undefined;
 	const tRun = performance.now();
@@ -529,9 +545,11 @@ async function runRequest(state: ClientState, req: HostForwardedRequest, answer?
 		runSession = session;
 		// The session can take seconds to open; the host may have gone meanwhile.
 		if (gone()) return;
+		mark("ext.session");
 		const ctx: HandlerContext = {
 			session,
 			clientId: state.clientId,
+			...(marks ? { mark } : {}),
 			dialogAnswer: answer,
 			emit: (event, data) => send({ type: "event", clientId: state.clientId, event, data }),
 			aborted: () => aborted,
@@ -677,11 +695,21 @@ async function runRequest(state: ClientState, req: HostForwardedRequest, answer?
 				if (own || !rivals) dialogCause(dialog.seq, cause);
 				if (own) answeredBox = { type: dialog.type, message: dialog.message };
 			});
-		veiled = {
-			session,
-			currentBefore: session.currentTabId,
-			tabId: await veilBegin(session, req.method, req.params).catch(() => undefined),
-		};
+		const v: NonNullable<typeof veiled> = { session, currentBefore: session.currentTabId, tabId: undefined };
+		veiled = v;
+		veilBegun = veilBegin(session, req.method, req.params)
+			.catch(() => undefined)
+			.then((id) => {
+				v.tabId = id;
+				return id;
+			});
+		// The veil's pill turns its button off before any input goes out. These handlers wait for that in actionStart,
+		// right before their input, so it overlaps their look at the page; every other handler waits here (D62).
+		if (VEIL_AT_INPUT.has(req.method)) {
+			const begun = veilBegun;
+			ctx.inputReady = () => begun.then(() => undefined);
+		} else await veilBegun;
+		mark("ext.handler");
 		work = handler(ctx, req.params ?? {});
 		const limit = handlerLimit(req.method) - waited;
 		// A call that can open a box runs out of time inside raceDialogs, which says what its on_dialog answered first
@@ -743,7 +771,11 @@ async function runRequest(state: ClientState, req: HostForwardedRequest, answer?
 		const cap = work && tabs.length ? setTimeout(stuck, 30_000) : undefined;
 		if (cap === undefined) release();
 		else void work?.then(settled, settled);
-		if (veiled) veilEnd(veiled.session, req.method, veiled.tabId, veiled.currentBefore);
+		if (veiled && veilBegun) {
+			// After the begin, even when the call failed before it waited for it: the pill's counts stay paired.
+			const v = veiled;
+			void veilBegun.then((id) => veilEnd(v.session, req.method, id, v.currentBefore));
+		}
 		state.abort = undefined;
 		state.inFlight = undefined;
 		state.lastActivityAt = Date.now();
@@ -909,6 +941,7 @@ function onHostMessage(message: HostToExt): void {
 			updateHandlers.progress?.(message);
 			return;
 		case "request": {
+			if (Array.isArray(message.trace)) message.trace.push(["ext.in", traceNow()]);
 			if (message.method === "permission.respond") {
 				// Answers must bypass the per-client queue: the request waiting for them is at its head.
 				const p = message.params ?? {};

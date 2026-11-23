@@ -169,8 +169,12 @@ export interface HandlerContext {
 	 * of PR 216).
 	 */
 	claimTab?(tabId: number): void;
+	/** Resolves once the veil's pill has turned its button off; actionStart waits for it before the input (D62). */
+	inputReady?(): Promise<void>;
 	/** Set for a step of `actions`: the batch settles once, after its last step. */
 	batch?: boolean;
+	/** Set only when the client traces its calls (TYCHICUS_TRACE): note that this phase of the call ended now. */
+	mark?(label: string): void;
 }
 
 /**
@@ -218,10 +222,12 @@ async function settleAfter(
 			...(options.idle && !inFrame ? { idleMs: IDLE_MS } : {}),
 			...(options.loaded ? { loadedQuietMs: LOADED_QUIET_MS } : {}),
 		}).catch(() => undefined);
+		ctx.mark?.("settle");
 		const out: Record<string, unknown> = settled ? unsettledNote(settled) : {};
 		const kinds = new Set<EffectKind>();
 		if (inFrame) kinds.add("unknown");
 		const downloads = await downloadsSince(tabId, since, DOWNLOAD_WAIT_MS);
+		ctx.mark?.("downloads");
 		if (downloads.length) {
 			Object.assign(out, { downloads, downloadNote: DOWNLOAD_NOTE });
 			kinds.add("download");
@@ -250,6 +256,7 @@ async function settleAfter(
 		if (openDialog(tabId)) kinds.add("dialog");
 		if (settled?.waitingOn === "navigation") kinds.add("navigation");
 		const refound = takeRefound(tabId);
+		ctx.mark?.("changes");
 		return { ...out, ...(refound ? { refound } : {}), ...effectFields(out.changes, kinds) };
 	} finally {
 		ctx.delivered();
@@ -282,8 +289,10 @@ function sameDocument(url: string, from: string): boolean {
  * When an action starts, for its settle wait: Network on in its tab. A batch step skips it, since the
  * batch turned Network on once before its first step and settles once after its last.
  */
-function actionStart(ctx: HandlerContext, tabId: number): Promise<number> {
-	return ctx.batch ? Promise.resolve(Date.now()) : settleStart(tabId);
+async function actionStart(ctx: HandlerContext, tabId: number): Promise<number> {
+	if (ctx.batch) return Date.now();
+	const [since] = await Promise.all([settleStart(tabId), ctx.inputReady?.()]);
+	return since;
 }
 
 /**
@@ -498,7 +507,7 @@ async function pointFor(
 			ERR.BAD_PARAMS,
 			"Give a ref from read_page (best), a selector, or x and y from your latest screenshot.",
 		);
-	const rect = await locate(tabId, t, skipFor(ctx, tabId), act, before?.frame.hit);
+	const rect = await locate(tabId, t, skipFor(ctx, tabId), act, before?.frame.hit, () => ctx.inputReady?.());
 	return { x: rect.x, y: rect.y, ...(rect.aim ? { aim: rect.aim } : {}) };
 }
 
@@ -556,7 +565,7 @@ const pasteText: Handler = async (ctx, params) => {
 	const since = await actionStart(ctx, tabId);
 	const attempt = async (): Promise<"page" | "inserted"> => {
 		if (t.ref || t.selector) {
-			const rect = await locate(tabId, t, skipFor(ctx, tabId), "type", before?.frame.hit);
+			const rect = await locate(tabId, t, skipFor(ctx, tabId), "type", before?.frame.hit, () => ctx.inputReady?.());
 			await click(tabId, rect.x, rect.y, { stop: () => stopIfAborted(ctx), pointerThere: !!rect.aim });
 			await focusLanded(tabId, rect.aim, t.ref, "pasted");
 		}
@@ -861,6 +870,7 @@ export const handlers: Record<string, Handler> = {
 			});
 		}
 		const tabId = await resolveTab(ctx, params, false);
+		ctx.mark?.("resolve");
 		let timedOut = false;
 		// A full load is a new document: the report says so without two looks. Only back, forward
 		// and a jump within the page (a new hash) can keep the document, so only they are compared.
@@ -872,6 +882,7 @@ export const handlers: Record<string, Handler> = {
 		let committed = false;
 		const tabs = [...ctx.session.tabIds];
 		const since = await actionStart(ctx, tabId);
+		ctx.mark?.("start");
 		watchGuardedCommits(ctx, tabId);
 		if (url === "back") timedOut = !(await goBack(tabId));
 		else if (url === "forward") timedOut = !(await goForward(tabId));
@@ -884,7 +895,9 @@ export const handlers: Record<string, Handler> = {
 		}
 		// Content a script draws after the load (a fetch, a skeleton) is there before the agent reads.
 		// The approval page is blanked before anything is run in it.
+		ctx.mark?.("loaded");
 		const landed = await refuseGuardedLanding(ctx, tabId, await tabSummary(tabId, timedOut));
+		ctx.mark?.("landed");
 		if (timedOut) return { ...landed, changes: { page: STILL_LOADING } };
 		const page = committed ? NEW_PAGE : NOT_LOADED;
 		// The tabs are compared after the settle: a script may open one while the page settles.
@@ -900,7 +913,9 @@ export const handlers: Record<string, Handler> = {
 						changes: async () => ({ ...(await tabChanges(tabs, ctx.session.tabIds, tabUrl)), page }),
 					},
 		);
-		return refuseGuardedLanding(ctx, tabId, { ...(await tabSummary(tabId)), ...settled });
+		const summary = await tabSummary(tabId);
+		ctx.mark?.("summary");
+		return refuseGuardedLanding(ctx, tabId, { ...summary, ...settled });
 	},
 
 	screenshot: async (ctx, params) => {
@@ -956,6 +971,7 @@ export const handlers: Record<string, Handler> = {
 
 	text: async (ctx, params) => {
 		const tabId = await resolveTab(ctx, params, false);
+		ctx.mark?.("resolve");
 		const query = str(params, "query");
 		if (query)
 			return {
@@ -1053,12 +1069,16 @@ export const handlers: Record<string, Handler> = {
 
 	click: async (ctx, params) => {
 		const tabId = await resolveTab(ctx, params, true);
+		ctx.mark?.("resolve");
 		// The look first: the point is found right before the input goes out, so a layout that
 		// moved during the look can't misplace the click.
 		const before = await changesBefore(ctx, tabId, params);
+		ctx.mark?.("before");
 		const { aim, ...p } = await pointFor(ctx, params, tabId, "click", before);
+		ctx.mark?.("point");
 		const button = str(params, "mouseButton");
 		const since = await actionStart(ctx, tabId);
+		ctx.mark?.("start");
 		// Checked right before the input goes out and again before its last event: a call that ended (a timeout) sends none.
 		stopIfAborted(ctx);
 		try {
@@ -1084,6 +1104,7 @@ export const handlers: Record<string, Handler> = {
 		} finally {
 			ctx.inputDone?.();
 		}
+		ctx.mark?.("input");
 		// In a cross-origin frame the browser, not the page, picks what the press reaches: one that went elsewhere is
 		// a failure, never a click that worked (a change the scroll made would read as its effect).
 		if (aim && !openDialog(tabId) && !ctx.aborted()) {
@@ -1146,7 +1167,9 @@ export const handlers: Record<string, Handler> = {
 		const since = await actionStart(ctx, tabId);
 		const attempt = async () => {
 			if (t.ref || t.selector) {
-				const rect = await locate(tabId, t, skipFor(ctx, tabId), "type", before?.frame.hit);
+				const rect = await locate(tabId, t, skipFor(ctx, tabId), "type", before?.frame.hit, () =>
+					ctx.inputReady?.(),
+				);
 				await click(tabId, rect.x, rect.y, { stop: () => stopIfAborted(ctx), pointerThere: !!rect.aim });
 				await focusLanded(tabId, rect.aim, t.ref, "typed");
 			}
@@ -1249,12 +1272,16 @@ export const handlers: Record<string, Handler> = {
 	fill: async (ctx, params) => {
 		const value = str(params, "value") ?? "";
 		const tabId = await resolveTab(ctx, params, false);
+		ctx.mark?.("resolve");
 		const t = target(params);
 		if (!t.ref && !t.selector)
 			throw new BridgeError(ERR.BAD_PARAMS, "fill needs a ref from read_page, or a selector.");
 		const before = await changesBefore(ctx, tabId, params);
+		ctx.mark?.("before");
 		const since = await actionStart(ctx, tabId);
+		ctx.mark?.("start");
 		await fillElement(tabId, t, value, skipFor(ctx, tabId), before?.frame.hit);
+		ctx.mark?.("input");
 		// fill focuses its field: the pointer goes there once it holds the value.
 		cuePointer(tabId, "fill");
 		return { filled: t, ...(await settleAfter(ctx, tabId, since, { filled: t }, { before, idle: true })) };

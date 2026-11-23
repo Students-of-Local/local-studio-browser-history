@@ -9,8 +9,8 @@ import { parentBrowserName } from "./parent-browser.ts";
 import { chmodSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
 import { createServer, type Socket } from "node:net";
 import { join } from "node:path";
-import type { ClientToHost, ExtToHost, HostClientConnected, HostToClient, HostToExt } from "../../src/bridge/protocol.ts";
-import { ERR, MAX_FRAME_FROM_EXTENSION, MAX_FRAME_TO_EXTENSION } from "../../src/bridge/protocol.ts";
+import type { ClientToHost, ExtToHost, HostClientConnected, HostToClient, HostToExt, TraceMark } from "../../src/bridge/protocol.ts";
+import { ERR, MAX_FRAME_FROM_EXTENSION, MAX_FRAME_TO_EXTENSION, traceNow } from "../../src/bridge/protocol.ts";
 import { encodeFrame, FrameParser } from "./framing.ts";
 import { guardedHosts } from "./guarded-hosts.ts";
 import { socketDir, socketPath } from "./paths.ts";
@@ -112,6 +112,12 @@ function rememberSession(clientId: string, event: string, data: unknown): void {
 	hello.client = { ...hello.client, session, ...(event === "session_renamed" ? { auto: false, named: true } : {}) };
 }
 
+/** A trace passed along with this hop's mark added; anything that isn't a short list of marks is dropped. */
+function traced(trace: unknown, label: string): TraceMark[] | undefined {
+	if (!Array.isArray(trace) || trace.length > 200) return undefined;
+	return [...(trace as TraceMark[]), [label, traceNow()]];
+}
+
 function onExtensionMessage(message: ExtToHost): void {
 	switch (message.type) {
 		case "hello":
@@ -130,7 +136,10 @@ function onExtensionMessage(message: ExtToHost): void {
 			return;
 		case "response":
 			clients.get(message.clientId)?.outstanding.delete(message.id);
-			toClient(message.clientId, { type: "response", id: message.id, result: message.result, error: message.error });
+			{
+				const trace = traced(message.trace, "host.back");
+				toClient(message.clientId, { type: "response", id: message.id, result: message.result, error: message.error, ...(trace ? { trace } : {}) });
+			}
 			return;
 		case "event":
 			if (message.clientId) rememberSession(message.clientId, message.event, message.data);
@@ -193,8 +202,10 @@ function onClientMessage(client: Client, message: ClientToHost): void {
 			toClient(client.id, { type: "response", id: message.id, error: restartError("the browser bridge is restarting", false) });
 			return;
 		}
+		const trace = traced(message.trace, "host.in");
 		const guarded = guardedHosts();
-		if (toExtension({ type: "request", clientId: client.id, id: message.id, method: message.method, params: message.params, ...(guarded.length ? { guardedHosts: guarded } : {}) }))
+		trace?.push(["host.out", traceNow()]);
+		if (toExtension({ type: "request", clientId: client.id, id: message.id, method: message.method, params: message.params, ...(guarded.length ? { guardedHosts: guarded } : {}), ...(trace ? { trace } : {}) }))
 			client.outstanding.add(message.id);
 	}
 }
