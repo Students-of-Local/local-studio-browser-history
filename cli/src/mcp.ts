@@ -1097,12 +1097,18 @@ export function createMcpServer(options: McpServerOptions = {}): { server: McpSe
 			return { content: text({ ...rest, path: saved.path, bytes: saved.bytes }) };
 		},
 	);
+	// A list a small model may send as one string: "a, b" is ["a", "b"]. A /regex/ stays whole, commas and all.
+	const listArg = () =>
+		z.preprocess(
+			(v) => (typeof v === "string" ? (/^\/.+\/[a-z]*$/s.test(v.trim()) ? [v] : v.split(/[,\n]/).map((x) => x.trim()).filter(Boolean)) : v),
+			z.array(z.string()).optional(),
+		);
 	server.registerTool(
 		"site_edit",
 		{
 			title: "Edit a site for the user",
 			description:
-				"Change how a site looks or loads on every visit: hide elements, block requests on that site, ad blocking. On at once; the user can undo each in Settings > Sites, so say what you changed. Test selectors with find first. Code goes through site_script. Example: {\"action\":\"hide\",\"host\":\"x.com\",\"value\":\"[aria-label=Trending]\",\"note\":\"hide trending\"}",
+				"Change how a site looks or loads on every visit: hide elements, block requests on that site, ad blocking. On at once; the user can undo each in Settings > Sites, so say what you changed. Test selectors with find first. Code goes through site_script, posts by topic or author through site_filter; list, off and remove cover both. Example: {\"action\":\"hide\",\"host\":\"x.com\",\"value\":\"[aria-label=Trending]\",\"note\":\"hide trending\"}",
 			inputSchema: {
 				action: z.enum(["list", "hide", "block", "off", "remove", "adblock_on", "adblock_off"]).describe("What to do"),
 				host: z.string().optional().describe("Site, like x.com"),
@@ -1131,6 +1137,28 @@ export function createMcpServer(options: McpServerOptions = {}): { server: McpSe
 			},
 		},
 		(args) => call("edits.add", { kind: "script", host: args.host, value: args.code, note: args.note }),
+	);
+	server.registerTool(
+		"site_filter",
+		{
+			title: "Filter a site's feed",
+			description:
+				"Hide a site's feed posts on every visit by their words or author: x.com, YouTube, Reddit, Hacker News, Bluesky, LinkedIn built in, articles elsewhere. On at once; the page shows a count the user can click to see them. A fixed part of a page goes through site_edit hide; list and remove filters there. On YouTube, Shorts hides Shorts. Example: {\"host\":\"x.com\",\"words\":[\"crypto\",\"/airdrops?/\"]} {\"host\":\"reddit.com\",\"handles\":[\"u/spez\",\"r/politics\"]}",
+			inputSchema: {
+				host: z.string().describe("Site, like x.com"),
+				words: listArg().describe("Whole words or phrases, any case, or /regex/"),
+				handles: listArg().describe("Accounts: @name, u/name, r/sub"),
+				items: z.string().optional().describe("CSS selector for one post, if the built-in misses"),
+				note: z.string().optional().describe("Why, for the user"),
+			},
+		},
+		(args) =>
+			call("edits.add", {
+				kind: "filter",
+				host: args.host,
+				value: JSON.stringify({ words: args.words ?? [], handles: args.handles ?? [], ...(args.items ? { items: args.items } : {}) }),
+				note: args.note,
+			}),
 	);
 	server.registerTool(
 		"inspect_page",

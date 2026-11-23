@@ -37,6 +37,11 @@ const singleFileEntryPoints = {
 	// The page that asks for the microphone once: the side panel can't show the prompt.
 	"mic-permission": join(packageRoot, "src/dictation/permission.ts"),
 };
+// Content scripts are classic scripts, put into pages that may already hold a copy, so each is one IIFE.
+const contentScriptEntryPoints = {
+	// The feed filter (src/site-edits/feed-filter.ts), registered for the sites that have one.
+	"feed-filter": join(packageRoot, "src/site-edits/feed-filter.ts"),
+};
 
 rmSync(outDir, { recursive: true, force: true });
 mkdirSync(outDir, { recursive: true });
@@ -397,6 +402,14 @@ const singleFileBuild = () => ({
 	entryPoints: singleFileEntryPoints,
 	plugins: [stripRemovedSignIns(false), librarySkills, localOnnxRuntime(true), storePrompts(false)],
 });
+const contentScriptBuild = () => ({
+	...buildOptions,
+	entryPoints: contentScriptEntryPoints,
+	format: "iife",
+	inject: [],
+	alias: {},
+	plugins: [],
+});
 
 // ============================================================================
 // VERSIONING
@@ -518,7 +531,8 @@ const run = async () => {
 	if (isWatch) {
 		info = buildInfo(packageRoot);
 		buildOptions.define.__TABKYRA_BUILD__ = JSON.stringify(info);
-		for (const options of [pageBuild(), singleFileBuild()]) await (await context(options)).watch();
+		for (const options of [pageBuild(), singleFileBuild(), contentScriptBuild()])
+			await (await context(options)).watch();
 		copyStatic();
 
 		// Watch the entire static directory
@@ -544,7 +558,11 @@ const run = async () => {
 		if (!process.env.TABKYRA_NO_BUMP) bumpVersion();
 		info = buildInfo(packageRoot);
 		buildOptions.define.__TABKYRA_BUILD__ = JSON.stringify(info);
-		const [pages] = await Promise.all([build({ ...pageBuild(), metafile: true }), build(singleFileBuild())]);
+		const [pages] = await Promise.all([
+			build({ ...pageBuild(), metafile: true }),
+			build(singleFileBuild()),
+			build(contentScriptBuild()),
+		]);
 		// What fills each file, for scripts/panel-size.mjs and test/panel-size.test.mjs. Never in a real build: it's 5 MB.
 		if (process.env.TABKYRA_META) writeFileSync(join(outDir, "meta.json"), JSON.stringify(pages.metafile));
 		copyStatic();
