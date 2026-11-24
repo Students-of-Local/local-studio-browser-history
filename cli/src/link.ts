@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { WebSocket } from "ws";
 import { BridgeClient } from "./client.ts";
-import { computerHelper } from "./computer.ts";
+import { computerHelper, HANDS_COMMAND, handsHowTo } from "./computer.ts";
 import { normalizeCode, REQUEST_LOCK_MS } from "./codes.ts";
 import { LockTimeoutError, readJsonFile, withFileLock, withFileLockAsync, writeJsonPrivate } from "./files.ts";
 import { launcherValid, launcherBinary } from "./harness.ts";
@@ -164,7 +164,7 @@ const isComputerScope = (scope: string) => scope.startsWith("computer.");
 /** Why a scope can't be on this device's cap, or undefined when it can be. */
 function scopeRefusal(scope: string): string | undefined {
 	if (!Object.hasOwn(SCOPES, scope)) return `Unknown scope ${scope}. Scopes: ${Object.keys(SCOPES).join(", ")}.`;
-	if (!Object.hasOwn(offeredScopes(), scope)) return `This computer can't serve ${scope}: computer use needs Polycarp's Mac app, and it isn't on this computer.`;
+	if (!Object.hasOwn(offeredScopes(), scope)) return `This computer can't serve ${scope}: computer use needs Tychicus's computer-use helper, ${HANDS_COMMAND}, and it isn't on this computer. ${handsHowTo()}`;
 	return undefined;
 }
 

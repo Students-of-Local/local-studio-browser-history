@@ -1,7 +1,7 @@
 // Write cli/src/skills-catalog.ts from the folders under skills/ that hold a SKILL.md.
 // CI runs it in the base branch's checkout after copying in a pull request's skills/, so the
 // base build bundles exactly the pull request's skills: new ones are indexed and removed or
-// renamed ones don't break the build. `polycarp-browser` comes first, the rest in name order.
+// renamed ones don't break the build. `tychicus-browser` comes first, the rest in name order.
 import { existsSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,7 +10,7 @@ const cli = join(dirname(fileURLToPath(import.meta.url)), "..");
 const skillsDir = join(cli, "..", "skills");
 const names = readdirSync(skillsDir)
 	.filter((n) => /^[a-z0-9]+(-[a-z0-9]+)*$/.test(n) && existsSync(join(skillsDir, n, "SKILL.md")))
-	.sort((a, b) => (a === "polycarp-browser" ? -1 : b === "polycarp-browser" ? 1 : a.localeCompare(b)));
+	.sort((a, b) => (a === "tychicus-browser" ? -1 : b === "tychicus-browser" ? 1 : a.localeCompare(b)));
 // SKILL_ plus the name: always a valid identifier ("1password" -> SKILL_1PASSWORD), and never
 // SKILLS, the export below. Names are lowercase-kebab-case, so no two map to the same one.
 // "none" is the router's answer when no skill fits; a skill by that name would look like no match.
@@ -28,7 +28,7 @@ const text = `/**
 
 ${imports.join("\n")}
 
-/** Name to SKILL.md text. \`polycarp-browser\` first: it's the one every other skill builds on. */
+/** Name to SKILL.md text. \`tychicus-browser\` first: it's the one every other skill builds on. */
 export const SKILLS: ReadonlyMap<string, string> = new Map([
 ${names.map((n) => `\t["${n}", ${constant(n)}],`).join("\n")}
 ]);

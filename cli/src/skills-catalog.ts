@@ -32,7 +32,6 @@ import SKILL_OFFICE_DOCS from "../../skills/office-docs/SKILL.md";
 import SKILL_OSINT from "../../skills/osint/SKILL.md";
 import SKILL_PCB_DESIGN from "../../skills/pcb-design/SKILL.md";
 import SKILL_PDF from "../../skills/pdf/SKILL.md";
-import SKILL_POLYCARP_BROWSER from "../../skills/polycarp-browser/SKILL.md";
 import SKILL_PROTON from "../../skills/proton/SKILL.md";
 import SKILL_PROTON_PASS from "../../skills/proton-pass/SKILL.md";
 import SKILL_REFERENCE from "../../skills/reference/SKILL.md";
@@ -40,6 +39,7 @@ import SKILL_RSI from "../../skills/rsi/SKILL.md";
 import SKILL_RUMBLE from "../../skills/rumble/SKILL.md";
 import SKILL_SITE_LEARNING from "../../skills/site-learning/SKILL.md";
 import SKILL_SUMMARIZE from "../../skills/summarize/SKILL.md";
+import SKILL_TYCHICUS_BROWSER from "../../skills/tychicus-browser/SKILL.md";
 import SKILL_VIDEO_EDITING from "../../skills/video-editing/SKILL.md";
 import SKILL_VISUAL_EXPLAINER from "../../skills/visual-explainer/SKILL.md";
 import SKILL_WORLD_DATA from "../../skills/world-data/SKILL.md";
@@ -48,9 +48,9 @@ import SKILL_WRITING_VOICE from "../../skills/writing-voice/SKILL.md";
 import SKILL_X_SEARCH from "../../skills/x-search/SKILL.md";
 import SKILL_YOUTUBE from "../../skills/youtube/SKILL.md";
 
-/** Name to SKILL.md text. `polycarp-browser` first: it's the one every other skill builds on. */
+/** Name to SKILL.md text. `tychicus-browser` first: it's the one every other skill builds on. */
 export const SKILLS: ReadonlyMap<string, string> = new Map([
-	["polycarp-browser", SKILL_POLYCARP_BROWSER],
+	["tychicus-browser", SKILL_TYCHICUS_BROWSER],
 	["academic-research", SKILL_ACADEMIC_RESEARCH],
 	["adversarial-review", SKILL_ADVERSARIAL_REVIEW],
 	["annotation", SKILL_ANNOTATION],

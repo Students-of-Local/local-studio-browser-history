@@ -118,10 +118,10 @@ the menu re-renders on hover.
 
 1. Lesson: "When a menu re-renders on hover, use `find` with the item's text right before
    `click`, because hover-driven menus replace their refs."
-2. Target: the polycarp-browser skill's "Stale refs" section. Draft it with
-   `skill edit polycarp-browser --draft-only` and add one bullet there.
+2. Target: the tychicus-browser skill's "Stale refs" section. Draft it with
+   `skill edit tychicus-browser --draft-only` and add one bullet there.
 3. `skill lint` on the draft prints `Clean.` Then `skill apply` on it prints the diff and exits 3.
 4. Review is off: show the user the diff. They say yes.
 5. The same command with `--yes` prints the backup path.
-6. Tell the user: "Added a rule to the polycarp-browser skill for hover menus that drop their refs.
-   Undo with tychicus skill revert polycarp-browser. Propose it upstream?"
+6. Tell the user: "Added a rule to the tychicus-browser skill for hover menus that drop their refs.
+   Undo with tychicus skill revert tychicus-browser. Propose it upstream?"

@@ -45,8 +45,7 @@ A test that passed proves the logic, not what the user sees. Say which one you r
 ## Names that keep the old name
 The product is Tychicus: the manifest name, toolbar title, side panel, settings, onboarding, debug page, errors and the
 helper's output all say so, and `tychicus <command>` is the command the text gives. `test/product-name.test.mjs` fails
-when "Tabkyra" appears in a user-visible string, when "Polycarp" does outside text about the Polycarp app, its Mac helper
-(`polycarp-spaces`) or a legacy name (its `KEPT` list, or a line marked `product-name allowlist`), and when a renamed
+when "Tabkyra" appears in a user-visible string, when "Polycarp" does outside text about the Polycarp app or a legacy name (its `KEPT` list, or a line marked `product-name allowlist`; a `KEPT` rule or `POLYCARP_ALLOW` file that excuses no line fails it too), and when a renamed
 identifier below comes back anywhere but its named fallback.
 
 Renamed, with a fallback for installs made before the rename. The fallbacks stay until no supported helper, extension or hub
@@ -79,7 +78,7 @@ These stay as they are on purpose, because agents, hooks or stored data depend o
 - the tab group title "Tabkyra · ..." that earlier versions made, which is still recognized and tidied; new groups say "Tychicus · ...", and "Polycarp · ..." groups are left to Polycarp's extension
 - the theme preset `tabkyra`, the npm package name `tabkyra` (`checkout.ts` finds a checkout by it), the bearer realm `tabkyra` and the keepalive alarm's name
 Every command the CLI prints (`doctor`, `status`, errors, usage, services, the setup prompts) is built from `COMMAND_NAME` in `cli/src/self.ts`: `tychicus` for a release, an npm link or a plain checkout, `polycarp browser` when built into the Polycarp app's helper, and `polycarp-browser` or `tabkyra` when an older link starts it under that name. The extension's commands for this computer come from `hostCommand()` (`src/bridge/host-command.ts`), which reads the name from the helper's update status; build them when shown, never in a module-level constant. A prompt for another device (`deviceSetupPrompt`) carries no name: the agent there tries `tychicus`, then the release program. Write these strings as template literals; `cli/test/rendered-names.test.mjs` fails on a quoted string that holds `${COMMAND_NAME}`.
-Skills under `skills/`, the docs and the README say Tychicus, and the browser skill is still `polycarp-browser` (install retires the `tabkyra` copy it wrote, and the router reads Tychicus, Polycarp and tabkyra as that skill); `docs/decisions.md` and `CHANGELOG.md` keep the names of their time.
+Skills under `skills/`, the docs and the README say Tychicus, and the browser skill is `tychicus-browser`. Its old names `polycarp-browser` and `tabkyra` stay aliases (`RENAMED_SKILLS` in `cli/src/skill.ts`): `skill_read`, `skill print`, `skill install` and `skill edit` take them, install retires the copy it wrote under either, and the router reads Tychicus, Polycarp, polycarp-browser and tabkyra as that skill; `docs/decisions.md` and `CHANGELOG.md` keep the names of their time.
 
 ## Inside Polycarp (single executable)
 `cli/scripts/compile.mjs` builds `polycarp-browser` (Bun, bytecode) from the esbuild bundle with `TABKYRA_CLI_COMPILED=1`;

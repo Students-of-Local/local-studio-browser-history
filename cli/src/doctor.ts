@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { NATIVE_HOST_NAME, type UserScriptsStatus } from "../../src/bridge/protocol.ts";
 import { BridgeClient, listSockets } from "./client.ts";
 import { aliasFile, knownAliases, liveAlias, planMigration } from "./agent-migration.ts";
-import { ComputerClient, findHelper, HANDS_COMMAND, helperName } from "./computer.ts";
+import { ComputerClient, findHelper, HANDS_COMMAND, handsHowTo, helperName } from "./computer.ts";
 import { harnesses, launcherBinary, launcherValid, MCP_NAME, shellJoin } from "./harness.ts";
 import { cliLauncherPath, extensionOrigins, hostTarget, installedBrowserDirs, launcherPath, launcherRunsOlder, manifestLauncherRuns, originsCurrent } from "./install.ts";
 import { EXTENSION_FILES, extensionDir, repoRoot } from "./paths.ts";
@@ -442,7 +442,7 @@ export async function computerCheck(timeout = 3000): Promise<Check> {
 			id: "computer",
 			status: "warn",
 			label: "Computer use: no helper installed",
-			detail: `No ${HANDS_COMMAND}${process.platform === "darwin" ? " and no Polycarp polycarp-spaces" : ""} here, so agents get no computer_* tools. Browser tools work without it.`,
+			detail: `No ${HANDS_COMMAND} here, so agents get no computer_* tools. Browser tools work without it. ${handsHowTo()}`,
 		};
 	}
 	const client = new ComputerClient(found.path, "local");

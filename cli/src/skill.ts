@@ -2,7 +2,7 @@
  * `polycarp browser skill install|list|print|lint|apply|revert|match|eval|versions|rollback|edit`:
  * teach agents to use Polycarp well.
  * The skill texts live in skills/<name>/SKILL.md and are bundled into the CLI at build time
- * (skills-catalog.ts), so every harness gets the same words the tests check. The polycarp-browser
+ * (skills-catalog.ts), so every harness gets the same words the tests check. The tychicus-browser
  * skill is tested against the MCP server's instructions (cli/test/skill.test.mjs); every
  * skill passes the lint in skill-lint.ts before it ships, installs or is applied. The router
  * (skill-router.ts) picks the skill for a task; docs/skill-platform.md describes the whole.
@@ -52,9 +52,12 @@ const PROTECTED_SKILLS = new Set(["rsi", "kyraskillmaker"]);
  * still finds the skill everywhere a name is given, an applied local copy moves to the new name,
  * and install removes the copy it wrote under the old name.
  */
-export const RENAMED_SKILLS: ReadonlyMap<string, string> = new Map([["tabkyra", "polycarp-browser"]]);
+export const RENAMED_SKILLS: ReadonlyMap<string, string> = new Map([
+	["tabkyra", "tychicus-browser"],
+	["polycarp-browser", "tychicus-browser"],
+]);
 /** The browser skill: the default for print and --force. */
-const BROWSER_SKILL = "polycarp-browser";
+const BROWSER_SKILL = "tychicus-browser";
 
 export class SkillError extends Error {}
 
@@ -339,7 +342,8 @@ export interface SkillInfo {
 	sites?: string[];
 }
 
-export function skillInfo(name: string): SkillInfo {
+export function skillInfo(given: string): SkillInfo {
+	const name = assertName(given);
 	const text = skillText(name);
 	const local = localText(name).text !== undefined;
 	const community = communitySkills().get(name);
@@ -410,7 +414,7 @@ function backUp(name: string, file: string, label: string): string {
 /**
  * Install skills (all, or `only`) into each detected harness. A file without our marker is
  * someone else's and is left alone, unless `force` names it: only skills named on the
- * command line, or polycarp-browser when none are. Anything replaced is backed up first.
+ * command line, or tychicus-browser when none are. Anything replaced is backed up first.
  */
 export function installSkills(options: { force: boolean; all: boolean; only?: string[] }): InstallResult[] {
 	const names = (options.only?.length ? options.only : defaultInstallNames()).map(assertName);
@@ -989,8 +993,8 @@ function draftsDir(): string {
  * draft taken from an older version (an apply or rollback has happened since) would drop
  * those changes, so it is moved to skill-drafts/.backups/<name>/ and a fresh draft started.
  */
-export function prepareDraft(name: string, options: { keepExisting?: boolean } = {}): { dir: string; file: string; resumed: boolean; stale?: string; held?: boolean } {
-	assertName(name);
+export function prepareDraft(given: string, options: { keepExisting?: boolean } = {}): { dir: string; file: string; resumed: boolean; stale?: string; held?: boolean } {
+	const name = assertName(given);
 	if (PROTECTED_SKILLS.has(name)) throw new SkillError(`The ${name} skill governs skill edits, so it changes only through a reviewed pull request.`);
 	const source = readSkill(name);
 	const root = resolve(draftsDir());
@@ -1078,8 +1082,8 @@ function lintCommunityPath(path: string): Finding[] {
 // (MCP, after the user saw the diff).
 
 /** Check new or edited SKILL.md text for `name`, and apply it when `apply` is set. */
-export function writeSkill(name: string, text: string, apply: boolean): { plan: ApplyPlan; applied: boolean; backup?: string; results?: InstallResult[] } {
-	assertName(name);
+export function writeSkill(given: string, text: string, apply: boolean): { plan: ApplyPlan; applied: boolean; backup?: string; results?: InstallResult[] } {
+	const name = assertName(given);
 	const declared = parseFrontmatter(text)?.name;
 	if (declared !== name) throw new SkillError(`The frontmatter says name: ${declared ?? "(none)"}, but you are writing ${name}. They must match.`);
 	const work = mkdtempSync(join(tmpdir(), "tabkyra-write-"));
@@ -1778,13 +1782,13 @@ function runSkillCommand(sub: string | undefined, args: string[], flags: SkillFl
 		return 0;
 	}
 	console.log(banner("skill"));
-	for (const a of args) assertName(a);
-	const unknown = args.find((a) => !allNames().includes(a));
+	const names = args.map(assertName);
+	const unknown = names.find((a) => !allNames().includes(a));
 	if (unknown) {
 		console.log(`${sym.fail} No skill named ${unknown}.${gone(unknown)} Run ${COMMAND_NAME} skill list.`);
 		return 2;
 	}
-	const results = installSkills({ ...flags, only: args });
+	const results = installSkills({ ...flags, only: names });
 	printInstall(results);
 	for (const w of localWarnings()) console.log(`${sym.warn} ${w}`);
 	console.log(`\n${sym.arrow} Other agents: ${c.bold(`${COMMAND_NAME} skill print [name] >> AGENTS.md`)} adds the same text to a project.`);

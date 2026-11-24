@@ -193,14 +193,14 @@ Every tool's description documents its parameters and includes an example. `acti
 batches up to 40 input steps (keys, clicks, drags, typing) in one call, which is what
 canvas apps need.
 
-**Computer use on this Mac.** When Polycarp's Mac app is installed, the same stdio server also offers
+**Computer use.** When Tychicus's computer-use helper, `tychicus-hands`, is installed, the same stdio server also offers
 `computer_windows`, `computer_snapshot`, `computer_click`, `computer_shot`, `computer_open` and the rest of
-the helper's tools, with the helper's own descriptions: it runs `polycarp-spaces mcp` (without
+the helper's tools, with the helper's own descriptions: it runs `tychicus-hands mcp` (without
 `--connector`) the first time the agent lists its tools, so one MCP entry gives an agent the browser and the
-computer. They act on the agent workspace and apps you lend, or more if you chose Full Access in the Polycarp
-app's Settings > Agents, and never take focus. Browser tools are for web pages; computer tools are for native apps.
+computer. They act on the agent workspace and apps you lend, or more if you chose Full Access, and never take focus. Browser tools are for web pages; computer tools are for native apps.
 A helper that is missing, slow (over 2 seconds) or stopped never holds up the browser tools, and
-`computer_status` says why the computer tools aren't there. On Linux and Windows they are absent.
+`computer_status` says why the computer tools aren't there and how to get the helper (on Linux, build it from
+`hands/linux`; see `docs/hands-protocol.md`). Windows has no helper yet.
 
 ## Site edits and feed filters
 
@@ -317,11 +317,11 @@ tool descriptions and the MCP instructions say so.
 ```bash
 tychicus skill install   # every bundled skill, into Claude Code, Codex and OpenCode
 tychicus skill list      # what each one is for
-tychicus skill print >> AGENTS.md # the polycarp-browser skill as an AGENTS.md section, for any other agent
+tychicus skill print >> AGENTS.md # the tychicus-browser skill as an AGENTS.md section, for any other agent
 ```
 
 `tychicus skill install` skips a same-name skill that Tychicus didn't write. To replace one,
-name it: `tychicus skill install bug --force` (a bare `--force` replaces only `polycarp-browser`). The core skill ([skills/polycarp-browser/SKILL.md](skills/polycarp-browser/SKILL.md)) is short and
+name it: `tychicus skill install bug --force` (a bare `--force` replaces only `tychicus-browser`). The core skill ([skills/tychicus-browser/SKILL.md](skills/tychicus-browser/SKILL.md)) is short and
 written for small models: when to use Tychicus, `status` first, then the loop (navigate,
 `read_page` for refs, act by ref, read back), with stale refs, waits, dialogs, the safety
 rules, cleanup and three worked examples. A test keeps it in step with the MCP server's
@@ -329,7 +329,7 @@ instructions and tool schemas.
 
 | Skill | What it does |
 | --- | --- |
-| `polycarp-browser` | The browser loop, dialogs, safety rules and cleanup |
+| `tychicus-browser` | The browser loop, dialogs, safety rules and cleanup |
 | `academic-research` | Find papers, verify each DOI, metadata and retraction status, save BibTeX and Obsidian notes |
 | `osint` | Public-record research on companies, domains and people, with a purpose check |
 | `news-research` | Primary sources, wire services, more than one side, every statement labeled |

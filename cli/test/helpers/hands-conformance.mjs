@@ -34,7 +34,7 @@ export const VERBS = {
 /** The person's verbs and the name Tychicus answers itself: never listed. */
 export const NEVER_LISTED = ["lend", "return", "status"];
 /** What `--connector` may answer `initialize` with. */
-export const CONNECTOR_NAMES = ["tychicus-connector", "polycarp-connector"];
+export const CONNECTOR_NAMES = ["tychicus-connector"];
 /** Verbs that manage windows: refused to a connector whether or not the helper has them. */
 export const MANAGING = ["arrange", "move", "close", "switch", "focus", "frame"];
 /** Arguments each managing verb accepts, so a refusal is the cap's and not the argument check's. */

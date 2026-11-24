@@ -31,7 +31,7 @@ before(async () => {
 			command: process.execPath,
 			args: [cli, "mcp"],
 			// No computer-use helper, even on a Mac with Polycarp installed: computer.test.mjs covers it.
-			env: { HOME: join(root, "home"), PATH: dirname(process.execPath), TABKYRA_SOCKET_DIR: join(root, "sock"), POLYCARP_SPACES_BIN: join(root, "no-helper") },
+			env: { HOME: join(root, "home"), PATH: dirname(process.execPath), TABKYRA_SOCKET_DIR: join(root, "sock"), TYCHICUS_HANDS_BIN: join(root, "no-helper") },
 			stderr: "ignore",
 		}),
 	);
@@ -148,6 +148,14 @@ test("skill_match routes a task to one skill, or none, and skill_read returns th
 	assert.match(instructions, /For one action on many items on a website \(delete all\), skill_read \{"name":"bulk-actions"\}/);
 	const bulk = await mcp.callTool({ name: "skill_read", arguments: { name: "bulk-actions" } });
 	assert.match(bulk.content[0].text, /^---\nname: bulk-actions\n/);
+	// The browser skill's old names still read it, for agents and saved configs that ask for them.
+	const browser = await mcp.callTool({ name: "skill_read", arguments: { name: "tychicus-browser" } });
+	assert.match(browser.content[0].text, /^---\nname: tychicus-browser\n/);
+	for (const old of ["polycarp-browser", "tabkyra"]) {
+		const aliased = await mcp.callTool({ name: "skill_read", arguments: { name: old } });
+		assert.ok(!aliased.isError, `${old}: ${aliased.content[0].text}`);
+		assert.equal(aliased.content[0].text, browser.content[0].text, old);
+	}
 	const read = await mcp.callTool({ name: "skill_read", arguments: { name: "academic-research" } });
 	assert.equal(read.content[0].text, readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "..", "skills", "academic-research", "SKILL.md"), "utf8"));
 	for (const name of ["../academic-research", "no-such-skill", "Academic-Research"]) {
@@ -165,15 +173,15 @@ test("a tool call without a browser fails fast with the not-connected message", 
 });
 
 test("skill_match doesn't send a plain page task to the browser skill the instructions already are", async () => {
-	// Round 1 of evals/weak-model: Haiku read polycarp-browser (8,000 characters) on six plain page tasks.
+	// Round 1 of evals/weak-model: Haiku read tychicus-browser (8,000 characters) on six plain page tasks.
 	const plain = await mcp.callTool({ name: "skill_match", arguments: { task: "fill the RSVP form on this page" } });
 	assert.match(plain.content[0].text, /^none: no skill fits this task/);
-	assert.doesNotMatch(plain.content[0].text, /polycarp-browser/);
+	assert.doesNotMatch(plain.content[0].text, /tychicus-browser/);
 	// first-F3: the browser skill ranking first doesn't hide a real skill below it.
 	const bulk = await mcp.callTool({ name: "skill_match", arguments: { task: "use the browser to delete all my old drafts" } });
 	assert.match(bulk.content[0].text, /^bulk-actions /m);
 	assert.match(bulk.content[0].text, /Next: skill_read \{"name":"bulk-actions"\}/);
-	assert.doesNotMatch(bulk.content[0].text, /polycarp-browser/);
+	assert.doesNotMatch(bulk.content[0].text, /tychicus-browser/);
 	const research = await mcp.callTool({ name: "skill_match", arguments: { task: "find peer-reviewed studies on sleep and memory" } });
 	assert.match(research.content[0].text, /^academic-research/);
 });
@@ -742,7 +750,7 @@ async function filesClient(host, fx, { capabilities, env = {} } = {}) {
 				command: process.execPath,
 				args: [cli, "mcp"],
 				cwd: fx.proj,
-				env: { HOME: join(root, "home"), PATH: dirname(process.execPath), TABKYRA_SOCKET_DIR: host.dir, TABKYRA_CONFIG_DIR: fx.config, POLYCARP_SPACES_BIN: join(root, "no-helper"), ...env },
+				env: { HOME: join(root, "home"), PATH: dirname(process.execPath), TABKYRA_SOCKET_DIR: host.dir, TABKYRA_CONFIG_DIR: fx.config, TYCHICUS_HANDS_BIN: join(root, "no-helper"), ...env },
 				stderr: "ignore",
 			}),
 		);
@@ -947,7 +955,7 @@ test("read tools cap what they hand an agent, say when they cut, and page with o
 			command: process.execPath,
 			args: [cli, "mcp"],
 			cwd: fx.proj,
-			env: { HOME: join(root, "home"), PATH: dirname(process.execPath), TABKYRA_SOCKET_DIR: host.dir, TABKYRA_CONFIG_DIR: fx.config, POLYCARP_SPACES_BIN: join(root, "no-helper"), FIRECRAWL_API_URL: `http://127.0.0.1:${firecrawl.address().port}` },
+			env: { HOME: join(root, "home"), PATH: dirname(process.execPath), TABKYRA_SOCKET_DIR: host.dir, TABKYRA_CONFIG_DIR: fx.config, TYCHICUS_HANDS_BIN: join(root, "no-helper"), FIRECRAWL_API_URL: `http://127.0.0.1:${firecrawl.address().port}` },
 			stderr: "ignore",
 		}),
 	);
@@ -1411,7 +1419,7 @@ test("second-S1 (review of PR 216), F4 (review of PR 227), first-F3, second-S2 (
 			new StdioClientTransport({
 				command: process.execPath,
 				args: [cli, "mcp"],
-				env: { HOME: join(root, "home"), PATH: dirname(process.execPath), TABKYRA_SOCKET_DIR: dir, POLYCARP_SPACES_BIN: join(root, "no-helper") },
+				env: { HOME: join(root, "home"), PATH: dirname(process.execPath), TABKYRA_SOCKET_DIR: dir, TYCHICUS_HANDS_BIN: join(root, "no-helper") },
 				stderr: "ignore",
 			}),
 		);
