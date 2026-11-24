@@ -54,11 +54,13 @@ import { dropAllTransfers, dropTransfersForClient } from "./files.js";
 import { HOST_CONNECTED_KEY } from "./host-state.js";
 import {
 	addPendingRequest,
+	allowActionsOn,
 	allowHost,
 	asModelTier,
 	asPermissionMode,
 	clearPendingRequests,
 	DECISION_KEY_PREFIX,
+	getActionHosts,
 	getPermissionMode,
 	hostOf,
 	isBridgeEnabled,
@@ -393,15 +395,18 @@ async function askIfRisky(state: ClientState, facts: () => Promise<ActionFacts>)
 	const risk = actionRisk(f);
 	if (!risk) return;
 	const url = f.url ?? "";
-	const host = hostOf(url) || "this page";
+	const site = hostOf(url);
+	const host = site || "this page";
+	const keeps = site !== "" && risk.rule !== "run-file" && risk.rule !== "unchecked";
+	if (keeps && (await getActionHosts()).includes(site)) return;
 	const target = actionLabel(f);
-	const action: PendingAction = { target, rule: risk.rule, why: risk.why };
+	const action: PendingAction = { target, rule: risk.rule, why: risk.why, site: keeps };
 	const answer = await askPerson(state, { host, url, action }, ACTION_ASK_TIMEOUT_MS, "action_request", {
 		agent: state.name,
 		action,
 	});
 	const asked = `${target} on ${host} ${risk.why}`;
-	if (answer !== "allow_once")
+	if (answer === "deny" || answer === "timeout" || (answer === "allow_host" && !keeps))
 		throw new BridgeError(
 			ERR.PERMISSION_DENIED,
 			`Not done: ${asked}, ${
@@ -411,11 +416,12 @@ async function askIfRisky(state: ClientState, facts: () => Promise<ActionFacts>)
 			} Nothing went to the page. Tell the user what you were about to do and let them decide; they can allow it when asked, or do it themselves.`,
 		);
 	const now = await facts();
-	if (actionLabel(now) !== target || actionRisk(now)?.rule !== risk.rule || hostOf(now.url ?? "") !== hostOf(url))
+	if (actionLabel(now) !== target || actionRisk(now)?.rule !== risk.rule || hostOf(now.url ?? "") !== site)
 		throw new BridgeError(
 			ERR.NOT_ACTIONABLE,
 			`Not done: the user allowed ${target} on ${host}, but the page changed while they decided. Nothing went to the page. Call read_page, then try again.`,
 		);
+	if (answer === "allow_host") await allowActionsOn(site);
 }
 
 function guardedError(url: string): BridgeError {

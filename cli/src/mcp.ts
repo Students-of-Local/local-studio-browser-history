@@ -472,7 +472,12 @@ export function createMcpServer(options: McpServerOptions = {}): { server: McpSe
 	async function handleActionQuestion(data: Record<string, unknown>): Promise<void> {
 		if (remote) return;
 		const requestId = String(data.requestId);
-		const action = (data.action ?? {}) as { target?: unknown; why?: unknown };
+		const action = (data.action ?? {}) as { target?: unknown; why?: unknown; site?: unknown };
+		const choices: Array<[string, string]> = [
+			["allow_once", "Allow once"],
+			...(action.site === true ? ([["allow_host", `Allow on ${String(data.host)}`]] as Array<[string, string]>) : []),
+			["deny", "Deny"],
+		];
 		const what = `${String(data.agent || "the browser agent")} wants to ${String(action.target)} on ${String(data.host)}. This ${String(action.why)}.`;
 		if (!server.server.getClientCapabilities()?.elicitation) {
 			process.stderr.write(`[tychicus] ${what} Answer in the Tychicus side panel.\n`);
@@ -485,7 +490,7 @@ export function createMcpServer(options: McpServerOptions = {}): { server: McpSe
 					requestedSchema: {
 						type: "object",
 						properties: {
-							decision: { type: "string", title: "Decision", enum: ["allow_once", "deny"], enumNames: ["Allow once", "Deny"] },
+							decision: { type: "string", title: "Decision", enum: choices.map((c) => c[0]), enumNames: choices.map((c) => c[1]) },
 						},
 						required: ["decision"],
 					},
@@ -493,7 +498,7 @@ export function createMcpServer(options: McpServerOptions = {}): { server: McpSe
 				{ timeout: Number(data.timeoutMs) },
 			);
 			const d = answer.action === "accept" ? (answer.content as { decision?: string } | undefined)?.decision : undefined;
-			await client.call("permission.respond", { requestId, decision: d === "allow_once" ? "allow_once" : "deny" });
+			await client.call("permission.respond", { requestId, decision: choices.some(([c]) => c === d) ? d : "deny" });
 		} catch {
 			// No usable answer is not a yes: the side panel can still give one until the question times out.
 		}

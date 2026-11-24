@@ -10,6 +10,7 @@ const fake = installFakeChrome();
 const realSetTimeout = globalThis.setTimeout;
 const wait = (ms) => new Promise((r) => realSetTimeout(r, ms));
 const native = await import("../src/bridge/native.ts");
+const { revokeActionsOn } = await import("../src/bridge/permissions.ts");
 const { installCdpListeners, openDialog } = await import("../src/browser/cdp.ts");
 const { deps, dialogAsk, reconcile, resetDialogGuard } = await import("../src/browser/dialog-guard.ts");
 installCdpListeners();
@@ -1251,6 +1252,46 @@ test("Auto: Allow once lets that one action go, and the next one asks again; an 
 	assert.equal((await request("click", { tabId: tab, x: 10, y: 10 })).error, undefined);
 	assert.equal(actionAsks().length, seen + 2);
 	await pastGrace();
+});
+
+test("Auto: Allow on this site lets that action and later ones there go, on that site only, until it is removed", async (t) => {
+	const { tab, seen } = await modeTest(t, "auto", DELETE);
+	t.after(() => chrome.storage.local.set({ bridge_action_hosts: [], bridge_allowed_hosts: [] }));
+	const click = (tabId) => deliver("c1", "click", { tabId, x: 10, y: 10, on_dialog: "ok" });
+	const call = click(tab);
+	const ask = await actionAsk(seen);
+	assert.equal(ask.action.site, true);
+	await answer(ask, "allow_host");
+	assert.equal((await reply(call)).error, undefined);
+	assert.equal(records.deleted, 1);
+	const { bridge_action_hosts, bridge_allowed_hosts = [] } = await chrome.storage.local.get(["bridge_action_hosts", "bridge_allowed_hosts"]);
+	assert.deepEqual([bridge_action_hosts, bridge_allowed_hosts], [["shop.example.com"], []], "its own list, not the sites agents may open");
+	await pastGrace();
+	assert.equal((await reply(click(tab))).error, undefined);
+	assert.deepEqual([records.deleted, actionAsks().length], [2, seen + 1], "not asked again there");
+	await pastGrace();
+	await chrome.storage.local.set({ bridge_allowed_hosts: ["shop.example.com"] });
+	// A page that couldn't be read is never covered, nor is a program's download, nor another site.
+	for (const [i, [said, url, method, params]] of [
+		[{ unchecked: true }, SITE, "click", { x: 10, y: 10 }],
+		[DELETE, "https://other.example.net/admin", "click", { x: 10, y: 10 }],
+		[PLAIN, SITE, "navigate", { url: "https://shop.example.com/setup.exe" }],
+	].entries()) {
+		targets = [said];
+		fake.commitNav(tab, url);
+		const other = deliver("c1", method, { tabId: tab, ...params });
+		const asked = await actionAsk(seen + 1 + i);
+		assert.equal(asked.action.site, said === DELETE);
+		// A yes for the site where none was offered is a no.
+		await answer(asked, said === DELETE ? "deny" : "allow_host");
+		assert.equal((await reply(other)).error?.code, "permission_denied");
+	}
+	await revokeActionsOn("shop.example.com");
+	targets = [DELETE];
+	fake.commitNav(tab, SITE);
+	const last = click(tab);
+	await answer(await actionAsk(seen + 4), "deny");
+	assert.equal((await reply(last)).error?.code, "permission_denied");
 });
 
 test("Auto: every way to commit asks: Enter, Space on a button, type with submit, a newline in the text, and each step of actions", async (t) => {

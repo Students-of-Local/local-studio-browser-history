@@ -1,8 +1,8 @@
 /**
  * The questions agents are waiting on, as one card each: a site to open, a risky action under the person's sign-in
  * (docs/decisions.md, D67), or files to upload. The side panel shows them above the chat, and Settings > Agents lists
- * them too, with the same buttons. One click answers: allow the site, allow once, or deny (an action and an upload have
- * no "allow the site": each one asks). The answer goes through recordDecision, which the worker picks up.
+ * them too, with the same buttons. One click answers: allow the site, allow once, or deny. An upload is
+ * never allowed for a whole site, nor is an action that couldn't be checked or that downloads a program. The answer goes through recordDecision, which the worker picks up.
  */
 
 import { html, nothing, type TemplateResult } from "lit";
@@ -23,6 +23,7 @@ function askChoices(p: PendingRequest): Array<{ decision: PermissionDecision; la
 	if (p.action)
 		return [
 			{ decision: "allow_once", label: "Allow once" },
+			...(p.action.site ? [{ decision: "allow_host" as const, label: `Allow on ${p.host}` }] : []),
 			{ decision: "deny", label: "Deny" },
 		];
 	if (p.upload)

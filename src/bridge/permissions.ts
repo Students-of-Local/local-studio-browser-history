@@ -61,6 +61,8 @@ export interface PendingAction {
 	rule: string;
 	/** Why it asks: "sends a message as you". */
 	why: string;
+	/** Whether the answer can be kept for the site. Not for a program's download or an action that couldn't be checked. */
+	site: boolean;
 }
 
 export async function isBridgeEnabled(): Promise<boolean> {
@@ -214,6 +216,30 @@ export async function allowHost(host: string): Promise<void> {
 export async function revokeHost(host: string): Promise<void> {
 	const hosts = await getAllowedHosts();
 	await chrome.storage.local.set({ [HOSTS_KEY]: hosts.filter((h) => h !== host.toLowerCase()) });
+}
+
+/** Sites where the person let agents take risky actions without asking (D67). Apart from the sites they may open. */
+export const ACTION_HOSTS_KEY = "bridge_action_hosts";
+
+export async function getActionHosts(): Promise<string[]> {
+	const data = await chrome.storage.local.get(ACTION_HOSTS_KEY);
+	return (data[ACTION_HOSTS_KEY] as string[] | undefined) ?? [];
+}
+
+const oneActionHostWrite = oneAtATime("tychicus-action-hosts");
+
+export function allowActionsOn(host: string): Promise<void> {
+	return oneActionHostWrite(async () => {
+		const hosts = await getActionHosts();
+		if (!hosts.includes(host)) await chrome.storage.local.set({ [ACTION_HOSTS_KEY]: [...hosts, host] });
+	});
+}
+
+export function revokeActionsOn(host: string): Promise<void> {
+	return oneActionHostWrite(async () => {
+		const hosts = await getActionHosts();
+		await chrome.storage.local.set({ [ACTION_HOSTS_KEY]: hosts.filter((h) => h !== host) });
+	});
 }
 
 export function hostOf(url: string): string {

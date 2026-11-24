@@ -2244,7 +2244,9 @@ autocomplete, a link's href, a control's form and dialog). They are a net for an
 a page can name its Send button something else. Manual is the mode for a person who wants every new site asked.
 
 The ask is the one Manual uses for a site: MCP elicitation in the agent's harness, a card above the side panel's chat,
-and the same card under "Waiting for your answer" in Settings > Agents. For an action it offers allow once and deny. The answer has 60 seconds, inside the bridge's 90-second
+and the same card under "Waiting for your answer" in Settings > Agents. For an action it offers allow once, allow on this site (risky
+actions there stop asking; a separate list from the sites an agent may open, with Remove in Settings > Agents) and deny.
+An action that couldn't be checked and a program's download ask every time. The answer has 60 seconds, inside the bridge's 90-second
 limit for a call; no answer is a no, and the tool result says what was not done and how the person can allow it.
 `TYCHICUS_AUTO_ALLOW` answers site questions only, never an action question, as it never answered an upload.
 
@@ -2286,7 +2288,7 @@ about what an agent does in a page. Every bridge step in the Runs log carries th
 
 **Why these defaults.** Auto keeps what 1.4.0 got right (frontier agents are not stopped at every new site) and adds
 the asks the competitors make, at the actions that act as the person. Recall is the floor because a missed risky
-action is one the person never saw; a false flag costs one click.
+action is one the person never saw; a false flag costs one click, and "allow on this site" ends it for that site.
 
 **Proof.** `test/permission-modes.test.mjs` (each migration, the notice, a fresh install), `test/risk-rules.test.mjs`
 (each rule) and `evals/market/risky-actions`: 86 labeled actions, 59 risky, recall 100% held as the `riskyActions`

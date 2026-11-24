@@ -824,11 +824,17 @@ test("files upload: content goes in pieces under the frame limit and arrives byt
 	}
 });
 
-test("a risky action's question is put to the client, which says yes once or no; AUTO_ALLOW never answers it", async () => {
-	const action = { target: 'click "Delete record"', rule: "delete", why: "deletes or cancels something of yours" };
-	const asked = (requestId) => ({ requestId, host: "shop.test", url: "https://shop.test/", timeoutMs: 60_000, agent: "Test Agent", action });
+test("a risky action's question is put to the client, which says yes, yes for the site, or no; AUTO_ALLOW never answers it", async () => {
+	const asked = (requestId, site = true) => ({
+		requestId,
+		host: "shop.test",
+		url: "https://shop.test/",
+		timeoutMs: 60_000,
+		agent: "Test Agent",
+		action: { target: 'click "Delete record"', rule: "delete", why: "deletes or cancels something of yours", site },
+	});
 	const answered = async (host, id) => {
-		for (const end = Date.now() + 5000; Date.now() < end; await new Promise((r) => setTimeout(r, 20))) {
+		for (const end = Date.now() + 2000; Date.now() < end; await new Promise((r) => setTimeout(r, 20))) {
 			const r = host.requests.find((m) => m.method === "permission.respond" && m.params.requestId === id);
 			if (r) return r.params.decision;
 		}
@@ -846,18 +852,21 @@ test("a risky action's question is put to the client, which says yes once or no;
 	try {
 		await connect();
 		await run({ action: "list" });
-		for (const [i, [said, want]] of [
+		for (const [i, [said, want, site]] of [
 			[{ action: "accept", content: { decision: "allow_once" } }, "allow_once"],
 			[{ action: "accept", content: { decision: "deny" } }, "deny"],
 			[{ action: "decline" }, "deny"],
 			[{ action: "cancel" }, "deny"],
+			[{ action: "accept", content: { decision: "allow_host" } }, "allow_host"],
+			[{ action: "accept", content: { decision: "allow_host" } }, undefined, false],
 		].entries()) {
 			answer = said;
-			host.event("action_request", asked(`c1:a${i}`));
+			host.event("action_request", asked(`c1:a${i}`, site));
 			assert.equal(await answered(host, `c1:a${i}`), want, JSON.stringify(said));
 		}
 		assert.equal(questions[0].message, 'Tychicus: Test Agent wants to click "Delete record" on shop.test. This deletes or cancels something of yours. Allow?');
-		assert.deepEqual(questions[0].requestedSchema.properties.decision.enum, ["allow_once", "deny"], "no answer is kept for the site");
+		assert.deepEqual(questions[0].requestedSchema.properties.decision.enum, ["allow_once", "allow_host", "deny"]);
+		assert.deepEqual(questions.at(-1).requestedSchema.properties.decision.enum, ["allow_once", "deny"], "an answer not kept for the site");
 	} finally {
 		await client.close().catch(() => {});
 		host.close();

@@ -66,18 +66,22 @@ test("each kind of question offers its own answers: an upload is never allowed f
 	assert.deepEqual(answers, [["s", "allow_host"], ["s", "allow_once"], ["s", "deny"], ["u", "allow_once"], ["u", "deny"]]);
 });
 
-test("a risky action's card says what and why, and offers one yes: nothing is allowed for a whole site", async () => {
+test("a risky action's card says what and why, and keeps a yes for the site only when the action is known", async () => {
 	installFakeChrome();
 	const { askCards } = await panel();
-	const action = { target: 'click "Send"', rule: "send", why: "sends a message as you" };
+	const action = { target: 'click "Send"', rule: "send", why: "sends a message as you", site: true };
+	const unchecked = { target: "click", rule: "unchecked", why: "couldn't be checked on the page first", site: false };
 	const answers = [];
-	const [card] = draw(askCards()([ask("a", { host: "mail.example.com", action })], (p, d) => answers.push([p.requestId, d])));
+	const [card, once] = draw(
+		askCards()([ask("a", { host: "mail.example.com", action }), ask("b", { action: unchecked })], (p, d) => answers.push([p.requestId, d])),
+	);
 	assert.equal(card.dataset.kind, "action");
 	assert.match(text(card), /^claude wants to click "Send" on mail\.example\.com This sends a message as you\./);
-	assert.deepEqual(buttons(card).map(text), ["Allow once", "Deny"]);
+	assert.deepEqual(buttons(card).map(text), ["Allow once", "Allow on mail.example.com", "Deny"]);
+	assert.deepEqual(buttons(once).map(text), ["Allow once", "Deny"]);
 	later();
 	for (const b of buttons(card)) b.click();
-	assert.deepEqual(answers, [["a", "allow_once"], ["a", "deny"]]);
+	assert.deepEqual(answers, [["a", "allow_once"], ["a", "allow_host"], ["a", "deny"]]);
 });
 
 test("a card that takes another's place has neither its focus nor the click meant for it", async () => {

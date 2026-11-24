@@ -20,7 +20,7 @@
   `test/permission-guard.test.mjs`, `cli/test/e2e-bridge.test.mjs`.
 - Manual and Auto ask before a click, Enter or submit that sends, posts, buys, deletes, changes account settings, grants an app access or
   downloads a program, as you. The question comes up in the agent's app or the side panel, for 60 seconds; a no, or no
-  answer, keeps it off the page. Yolo asks nothing. A script (`run_js`), `fill`, a drag and a select aren't checked. Decision D67.
+  answer, keeps it off the page. "Allow on this site" ends the questions there; Settings > Agents lists those sites, with Remove. Yolo asks nothing. A script (`run_js`), `fill`, a drag and a select aren't checked. Decision D67.
   Tests: `test/dialog-preset.test.mjs`, `test/risk-rules.test.mjs`, `cli/test/e2e-bridge.test.mjs`.
 - Settings > Privacy has a switch that stops the model detail lookup on models.dev. The lookup (the public
   table at `https://models.dev/api.json`, when the copy is a day old, only while a key is saved for a provider that lists

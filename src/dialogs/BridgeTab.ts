@@ -7,6 +7,7 @@ import { live } from "lit/directives/live.js";
 import { hostCommand } from "../bridge/host-command.js";
 import {
 	allowHost,
+	getActionHosts,
 	getAllowedHosts,
 	getPendingRequests,
 	getPermissionMode,
@@ -15,6 +16,7 @@ import {
 	type PendingRequest,
 	type PermissionMode,
 	recordDecision,
+	revokeActionsOn,
 	revokeHost,
 	setBridgeEnabled,
 	setPermissionMode,
@@ -60,6 +62,7 @@ export class BridgeTab extends SettingsTab {
 	@state() private pointer = true;
 	@state() private mode: PermissionMode = "auto";
 	@state() private hosts: string[] = [];
+	@state() private actionHosts: string[] = [];
 	@state() private pending: PendingRequest[] = [];
 	private askCards = askCards();
 	@state() private sessions: Array<{ id: string; label: string; tabs: number }> = [];
@@ -99,6 +102,7 @@ export class BridgeTab extends SettingsTab {
 		this.pointer = await isPointerEnabled();
 		this.mode = await getPermissionMode();
 		this.hosts = await getAllowedHosts();
+		this.actionHosts = await getActionHosts();
 		this.pending = await getPendingRequests();
 		this.sessions = (await listSessions())
 			.filter((s) => s.id.startsWith("bridge-"))
@@ -311,6 +315,31 @@ export class BridgeTab extends SettingsTab {
 					</div>
 					${this.newHostError ? html`<div class="text-xs text-destructive" role="alert">${this.newHostError}</div>` : ""}
 				</div>
+
+				${
+					this.actionHosts.length > 0
+						? html`<div class="space-y-2">
+							<div class="text-sm font-medium text-foreground">Sites where agents act without asking</div>
+							<div class="text-xs text-muted-foreground">You allowed this when an agent asked: agents send, post, buy, delete and change settings there without asking.</div>
+							${this.actionHosts.map(
+								(h) => html`
+									<div class="flex items-center justify-between gap-2 text-sm">
+										<span class="font-mono text-foreground">${h}</span>
+										${Button({
+											size: "sm",
+											variant: "ghost",
+											children: "Remove",
+											onClick: async () => {
+												await revokeActionsOn(h);
+												await this.load();
+											},
+										})}
+									</div>
+								`,
+							)}
+						</div>`
+						: ""
+				}
 
 				${this.renderUserScripts()}
 
