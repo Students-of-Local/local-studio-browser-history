@@ -41,7 +41,9 @@ const vmRoot =
 const dir = join(vmRoot, "guests", guest);
 const mark = join(dir, "made-by-vm-bench");
 if (existsSync(dir) && !existsSync(mark))
-	throw new Error(`${dir} wasn't made by this bench, and the bench wipes its guest. Name another with --guest.`);
+	throw new Error(
+		`${dir} wasn't made by this bench, and the bench wipes its guest. Name another with --guest, or delete that folder.`,
+	);
 
 /** Run `tychicus vm ...`; return its wall time in ms and its parsed --json output. */
 function vm(...args) {
@@ -62,7 +64,10 @@ const running = () => vm("list", "--json").json.find((g) => g.name === guest)?.s
 
 /** CPU seconds a process has used, from ps (minutes:seconds.hundredths). */
 function cpuSeconds(pid) {
-	const out = execFileSync("ps", ["-o", "time=", "-p", String(pid)], { encoding: "utf8" }).trim();
+	const out = execFileSync("ps", ["-o", "time=", "-p", String(pid)], {
+		encoding: "utf8",
+		env: { ...process.env, LC_ALL: "C" },
+	}).trim();
 	const parts = out.split(":").map(Number);
 	return parts.reduce((acc, n) => acc * 60 + n, 0);
 }
@@ -107,7 +112,7 @@ function up(how, ...flags) {
 
 /** What `lsof` lists for these arguments, or undefined when it could not look. */
 function lsof(...args) {
-	const res = spawnSync("lsof", args, { encoding: "utf8" });
+	const res = spawnSync("lsof", ["-w", ...args], { encoding: "utf8" });
 	return res.error || res.stderr.trim() ? undefined : res.stdout.trim().split("\n").filter(Boolean);
 }
 
@@ -166,8 +171,11 @@ try {
 	if (listed) sockets = Math.max(listed.length - 1, 0);
 	vm("down", guest);
 } finally {
-	if (running()) vm("down", guest);
-	activations = await watcher?.stop();
+	try {
+		if (running()) vm("down", guest);
+	} finally {
+		activations = await watcher?.stop();
+	}
 }
 
 Object.assign(result, {

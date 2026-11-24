@@ -14,8 +14,9 @@ export function watchFocus(helper) {
 	const closed = new Promise((done) => {
 		child.once("close", done);
 		child.once("error", done);
-	}).then(() => {
-		died = !stopping;
+	}).then((code) => {
+		// focus-watch exits 0 only when told to stop.
+		died = !stopping || code !== 0;
 	});
 	const stop = async () => {
 		stopping = !died && child.exitCode === null && child.signalCode === null;

@@ -63,7 +63,7 @@ case "focus-watch":
 	}
 	term.resume()
 	print("watching")
-	RunLoop.main.run()
+	withExtendedLifetime(term) { RunLoop.main.run() }
 case "version", "--version":
 	print(version)
 default:
