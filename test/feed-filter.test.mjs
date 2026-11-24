@@ -41,6 +41,13 @@ test("words match in any case, as whole words, and phrases across any spacing", 
 test("words in scripts written without spaces match mid-sentence; a side in a spaced script keeps its word edge", () => {
 	assert.ok(hits({ words: ["比特币"] }, "今天比特币大涨"), "Chinese");
 	assert.ok(hits({ words: ["サッカー"] }, "サッカーの試合"), "katakana ending in the long-vowel mark");
+	// A Latin word written straight against Chinese or Thai still has its edges there, and keeps them against Latin.
+	assert.ok(hits({ words: ["AI芯片"] }, "发布了AI芯片"), "Latin head after Han");
+	assert.ok(hits({ words: ["芯片AI"] }, "新芯片AI发布"), "Latin tail before Han");
+	assert.ok(hits({ words: ["ETF"] }, "比特币ETF获批"));
+	assert.ok(hits({ words: ["AI"] }, "ข่าวAIวันนี้"), "Thai");
+	assert.ok(!hits({ words: ["AI芯片"] }, "发布了SAI芯片"), "a Latin letter before it is still a word edge");
+	assert.ok(!hits({ words: ["ETF"] }, "比特币ETFs获批"));
 	assert.ok(hits({ words: ["ビットコイン"] }, "今日はビットコインが上がった"), "Japanese");
 	assert.ok(hits({ words: ["บิตคอยน์"] }, "วันนี้บิตคอยน์ขึ้นอีกแล้ว"), "Thai");
 	assert.ok(!hits({ words: ["ai"] }, "she said so"), "ai is still not in said");
@@ -80,6 +87,10 @@ test("/regex/ terms: any case unless flags are written, and the same answer ever
 	assert.ok(match.riskyPattern("(a|aa){1,100}$"), "a large count is no better than no end");
 	assert.ok(match.riskyPattern("(\\w|\\d){1,60}x"));
 	assert.ok(match.riskyPattern("((a|a))+$"), "a choice wrapped in a group");
+	// A count padded with zeros is still a count.
+	assert.ok(match.riskyPattern("(a+){0000000000000000000001,}$"));
+	assert.ok(match.riskyPattern("(a|a){00000000000000000000001,}"));
+	assert.ok(match.riskyPattern(".*.{00000000000000000000001,}z"));
 	assert.ok(!match.riskyPattern("(cat|dog)?s"), "an optional choice");
 	// Open-ended repeats one after another are polynomial: three .* on 10,000 characters is a trillion steps.
 	assert.ok(match.riskyPattern(".*.*.*z"));

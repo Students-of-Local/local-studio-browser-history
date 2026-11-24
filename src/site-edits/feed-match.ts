@@ -28,8 +28,13 @@ const IS_WORD_CHAR = /[\p{L}\p{N}_]/u;
  * with particles written onto the word ("비트코인이"), so a word written in it matches inside a phrase too. Script
  * extensions, not scripts, so the marks these scripts share count too: the long-vowel mark that ends "サッカー" is Common
  * by script but Hiragana and Katakana by extension. */
-const UNSPACED =
-	/[\p{Script_Extensions=Han}\p{Script_Extensions=Hiragana}\p{Script_Extensions=Katakana}\p{Script_Extensions=Thai}\p{Script_Extensions=Lao}\p{Script_Extensions=Khmer}\p{Script_Extensions=Myanmar}\p{Script_Extensions=Hangul}]/u;
+const UNSPACED_CLASS = ["Han", "Hiragana", "Katakana", "Thai", "Lao", "Khmer", "Myanmar", "Hangul"]
+	.map((s) => `\\p{Script_Extensions=${s}}`)
+	.join("");
+const UNSPACED = new RegExp(`[${UNSPACED_CLASS}]`, "u");
+/** A letter, digit or _ that can sit against a word: one in an unspaced script can't, since "发布了AI芯片" writes AI with
+ * nothing between it and the Chinese around it. */
+const EDGE_CHAR = `(?![${UNSPACED_CLASS}])[${WORD_CHAR}]`;
 
 /** "/pattern/flags" as a regular expression's parts, or undefined for a plain word or phrase. */
 export function regexTerm(term: string): { source: string; flags: string } | undefined {
@@ -46,7 +51,10 @@ function quantifierAt(source: string, i: number): { length: number; unbounded: b
 	const c = source[i];
 	if (c === "*" || c === "+") return { length: 1, unbounded: true };
 	if (c !== "{") return undefined;
-	const m = /^\{\d+(,\d*)?\}/.exec(source.slice(i, i + 24));
+	// The whole count, however long: {0000000000000000000001,} is {1,} to the engine.
+	const brace = /\{\d+(,\d*)?\}/y;
+	brace.lastIndex = i;
+	const m = brace.exec(source);
 	if (!m) return undefined; // a literal brace
 	return { length: m[0].length, unbounded: m[1] === "," };
 }
@@ -122,8 +130,8 @@ export function wordSource(term: string): string {
 	const first = [...term.trim()][0] ?? "";
 	const last = [...term.trim()].at(-1) ?? "";
 	const edge = (c: string) => IS_WORD_CHAR.test(c) && !UNSPACED.test(c);
-	const head = edge(first) ? `(?<![${WORD_CHAR}])` : "";
-	const tail = edge(last) ? `(?![${WORD_CHAR}])` : "";
+	const head = edge(first) ? `(?<!${EDGE_CHAR})` : "";
+	const tail = edge(last) ? `(?!${EDGE_CHAR})` : "";
 	return `${head}${body}${tail}`;
 }
 
