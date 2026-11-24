@@ -4,10 +4,11 @@
 set -eu
 here=$(cd "$(dirname "$0")" && pwd)
 tools=${MARKET_RIVALS_DIR:-$here/tools}
-mkdir -p "$tools/pw" "$tools/ab"
+mkdir -p "$tools/pw" "$tools/ab" "$tools/cdt"
 (cd "$here" && npm ci --no-audit --no-fund)
 (cd "$tools/pw" && npm init -y > /dev/null && npm install --no-audit --no-fund @playwright/mcp@0.0.85 @modelcontextprotocol/sdk@1.32.2)
 (cd "$tools/ab" && npm init -y > /dev/null && npm install --no-audit --no-fund agent-browser@0.43.0)
+(cd "$tools/cdt" && npm init -y > /dev/null && npm install --no-audit --no-fund chrome-devtools-mcp@1.13.0)
 # browse ships a Rust relay and an extension; it needs cargo and bun on PATH.
 if command -v cargo > /dev/null && command -v bun > /dev/null; then
 	[ -d "$tools/browse/.git" ] || git clone https://github.com/anomalyco/browse "$tools/browse"

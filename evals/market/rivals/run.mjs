@@ -1,17 +1,23 @@
 // The same task set and speed check, against a rival tool or Tychicus, by hand. Never in CI (README.md).
-//   node evals/market/rivals/run.mjs --tool playwright-mcp|agent-browser|browse|tychicus [--repeat 3] [--only ids]
+//   node evals/market/rivals/run.mjs --tool playwright-mcp|agent-browser|browse|chrome-devtools-mcp|tychicus [--repeat 3] [--only ids]
 //        [--speed-n 9] [--no-speed] [--no-start] [--out file.json]
-// Prints and writes { tool, scores, speed_ms, detail } in the market eval's format, so rows compare one to one.
-import { mkdirSync, writeFileSync } from "node:fs";
+// Prints and writes { tool, scores, speed_ms, detail } in the market eval's format, so rows compare one to one, plus
+// `env`: the tool's version, the machine, Node, Chromium and the load average, which ../page.mjs keeps.
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { arch, cpus, loadavg, platform, release, totalmem } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { chromium } from "playwright-core";
 import { driver as tychicusDriver, startTychicus } from "../tasks/lib.mjs";
 import { measureSpeed, runTasks } from "../tasks/loop.mjs";
 import { startSite } from "../tasks/server.mjs";
 import agentBrowser from "./adapters/agent-browser.mjs";
 import browse from "./adapters/browse.mjs";
+import chromeDevtoolsMcp from "./adapters/chrome-devtools-mcp.mjs";
 import playwrightMcp from "./adapters/playwright-mcp.mjs";
 import { drivers } from "./drivers.mjs";
+import { TOOLS } from "./tools.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const argv = process.argv.slice(2);
@@ -26,16 +32,46 @@ const tychicus = {
 	stop: (ctx) => ctx.h.stop(),
 	between: (ctx) => ctx.call("handle_dialog", { accept: false }).catch(() => {}),
 };
-const adapters = { "playwright-mcp": playwrightMcp, "agent-browser": agentBrowser, browse, tychicus };
+const adapters = { "playwright-mcp": playwrightMcp, "agent-browser": agentBrowser, browse, "chrome-devtools-mcp": chromeDevtoolsMcp, tychicus };
 const adapter = adapters[tool];
 if (!adapter) {
 	console.error(`--tool is one of: ${Object.keys(adapters).join(", ")}`);
 	process.exit(2);
 }
 
+const repo = join(here, "..", "..", "..");
+const sh = (cmd, args, cwd) => {
+	try {
+		return execFileSync(cmd, args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 15_000 }).trim();
+	} catch {
+		return undefined;
+	}
+};
+const pkgVersion = (dir, name) => {
+	const p = join(TOOLS, dir, "node_modules", name, "package.json");
+	return existsSync(p) ? JSON.parse(readFileSync(p, "utf8")).version : undefined;
+};
+const VERSION = {
+	tychicus: () => `${JSON.parse(readFileSync(join(repo, "static", "manifest.chrome.json"), "utf8")).version} (${sh("git", ["rev-parse", "--short=12", "HEAD"], repo)})`,
+	"playwright-mcp": () => pkgVersion("pw", "@playwright/mcp"),
+	"agent-browser": () => pkgVersion("ab", "agent-browser"),
+	"chrome-devtools-mcp": () => pkgVersion("cdt", "chrome-devtools-mcp"),
+	browse: () => sh("git", ["rev-parse", "--short=12", "HEAD"], join(TOOLS, "browse")),
+};
+const osName = platform() === "darwin" ? `macOS ${sh("sw_vers", ["-productVersion"])}` : `${platform()} ${release()}`;
+const env = {
+	version: VERSION[tool]?.() ?? "unknown",
+	machine: { os: osName, arch: arch(), cpu: cpus()[0]?.model, cores: cpus().length, memGB: Math.round(totalmem() / 2 ** 30) },
+	node: process.version,
+	chromium: sh(process.env.MARKET_CHROMIUM || chromium.executablePath(), ["--version"]),
+	load1: { start: Number(loadavg()[0].toFixed(1)) },
+	repeat,
+	speedN,
+};
+
 const site = await startSite();
 const fixtures = join(here, "..", "tasks", "fixtures");
-const result = { tool, at: new Date().toISOString(), scores: {}, speed_ms: {}, detail: {} };
+const result = { tool, at: new Date().toISOString(), env, scores: {}, speed_ms: {}, detail: {} };
 // Each part gets its own tool session: a rival whose session a task broke (Playwright MCP 0.0.85 hangs every call
 // after t10's confirm() once a second tab exists; tasks/README.md in the study) still gets its speed measured.
 const driverFor = (ctx) => (tool === "tychicus" ? tychicusDriver(ctx) : drivers[tool](ctx));
@@ -93,6 +129,7 @@ try {
 } finally {
 	await site.stop();
 }
+env.load1.end = Number(loadavg()[0].toFixed(1));
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, `${JSON.stringify(result, null, "\t")}\n`);
 console.log(JSON.stringify({ tool, startMs: result.startMs, scores: result.scores, speed_ms: result.speed_ms }));
