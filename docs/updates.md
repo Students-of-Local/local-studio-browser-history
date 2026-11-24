@@ -154,7 +154,7 @@ else; a frame with any other field, or an unknown name, is refused before anythi
 
 The command lines are constants (`UPDATE_COMMANDS` in `cli/src/update-host.ts`) passed as
 argv without a shell, and the updater's own commands (`git`, `npm run build`,
-`scripts/setup-siblings.sh`) are fixed too. Only Local Studio's own pages can ask the service
+`scripts/setup-siblings.sh`) are fixed too. Only the extension's own pages can ask the service
 worker for an action; a content script can't.
 
 ## Commands
@@ -428,7 +428,7 @@ report, a browser that loads the extension from another folder).
 
 `test/update-logic.test.mjs` covers the request parser, the idle gate, the extension
 location, version mismatches, automatic updates and What's new; `test/update-worker.test.mjs`
-covers the service worker relaying only bare actions from Polycarp's own pages and holding the
+covers the service worker relaying only bare actions from the extension's own pages and holding the
 reload while a side panel run is going.
 
 The verifier also runs against the upstream minisign test vectors.

@@ -8,7 +8,7 @@ Before Local Studio, the browser tools came from Polycarp's browser helper, so y
 tychicus setup --dry-run
 ```
 
-For each agent config that runs Polycarp's browser server, this prints the file, the entries it would move, and the exact lines before and after, as `diff -u` shows them; for each entry that already runs Local Studio under an old name, it prints the rename the same way. It writes nothing. `tychicus doctor` lists the same agents with a warning.
+For each agent config that runs Polycarp's browser server, this prints the file, the entries it would move, and the exact lines before and after, as `diff -u` shows them; for each entry that already runs Local Studio's server under an older server name, such as `polycarp` or `tabkyra`, it prints the rename the same way. It writes nothing. `tychicus doctor` lists the same agents with a warning.
 
 ## Step 1: move them
 
@@ -56,7 +56,7 @@ Restart an agent that was running for it to pick up the change.
 
 ## Step 2: rename to tychicus
 
-Right after the move, `tychicus setup --agents` renames each entry that runs Local Studio under an old name to `tychicus`. It asks first (`--yes` skips the question) and shows the exact lines. These entries are aliases, listed in `~/.config/tychicus/agent-aliases.json`; an entry named `polycarp` or `tabkyra` (any case) that runs Local Studio's launcher counts too, so an entry moved before this step existed, or one whose list couldn't be written, is renamed as well. `tychicus doctor` warns about each with the one fix, `tychicus setup --agents`. To run only the rename:
+Right after the move, `tychicus setup --agents` renames each such entry to `tychicus`, the name the server and the command keep for now. It asks first (`--yes` skips the question) and shows the exact lines. These entries are aliases, listed in `~/.config/tychicus/agent-aliases.json`; an entry named `polycarp` or `tabkyra` (any case) that runs Local Studio's launcher counts too, so an entry moved before this step existed, or one whose list couldn't be written, is renamed as well. `tychicus doctor` warns about each with the one fix, `tychicus setup --agents`. To run only the rename:
 
 ```bash
 tychicus setup --agents --finish --dry-run   # see the renames

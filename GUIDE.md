@@ -54,14 +54,14 @@ with one-command setup, a doctor, skills, a library and a new brand.
 [What your agent can do](#what-your-agent-can-do) · [Skills](#skills) ·
 [Library](#library) · [Free mode](#free-mode) · [Private mode and bug reports](#private-mode-and-bug-reports) ·
 [Remote MCP](#remote-mcp-and-tunnels) · [Safety model](#safety-model) ·
-[How it works](#how-it-works) · [FAQ](#faq) · [Support](#support-polycarp) ·
+[How it works](#how-it-works) · [FAQ](#faq) · [Support](#support-local-studio) ·
 [Credits](#credits)
 
 ## Quick start
 
 You need Node 20+, git, and a Chromium 141+ browser such as Helium, Chrome or Brave (see
 [Which browsers?](#faq) for what has been tested). There is no store listing or published
-release yet, so the extension and helper install from source.
+release yet, so the extension and its helper (the `tychicus` CLI and native host) install from source.
 
 ```bash
 mkdir tychicus-src && cd tychicus-src        # setup puts two build dependencies beside the clone
@@ -99,7 +99,7 @@ the one step the browser makes you do by hand:
 
 Then ask your agent something like:
 
-> Use Tychicus to open news.ycombinator.com and list the top five stories.
+> Use the tychicus tools to open news.ycombinator.com and list the top five stories.
 
 If anything is off, `tychicus doctor` checks each piece and prints the exact command
 that fixes it. For the side panel agent, press `Cmd+Shift+S` (`Ctrl+Shift+S`) and add a
@@ -198,7 +198,7 @@ the helper's tools, with the helper's own descriptions: it runs `tychicus-hands 
 computer. They act on the agent workspace and apps you lend, or more if you chose Full Access, and never take focus. Browser tools are for web pages; computer tools are for native apps.
 A helper that is missing, slow (over 2 seconds) or stopped never holds up the browser tools, and
 `computer_status` says why the computer tools aren't there and how to get the helper (on Linux, build it from
-`hands/linux`; see `docs/hands-protocol.md`). Windows has no helper yet.
+`hands/linux`; see `docs/hands-protocol.md`). Windows has no computer-use helper yet.
 
 ## Site edits and feed filters
 
@@ -601,7 +601,7 @@ test), and host registration for Helium and Chrome on macOS (the install test). 
 use in Helium or Chrome, and Brave, Edge, Arc, Vivaldi and Opera (registered the same way, on
 macOS and Linux), haven't been tried yet. Windows registry entries are written but untested.
 
-**Does it send my data anywhere?** Local Studio itself collects nothing and has no server; the
+**Does it send my data anywhere?** The extension and its helper collect nothing and have no server; the
 bridge never leaves your machine unless you run `tychicus serve` and a tunnel. But whatever
 an agent reads through it (page text, screenshots) goes to that agent's model provider, as
 with any tool the agent uses. The side panel likewise talks to the provider you configure,
