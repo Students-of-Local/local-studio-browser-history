@@ -25,6 +25,8 @@ const PREFIX = "computer_";
 /** Longer than the helper's own wait (HandsCLI.send, 180 s), so its answer about a slow action arrives first. */
 const CALL_TIMEOUT_MS = 190_000;
 const LIST_TIMEOUT_MS = 5_000;
+/** How long computer_status waits for `hands/grants`; a helper without it answers at once with method not found. */
+const GRANTS_TIMEOUT_MS = 2_000;
 /** How long the local server's tools/list waits for the helper before it answers with browser tools only. */
 export const LOCAL_LIST_BUDGET_MS = 2_000;
 /** How long a slow helper may take to answer in the background; a later tools/list includes its tools. */
@@ -103,6 +105,20 @@ export function connectorHelperEnv(from: NodeJS.ProcessEnv = process.env): NodeJ
 
 /** Tychicus's own helper's command. */
 export const HANDS_COMMAND = "tychicus-hands";
+
+/** An OS grant the helper lacks (`hands/grants`, docs/hands-protocol.md): what it stops, and what the person does. */
+export interface MissingGrant {
+	grant: string;
+	message: string;
+	suggestion: string;
+}
+
+/** What computer_status says when the helper runs but lacks a grant: the helper's own words, which name the program. */
+export function grantsText(missing: MissingGrant[]): string | undefined {
+	if (!missing.length) return undefined;
+	const steps = missing.map((m) => `${m.message.replace(/[.\s]+$/, "")}. ${m.suggestion}`).join(" ");
+	return `Computer use is installed but can't read or act on windows yet. ${steps} Browser tools work as usual.`;
+}
 
 /** The computer-use helper on this machine: where it is. */
 export interface HelperFound {
@@ -275,6 +291,19 @@ export class ComputerClient {
 		return answer.tools ?? [];
 	}
 
+	/** The OS grants the helper lacks, asked live. Empty when it has them or can't say (an older or Linux helper). */
+	async grants(timeout = GRANTS_TIMEOUT_MS): Promise<MissingGrant[]> {
+		try {
+			const answer = (await this.request("hands/grants", {}, timeout)) as { missing?: unknown } | undefined;
+			if (!Array.isArray(answer?.missing)) return [];
+			return answer.missing.filter(
+				(m): m is MissingGrant => typeof m?.grant === "string" && typeof m?.message === "string" && typeof m?.suggestion === "string",
+			);
+		} catch {
+			return [];
+		}
+	}
+
 	/** The helper's tools that this session's scopes allow and the lists above name. */
 	async load(allowed: Set<string>): Promise<void> {
 		this.connector = allowed;
@@ -402,6 +431,8 @@ export class LocalComputer {
 		await this.ready();
 		const helper = this.find();
 		if (this.client && !this.client.isStopped && this.tools.length) {
+			const blocked = grantsText(await this.client.grants());
+			if (blocked) return blocked;
 			const answered = this.client.server ? `, which answered as ${this.client.server}` : "";
 			return `Computer use is available: ${this.tools.length} computer_* tools for native apps, through ${helper ? helperName(helper) : "the computer-use helper"}${answered}. They work in the background on the agent workspace and apps the user lent, or more if the user chose Full Access.`;
 		}
