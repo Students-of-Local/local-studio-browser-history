@@ -18,7 +18,7 @@ export const unix = process.platform === "linux" || process.platform === "darwin
  * A machine with node alone on PATH, stub service managers, and TYCHICUS_NPX at a script that answers like wrangler. A `login` writes
  * a signed-in file, and whoami answers `afterLogin` from then on when one is given; `loginCode` is what it exits with.
  */
-export function machine(root, name, { whoami = { loggedIn: true, accounts: [{ id: ACCOUNT, name: "Mine" }] }, afterLogin, loginCode = 0, deploy = "ok", keyed = false } = {}) {
+export function machine(root, name, { whoami = { loggedIn: true, accounts: [{ id: ACCOUNT, name: "Mine" }] }, afterLogin, loginCode = 0, deploy = "ok", keyed = false, worker = false } = {}) {
 	const dir = join(root, name);
 	const bin = join(dir, "bin");
 	const home = join(dir, "home");
@@ -52,6 +52,7 @@ if (args[0] === "login") {
 	if (${JSON.stringify(deploy)} === "subdomain") { console.error("You need to register a workers.dev subdomain before publishing to workers.dev"); process.exit(1); }
 	writeFileSync(process.env.WRANGLER_OUTPUT_FILE_PATH, JSON.stringify({ type: "deploy", targets: ["https://" + args[2] + ".test-sub.workers.dev"] }) + "\\n");
 } else if (args[1] === "list") {
+	if (${worker}) { console.log("[]"); process.exit(0); }
 	if (!${keyed} && !existsSync(${JSON.stringify(join(dir, "secret"))})) { console.error("This Worker does not exist on your account. [code: 10007]"); process.exit(1); }
 	console.log(JSON.stringify([{ name: "RELAY_KEY", type: "secret_text" }]));
 } else if (args[0] === "secret") {

@@ -153,6 +153,18 @@ test("a relay of the default name with a key from elsewhere is left alone; namin
 	assert.equal(named.json().code, "workers_subdomain", "it went on to deploy");
 });
 
+test("a Worker that isn't a relay is never replaced, named or not", { skip: !unix }, async () => {
+	const m = machine(root, "not-a-relay", { worker: true });
+	for (const name of [[], ["api"]]) {
+		const r = await m.run(["remote", "setup", "--relay", ...name, "--json"]);
+		assert.equal(r.code, 3, r.stdout + r.stderr);
+		assert.equal(r.json().code, "relay_name_used");
+		assert.match(r.json().next.command, /^tychicus remote setup --relay tychicus-relay-/);
+	}
+	assert.ok(!m.wrangler().some((l) => l.includes(" deploy ")), "nothing is deployed");
+	assert.equal(m.secret(), undefined);
+});
+
 test("remote status names the connector's state, and remote off removes the connector and says the Worker stays", { skip: !unix }, async () => {
 	const m = machine(root, "status-off");
 	const key = "k".repeat(43);
