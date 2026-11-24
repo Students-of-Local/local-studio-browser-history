@@ -2916,7 +2916,7 @@ test("a click on a download link reports the file it started (D49)", async () =>
 	const got = JSON.parse(await tool("click", { ref: refFor(await tool("read_page", { filter: "interactive" }), "Get the file") }));
 	assert.equal(got.downloads?.length, 1, JSON.stringify(got));
 	const [d] = got.downloads;
-	assert.deepEqual([d.name, d.type, /\/files-data\/blob\.bin$/.test(d.url)], ["linked.bin", "bin", true], d.url);
+	assert.deepEqual([d.name, d.type, /\/files-data\/blob\.dat$/.test(d.url)], ["linked.bin", "bin", true], d.url);
 });
 
 test("navigate to a 204 says no new page loaded, without waiting out the load timeout", async () => {
