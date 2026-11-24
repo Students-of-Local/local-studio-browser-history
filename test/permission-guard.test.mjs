@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { getPermissionMode, isRemoteClient, isUrlAllowed, LEGACY_MODE_KEY, MODE_KEY, modeFor, peekPermissionMode, setPermissionMode } from "../src/bridge/permissions.ts";
+import { allowHost, getPermissionMode, isRemoteClient, isUrlAllowed, LEGACY_MODE_KEY, MODE_KEY, modeFor, peekPermissionMode, setPermissionMode } from "../src/bridge/permissions.ts";
 import { addStep } from "../src/runs/log.ts";
 import { installFakeChrome } from "./fake-chrome.mjs";
 
@@ -28,6 +28,28 @@ test("a remote session is never in Yolo: it gets Auto's rule", async () => {
 	assert.equal(await isUrlAllowed("https://news.example.com/", "unknown", false), true);
 	assert.equal(await isUrlAllowed("https://news.example.com/", "unknown", true), false, "remote, unknown model: asks");
 	assert.equal(await isUrlAllowed("https://news.example.com/", "frontier", true), true, "remote, frontier: Auto's rule");
+});
+
+test("Auto: a frontier model opens an ordinary site, but mail, a bank or a password manager asks until allowed", async () => {
+	fresh();
+	await setPermissionMode("auto");
+	assert.equal(await isUrlAllowed("https://news.example.com/today", "frontier"), true);
+	for (const tier of ["frontier", "unknown"]) assert.equal(await isUrlAllowed("about:blank", tier), true);
+	const sensitive = ["https://mail.google.com/mail/u/0", "https://www.chase.com/", "https://vault.bitwarden.com/", "https://console.aws.amazon.com/"];
+	for (const url of sensitive) assert.equal(await isUrlAllowed(url, "frontier"), false, url);
+	await allowHost("chase.com");
+	assert.equal(await isUrlAllowed("https://secure.chase.com/web/auth", "frontier"), true, "the person allowed it");
+	await setPermissionMode("yolo");
+	assert.equal(await isUrlAllowed("https://mail.google.com/mail/u/0", "unknown"), true, "Yolo asks nothing");
+	assert.equal(await isUrlAllowed("https://mail.google.com/mail/u/0", "frontier", true), false, "but a remote session in Yolo has Auto's asks");
+	await setPermissionMode("manual");
+	assert.equal(await isUrlAllowed("https://news.example.com/today", "frontier"), false);
+});
+
+test("a refused site says how the person allows it, whatever the mode: Auto refuses a frontier model's sensitive site", () => {
+	const native = read("src/bridge/native.ts");
+	assert.match(native, /Not allowed to open \$\{hostOf\(url\) \|\| url\}\. The user can allow it in the Tychicus side panel under Settings > Agents, or answer the permission prompt\.`/);
+	assert.doesNotMatch(native, /Bridge navigation is blocked/);
 });
 
 test("an older CLI says nothing about remote, but its remote sessions are told by the name serve gives them", () => {
