@@ -10,7 +10,7 @@
 //
 // Writes screenshots/{welcome,local-studio,models,agents,site-access}.png at 1280x800, promo-small.png at 440x280 and
 // promo-marquee.png at 1400x560. `--raw <folder>` also keeps the bare captures. A capture whose screen shows another
-// product name (Polycarp, Tabkyra) is not written, and the run then exits 1 naming it. Needs a Playwright Chromium
+// product name (Polycarp, Tabkyra, Tychicus) is not written, and the run then exits 1 naming it. Needs a Playwright Chromium
 // (`cd cli && npx playwright-core install chromium`) and the brand fonts (`cd site && npm ci`).
 //
 // The images wear the brand media/brand/build.mjs draws (BRAND.md): its palette, its generated icon.svg and
@@ -157,8 +157,8 @@ const VISIBLE_TEXT = `(() => {
 	return seen.join(" ");
 })()`;
 
-/** The store copy says Tychicus; a capture that shows another product name would contradict it. */
-const OLD_NAME = /Polycarp|Tabkyra/i;
+/** The store copy says Local Studio; a capture that shows another product name would contradict it. */
+const OLD_NAME = /[Pp]olycarp|[Tt]abkyra|Tychicus/;
 const refused = [];
 
 async function waitFor(fn, ms, what) {
@@ -257,7 +257,9 @@ try {
 	await waitFor(() => panel.eval(`!!document.querySelector("welcome-setup-dialog")`), 30_000, "the welcome");
 	await waitFor(
 		async () =>
-			/Runs on Local Studio/.test(await panel.eval(`document.querySelector("welcome-setup-dialog").innerText`)),
+			/Runs on the Local Studio app/.test(
+				await panel.eval(`document.querySelector("welcome-setup-dialog").innerText`),
+			),
 		15_000,
 		"the Local Studio welcome",
 	);
@@ -387,7 +389,7 @@ try {
 	await panel.eval(`(() => {
 		const walk = (root) => {
 			for (const el of root.querySelectorAll("*")) {
-				if (el.children.length === 0 && el.textContent.trim() === "Site access") return el;
+				if (el.children.length === 0 && el.textContent.trim() === "Permission mode") return el;
 				if (el.shadowRoot) { const f = walk(el.shadowRoot); if (f) return f; }
 			}
 		};
@@ -410,7 +412,7 @@ try {
 	if (rawDir) for (const [name, png] of Object.entries(raw)) if (png) writeFileSync(join(rawDir, `${name}.png`), png);
 
 	// Compose each store image in a plain headless page: the headline on the left, the real capture on the right.
-	renderer = await chromium.launch({ headless: true });
+	renderer = await chromium.launch({ headless: true, executablePath: process.env.TABKYRA_E2E_CHROMIUM });
 	const render = async (file, width, height, body, needs = []) => {
 		if (needs.some((png) => !png)) return;
 		const p = await renderer.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
@@ -424,7 +426,7 @@ try {
 	};
 	const img = (png) => (png ? `data:image/png;base64,${png.toString("base64")}` : "");
 	const wake = `<img class="wake" src="${WAKE}" alt="">`;
-	const lockup = `<div class="lockup"><img src="${ICON}" alt="">Tychicus</div>`;
+	const lockup = `<div class="lockup"><img src="${ICON}" alt="">Local Studio</div>`;
 	const panelSlide = (title, line, tag, png) => `<div class="slide">${wake}<div class="copy">${lockup}<h1>${title}</h1>
 		<p>${line}</p><div class="tag">${tag}</div></div><img class="panel" src="${img(png)}" alt=""></div>`;
 	await render(
@@ -433,7 +435,7 @@ try {
 		800,
 		panelSlide(
 			"Browser use for the AI agents you already use",
-			"Chat in the side panel, or connect Claude Code, Codex or any MCP agent. With Local Studio, no API key is needed.",
+			"Chat in the side panel, or connect Claude Code, Codex or any MCP agent. With the Local Studio app, no API key is needed.",
 			"No account · no analytics · open source",
 			raw.welcome,
 		),
@@ -445,7 +447,7 @@ try {
 		800,
 		panelSlide(
 			"Ask about the page you are on",
-			"The side panel reads the tab with you and shows each step it takes, here on a local model through Local Studio.",
+			"The side panel reads the tab with you and shows each step it takes, here on a local model through the Local Studio app.",
 			"Local models · your own sign-ins",
 			raw.localStudio,
 		),
@@ -457,7 +459,7 @@ try {
 		800,
 		panelSlide(
 			"Your models, no key needed",
-			"Local Studio brings your local models and the plans you signed in to there. Or add an API key from any major provider.",
+			"The Local Studio app brings your local models and the plans you signed in to there. Or add an API key from any major provider.",
 			"Local Studio · OpenRouter · API keys",
 			raw.models,
 		),
@@ -478,8 +480,8 @@ try {
 		800,
 		panelSlide(
 			"You stay in charge",
-			"An agent opens a new site only after you allow it, and it hands sign-ins and captchas back to you.",
-			"Site permissions · private mode",
+			"You pick when agents ask. By default they ask before mail, a bank or another sensitive site, and they hand sign-ins and captchas back to you.",
+			"Permission modes · site list · private mode",
 			raw.sites,
 		),
 		[raw.sites],
@@ -488,16 +490,16 @@ try {
 		"promo-small.png",
 		440,
 		280,
-		`<div class="promo small">${wake}<img class="mark" src="${ICON}" alt=""><div><div class="word">Tychicus</div>
+		`<div class="promo small">${wake}<img class="mark" src="${ICON}" alt=""><div><div class="word">Local Studio</div>
 		<div class="line">Browser use for your AI agents</div></div></div>`,
 	);
 	await render(
 		"promo-marquee.png",
 		1400,
 		560,
-		`<div class="promo marquee">${wake}<img class="mark" src="${ICON}" alt=""><div><div class="word">Tychicus</div>
+		`<div class="promo marquee">${wake}<img class="mark" src="${ICON}" alt=""><div><div class="word">Local Studio</div>
 		<div class="line">AI agents work in your browser, in their own tab group, while you keep working.</div>
-		<div class="sub">Claude Code · Codex · any MCP agent · Local Studio</div></div></div>`,
+		<div class="sub">Claude Code · Codex · any MCP agent · local models</div></div></div>`,
 	);
 } finally {
 	await renderer?.close().catch(() => {});
