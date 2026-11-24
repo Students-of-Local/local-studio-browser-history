@@ -7,6 +7,10 @@
   same buttons as Settings > Agents, which draws the same card. A remote session's questions come up in those two places only. Two agents
   asking at once both get a card, a card takes no click for half a second after it comes up or another card goes, and a question left by an earlier worker, which nothing could answer, is cleared. Test:
   `test/agent-asks.test.mjs`.
+- A remote session (through `tychicus serve`: a web connector, a token, a hub) is never in Yolo: under Yolo it gets
+  Auto's rule, and it can't answer its own question, allow a site or change the mode. Every bridge step in the
+  Runs log records the mode it started under. A session from an older CLI counts as remote when `serve` named it. Decision D67. Tests: `test/permission-guard.test.mjs`, `test/dialog-preset.test.mjs`,
+  `cli/test/model-tier.test.mjs`.
 - Settings > Privacy has a switch that stops the model detail lookup on models.dev. The lookup (the public
   table at `https://models.dev/api.json`, when the copy is a day old, only while a key is saved for a provider that lists
   its models) had no off switch. Off, `loadMetadata` in `src/models/registry.ts` never fetches it. Test: `test/models-dev-switch.test.mjs`.
@@ -52,6 +56,7 @@
   read the whole thread and rank a "done" the user later disputed above any tool error, to move a lesson that
   was already written down but happened again into the skill or check the agent has open at that moment, and to
   change a skill from another source in its own repo. Router cases in `skills-eval/` cover thread checks.
+- The `skill-judge` CI job lets a pull request rename a skill: a base router case may carry the new name when `skills-eval/accepted-drops.json` records the rename under `renamed` (`from`, `to`, `reason`), the old skill is gone and the new one is new. The new name keeps the old accuracy floor. Any other removed or relabeled case still fails.
 
 ### Fixed
 - After the one-command install, typing `tychicus` runs the release you just installed. Before, nothing put `tychicus` on PATH, so every printed `tychicus <command>` failed with "command not found", and a `~/.local/bin/tychicus` left from a dev checkout kept running that old code. `tychicus install --release` now links `~/.local/bin/tychicus` to `~/.local/share/tychicus/release/tychicus`, which follows every later install. A link to a Tychicus program (an older version, a checkout's or npm's `cli/dist/index.js`) or to nothing is repointed; anything else is asked about in a terminal (default no) and otherwise left, with the `ln -sf` command printed. It says when `~/.local/bin` isn't on PATH, with the line for your shell, or when another `tychicus` comes first. `install.sh` ends with `tychicus setup` when that name reaches the release, else the full path. macOS and Linux. README's Platforms section now says the Linux computer-use helper exists. Tests: `cli/test/path-link.test.mjs`, `cli/test/release-install.test.mjs`, `test/install-script.test.mjs`.

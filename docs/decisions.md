@@ -2249,13 +2249,19 @@ separate list from the sites an agent may open) and deny. The answer has 60 seco
 limit for a call; no answer is a no, and the tool result says what was not done and how the person can allow it.
 `TYCHICUS_AUTO_ALLOW` answers site questions only, never an action question, as it never answered an upload.
 
+A remote session says so in its hello (`remote`, set by the CLI for a session through `tychicus serve` and for a scoped
+one). The bridge runs it in Auto when the mode is Yolo, and refuses `permission.respond`, `permission.allow` and
+`permission.setMode` from it, so it can't answer its own question or widen its own reach. A CLI from before `remote` can't say it, but `serve` has
+always named its sessions `remote-<caller>`, so the bridge goes by that name too. The MCP server puts no site question
+to a remote or scoped session's caller: it waits in the side panel.
+
 Migration: a stored `ask` is Manual, `allow_all` is Yolo. Nothing stored on an existing install is Auto with a
 one-time side panel notice naming the change and a one-click way back to Manual, since that person never chose
 what Auto adds; 1.4.0's stored `by_model` gets the same. A fresh install (`onInstalled` with reason `install`) is
 Auto with no notice.
 
 The upload question (D38) is still asked in every mode, Yolo included: it is about files leaving the computer, not
-about what an agent does in a page. Every step in the Runs log carries the mode it ran under.
+about what an agent does in a page. Every bridge step in the Runs log carries the mode it started under.
 
 **Why these defaults.** Auto keeps what 1.4.0 got right (frontier agents are not stopped at every new site) and adds
 the asks the competitors make, at the actions that act as the person. Recall is the floor because a missed risky
@@ -2263,4 +2269,5 @@ action is one the person never saw; a false flag costs one click and "allow on t
 
 **Proof.** `test/permission-modes.test.mjs` (each migration, the notice, a fresh install), `test/risk-rules.test.mjs`
 (each rule) and `evals/market/risky-actions`: 86 labeled actions, 59 risky, recall 100% held as the `riskyActions`
-floor in `evals/market/floors.json`; 0 of 27 safe actions flagged.
+floor in `evals/market/floors.json`; 0 of 27 safe actions flagged. `test/permission-guard.test.mjs`,
+`test/dialog-preset.test.mjs` and `cli/test/model-tier.test.mjs` (the remote cap, the mode on every Runs step).

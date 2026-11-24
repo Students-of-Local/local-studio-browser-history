@@ -256,7 +256,7 @@ async function destination(ctx: HandlerContext, tabId: number): Promise<{ url: s
 			`${host} is a site agents never open, so nothing is uploaded there.`,
 		);
 	// No question here: a site the person has not allowed for agents does not get files either.
-	if (!(await isUrlAllowed(url, ctx.tier)))
+	if (!(await isUrlAllowed(url, ctx.tier, ctx.remote)))
 		throw new BridgeError(
 			ERR.PERMISSION_DENIED,
 			`${host} is not allowed for agents yet, so nothing is uploaded there. The user can allow it in the Tychicus side panel under Settings > Agents.`,
