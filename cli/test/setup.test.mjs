@@ -151,6 +151,18 @@ test("an entry pointing at a missing command is stale, and setup replaces it", (
 	assert.ok(!calls.includes("codex mcp add"), "a current entry is left alone");
 });
 
+test("another program's entry in a config setup only prints is named by its MCP server", () => {
+	const file = join(home, ".cursor", "mcp.json");
+	mkdirSync(join(home, ".cursor"));
+	writeFileSync(file, JSON.stringify({ mcpServers: { tychicus: { command: "/bin/sh", args: ["mcp"] } } }));
+	try {
+		const { out } = run(["setup", "--yes", "--no-wait"]);
+		assert.ok(out.includes(`Cursor: replace the tychicus entry in ${file}`), out);
+	} finally {
+		rmSync(join(home, ".cursor"), { recursive: true });
+	}
+});
+
 test("an entry running some other command is flagged but never replaced under --yes", () => {
 	writeFileSync(harnessLog, "");
 	fakeHarness("claude", "/bin/sh");
