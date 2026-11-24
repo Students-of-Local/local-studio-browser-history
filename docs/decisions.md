@@ -2097,7 +2097,6 @@ The dom-bench floor and the market tasks gate it.
 29.9 ms, fill from 41.1 to 15.4 and navigate from 93.3 to 46.3. What keeps click, fill and first text above
 agent-browser's, which reports no changes and does not settle, is in `docs/verification/speed-trace.md`.
 
-<<<<<<< HEAD
 ## D63. The Linux helper: agent windows by workspace or by process, hands.json for access, no physical input (Claude, 2026-11-22)
 
 **Context.** Issue #27 asks for `tychicus-hands` on Linux. Linux has no lend sheet and no one way to keep an app off
@@ -2142,7 +2141,7 @@ setting for computer use outside Polycarp's Mac app.
 **Why.** The person's typing and pointer must never be shared with an agent, so input that could land in their window
 is out even where it would work most of the time. A file in the config folder is what `tychicus` already uses for
 settings, and reading it on every call makes a narrowing apply at once.
-=======
+
 ## D64. Feed filters are a site edit kind with their own tool, run by the extension's own content script (Claude, 2026-11-23)
 
 **Context.** Owners ask agents to filter feeds in plain words: "hide every post about X on x.com", "remove Shorts from
@@ -2187,4 +2186,3 @@ changes.
 **Results.** In Chromium (`cli/test/e2e-feed-filter.test.mjs`, macOS, Apple silicon): the first pass over 2,000 posts
 took 16.1 ms, a 2,000-post scroll batch 14.7 ms, and a recheck of 4,000 posts after the filters changed 16.4 ms. The
 test fails over 50 ms per batch.
->>>>>>> 1743b19 (Add site_filter: hide a site's feed posts by words or accounts)
