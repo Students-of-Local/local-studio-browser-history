@@ -50,6 +50,34 @@ export const ROUTE_COPY = {
 	useCloudflareInstead: "Use Cloudflare instead",
 } as const;
 
+/** The relay: a Worker on the person's own free Cloudflare account, set up in a terminal because Cloudflare's sign-in runs there. */
+export const RELAY_COPY = {
+	name: "Your own relay",
+	detail: "Free, on your Cloudflare account. No domain needed.",
+	use: "Set up my relay",
+	chooseBody: "Each way is free and runs on your own account. Tychicus never sees the account or makes one for you.",
+	title: "Set up your relay",
+	body: "Run this in a terminal. It opens Cloudflare's sign-in in your browser (make a free account there if you have none), puts the relay on your account and checks it works. This page moves on by itself.",
+	commandLabel: "Command",
+	waiting: "Waiting for setup to finish in the terminal.",
+	statusLabel: "Relay",
+	states: {
+		connecting: "Connecting to your relay.",
+		connected: "Connected. Assistants can reach this computer.",
+		disconnected: "Disconnected. It tries again by itself; check this computer's internet connection.",
+		unauthorized: "The relay refused this computer's key. Run the command to set a new one.",
+		replaced: "Another computer took over this relay. Run the command on the computer that should have it.",
+		outdated: "The relay is a different version. Update Tychicus, then run the command.",
+		stopped: "The connector isn't running on this computer. Run the command to start it.",
+	},
+} as const;
+
+/** What the person runs to leave a relay state, or undefined when the connector gets there by itself. */
+export function relayCommand(state: keyof typeof RELAY_COPY.states): "remote setup" | "remote fix" | undefined {
+	if (state === "stopped") return "remote fix";
+	return state === "unauthorized" || state === "replaced" || state === "outdated" ? "remote setup" : undefined;
+}
+
 /** The route card's status line, from `routes` in the helper's status. */
 export function routeStatus(installed: boolean, signedIn: boolean): string {
 	return signedIn ? ROUTE_COPY.signedIn : installed ? ROUTE_COPY.installed : ROUTE_COPY.missing;

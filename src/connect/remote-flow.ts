@@ -18,9 +18,16 @@ import {
 	stepCopy,
 	waitingChecks,
 } from "./remote-copy.js";
-import type { ConnectStatus, RemoteAnswer, RemoteCheckView, RemoteFixAnswer, RemoteRoutesView } from "./types.js";
+import type {
+	ConnectStatus,
+	RemoteAnswer,
+	RemoteCheckView,
+	RemoteFixAnswer,
+	RemoteRelayView,
+	RemoteRoutesView,
+} from "./types.js";
 
-export type ChosenRoute = "tailscale" | "cloudflare";
+export type ChosenRoute = "relay" | "tailscale" | "cloudflare";
 
 export interface FlowInput {
 	status?: ConnectStatus;
@@ -86,7 +93,7 @@ export type FlowScreen =
 	| { kind: "loading" }
 	/** Not this flow: a hub, a link to a hub, or the person's own front door. Connect draws those as before. */
 	| { kind: "other" }
-	| { kind: "choose"; routes?: RemoteRoutesView; recommended?: ChosenRoute }
+	| { kind: "choose"; routes?: RemoteRoutesView; recommended: ChosenRoute }
 	| {
 			kind: "step";
 			step: 2 | 3;
@@ -99,11 +106,15 @@ export type FlowScreen =
 			useCloudflare: boolean;
 	  }
 	| { kind: "cloudflare"; step: 3 }
+	/** The relay: the terminal command to run while nothing is saved, then the connector's state until it is connected. */
+	| { kind: "relay"; relay?: RemoteRelayView; connectorUrl?: string }
 	| {
 			kind: "result";
 			connectorUrl: string;
 			answer?: RemoteAnswer;
 			head: ResultHead;
+			/** On the relay route: the connector's live state. */
+			relay?: RemoteRelayView;
 			/** Every failure is pending: the result checks again by itself. */
 			waiting: boolean;
 			/** A check failed for real and this helper's `remote fix` has something to do. */
@@ -197,6 +208,7 @@ function result(input: FlowInput, connectorUrl: string, answer?: RemoteAnswer): 
 		kind: "result",
 		connectorUrl,
 		...(answer ? { answer } : {}),
+		...(input.remote?.relay ? { relay: input.remote.relay } : {}),
 		head,
 		waiting,
 		repair: (failed.length > 0 || gaveUp) && repairAvailable(input.fix),
@@ -205,15 +217,14 @@ function result(input: FlowInput, connectorUrl: string, answer?: RemoteAnswer): 
 	};
 }
 
-/** Recommended: Tailscale when it is installed here (no domain needed). Nothing is pressed on the person otherwise. */
-export function recommendedRoute(routes?: RemoteRoutesView): ChosenRoute | undefined {
-	return routes?.tailscale.installed ? "tailscale" : undefined;
-}
+/** Recommended: the relay, which needs neither a domain nor another program. */
+export const RECOMMENDED: ChosenRoute = "relay";
 
-/** The flow draws Connect's assistant section when there is no address yet, or this computer's own Funnel or Cloudflare one. */
+/** The flow draws Connect's assistant section when there is no address yet, or this computer's own relay, Funnel or Cloudflare one. */
 export function remoteFlowFor(s: ConnectStatus): boolean {
 	if (s.problem) return false;
-	return s.route === "none" || (s.route === "remote" && (s.remoteKind === "funnel" || s.remoteKind === "cloudflare"));
+	const own = s.remoteKind === "relay" || s.remoteKind === "funnel" || s.remoteKind === "cloudflare";
+	return s.route === "none" || (s.route === "remote" && own);
 }
 
 export function flowScreen(input: FlowInput): FlowScreen {
@@ -225,6 +236,9 @@ export function flowScreen(input: FlowInput): FlowScreen {
 	// A run that turned on (a new name still being published included) speaks for itself until the status catches up.
 	if (isOn(run) && run?.connectorUrl) return result(input, run.connectorUrl, run);
 	if (status.route === "remote" && status.publicUrl) {
+		// The relay: its connector's state on this computer comes ahead of the result until it is connected.
+		if (status.remoteKind === "relay" && remote?.relay && remote.relay.state !== "connected")
+			return { kind: "relay", relay: remote.relay, connectorUrl: `${status.publicUrl}/mcp` };
 		// "Use Cloudflare instead" on a Funnel route: the Cloudflare form, until it turns on or the person goes back.
 		// A refusal from that form (a taken name) is drawn as its own step first (first-F1). Only one from the form: a Funnel
 		// answer that lands after "Use Cloudflare instead" must not hide the form (PR 136 second-S1).
@@ -244,9 +258,10 @@ export function flowScreen(input: FlowInput): FlowScreen {
 		return {
 			kind: "choose",
 			...(remote?.routes ? { routes: remote.routes } : {}),
-			...(recommendedRoute(remote?.routes) ? { recommended: recommendedRoute(remote?.routes) } : {}),
+			recommended: RECOMMENDED,
 		};
 	if (chosen === "cloudflare") return { kind: "cloudflare", step: 3 };
+	if (chosen === "relay") return { kind: "relay" };
 	if (!remote) return { kind: "loading" };
 	return step(remote, input, "tailscale");
 }
@@ -263,6 +278,8 @@ export interface Poll {
 export const STATE_POLL_MS = 3_000;
 export const FUNNEL_POLL_MS = 5_000;
 export const DNS_POLL_MS = 30_000;
+/** The relay's live state while it is connected: a local file read, with no network and no Tailscale. */
+export const RELAY_POLL_MS = 5_000;
 /**
  * The choose screen once the routes are read: an install or sign-in in another window still shows up, without asking Tailscale
  * every 3 seconds while nobody acts (first-F3).
@@ -273,7 +290,9 @@ export function pollFor(screen: FlowScreen, input: FlowInput): Poll | undefined 
 	if (screen.kind === "choose")
 		return { method: "remoteState", everyMs: screen.routes ? CHOOSE_POLL_MS : STATE_POLL_MS };
 	// A new address takes minutes to reach public DNS, and a new tunnel a minute to connect: check again until it answers.
-	if (screen.kind === "result") return screen.waiting ? { method: "remoteTest", everyMs: DNS_POLL_MS } : undefined;
+	if (screen.kind === "result" && screen.waiting) return { method: "remoteTest", everyMs: DNS_POLL_MS };
+	if (screen.kind === "relay") return { method: "remoteState", everyMs: STATE_POLL_MS };
+	if (screen.kind === "result") return screen.relay ? { method: "remoteState", everyMs: RELAY_POLL_MS } : undefined;
 	if (screen.kind !== "step" || input.busy) return undefined;
 	const key = screen.copy.key;
 	// Allowing Funnel (or making the user Tailscale's operator) happens in Tailscale; opening Funnel again is how to see it worked.

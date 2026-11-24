@@ -281,7 +281,10 @@ Settings > Agents > "Use Tychicus from Claude, ChatGPT and Grok" turns it on wit
 Windows. It asks Tychicus's helper through the native host, so the helper must be installed; nothing the page holds
 reaches a command line (the remote methods take no parameters, and the Cloudflare address is checked before use).
 
-1. **Choose a way.** Tailscale (no domain; recommended when it is installed) or Cloudflare (a domain on your account).
+1. **Choose a way.** Your own relay (recommended: no domain), Tailscale, or Cloudflare (a domain on your account). "Set up
+   my relay" shows `tychicus remote setup` with a copy button, because Cloudflare's sign-in runs in a terminal; the page
+   checks every 3 seconds and moves on once setup saves the route. From then on it shows the connector's live state, and
+   for a state the connector can't leave by itself (unauthorized, replaced, outdated, stopped) the command that fixes it.
 2. **Get it and sign in.** The page names what is missing, with one button: Tailscale's download page, the command to
    sign in, or "Turn on" for Cloudflare, which downloads cloudflared and opens Cloudflare's sign-in. It checks every
    3 seconds and moves on by itself. The first screen, once it has shown which ways are ready, checks every 15 seconds.

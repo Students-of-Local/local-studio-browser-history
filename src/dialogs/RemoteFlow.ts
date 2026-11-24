@@ -2,6 +2,7 @@ import { Button } from "@mariozechner/mini-lit/dist/Button.js";
 import { html, LitElement, nothing, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { CONNECT_CODE } from "../agent-setup-prompt.js";
+import { hostCommand } from "../bridge/host-command.js";
 import { COMMAND_BOX_CLASS } from "../components/command-box.js";
 import { Toast } from "../components/Toast.js";
 import {
@@ -33,11 +34,13 @@ import {
 	checksFailed,
 	copyKey,
 	FLOW_STEPS,
+	RELAY_COPY,
 	REMOTE_TITLE,
 	RESULT_COPY,
 	type RemoteActionKind,
 	ROUTE_COPY,
 	realFailures,
+	relayCommand,
 	routeStatus,
 	STEP_COPY,
 	waitingChecks,
@@ -65,6 +68,7 @@ import {
 	type RemoteAnswer,
 	type RemoteCheckView,
 	type RemoteFixAnswer,
+	type RemoteRelayView,
 	TUNNEL_STEPS,
 	type TunnelStepId,
 } from "../connect/types.js";
@@ -213,6 +217,9 @@ export class RemoteFlow extends LitElement {
 				if (!sameAnswer(answer, this.remote)) this.remote = answer;
 				const kept = settleRun(this.run, answer, this.status);
 				if (kept !== this.run) this.run = kept;
+				// Setup in a terminal saved a route: Connect reads it now, not at its next 10-second refresh.
+				if (answer.route && this.status?.route === "none")
+					this.dispatchEvent(new CustomEvent("remote-changed", { bubbles: true }));
 			} else if (method === "remoteFunnel") {
 				const answer = await connectRemoteFunnel();
 				// "Use Cloudflare instead" was pressed while this retry was out: its answer is about Funnel, so it's dropped (second-S1).
@@ -499,8 +506,8 @@ export class RemoteFlow extends LitElement {
 
 	private choose(screen: Extract<FlowScreen, { kind: "choose" }>): TemplateResult {
 		const card = (id: ChosenRoute) => {
-			const copy = ROUTE_COPY[id];
-			const r = screen.routes?.[id];
+			const copy = id === "relay" ? RELAY_COPY : ROUTE_COPY[id];
+			const r = id === "relay" ? undefined : screen.routes?.[id];
 			const recommended = screen.recommended === id;
 			return html`
 				<button
@@ -526,9 +533,39 @@ export class RemoteFlow extends LitElement {
 		return html`
 			${this.stepHeader(1)}
 			<p class="text-sm font-medium text-foreground">${ROUTE_COPY.chooseTitle}</p>
-			<p class="text-xs text-muted-foreground">${ROUTE_COPY.chooseBody}</p>
-			<div class="flex flex-col gap-2">${card("tailscale")}${card("cloudflare")}</div>
+			<p class="text-xs text-muted-foreground">${RELAY_COPY.chooseBody}</p>
+			<div class="flex flex-col gap-2">${card("relay")}${card("tailscale")}${card("cloudflare")}</div>
 		`;
+	}
+
+	/** The relay: the terminal command before it is set up, then what its connector says until it is connected. */
+	private relay(screen: Extract<FlowScreen, { kind: "relay" }>): TemplateResult {
+		const command = screen.relay ? relayCommand(screen.relay.state) : "remote setup";
+		return html`
+			${this.stepHeader(screen.relay ? 3 : 2)}
+			<div class="flex flex-col gap-2" data-relay-step>
+				<p class="text-sm font-medium text-foreground">${RELAY_COPY.title}</p>
+				${screen.relay ? this.relayStatus(screen.relay) : html`<p class="text-xs text-foreground">${RELAY_COPY.body}</p>`}
+				${command ? this.copyBox(RELAY_COPY.commandLabel, `${hostCommand()} ${command}`, "relay-command") : nothing}
+				${screen.connectorUrl ? this.copyBox(RESULT_COPY.addressLabel, screen.connectorUrl, "address") : nothing}
+				${
+					screen.relay
+						? nothing
+						: html`<p class="text-xs text-muted-foreground" role="status" aria-live="polite">${RELAY_COPY.waiting}</p>
+						<button type="button" class="self-start text-xs text-muted-foreground underline cursor-pointer ${FOCUS}" @click=${() => this.act("choose", { state: "", message: "" })}>${ROUTE_COPY.chooseAgain}</button>`
+				}
+			</div>
+		`;
+	}
+
+	private relayStatus(relay: RemoteRelayView): TemplateResult {
+		const color =
+			relay.state === "connected"
+				? "text-foreground"
+				: relay.state === "connecting"
+					? "text-muted-foreground"
+					: "text-destructive";
+		return html`<p class="text-xs ${color}" role="status" aria-live="polite" data-relay-state=${relay.state}><span class="font-medium">${RELAY_COPY.statusLabel}:</span> ${RELAY_COPY.states[relay.state]}</p>`;
 	}
 
 	private step(screen: Extract<FlowScreen, { kind: "step" }>): TemplateResult {
@@ -649,6 +686,7 @@ export class RemoteFlow extends LitElement {
 							? html`<p class="text-xs text-muted-foreground" role="status" aria-live="polite" data-remote-wait>${head.body}</p>`
 							: html`<p class="text-xs text-muted-foreground">${head.body}</p>`
 					}
+					${screen.relay ? this.relayStatus(screen.relay) : nothing}
 				</div>
 				<div class="flex flex-col gap-1.5">
 					<p class="text-xs font-medium text-foreground">${RESULT_COPY.assistantsStep}</p>
@@ -772,9 +810,11 @@ export class RemoteFlow extends LitElement {
 							? this.choose(screen)
 							: screen.kind === "step"
 								? this.step(screen)
-								: screen.kind === "cloudflare"
-									? this.cloudflare()
-									: this.result(screen)
+								: screen.kind === "relay"
+									? this.relay(screen)
+									: screen.kind === "cloudflare"
+										? this.cloudflare()
+										: this.result(screen)
 				}
 			</section>
 		`;

@@ -1,6 +1,6 @@
 // "Use Polycarp from Claude, ChatGPT and Grok" in a real Chromium, at the panel's narrowest width (320 px), light and dark.
 // A stand-in plays the helper behind the Connect relay, one scenario per page, so each screen is drawn from the same JSON
-// the helper sends: choose a way, sign in (which moves on by itself), Turn on, Funnel not allowed (retried by itself), the
+// the helper sends: choose a way, the relay, sign in (which moves on by itself), Turn on, Funnel not allowed (retried by itself), the
 // result with its code and checks, Repair only when `remote fix` exists and what it says when it stops, Tailnet Lock, the
 // Cloudflare form and its name refusal.
 //
@@ -45,9 +45,10 @@ before(async () => {
 			const theme = { preset: "tabkyra" };
 			const routes = { tailscale: { installed: true, signedIn: false }, cloudflare: { installed: false, signedIn: false } };
 			const publicUrl = "https://laptop.tail1a2b.ts.net:8443";
+			const relayUrl = "https://tychicus-relay.sam.workers.dev";
 			const okChecks = ["dns", "tls", "resource_metadata", "auth_metadata", "auth_challenge", "streaming"].map((name) => ({ name, status: "ok", detail: "fine" }));
 			const dnsPending = [{ name: "dns", status: "fail", detail: "laptop.tail1a2b.ts.net has no public address yet.", pending: true }];
-			const st = { route: "none", stateCalls: 0, funnelCalls: 0, testCalls: 0, calls: [] };
+			const st = { route: "none", stateCalls: 0, funnelCalls: 0, testCalls: 0, relayCalls: 0, ranSetup: false, calls: [] };
 			globalThis.__helper = st;
 			const scenario = () => globalThis.__scenario ?? "choose";
 			const answer = (method) => {
@@ -56,9 +57,16 @@ before(async () => {
 				switch (method) {
 					case "status":
 						if (sc === "repair" || sc === "norepair") st.route = "funnel";
+						if (st.route === "relay") return { route: "remote", remoteKind: "relay", publicUrl: relayUrl, passcodeSet: false, theme };
 						return st.route === "funnel" ? { route: "remote", remoteKind: "funnel", publicUrl, passcodeSet: false, theme } : { route: "none", passcodeSet: false, theme, joinScopes: [] };
 					case "remoteState":
 						st.stateCalls++;
+						// Setup in the terminal saves the route; the connector dials, then connects.
+						if (sc === "relay" && st.ranSetup) {
+							const state = ++st.relayCalls > 4 ? "connected" : st.relayCalls > 1 ? "connecting" : undefined;
+							if (state) st.route = "relay";
+							if (state) return { state: state === "connected" ? "on" : "problem", message: "", route: "relay", relay: { state }, connectorUrl: `${relayUrl}/mcp` };
+						}
 						if (sc === "tailnet") return { state: "tailnet_lock", message: "Tailnet Lock is on.", routes: { ...routes, tailscale: { installed: true, signedIn: true } } };
 						if (sc === "repair" || sc === "norepair") return { state: "on", message: "Connector ready.", route: "funnel", connectorUrl: `${publicUrl}/mcp` };
 						if (sc === "advance" && st.stateCalls > 2) return { state: "ready", message: "Tailscale is ready.", routes: { ...routes, tailscale: { installed: true, signedIn: true } } };
@@ -77,6 +85,7 @@ before(async () => {
 						return { state: "on", message: "Connector ready.", route: "funnel", connectorUrl: `${publicUrl}/mcp`, checks: okChecks };
 					case "remoteTest":
 						st.testCalls++;
+						if (sc === "relay") return { state: "on", message: "Reachable.", route: "relay", relay: { state: "connected" }, connectorUrl: `${relayUrl}/mcp`, checks: okChecks };
 						if (sc === "dns" && st.testCalls < 2) return { state: "problem", code: "dns", message: "dns: no address yet", route: "funnel", connectorUrl: `${publicUrl}/mcp`, checks: dnsPending };
 						if (sc === "repair" || sc === "norepair") {
 							const checks = okChecks.map((c) => (c.name === "tls" ? { ...c, status: "fail", detail: "The certificate for laptop.tail1a2b.ts.net expired." } : c));
@@ -184,9 +193,10 @@ for (const theme of ["light", "dark"]) {
 		const page = await connect("advance", theme);
 		try {
 			const tailscale = page.locator('[data-route="tailscale"]');
-			// The cards draw at once; the helper's answer fills in the badge and the status line in place.
-			await page.locator('[data-route="tailscale"]', { hasText: "Recommended" }).waitFor();
-			assert.match(await tailscale.textContent(), /Recommended/);
+			// The cards draw at once; the helper's answer fills in the status line in place. The relay is the recommended way.
+			await page.locator('[data-route="tailscale"]', { hasText: "Installed, not signed in" }).waitFor();
+			assert.match(await page.locator('[data-route="relay"]').textContent(), /Recommended/);
+			assert.doesNotMatch(await tailscale.textContent(), /Recommended/);
 			assert.match(await page.locator('[data-route="cloudflare"]').textContent(), /domain on your Cloudflare account/);
 			await shot(page, `01-choose-${theme}`);
 			await tailscale.click();
@@ -198,6 +208,32 @@ for (const theme of ["light", "dark"]) {
 			await page.locator('[data-remote-step="ready"]').waitFor({ timeout: 12_000 });
 			assert.match(await page.locator("[data-flow-step]").textContent(), /Step 3 of 3/);
 			await shot(page, `03-ready-${theme}`);
+		} finally {
+			await page.close();
+		}
+	});
+
+	test(`Set up my relay: the command, then the connector's state, then the result, with no other press (${theme})`, async () => {
+		const page = await connect("relay", theme);
+		try {
+			await page.locator('[data-route="relay"]').click();
+			await page.locator("[data-relay-step]").waitFor();
+			assert.match(await page.locator("[data-flow-step]").textContent(), /Step 2 of 3/);
+			assert.match(await page.locator('[data-copy="relay-command"] code').textContent(), /^tychicus remote setup$/);
+			await shot(page, `11-relay-command-${theme}`);
+			// The person runs it in a terminal: from here on the helper says the route is saved.
+			await page.evaluate(() => {
+				globalThis.__helper.ranSetup = true;
+			});
+			await page.locator('[data-relay-state="connecting"]').waitFor({ timeout: 20_000 });
+			assert.match(await page.locator("[data-flow-step]").textContent(), /Step 3 of 3/);
+			assert.match(await page.locator('[data-copy="address"] code').textContent(), /^https:\/\/tychicus-relay\.sam\.workers\.dev\/mcp$/);
+			assert.equal(await page.locator('[data-copy="relay-command"]').count(), 0, "a command for a state that fixes itself");
+			await shot(page, `12-relay-connecting-${theme}`);
+			await page.locator("[data-remote-result]").waitFor({ timeout: 30_000 });
+			await page.locator("[data-checks] summary", { hasText: "Every check passed" }).waitFor({ timeout: 10_000 });
+			assert.match(await page.locator('[data-relay-state="connected"]').textContent(), /Assistants can reach this computer/);
+			await shot(page, `13-relay-connected-${theme}`);
 		} finally {
 			await page.close();
 		}

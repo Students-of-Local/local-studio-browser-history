@@ -12,9 +12,9 @@ after(() => rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDe
 
 const mod = await loadTs(`
 export { ConnectService, parseConnect, failureFor } from "@src/connect-host.ts";
-export { remoteAnswer, nextView, remoteSetupTailscale, remoteOpenFunnel, remoteFix, remoteTest, configProblem } from "@src/remote-panel.ts";
+export { remoteAnswer, remoteState, nextView, remoteSetupTailscale, remoteOpenFunnel, remoteFix, remoteTest, configProblem } from "@src/remote-panel.ts";
 `);
-const { ConnectService, parseConnect, failureFor, remoteAnswer, nextView, remoteSetupTailscale, remoteOpenFunnel, remoteFix, remoteTest, configProblem } = mod;
+const { ConnectService, parseConnect, failureFor, remoteAnswer, remoteState, nextView, remoteSetupTailscale, remoteOpenFunnel, remoteFix, remoteTest, configProblem } = mod;
 
 async function inConfig(name, fn) {
 	const dir = join(root, name);
@@ -238,4 +238,34 @@ test("second-N3: Cloudflare's last check timing out after the tunnel was made is
 		assert.ok(progress.some((p) => p.step === "check" && p.state === "waiting"), JSON.stringify(progress));
 		assert.ok(!progress.some((p) => p.state === "failed"));
 	});
+});
+
+test("the relay route: the panel gets the connector's live state, never the key, and nothing asks Tailscale", async () => {
+	await inConfig("relay", async (dir) => {
+		const key = "k".repeat(43);
+		writeJson(join(dir, "remote.json"), { publicUrl: "https://r.s.workers.dev", port: 8787, route: "relay", relay: { name: "r", key } });
+		const noTailscale = { tailscale: () => assert.fail("Tailscale was asked"), run: () => assert.fail("a command ran") };
+		const seen = async (state) => {
+			writeJson(join(dir, "relay-state.json"), { state, at: 5, pid: process.pid });
+			const answer = await remoteState(noTailscale);
+			assert.ok(!JSON.stringify(answer).includes(key), "the key stays on this computer");
+			return answer;
+		};
+		const on = await seen("connected");
+		assert.equal(on.state, "on");
+		assert.equal(on.route, "relay");
+		assert.deepEqual(on.relay, { state: "connected", since: 5 });
+		assert.equal(on.connectorUrl, "https://r.s.workers.dev/mcp");
+		for (const state of ["disconnected", "unauthorized", "replaced", "outdated"]) {
+			const answer = await seen(state);
+			assert.equal(answer.state, "problem");
+			assert.equal(answer.code, `relay_${state}`);
+			assert.equal(answer.relay.state, state);
+		}
+		assert.equal((await remoteTest(async () => OK_CHECKS)).relay.state, "outdated", "an outside check keeps the state on screen");
+		rmSync(join(dir, "relay-state.json"));
+		assert.equal((await remoteState(noTailscale)).relay.state, "stopped", "a connector that never ran is stopped");
+	});
+	assert.equal(remoteAnswer({ state: "on", relay: { state: "made_up" } }).relay, undefined);
+	assert.deepEqual(remoteAnswer({ state: "on", relay: { state: "connected", since: null, key: "x" } }).relay, { state: "connected" });
 });
