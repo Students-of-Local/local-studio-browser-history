@@ -208,7 +208,7 @@ export class ConnectTab extends SettingsTab {
 				ok: false,
 				text:
 					linkWritten && err instanceof ConnectRequestError && err.code === "no_reply"
-						? "Tychicus may have linked this device. Reopen Settings to check."
+						? "Local Studio may have linked this device. Reopen Settings to check."
 						: err instanceof Error
 							? err.message
 							: String(err),
@@ -266,8 +266,8 @@ export class ConnectTab extends SettingsTab {
 	private noHostBox(): TemplateResult {
 		return html`
 			<div class="flex flex-col gap-2 rounded-md border border-border bg-muted/40 p-3" data-connect-setup>
-				<p class="text-xs text-foreground">Tychicus's helper isn't connected. It runs on this computer and does the work here. If you have it, run this in a terminal, then reopen Settings.</p>
-				${this.command("Set up Tychicus", `${hostCommand()} setup`)}
+				<p class="text-xs text-foreground">Local Studio's helper isn't connected. It runs on this computer and does the work here. If you have it, run this in a terminal, then reopen Settings.</p>
+				${this.command("Set up the Local Studio helper", `${hostCommand()} setup`)}
 				<p class="text-xs text-muted-foreground">
 					Don't have it? Copy the setup prompt above into your coding agent, or
 					<a class="underline" href="https://github.com/baney75/tychicus/releases/latest" target="_blank" rel="noopener noreferrer">install the latest release</a>.
@@ -324,7 +324,7 @@ export class ConnectTab extends SettingsTab {
 								})
 							: html`<p class="text-xs text-muted-foreground">This device can't make codes. Make one on your hub, or on a device linked as a manager.</p>`
 					}
-					${canMint ? html`<p class="text-xs text-muted-foreground">Paste the URL into the assistant's connector settings, then type this code on Tychicus's approval page.</p>` : nothing}
+					${canMint ? html`<p class="text-xs text-muted-foreground">Paste the URL into the assistant's connector settings, then type this code on the approval page.</p>` : nothing}
 				</div>
 			`,
 		);

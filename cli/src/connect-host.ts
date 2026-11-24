@@ -212,7 +212,7 @@ export function failureFor(method: ConnectMethod | undefined, err?: unknown): st
 	const see = (command: string) => `Run ${COMMAND_NAME} ${command} in a terminal to see why.${tag}`;
 	switch (method) {
 		case "status":
-			return `Tychicus's helper couldn't read this computer's connection settings. ${see("remote status")}`;
+			return `Local Studio's helper couldn't read this computer's connection settings. ${see("remote status")}`;
 		case "approvalCode":
 			return `The connect code couldn't be made. ${see("token approval-code")}`;
 		case "deviceCode":
@@ -226,7 +226,7 @@ export function failureFor(method: ConnectMethod | undefined, err?: unknown): st
 		case "setTheme":
 			return `The theme couldn't be saved on this computer.${tag} Try again in a moment.`;
 		case "remoteState":
-			return `Tychicus's helper couldn't check Tailscale and Cloudflare on this computer. ${see("remote status")}`;
+			return `Local Studio's helper couldn't check Tailscale and Cloudflare on this computer. ${see("remote status")}`;
 		case "remoteSetup":
 			return `Tailscale setup stopped on this computer. ${see("remote setup --tailscale")}`;
 		case "remoteFunnel":
@@ -237,7 +237,7 @@ export function failureFor(method: ConnectMethod | undefined, err?: unknown): st
 		case "remoteFix":
 			return `Repair stopped on this computer. ${see("remote fix")}`;
 		default:
-			return `Tychicus's helper couldn't do that on this computer.${tag} Try again in a moment.`;
+			return `Local Studio's helper couldn't do that on this computer.${tag} Try again in a moment.`;
 	}
 }
 const unreadable = (file: string) => `${file} is unreadable. Fix it or move it aside.`;
@@ -256,7 +256,7 @@ export function safeMessage(err: unknown, file?: string, method?: ConnectMethod)
 	// Text that quotes the hub or the network never passes: a hub can echo a request header, and the credential is in it.
 	if (err instanceof HubCodeError) return hubCodeFailure(err.status).message;
 	if (err instanceof ConnectError || err instanceof CodeLimitError || err instanceof LinkError) return cap(err.message);
-	if (err instanceof LockTimeoutError) return "Another Tychicus window is busy with that. Try again in a moment.";
+	if (err instanceof LockTimeoutError) return "Another Local Studio window is busy with that. Try again in a moment.";
 	return file ? unreadable(file) : failureFor(method, err);
 }
 
@@ -376,7 +376,7 @@ export class ConnectService {
 
 	/** Tailscale's "Turn on". One setup at a time, shared with Cloudflare's; the host repeats a frame so the panel's wait never runs out. */
 	private async remoteSetup(): Promise<RemoteAnswer> {
-		if (this.settingUp) throw new ConnectError("busy", "Setup is already running in another Tychicus window.");
+		if (this.settingUp) throw new ConnectError("busy", "Setup is already running in another Local Studio window.");
 		this.settingUp = true;
 		try {
 			const answer = await (this.remote.setup ?? remoteSetupTailscale)();
@@ -392,7 +392,7 @@ export class ConnectService {
 	 * comes with a retry, so it never mints a connect code (second-N2): the result screen asks for one through New code.
 	 */
 	private async remoteFunnel(): Promise<RemoteAnswer> {
-		if (this.opening || this.settingUp) throw new ConnectError("busy", "Tychicus is already opening Funnel.");
+		if (this.opening || this.settingUp) throw new ConnectError("busy", "Funnel is already being opened.");
 		this.opening = true;
 		try {
 			return await remoteOpenFunnel(this.remote.funnel);
@@ -489,7 +489,7 @@ export class ConnectService {
 			this.stampCodeSlot(file, now);
 		} catch (err) {
 			// A short wait: the event loop is blocked meanwhile, and this host relays every agent's traffic.
-			if (err instanceof LockTimeoutError) throw new ConnectError("busy", "Another Tychicus window is making a code. Try again in a moment.");
+			if (err instanceof LockTimeoutError) throw new ConnectError("busy", "Another Local Studio window is making a code. Try again in a moment.");
 			throw err;
 		}
 	}
@@ -577,7 +577,7 @@ export class ConnectService {
 			try {
 				return await withFileLockAsync(linkFile(), async () => fn(), REQUEST_LOCK_MS);
 			} catch (err) {
-				if (err instanceof LockTimeoutError) throw new ConnectError("busy", "Another Tychicus window is joining a hub. Try again in a moment.");
+				if (err instanceof LockTimeoutError) throw new ConnectError("busy", "Another Local Studio window is joining a hub. Try again in a moment.");
 				throw err;
 			}
 		};
@@ -641,7 +641,7 @@ function enrollFailure(result: Extract<EnrollResult, { kind: "failed" }>, hubUrl
 		case "unreadable":
 			return new ConnectError("failed", unreadable(linkFile()));
 		case "launcher":
-			return new ConnectError("failed", `Tychicus's launcher isn't a working one, so the background service would have nothing to start. Run ${COMMAND_NAME} install, then try again.`);
+			return new ConnectError("failed", `The helper's launcher isn't a working one, so the background service would have nothing to start. Run ${COMMAND_NAME} install, then try again.`);
 		case "unreachable": {
 			let host = "the hub";
 			try {
@@ -652,7 +652,7 @@ function enrollFailure(result: Extract<EnrollResult, { kind: "failed" }>, hubUrl
 			return new ConnectError("failed", `Couldn't reach ${host}. Check the address and this computer's connection.`);
 		}
 		case "malformed":
-			return new ConnectError("failed", "The hub's answer wasn't one Tychicus accepts, so nothing was linked.");
+			return new ConnectError("failed", "The hub's answer wasn't one this helper accepts, so nothing was linked.");
 		case "hub":
 			if (cause.status === 401 && cause.invalidCode) return new ConnectError("failed", "That code is wrong, expired or already used. Get a new device code on the hub and try again.");
 			if (cause.status === 429) return new ConnectError("rate_limited", "The hub says there were too many wrong codes. Wait 15 minutes and try again.");

@@ -457,7 +457,7 @@ async function refuseGuardedLanding<T extends { url: string }>(
 }
 
 const GUARDED_LANDING =
-	"That page led to this computer's Tychicus approval address, which an agent never opens. The tab was reset to a blank page.";
+	"That page led to this computer's Local Studio approval address, which an agent never opens. The tab was reset to a blank page.";
 
 /** How long after a navigation starts a late redirect is still caught. */
 const GUARD_WATCH_MS = 120000;
@@ -1409,7 +1409,7 @@ export const handlers: Record<string, Handler> = {
 			if (heard.pending)
 				throw new BridgeError(
 					ERR.TIMEOUT,
-					"Tychicus's Cancel for this dialog has not come back from the page in 5 s, so it may already be cancelled. Call handle_dialog again in a moment, or read_page to see the page.",
+					"Local Studio's Cancel for this dialog has not come back from the page in 5 s, so it may already be cancelled. Call handle_dialog again in a moment, or read_page to see the page.",
 				);
 			// The box fixed when the call arrived, and no other (sol-F3 of the review of PR 200): a box that opened since is
 			// one this call never saw, so it is never answered in its place.

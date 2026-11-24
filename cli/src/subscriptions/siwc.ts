@@ -54,7 +54,9 @@ export class SubscriptionError extends Error {
 const b64url = (buf: Buffer) => buf.toString("base64url");
 const REFRESH_MARGIN_MS = 5 * 60 * 1000;
 const SIGN_IN_TIMEOUT_MS = 10 * 60 * 1000;
-const FETCH_TIMEOUT_MS = 15_000;
+export const FETCH_TIMEOUT_MS = 15_000;
+/** All of sign-out's requests together: they run under the refresh lock, so they end well before its stale age. */
+const SIGN_OUT_TIMEOUT_MS = 10_000;
 /** Refresh errors that mean the token set is dead (errors-and-recovery page). */
 const DEAD_REFRESH_CODES = new Set([
 	"invalid_grant",
@@ -375,9 +377,9 @@ export class Siwc {
 		return body as TokenResponse;
 	}
 
-	private async oidcConfig(): Promise<OidcConfig> {
+	private async oidcConfig(signal: AbortSignal = AbortSignal.timeout(FETCH_TIMEOUT_MS)): Promise<OidcConfig> {
 		if (this.oidc && this.now() - this.oidc.at < 3600_000) return this.oidc.config;
-		const response = await this.fetch(SIWC.discoveryUrl, { headers: { Accept: "application/json" } });
+		const response = await this.fetch(SIWC.discoveryUrl, { headers: { Accept: "application/json" }, signal });
 		if (!response.ok)
 			throw new SubscriptionError("discovery_failed", `OpenAI's sign-in configuration is unavailable (${response.status}).`);
 		const config = (await response.json()) as OidcConfig;
@@ -390,7 +392,10 @@ export class Siwc {
 	private async signingKey(kid: string | undefined): Promise<Jwk> {
 		const find = () => this.jwks?.keys.find((k) => (kid ? k.kid === kid : true));
 		if (!this.jwks || this.now() - this.jwks.at > 3600_000 || !find()) {
-			const response = await this.fetch((await this.oidcConfig()).jwks_uri, { headers: { Accept: "application/json" } });
+			const response = await this.fetch((await this.oidcConfig()).jwks_uri, {
+				headers: { Accept: "application/json" },
+				signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+			});
 			if (!response.ok) throw new SubscriptionError("jwks_failed", `OpenAI's signing keys are unavailable (${response.status}).`);
 			this.jwks = { keys: ((await response.json()) as { keys?: Jwk[] }).keys ?? [], at: this.now() };
 		}
@@ -540,9 +545,10 @@ export class Siwc {
 		const renewable = record.refresh_token;
 		let revoked = !renewable;
 		if (renewable) {
-			for (let attempt = 0; attempt < 3 && !revoked; attempt++) {
+			const signal = AbortSignal.timeout(SIGN_OUT_TIMEOUT_MS);
+			for (let attempt = 0; attempt < 3 && !revoked && !signal.aborted; attempt++) {
 				try {
-					const endpoint = (await this.oidcConfig()).revocation_endpoint;
+					const endpoint = (await this.oidcConfig(signal)).revocation_endpoint;
 					if (!endpoint) break;
 					const form: Array<[string, string]> = [
 						["token", renewable],
@@ -553,14 +559,14 @@ export class Siwc {
 						method: "POST",
 						headers: { "Content-Type": "application/x-www-form-urlencoded" },
 						body: new URLSearchParams(form).toString(),
-						signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+						signal,
 					});
 					if (response.ok) revoked = true;
 					else if (response.status < 500) break;
 				} catch {
 					/* network failure: retry with backoff */
 				}
-				if (!revoked && attempt < 2) await new Promise((r) => setTimeout(r, 300 * 2 ** attempt));
+				if (!revoked && !signal.aborted && attempt < 2) await new Promise((r) => setTimeout(r, 300 * 2 ** attempt));
 			}
 		}
 		this.clearTokens(record);

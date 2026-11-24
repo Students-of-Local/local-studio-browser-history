@@ -259,7 +259,7 @@ async function destination(ctx: HandlerContext, tabId: number): Promise<{ url: s
 	if (!(await isUrlAllowed(url, ctx.tier, ctx.remote)))
 		throw new BridgeError(
 			ERR.PERMISSION_DENIED,
-			`${host} is not allowed for agents yet, so nothing is uploaded there. The user can allow it in the Tychicus side panel under Settings > Agents.`,
+			`${host} is not allowed for agents yet, so nothing is uploaded there. The user can allow it in the Local Studio side panel under Settings > Agents.`,
 		);
 	return { url, host };
 }

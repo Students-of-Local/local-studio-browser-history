@@ -828,7 +828,7 @@ export async function startHub(options: HubOptions): Promise<HubHandle> {
 			return toolError(res, call.id, `${name} doesn't allow ${scope} (allows: ${target.status.scopes.join(", ") || "nothing"}). Only its owner can add it, on ${name}.`);
 		}
 		if (scope && !who.scopes.includes(scope)) return toolError(res, call.id, `This connection doesn't allow ${scope}, so ${call.name} can't run on any device through it.`);
-		if (scope?.startsWith("computer.") && target.status.computer === false) return toolError(res, call.id, `${name} has no computer use: Tychicus's computer-use helper, ${HANDS_COMMAND}, isn't on it. Nothing was sent. ${handsHowTo(target.status.platform)}`);
+		if (scope?.startsWith("computer.") && target.status.computer === false) return toolError(res, call.id, `${name} has no computer use: Local Studio's computer-use helper, ${HANDS_COMMAND}, isn't on it. Nothing was sent. ${handsHowTo(target.status.platform)}`);
 		if (target.calls + target.reserved >= MAX_INFLIGHT_PER_DEVICE) return toolError(res, call.id, `${name} is handling too many requests. Nothing was sent. Try again in a moment.`);
 		// A request slot on the target while its session opens.
 		target.reserved++;
@@ -1010,7 +1010,7 @@ export async function startHub(options: HubOptions): Promise<HubHandle> {
 	}
 
 	function homePage(res: ServerResponse): void {
-		const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Tychicus hub</title><style>${pageCss()}</style></head><body><main><h1>Tychicus hub</h1><p class="muted">This address connects an assistant to the owner's own browsers. Add <code>${options.publicUrl.replace(/[&<>"']/g, "")}/mcp</code> as a custom connector in claude.ai, ChatGPT or grok.com, then approve it with the owner's passcode or a connect code.</p></main></body></html>`;
+		const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Local Studio hub</title><style>${pageCss()}</style></head><body><main><h1>Local Studio hub</h1><p class="muted">This address connects an assistant to the owner's own browsers. Add <code>${options.publicUrl.replace(/[&<>"']/g, "")}/mcp</code> as a custom connector in claude.ai, ChatGPT or grok.com, then approve it with the owner's passcode or a connect code.</p></main></body></html>`;
 		res.writeHead(200, {
 			"content-type": "text/html; charset=utf-8",
 			"cache-control": "no-store",
