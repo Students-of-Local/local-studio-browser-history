@@ -235,7 +235,12 @@ try {
 	});
 	log(`extension connected after ${Date.now() - started} ms`);
 	const allow = spawnSync(join(root, "tychicus"), ["allow", "127.0.0.1"], { env: u.env, encoding: "utf8" });
-	assert.equal(allow.status, 0, `tychicus allow 127.0.0.1:\n${allow.stdout}${allow.stderr}`);
+	// It has failed with no output at all: name the signal or spawn error, not only the empty streams.
+	assert.equal(
+		allow.status,
+		0,
+		`tychicus allow 127.0.0.1: status ${allow.status}, signal ${allow.signal}, error ${allow.error?.message}\n${allow.stdout}${allow.stderr}`,
+	);
 	const nav = await mcp.callTool({ name: "navigate", arguments: { url: pageUrl } });
 	assert.ok(!nav.isError, `navigate: ${nav.content.map((c) => c.text).join("\n")}`);
 	const text = (await mcp.callTool({ name: "get_page_text", arguments: {} })).content.map((c) => c.text).join("\n");
