@@ -152,9 +152,12 @@ public enum ContextMenu {
     /// The item's ref in the engine's read of the open menu (surface menu): an enabled item titled `title` of the menu
     /// itself, never one inside a submenu.
     /// The first item of that title, as `choose` takes the first: never a later look-alike ("Rename" for "Rename…") when
-    /// the one judged went disabled between the two reads (256 first-F4).
+    /// the one judged went disabled between the two reads (256 first-F4). `title` is the judged item's own, and only that
+    /// title is pressed: "Rename…" in its place asks for more, which `choose` refuses.
     public static func ref(_ tree: JSONValue, title: String) -> String? {
+        func plain(_ s: String) -> String { s.trimmingCharacters(in: .whitespacesAndNewlines) }
         guard let item = MenuPath.items(under: tree).first(where: { MenuPath.same($0["name"]?.string ?? "", title) }),
+              plain(item["name"]?.string ?? "") == plain(title),
               !(item["states"]?.array ?? []).contains("disabled") else { return nil }
         return item["ref_id"]?.string
     }

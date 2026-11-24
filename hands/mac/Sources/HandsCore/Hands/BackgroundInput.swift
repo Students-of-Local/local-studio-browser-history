@@ -126,6 +126,28 @@ public enum KeyParse {
         return shiftedSymbols.first(where: { $0.value == key })?.key
     }
 
+    /// Why a chord is never sent, or nil: the key equivalents `MenuPath` refuses, so a key never reaches what its menu
+    /// item may not. By ANSI key code, and by `characters`, as `SessionClipboard.usesPasteboard` reads them (an app reads
+    /// cmd+q by its character; the Q key types something else on Dvorak).
+    public static func refusal(_ c: KeyChord, characters: @autoclosure () -> [Character] = []) -> HandsError? {
+        guard c.hasCommand else { return nil }
+        let typed = characters()
+        func key(_ name: String) -> Bool { base[name] == c.keyCode || typed.contains { $0.lowercased() == name } }
+        let others = c.flags & (KeyChord.shift | KeyChord.option | KeyChord.control)
+        // Quit, quit and keep windows, log out, lock the screen: every way cmd+q is held.
+        if key("q") || (key("h") && (others == 0 || others == KeyChord.option)) { return MenuPath.refuse(c.label, why: MenuPath.appMenu) }
+        if key("o"), others == 0 { return MenuPath.refuse(c.label, why: MenuPath.documents) }
+        if key("e"), others == 0 { return MenuPath.refuse(c.label, why: MenuPath.findText) }
+        if key("m"), others == 0 || others == KeyChord.option { return MenuPath.refuse(c.label, why: MenuPath.windows) }
+        if key("f"), others == KeyChord.control { return MenuPath.refuse(c.label, why: MenuPath.windows) }
+        if key("\\"), others == KeyChord.shift { return MenuPath.refuse(c.label, why: MenuPath.windows) }
+        // Print and page setup, Help's search, the Character Viewer.
+        if key("p"), others == 0 || others == KeyChord.shift { return MenuPath.refuse(c.label, why: MenuPath.outside) }
+        if key("/") && others == KeyChord.shift || typed.contains("?") && others & KeyChord.shift != 0 { return MenuPath.refuse(c.label, why: MenuPath.outside) }
+        if c.keyCode == 49, others == KeyChord.control { return MenuPath.refuse(c.label, why: MenuPath.outside) }
+        return nil
+    }
+
     /// Several chords separated by spaces. At most `maxChords`.
     public static func sequence(_ spec: String) -> Result<[KeyChord], HandsError> {
         let words = spec.split(whereSeparator: { $0 == " " || $0 == "\n" || $0 == "\t" }).map(String.init)
@@ -140,6 +162,7 @@ public enum KeyParse {
             case .success(let c):
                 // Cut, copy and paste reach the general pasteboard, which is Donovan's.
                 if SessionClipboard.usesPasteboard(c) { return .failure(SessionClipboard.pasteboardRefusal(c.label)) }
+                if let e = refusal(c) { return .failure(e) }
                 out.append(c)
             case .failure(let e): return .failure(e)
             }
@@ -349,11 +372,11 @@ public enum BackgroundRefusal {
     }
     public static func pointInTitleBar(window: UInt32) -> HandsError {
         HandsError(.badArguments, "the point is in window \(window)'s title bar, where a click presses close, minimize or zoom and a drag moves the window",
-                   suggestion: "Give a point below the title bar. Coordinates start at the window's top-left corner, title bar included (`computer_shot` shows the window at twice that size in pixels).", retry: .safe)
+                   suggestion: "Give a point below the title bar. Coordinates start at the window's top-left corner, title bar included; the line with a `computer_shot` says how its pixels map to them.", retry: .safe)
     }
     public static func pointOutside(window: UInt32) -> HandsError {
         HandsError(.badArguments, "the point is outside window \(window)",
-                   suggestion: "Give x and y in points from the window's top-left corner, inside its size (`computer_shot` shows it at twice that in pixels).", retry: .safe)
+                   suggestion: "Give x and y in points from the window's top-left corner, inside its size; the line with a `computer_shot` says how its pixels map to them.", retry: .safe)
     }
     /// After a post: nothing proved it.
     public static func unverified(basis: String) -> HandsError {
@@ -661,25 +684,28 @@ public enum PostGuard {
 
     public enum FrontVerdict: Equatable, Sendable {
         case same
-        /// Donovan brought the app forward: hardware events in the span. Stop, and do not blame the route.
+        /// The person brought the app forward: a click or a chord that can switch apps in the span. Stop, and do not blame the route.
         case userActivated
         /// The app came forward by itself: a tap was listening and heard no hardware.
         case selfActivated
-        /// The app came forward and nothing can say who did it (no tap): blamed on the process only.
+        /// The app came forward and nothing can say who did it (no tap, or only a pointer move, a scroll or plain typing):
+        /// blamed on the process only.
         case unattributed
         case other(Int32?)
         case unknown
     }
 
-    /// `hardware`: whether a hardware event (source process 0) was seen in the span; nil when nothing was listening.
-    public static func verdict(_ change: FrontChange, hardware: Bool?) -> FrontVerdict {
+    /// `events`: what a session tap saw in the span; nil when nothing was listening. The person works while agents do, so
+    /// only their input that can bring an app forward explains that one came.
+    public static func verdict(_ change: FrontChange, events: [SessionEvent]?) -> FrontVerdict {
         switch change {
         case .same: return .same
         case .unknown: return .unknown
         case .other(let p): return .other(p)
         case .targetCameForward:
-            guard let hardware else { return .unattributed }
-            return hardware ? .userActivated : .selfActivated
+            guard let hardware = events?.filter({ $0.sourcePid == 0 }) else { return .unattributed }
+            if hardware.contains(where: \.canActivate) { return .userActivated }
+            return hardware.isEmpty ? .selfActivated : .unattributed
         }
     }
 }
@@ -688,7 +714,10 @@ public enum PostGuard {
 public struct SessionEvent: Equatable, Sendable {
     /// The process that posted it; 0 is hardware.
     public var sourcePid: Int64
-    public init(sourcePid: Int64) { self.sourcePid = sourcePid }
+    /// Whether an event of its kind can bring an app forward: a button going down or up, or a key with command held or
+    /// let go (cmd+tab ends when command goes up). A move, a scroll or plain typing can't.
+    public var canActivate: Bool
+    public init(sourcePid: Int64, canActivate: Bool) { self.sourcePid = sourcePid; self.canActivate = canActivate }
 }
 
 public enum PointerAudit {
@@ -715,8 +744,11 @@ public enum PointerAudit {
 public struct ElementReading: Equatable, Sendable {
     /// The window the element belongs to, as accessibility maps it. A reading with no window proves nothing.
     public var window: UInt32?
-    /// Role and frame: which element this is.
+    /// Which element this is (`identity(role:element:)`). Never its frame: typing scrolls a view and grows a field, and
+    /// the same element at a new frame must still be compared by its value.
     public var identity: String
+    /// `element` is the accessibility element's own hash (`CFHash`), equal for every reference to one element.
+    public static func identity(role: String, element: UInt) -> String { "\(role)#\(element)" }
     public var valueLength: Int?
     public var valueDigest: UInt64?
     public var selectionLocation: Int?
