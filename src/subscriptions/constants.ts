@@ -27,8 +27,8 @@ export const SIWC = {
 	discoveryUrl: "https://auth.openai.com/.well-known/openid-configuration",
 	/** First-time registration entrypoint; never saved and never used for a token exchange. */
 	dynamicClient: "dynamic_agent_client",
-	/** Our app's name, sent only with a first registration. A host registered before the rename keeps its saved client, which OpenAI still lists as Polycarp or Tabkyra. */ // product-name allowlist: the name OpenAI lists for older sign-ins
-	agentName: "Tychicus",
+	/** Our app's name, sent only with a first registration. A host registered before the rename keeps its saved client, which OpenAI still lists as Tychicus, Polycarp or Tabkyra. */ // product-name allowlist: the name OpenAI lists for older sign-ins
+	agentName: "Local Studio",
 	scope: "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct",
 	/** The scope that allows ChatGPT plan usage; a valid ID token alone does not. */
 	planScope: "chatgpt.tokens.use.direct",
@@ -136,7 +136,7 @@ export function siwcRequestBody(input: Json): Json {
 					{
 						type: "namespace",
 						name: SIWC_TOOL_NAMESPACE,
-						description: "Tychicus browser tools",
+						description: "Local Studio browser tools",
 						tools: functions,
 					},
 				]

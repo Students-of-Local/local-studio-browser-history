@@ -63,7 +63,7 @@ test("a click on an attachment link reports the file: name, type, size, state, m
 	const [d] = reply.result.downloads;
 	assert.deepEqual({ ...d, url: undefined }, { name: "orders.csv", type: "csv", state: "completed", bytes: 2048, url: undefined });
 	assert.ok(d.url.startsWith("https://shop.example/export?id=7") && !d.url.includes("s3cr3tvalue"), d.url);
-	assert.match(reply.result.downloadNote, /download folder; the path isn't known\. Tychicus doesn't open/);
+	assert.match(reply.result.downloadNote, /download folder; the path isn't known\. Local Studio doesn't open/);
 });
 
 test("a script-made file (data: URL) is reported without its bytes; a canceled one says so", async () => {

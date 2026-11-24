@@ -62,7 +62,7 @@ export function withTimeout<T>(promise: Promise<T>, ms: number, label: string): 
 export function detachedError(method: string, what: string): BridgeError {
 	return new BridgeError(
 		ERR.INTERRUPTED,
-		`The browser's debugger detached from the tab while ${method} was running, so it may have run (${what}). Check the page with read_page before you repeat it; Tychicus attaches again on your next call.`,
+		`The browser's debugger detached from the tab while ${method} was running, so it may have run (${what}). Check the page with read_page before you repeat it; Local Studio attaches again on your next call.`,
 		"extension",
 	);
 }

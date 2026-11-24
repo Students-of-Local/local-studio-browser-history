@@ -80,7 +80,7 @@ test("a prepared build passes, keeps the app, and names its source and credits",
 	assert.deepEqual(problems(dir), []);
 	assert.equal(readFileSync(join(dir, "sidepanel.js"), "utf8"), "x");
 	const notice = readFileSync(join(dir, "NOTICE"), "utf8");
-	assert.match(notice, /^Tychicus browser extension/);
+	assert.match(notice, /^Local Studio browser extension/);
 	assert.match(notice, /github\.com\/baney75\/tychicus/);
 	assert.match(notice, /Mario Zechner/);
 	assert.match(notice, /0xSero/);
@@ -133,8 +133,8 @@ function preparedWith(change) {
 	return dir;
 }
 
-test("the zip's manifest must be named Tychicus", () => {
-	assert.match(problems(preparedWith((m) => (m.name = "Polycarp"))).join(), /manifest name is "Polycarp", not "Tychicus"/);
+test("the zip's manifest must be named Local Studio", () => {
+	assert.match(problems(preparedWith((m) => (m.name = "Polycarp"))).join(), /manifest name is "Polycarp", not "Local Studio"/);
 });
 
 test("every icon the manifest names must be in the zip", () => {
@@ -292,7 +292,7 @@ test("the store copy of pi-web-ui's prompts names the packed libraries and no CD
 	assert.match(store, /<script src="\/sandbox-lib\/tailwind\.js"><\/script>/);
 	assert.match(store, /await import\('xlsx'\)/);
 	assert.match(store, /Tailwind CSS v4[^\n]*There is no tailwind\.config[^\n]*@theme/);
-	assert.match(store, /runs only inside Tychicus/);
+	assert.match(store, /runs only inside this extension/);
 	assert.throws(() => storeVendorPrompts(source.replace("Use Tailwind CDN", "Use the Tailwind CDN"), sandboxLibraries(root)), /no longer say/);
 	assert.throws(
 		() => storeVendorPrompts(`${source}\nconst x = "await import('https://esm.run/lodash')";`, sandboxLibraries(root)),

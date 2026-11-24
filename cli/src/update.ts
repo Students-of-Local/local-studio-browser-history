@@ -31,7 +31,7 @@ import { extractZip } from "./zip.ts";
 import { COMMAND_NAME } from "./self.ts";
 import { envVar } from "./env.ts";
 import { installCommandFor } from "../../src/install-command.ts";
-import { configDir, dataDir } from "./files.ts";
+import { configDir, dataDir, writeJsonPrivate } from "./files.ts";
 
 export { configDir };
 
@@ -110,9 +110,8 @@ export function readSettings(): UpdateSettings {
 }
 
 function writeSettings(settings: UpdateSettings): void {
-	mkdirSync(configDir(), { recursive: true, mode: 0o700 });
 	settings.autoCheck = settings.policy !== "off";
-	writeFileSync(settingsFile(), `${JSON.stringify(settings, null, 2)}\n`);
+	writeJsonPrivate(settingsFile(), settings);
 }
 
 /** Settings > Updates and `polycarp browser update --auto-check`. */
@@ -331,7 +330,7 @@ export async function latestRelease(channel: Channel): Promise<Release | undefin
 /** Why a release without the signed archive can't update in place, and the command that installs it instead. */
 export function unsignedReleaseMessage(release: Pick<Release, "version" | "url">): string {
 	const command = installCommandFor(process.platform)?.command;
-	return `Tychicus ${release.version} has no signed update archive (${updateZipName(release.version)} and SHA256SUMS.minisig), so it can't be installed in place. ${
+	return `Release ${release.version} has no signed update archive (${updateZipName(release.version)} and SHA256SUMS.minisig), so it can't be installed in place. ${
 		command ? `Install it with: ${command}` : `Install it from ${release.url}`
 	}`;
 }
@@ -570,9 +569,9 @@ export function isManagedCopy(): boolean {
 
 function reloadHint(log: (line: string) => void): void {
 	log("");
-	log(`${sym.arrow} Reload Tychicus so the browser runs the new files: ${c.bold(`${COMMAND_NAME} reload`)}, or the reload button on chrome://extensions.`);
+	log(`${sym.arrow} Reload the extension so the browser runs the new files: ${c.bold(`${COMMAND_NAME} reload`)}, or the reload button on chrome://extensions.`);
 	if (!isManagedCopy()) {
-		log(`  ${c.dim("First release install: in chrome://extensions remove the old Tychicus, then Load unpacked:")}`);
+		log(`  ${c.dim("First release install: in chrome://extensions remove the old copy, then Load unpacked:")}`);
 		log(`  ${join(appDir(), "dist-chrome")}`);
 	}
 }

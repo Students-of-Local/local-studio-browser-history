@@ -104,14 +104,14 @@ test("a computer without tychicus-hands can't claim computer use, and the code s
 	const c = code(hub, "linuxbox");
 	const r = m.run(["link", hub.url, "--code", c, "--scope", "browser.read,computer.read", "--no-service"]);
 	assert.equal(r.code, 1);
-	assert.match(r.out, /This computer can't serve computer\.read: computer use needs Tychicus's computer-use helper, tychicus-hands, and it isn't on this computer\. [^\n]*Nothing was changed\./);
+	assert.match(r.out, /This computer can't serve computer\.read: computer use needs Local Studio's computer-use helper, tychicus-hands, and it isn't on this computer\. [^\n]*Nothing was changed\./);
 	assert.equal(linkJson(m), undefined, "nothing was written");
 	assert.equal(m.run(["link", hub.url, "--code", c, "--no-service", "--json"]).code, 0, "the code was never sent, so it still works");
 	assert.equal(m.run(["link", "scopes", "--add", "computer.act"]).code, 1, "nor can it be added after linking");
 	assert.deepEqual(linkJson(m).scopes, DEFAULT_CAP);
 });
 
-const NOT_GRANTABLE = /can't be turned on from the command line: granting computer use over a link needs the owner's approval on this computer, and Tychicus can't ask for it yet\. Nothing was changed\./;
+const NOT_GRANTABLE = /can't be turned on from the command line: granting computer use over a link needs the owner's approval on this computer, and the helper can't ask for it yet\. Nothing was changed\./;
 
 test("no CLI path grants a computer scope, and nothing is written", async () => {
 	const hub = await hubFor("notty-hub");
@@ -177,7 +177,7 @@ test("computer scopes written into link.json by hand are never served, and the n
 	writeFileSync(m.file("link.json"), JSON.stringify({ hubUrl: `http://127.0.0.1:${port}`, deviceId: "dv-handhandhand", secret: "s".repeat(43), name: "handmac", manage: false, scopes: ["browser.read", "computer.act", "computer.read"] }));
 	const status = JSON.parse(m.run(["link", "status", "--json"]).out);
 	assert.deepEqual(status.notServed.map((x) => x.scope), ["computer.act", "computer.read"]);
-	assert.match(status.notServed[0].why, /owner's approval on this computer, which Tychicus can't ask for yet/);
+	assert.match(status.notServed[0].why, /owner's approval on this computer, which the helper can't ask for yet/);
 	const frames = [];
 	const connected = new Promise((resolve) =>
 		wss.on("connection", (ws) => {
