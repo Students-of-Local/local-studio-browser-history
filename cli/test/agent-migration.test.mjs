@@ -588,6 +588,28 @@ test("sol-F4 (round 2): adjacent aliases beside tychicus are removed together an
 	});
 });
 
+test("the alias list is written whole and private, and stays as it was when the write fails", () => {
+	inHome("alias-whole", (home) => {
+		const bin = join(home, ".config", "tychicus", "tychicus");
+		put(join(home, ".claude.json"), CLAUDE, 0o600);
+		const file = recordAlias(home, ["cursor", join(home, "elsewhere.json"), "polycarp"]);
+		const before = readFileSync(file, "utf8");
+		// A folder where the temporary file goes: writing it fails (EISDIR), for root too.
+		mkdirSync(`${file}.${process.pid}.tmp`);
+		const plans = planMigration(bin);
+		applyMigration(plans, new Date("2026-11-17T20:00:00Z"));
+		assert.match(plans.find((p) => p.harness === "claude").aliasWarning, /agent-aliases\.json couldn't be updated/);
+		assert.equal(readFileSync(file, "utf8"), before);
+	});
+	inHome("alias-private", (home) => {
+		put(join(home, ".claude.json"), CLAUDE, 0o600);
+		applyMigration(planMigration(join(home, ".config", "tychicus", "tychicus")), new Date("2026-11-17T20:00:00Z"));
+		const file = join(process.env.TYCHICUS_CONFIG_DIR, "agent-aliases.json");
+		assert.deepEqual(JSON.parse(readFileSync(file, "utf8")).aliases.map((a) => a.name), ["polycarp"]);
+		if (process.platform !== "win32") assert.equal(statSync(file).mode & 0o777, 0o600);
+	});
+});
+
 test("sol-F3 (round 2): when agent-aliases.json can't be written, the moved alias is still found by finish and doctor", () => {
 	inHome("alias-unwritable", (home) => {
 		const bin = join(home, ".config", "tychicus", "tychicus");
