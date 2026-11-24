@@ -1,6 +1,6 @@
 # Market eval
 
-The numbers behind "best on the market" (#30): Tychicus's scores and speeds, measured the same way on every pull
+The numbers behind "best on the market" (#30): Local Studio's scores and speeds, measured the same way on every pull
 request and held by floors that only go up. Rival tools are measured by the same code, by hand.
 
 | Part | What it measures | Score | Source |
@@ -56,7 +56,7 @@ time (`--time`), because a shared runner's clock swings several fold per case.
 ## Rivals, by hand
 
 [`rivals/`](rivals/) runs the same task set and speed check against Playwright MCP, agent-browser, browse and Chrome
-DevTools MCP, at the versions `rivals/install.sh` pins. They never run in CI: CI scores Tychicus only. Each runs in a
+DevTools MCP, at the versions `rivals/install.sh` pins. They never run in CI: CI scores Local Studio only. Each runs in a
 throwaway profile, headless, on Playwright's Chromium.
 
 ```sh
@@ -70,7 +70,7 @@ text (`t01-read`), in a session of its own, the same way for every tool (`detail
 alone; agent-browser launches its browser on its first command, so start alone read 0). `--no-start` skips it. `env`
 holds the tool's version, the machine, Node, Chromium and the 1-minute load average at the start and end.
 `install-time.mjs` writes `results/install.json`: each tool installed 3 times into a new folder with an empty npm cache
-(Tychicus by its release's one command, with a throwaway home folder), and the install steps each README gives.
+(Local Studio by its release's one command, with a throwaway home folder), and the install steps each README gives.
 `MARKET_RIVALS_DIR` points at another install, and `MARKET_CHROMIUM` at another Chromium. Model-driven runs (a local
 model given each tool's own MCP tools), Browser Use's own agent and Stagehand are the weak-model track in #30 and have
 no adapter here.
