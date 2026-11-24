@@ -597,8 +597,8 @@ export async function remoteSetup(options: SetupOptions): Promise<number> {
 		if (options.publicUrl) return await runSetup(options);
 		const via = await setupThroughLocalStudio(options);
 		if (typeof via === "number") return via;
-		// Its own route instead; an app also gets Local Studio's waitlist answer, so it can show where to sign up, and an agent the
-		// Funnel command web assistants need meanwhile.
+		// Its own route instead; an app also gets Local Studio's answer, and when an older Local Studio gates tunnel setup, an agent
+		// gets `waitlist`: update Local Studio and rerun setup, and the Funnel command web assistants can use with no domain.
 		const answer = via.localStudio;
 		const waitlist = via.waitlist;
 		const emit = options.report ?? printReport;

@@ -14,8 +14,8 @@
  * - ready: nothing is set up yet and nothing stands in the way.
  * - on: set up, answering here and reachable from the internet.
  * - no_browser_connected: set up and reachable, but no browser has the extension loaded, so an assistant would find nothing to drive.
- * - waitlist: Local Studio runs this machine's tunnel, and its build offers the tunnel by waitlist only (stable and nightly);
- *   `message` is Local Studio's own, passed through unchanged.
+ * - waitlist: Local Studio runs this machine's tunnel, and it is an older build that still gates tunnel setup (the person updates
+ *   it; every Local Studio tunnel now runs on their own Cloudflare account); `message` is Local Studio's own, passed through unchanged.
  * - problem: anything else; `message` says what and `checks` (status only) says which.
  */
 export type RemoteState =
@@ -50,8 +50,8 @@ export const REMOTE_STATES: readonly RemoteState[] = [
 /**
  * What an agent setting a tunnel up for a person does next, on every `remote setup --json` and `remote join --json` report:
  * ready (on, its own route), joined (on, through Local Studio's tunnel), needs_signin (the person signs in: Tailscale or
- * Cloudflare), needs_dns (a name isn't published or can't be used yet), waitlist (Local Studio's tunnel is waitlist only on this
- * build), error (anything else; `code` says what and `next` what to run or open).
+ * Cloudflare), needs_dns (a name isn't published or can't be used yet), waitlist (an older Local Studio that gates tunnel setup:
+ * update it and run setup again), error (anything else; `code` says what and `next` what to run or open).
  */
 export type AgentStep = "ready" | "joined" | "needs_signin" | "needs_dns" | "waitlist" | "error";
 
@@ -102,13 +102,15 @@ export interface SetupReport {
 	state: RemoteState;
 	/** For an agent: what happens next (agentStep). The app reads `state`; this is the same report, said as one step. */
 	step?: AgentStep;
-	/** Local Studio's waitlist answer from `local-studio tunnel setup --json`, unchanged, when setup used Tychicus's own route instead. */
+	/** Local Studio's answer from `local-studio tunnel setup --json`, unchanged, when setup used Tychicus's own route instead. */
 	localStudio?: Record<string, unknown>;
 	/**
-	 * On Local Studio's waitlist: its signup `url` and `channel`, and `next`, the command (with `why`) that gives claude.ai, ChatGPT and
-	 * grok.com a route meanwhile: Tailscale Funnel. The report's own `next` still says what this setup's route needs.
+	 * An older Local Studio that gates tunnel setup (it answered `state: "waitlist"`; the name stays for agents that read it): its
+	 * `channel`, and `next`, the command (with `why`) that gives claude.ai, ChatGPT and grok.com a free public route with no domain:
+	 * Tailscale Funnel. `why` says to update Local Studio, run setup again, and that Local Studio's own route runs on the person's
+	 * Cloudflare account (`local-studio tunnel byo --json`). The report's own `next` still says what this setup's route needs.
 	 */
-	waitlist?: { url?: string; channel?: string; next: { kind: "run_command"; command: string; why: string } };
+	waitlist?: { channel?: string; next: { kind: "run_command"; command: string; why: string } };
 	message: string;
 	adminUrl?: string;
 	/**
