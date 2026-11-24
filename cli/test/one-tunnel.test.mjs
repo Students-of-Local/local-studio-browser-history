@@ -478,6 +478,41 @@ test("remote join puts remote.json, serve and Tychicus's own tunnel back when th
 	}
 });
 
+/** Tychicus's relay route: remote.json with the relay block, the connector's state file and its service file. */
+function relayRoute(s, port) {
+	const key = randomBytes(32).toString("base64url");
+	writeFileSync(join(s.config, "remote.json"), JSON.stringify({ publicUrl: "https://tychicus-relay.box.workers.dev", port, route: "relay", relay: { name: "tychicus-relay", key } }), { mode: 0o600 });
+	const launcher = s.launcher();
+	const file = s.serviceFileOf("relay");
+	mkdirSync(dirname(file), { recursive: true });
+	writeFileSync(
+		file,
+		process.platform === "darwin"
+			? `<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0">\n<dict>\n\t<key>Label</key>\n\t<string>com.tychicus.relay</string>\n\t<key>ProgramArguments</key>\n\t<array>\n\t\t<string>${launcher}</string>\n\t\t<string>remote</string>\n\t\t<string>relay</string>\n\t\t<string>run</string>\n\t</array>\n</dict>\n</plist>\n`
+			: `[Service]\nExecStart=${launcher} remote relay run\n`,
+	);
+}
+
+test("remote join over the relay route stops its connector, and a failed proof puts it back", { skip: unixOnly }, async () => {
+	const s = scenario("join-relay");
+	const local = await localServe(`https://${STUDIO}/mcp`);
+	try {
+		relayRoute(s, 8787);
+		const before = s.remoteJsonText();
+		s.writeRecord({ v: 1, owner: "local-studio", route: "cloudflare", hostname: STUDIO, ports: { mcp: local.port } });
+		const failed = await s.runAsync(["remote", "join", "--json"], { JOIN_PROOF_FAIL: STUDIO }, { hooks: true });
+		assert.equal(failed.code, 1, failed.out);
+		assert.equal(s.remoteJsonText(), before, "remote.json and the relay key are back");
+		assert.ok(existsSync(s.serviceFileOf("relay")), "the connector's service is back");
+		const r = await s.runAsync(["remote", "join", "--json"], {}, { hooks: true });
+		assert.equal(r.code, 0, r.out);
+		assert.equal(existsSync(s.serviceFileOf("relay")), false, "the connector's service is gone");
+		assert.deepEqual(s.remoteJson(), { publicUrl: `https://${STUDIO}`, port: local.port, route: "custom" });
+	} finally {
+		await local.close();
+	}
+});
+
 test("remote join on the tailnet leaves mounts Local Studio now shares, and removes Tychicus's own on another port", { skip: unixOnly }, async () => {
 	const local = await localServe(`https://${DNS}/mcp`);
 	try {
@@ -581,6 +616,16 @@ test("a re-run on Tychicus's own Cloudflare route with no record stays Tychicus'
 	localStudioStub(s, { record: { v: 1, owner: "local-studio", route: "cloudflare", hostname: STUDIO, ports: { mcp: 8787 } } });
 	const r = (await s.runAsync(["remote", "setup", "--cloudflare", CF_HOST, "--json", "--no-service", "--no-passcode"])).json();
 	assert.notEqual(r.code, "local_studio", r.message);
+	assert.deepEqual(s.calls().filter((x) => x.startsWith("local-studio")), [], "local-studio isn't run");
+	assert.equal(existsSync(s.recordFile), false);
+});
+
+test("a re-run with another route's flag on the relay route never runs local-studio, and says to turn the relay off first", { skip: unixOnly }, async () => {
+	const s = scenario("defer-own-relay");
+	relayRoute(s, 8787);
+	localStudioStub(s, { record: { v: 1, owner: "local-studio", route: "cloudflare", hostname: STUDIO, ports: { mcp: 8787 } } });
+	const r = (await s.runAsync(["remote", "setup", "--cloudflare", CF_HOST, "--json", "--no-passcode"])).json();
+	assert.match(r.message, /relay route from an earlier setup is on/);
 	assert.deepEqual(s.calls().filter((x) => x.startsWith("local-studio")), [], "local-studio isn't run");
 	assert.equal(existsSync(s.recordFile), false);
 });
