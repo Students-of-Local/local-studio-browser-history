@@ -268,7 +268,7 @@ const windowsServiceDir = () => join(configDir(), "services");
 const windowsScriptPath = (spec: ServiceSpec) => join(windowsServiceDir(), `${spec.label}.cmd`);
 const windowsTaskXmlPath = (spec: ServiceSpec) => join(windowsServiceDir(), `${spec.label}.xml`);
 const windowsLog = (spec: ServiceSpec) => join(configDir(), "logs", spec.logName);
-const systemRoot = () => process.env.SystemRoot || "C:\\Windows";
+export const systemRoot = () => process.env.SystemRoot || "C:\\Windows";
 /** By full path, so a schtasks or cmd elsewhere on PATH is never run in their place. */
 export const schtasksPath = () => win32.join(systemRoot(), "System32", "schtasks.exe");
 const cmdPath = () => win32.join(systemRoot(), "System32", "cmd.exe");
