@@ -71,7 +71,8 @@ import { type RouteRecord, readRouteRecord, routeRecordFile, TYCHICUS_PATHS } fr
 import { applyMounts, funnelOn443, handlersOn443, type Mount, mountTarget, planMounts, readServeState, removeMounts, type ServeState, wantedMounts } from "./tailnet.ts";
 import { cloudflareTunnelPaths, setupThroughLocalStudio } from "./remote-join.ts";
 import { generateRelayKey, RELAY_SERVICE, readRelayStatus, relayStateFile } from "./relay.ts";
-import { DEFAULT_RELAY_NAME, deploy as deployRelay, login as relayLogin, npxBinary, onboardingUrl, putKey as putRelayKey, someoneElses as someoneElsesRelay, verify as verifyRelay, WRANGLER_VERSION, whoami as relayWhoami } from "./relay-setup.ts";
+import { DEFAULT_RELAY_NAME, deploy as deployRelay, login as relayLogin, npxBinary, onboardingUrl, putKey as putRelayKey, WRANGLER_VERSION, whoami as relayWhoami } from "./relay-setup.ts";
+import { verify as verifyRelay } from "./relay-verify.ts";
 
 /** Funnel's own port: keeps the OAuth paths at the root and anything on 443 private. */
 export const FUNNEL_PORT = 8443;
@@ -715,25 +716,25 @@ async function runSetup(options: SetupOptions): Promise<number> {
 			const stray = await strayFunnel();
 			if (stray.kind !== "none") return fail("port_busy", `Funnel on ${FUNNEL_PORT} is on${stray.kind === "unknown" ? ` (${stray.message})` : ""}; run ${COMMAND_NAME} remote off first. Nothing was changed.`, { code: "tailscale_port" });
 		}
-		// Naming the Worker is the go-ahead to replace what it is; the default name may be another computer's relay.
-		if (!options.relay && previous?.relay?.name !== relayName && (await someoneElsesRelay(relayName, relayAccount))) {
-			const host = hostname().split(".")[0]?.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") ?? "";
-			const other = `${COMMAND_NAME} remote setup --relay ${relayName}-${host.slice(0, 40).replace(/-+$/, "") || "2"}${options.account ? ` --account ${options.account}` : ""}`;
-			return fail("problem", `A relay named ${relayName} is already on this Cloudflare account with a key this computer didn't set, so it is probably another computer's. For this computer's own relay, run ${other}. To take that one over, which cuts the other computer off, run ${COMMAND_NAME} remote setup --relay ${relayName}. Nothing was changed.`, {
-				code: "relay_taken",
-				next: { kind: "run_command", command: other },
-			});
-		}
 		// The relay goes live refusing every connector until RELAY_KEY is set (relay/deploy.md), so deploying before the key is safe.
 		let address: string | undefined;
 		while (!address) {
 			say(`${sym.dot} Deploying the relay as ${relayName} to your Cloudflare account.`);
-			const deployed = await deployRelay(relayName, relayAccount);
+			// Naming the Worker, or having set it up before, is the go-ahead to take a relay over; the default name may be another computer's.
+			const deployed = await deployRelay(relayName, relayAccount, { takeOver: Boolean(options.relay) || previous?.relay?.name === relayName });
 			if (deployed.ok) {
 				address = deployed.url;
 				break;
 			}
-			if (!deployed.subdomain) return fail("problem", `${deployed.message} Nothing was saved.`, { code: "relay_deploy" });
+			if (deployed.why === "relay" || deployed.why === "other") {
+				const host = hostname().split(".")[0]?.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") ?? "";
+				const other = `${COMMAND_NAME} remote setup --relay ${DEFAULT_RELAY_NAME}-${host.slice(0, 40).replace(/-+$/, "") || "2"}${options.account ? ` --account ${options.account}` : ""}`;
+				const why = deployed.why === "relay"
+					? `A relay named ${relayName} is already on this Cloudflare account with a key this computer didn't set, so it is probably another computer's. For this computer's own relay, run ${other}. To take that one over, which cuts the other computer off, run ${COMMAND_NAME} remote setup --relay ${relayName}.`
+					: `A Worker named ${relayName} is already on this Cloudflare account and isn't a relay, so it is left alone. For a relay of another name, run ${other}.`;
+				return fail("problem", `${why} Nothing was changed.`, { code: deployed.why === "relay" ? "relay_taken" : "relay_name_used", next: { kind: "run_command", command: other } });
+			}
+			if (deployed.why === "failed") return fail("problem", `${deployed.message} Nothing was saved.`, { code: "relay_deploy" });
 			const page = onboardingUrl(relayAccount);
 			const pick = `Your Cloudflare account has no workers.dev subdomain yet, and the relay's address ends in one. Open ${page}, pick a subdomain`;
 			if (!input) return fail("problem", `${pick}, then run ${signIn.command} again. Nothing was saved.`, { code: "workers_subdomain", next: { kind: "open_page", url: page } });
