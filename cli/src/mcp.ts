@@ -546,7 +546,7 @@ export function createMcpServer(options: McpServerOptions = {}): { server: McpSe
 		"status",
 		{
 			title: "Tychicus status",
-			description: "Connection check: is the browser connected, the site permission mode (\"ask\": new sites need the user's approval; \"allow_all\"), allowed sites, your group and tabs. Never fails: when not connected it says how the user fixes it. Example: {}",
+			description: "Connection check: is the browser connected, the permission mode (mode: manual, auto or yolo), allowed sites, your group and tabs. Never fails: when not connected it says how the user fixes it. Example: {}",
 			inputSchema: {},
 		},
 		async () => {

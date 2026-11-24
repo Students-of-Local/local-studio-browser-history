@@ -18,6 +18,7 @@ import { sdkInstalled } from "./subscriptions/copilot.ts";
 import { installCopilotSdk } from "./subscriptions/install-sdk.ts";
 import { LIBRARY_USAGE, runLibrary } from "./library.ts";
 import { cloudflareLogin, runCloudflareTunnel } from "./cloudflare.ts";
+import { asPermissionMode, MODE_TITLE, modeSummary, type PermissionMode } from "./permission-mode.ts";
 import { printReport } from "./remote-state.ts";
 import { createToken, loadTokens, loadUsage, offeredScopes, revokeToken, SCOPES, serve, tokenLive } from "./remote.ts";
 import { listClients, mintApprovalCode, normalizePublicUrl, type OAuthConfig, passcodeSet, revokeClient, revokeGrantById, setPasscode } from "./oauth.ts";
@@ -140,6 +141,8 @@ interface StatusReport {
 	/** Every connected browser's extension and what it was built from (`polycarp version` reads this). */
 	extensions: Array<{ browser: string; version: string; commit: string; commitDate: string; dirty: boolean; /** False: the browser is connected but did not answer in time. */ answered: boolean }>;
 	extensionVersion?: string;
+	/** The permission mode by name (D67); an older extension's 1.4.0 name is read as the mode it became. */
+	mode?: PermissionMode;
 	permissionMode?: string;
 	allowedHosts?: string[];
 	message?: string;
@@ -147,6 +150,7 @@ interface StatusReport {
 
 interface StatusInfo {
 	extensionVersion: string;
+	mode?: string;
 	permissionMode: string;
 	allowedHosts: string[];
 	build?: { commit?: string; commitDate?: string; dirty?: boolean };
@@ -210,6 +214,7 @@ async function status(json: boolean): Promise<number> {
 			if (report.connected) continue;
 			report.connected = true;
 			report.extensionVersion = info.extensionVersion;
+			report.mode = asPermissionMode(info.mode) ?? asPermissionMode(info.permissionMode);
 			report.permissionMode = info.permissionMode;
 			report.allowedHosts = info.allowedHosts;
 			report.message = undefined;
@@ -228,12 +233,11 @@ async function status(json: boolean): Promise<number> {
 	if (report.connected) {
 		console.log(`${sym.ok} Extension connected ${c.dim(`(${report.extensionVersion})`)}`);
 		const allowed = report.allowedHosts?.length ? report.allowedHosts.join(", ") : "none yet";
+		const mode = report.mode ?? "auto";
 		console.log(
-			report.permissionMode === "allow_all"
-				? `${sym.warn} Agents may open any site ${c.dim(`(${COMMAND_NAME} ask turns prompts back on)`)}`
-				: report.permissionMode === "by_model"
-					? `${sym.ok} Agents on frontier models open any site; small or unknown models ask first. Allowed: ${allowed}`
-					: `${sym.ok} Agents ask before opening a new site. Allowed: ${allowed}`,
+			mode === "yolo"
+				? `${sym.warn} Mode: ${MODE_TITLE[mode]}: ${modeSummary(mode)} ${c.dim(`(${COMMAND_NAME} ask turns prompts back on)`)}`
+				: `${sym.ok} Mode: ${MODE_TITLE[mode]}: ${modeSummary(mode)}. Allowed: ${allowed}`,
 		);
 	} else {
 		console.log(`${sym.fail} ${report.message}`);
