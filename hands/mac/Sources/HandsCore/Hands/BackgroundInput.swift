@@ -126,6 +126,41 @@ public enum KeyParse {
         return shiftedSymbols.first(where: { $0.value == key })?.key
     }
 
+    /// Why a chord is never sent, or nil: the key equivalents `MenuPath` refuses, so a key never reaches what its menu
+    /// item may not. By ANSI key code, and by `characters`, as `SessionClipboard.usesPasteboard` reads them (an app reads
+    /// cmd+q by its character; the Q key types something else on Dvorak). `chord` picks the key by its US place: where the
+    /// layout has other characters on that key, it would send another key than the one asked for, so it isn't sent.
+    /// fn with a letter or with control is the system's own (full screen, Emoji, window tiling, Quick Note).
+    public static func refusal(_ c: KeyChord, characters: @autoclosure () -> [Character] = []) -> HandsError? {
+        let typed = characters()
+        let place = base.first { $0.value == c.keyCode }?.key
+        if c.flags & KeyChord.function != 0, c.flags & KeyChord.control != 0 || place?.first?.isLetter == true || typed.contains(where: \.isLetter) {
+            return MenuPath.refuse(c.label, why: MenuPath.windows)
+        }
+        if let place, !typed.isEmpty {
+            let shifted = c.flags & KeyChord.shift == 0 ? nil : shiftedSymbols.first { $0.value == place }?.key
+            let asked = shifted.map(String.init) ?? place
+            if !typed.contains(where: { $0.lowercased() == asked }) {
+                return bad(c.label, "this Mac's keyboard layout has another character on that key")
+            }
+        }
+        guard c.hasCommand else { return nil }
+        func key(_ name: String) -> Bool { base[name] == c.keyCode || typed.contains { $0.lowercased() == name } }
+        let others = c.flags & (KeyChord.shift | KeyChord.option | KeyChord.control)
+        // Quit, quit and keep windows, log out, lock the screen: every way cmd+q is held.
+        if key("q") || (key("h") && (others == 0 || others == KeyChord.option)) { return MenuPath.refuse(c.label, why: MenuPath.appMenu) }
+        if key("o"), others == 0 { return MenuPath.refuse(c.label, why: MenuPath.documents) }
+        if key("e"), others == 0 { return MenuPath.refuse(c.label, why: MenuPath.findText) }
+        if key("m"), others == 0 || others == KeyChord.option { return MenuPath.refuse(c.label, why: MenuPath.windows) }
+        if key("f"), others == KeyChord.control { return MenuPath.refuse(c.label, why: MenuPath.windows) }
+        if key("\\"), others == KeyChord.shift { return MenuPath.refuse(c.label, why: MenuPath.windows) }
+        // Print and page setup, Help's search, the Character Viewer.
+        if key("p"), others == 0 || others == KeyChord.shift { return MenuPath.refuse(c.label, why: MenuPath.outside) }
+        if key("/") && others == KeyChord.shift || typed.contains("?") && others & KeyChord.shift != 0 { return MenuPath.refuse(c.label, why: MenuPath.outside) }
+        if c.keyCode == 49, others == KeyChord.control { return MenuPath.refuse(c.label, why: MenuPath.outside) }
+        return nil
+    }
+
     /// Several chords separated by spaces. At most `maxChords`.
     public static func sequence(_ spec: String) -> Result<[KeyChord], HandsError> {
         let words = spec.split(whereSeparator: { $0 == " " || $0 == "\n" || $0 == "\t" }).map(String.init)
@@ -140,6 +175,7 @@ public enum KeyParse {
             case .success(let c):
                 // Cut, copy and paste reach the general pasteboard, which is Donovan's.
                 if SessionClipboard.usesPasteboard(c) { return .failure(SessionClipboard.pasteboardRefusal(c.label)) }
+                if let e = refusal(c) { return .failure(e) }
                 out.append(c)
             case .failure(let e): return .failure(e)
             }
@@ -349,11 +385,11 @@ public enum BackgroundRefusal {
     }
     public static func pointInTitleBar(window: UInt32) -> HandsError {
         HandsError(.badArguments, "the point is in window \(window)'s title bar, where a click presses close, minimize or zoom and a drag moves the window",
-                   suggestion: "Give a point below the title bar. Coordinates start at the window's top-left corner, title bar included (`computer_shot` shows the window at twice that size in pixels).", retry: .safe)
+                   suggestion: "Give a point below the title bar. Coordinates start at the window's top-left corner, title bar included; the line with a `computer_shot` says how its pixels map to them.", retry: .safe)
     }
     public static func pointOutside(window: UInt32) -> HandsError {
         HandsError(.badArguments, "the point is outside window \(window)",
-                   suggestion: "Give x and y in points from the window's top-left corner, inside its size (`computer_shot` shows it at twice that in pixels).", retry: .safe)
+                   suggestion: "Give x and y in points from the window's top-left corner, inside its size; the line with a `computer_shot` says how its pixels map to them.", retry: .safe)
     }
     /// After a post: nothing proved it.
     public static func unverified(basis: String) -> HandsError {
@@ -661,25 +697,28 @@ public enum PostGuard {
 
     public enum FrontVerdict: Equatable, Sendable {
         case same
-        /// Donovan brought the app forward: hardware events in the span. Stop, and do not blame the route.
+        /// The person brought the app forward: a click or a chord that can switch apps in the span. Stop, and do not blame the route.
         case userActivated
         /// The app came forward by itself: a tap was listening and heard no hardware.
         case selfActivated
-        /// The app came forward and nothing can say who did it (no tap): blamed on the process only.
+        /// The app came forward and nothing can say who did it (no tap, or only a pointer move, a scroll or plain typing):
+        /// blamed on the process only.
         case unattributed
         case other(Int32?)
         case unknown
     }
 
-    /// `hardware`: whether a hardware event (source process 0) was seen in the span; nil when nothing was listening.
-    public static func verdict(_ change: FrontChange, hardware: Bool?) -> FrontVerdict {
+    /// `events`: what a session tap saw in the span; nil when nothing was listening. The person works while agents do, so
+    /// only their input that can bring an app forward explains that one came.
+    public static func verdict(_ change: FrontChange, events: [SessionEvent]?) -> FrontVerdict {
         switch change {
         case .same: return .same
         case .unknown: return .unknown
         case .other(let p): return .other(p)
         case .targetCameForward:
-            guard let hardware else { return .unattributed }
-            return hardware ? .userActivated : .selfActivated
+            guard let hardware = events?.filter({ $0.sourcePid == 0 }) else { return .unattributed }
+            if hardware.contains(where: \.canActivate) { return .userActivated }
+            return hardware.isEmpty ? .selfActivated : .unattributed
         }
     }
 }
@@ -688,7 +727,10 @@ public enum PostGuard {
 public struct SessionEvent: Equatable, Sendable {
     /// The process that posted it; 0 is hardware.
     public var sourcePid: Int64
-    public init(sourcePid: Int64) { self.sourcePid = sourcePid }
+    /// Whether an event of its kind can bring an app forward: a button going down or up, or a key with command held or
+    /// let go (cmd+tab ends when command goes up). A move, a scroll or plain typing can't.
+    public var canActivate: Bool
+    public init(sourcePid: Int64, canActivate: Bool) { self.sourcePid = sourcePid; self.canActivate = canActivate }
 }
 
 public enum PointerAudit {
@@ -715,8 +757,11 @@ public enum PointerAudit {
 public struct ElementReading: Equatable, Sendable {
     /// The window the element belongs to, as accessibility maps it. A reading with no window proves nothing.
     public var window: UInt32?
-    /// Role and frame: which element this is.
+    /// Which element this is (`identity(role:element:)`). Never its frame: typing scrolls a view and grows a field, and
+    /// the same element at a new frame must still be compared by its value.
     public var identity: String
+    /// `element` is the accessibility element's own hash (`CFHash`), equal for every reference to one element.
+    public static func identity(role: String, element: UInt) -> String { "\(role)#\(element)" }
     public var valueLength: Int?
     public var valueDigest: UInt64?
     public var selectionLocation: Int?
@@ -774,24 +819,28 @@ public enum KeyPrediction {
     /// What one step is expected to change (a step is a typed segment or a single chord; see `KeySteps`).
     public static func expected(_ chords: [KeyChord], focusIsText: Bool) -> Set<KeyEffect> {
         var out: Set<KeyEffect> = []
+        func add(_ effects: Set<KeyEffect>) { out.formUnion(effects) }
         for c in chords {
             if arrows.contains(c.keyCode) {
-                out.insert(focusIsText ? .selection : .content)
+                add(focusIsText ? [.selection, .content] : [.content])   // Page Up, Home and End scroll an AppKit text view
             } else if c.flags == KeyChord.command, [11, 34, 32].contains(c.keyCode) {
                 out.insert(.attributes)                       // bold, italic, underline
             } else if c.flags == KeyChord.command, c.keyCode == 0 {
                 out.insert(.selection)                        // select all
             } else if c.flags & (KeyChord.command | KeyChord.control) != 0 {
                 out.insert(.window)                           // save, new, close...: the window is what changes
+                // In text: undo, delete to the line's end, a caret move, a find bar that takes the focus.
+                if focusIsText { add([.text, .selection, .attributes, .focus, .content]) }
             } else if c.keyCode == 36 {
-                // Return types a newline in a text view, runs the action of a one-line field (the window may change).
-                out.insert(focusIsText ? .text : .content); out.insert(.window)
+                // Return types a newline in a text view, runs the action of a one-line field (a search, a rename, a sheet).
+                add(focusIsText ? [.text, .focus, .content, .window] : [.content, .window])
             } else if c.keyCode == 48 {
-                out.insert(.focus)
+                add(focusIsText ? [.focus, .text] : [.focus])            // a text view takes a tab character
             } else if isTextual(c) {
                 out.insert(focusIsText ? .text : .content)
             } else {
-                out.insert(.content)
+                // Escape, F-keys: a completion list gone, a search field cleared, a rename cancelled.
+                add(focusIsText ? [.content, .text, .selection, .focus, .window] : [.content])
             }
         }
         return out
@@ -980,10 +1029,23 @@ public enum DeliveryProof {
         }
     }
 
+    /// Whether the whole of `typed` went in where the selection was: the text before it, then `typed`, and the text after
+    /// it at the end. Text that was already there proves nothing. With no selection read, the value must hold `typed` and
+    /// have grown by it.
+    static func inserted(_ typed: String, _ b: ElementReading, _ a: ElementReading) -> Bool {
+        guard let before = b.value.map({ Array($0.utf16) }), let after = a.value.map({ Array($0.utf16) }) else { return false }
+        let new = Array(typed.utf16)
+        guard let at = b.selectionLocation, let length = b.selectionLength, at >= 0, length >= 0, at + length <= before.count else {
+            return after.count >= before.count + new.count && a.value?.contains(typed) == true
+        }
+        let head = before[..<at], tail = before[(at + length)...]
+        return after.count >= head.count + new.count + tail.count && after.starts(with: head + new) && Array(after.suffix(tail.count)) == Array(tail)
+    }
+
     /// Keys, one step: proof is the change that step predicts, on the targeted element or the focused element (value,
     /// selection, attributes, focus), all inside the target window. A typed segment must also show its own characters.
-    /// The window's content counts only where there is no text element to read (Calculator), and the window itself
-    /// only for a shortcut that acts on the window (Save). An unrelated change does not count, and pixels never prove keys.
+    /// The window's content counts where there is no text element to read (Calculator) or the key may act outside it
+    /// (Return, Escape), and the window itself only for a key that acts on it (Save, Return). An unrelated change does not count, and pixels never prove keys.
     public static func keys(target: UInt32, step: KeyStep, ref: ReadingPair, focus: ReadingPair, content: Bool?,
                             window: (before: WindowReading?, after: WindowReading?) = (nil, nil), pixels: PixelChange?) -> DeliveryVerdict {
         let focusIsText = (focus.before?.isText ?? false) || (ref.before?.isText ?? false)
@@ -994,7 +1056,7 @@ public enum DeliveryProof {
         if let typed = step.typed, seen.contains(.text) {
             func appears(_ p: ReadingPair) -> Bool {
                 guard let b = p.before, let a = p.after, b.window == target, a.window == target, b.valueDigest != a.valueDigest else { return false }
-                return a.value?.contains(typed) ?? false
+                return inserted(typed, b, a)
             }
             if !(appears(ref) || appears(focus)) { seen.remove(.text); wrongText = true }
         }
@@ -1004,7 +1066,7 @@ public enum DeliveryProof {
         }()
         for e in [KeyEffect.text, .selection, .focus, .attributes] where expected.contains(e) && seen.contains(e) { return .init(verified: true, basis: basis(e)) }
         if expected.contains(.window), windowChanged { return .init(verified: true, basis: "window_changed") }
-        if !focusIsText, expected.contains(.content), content == true { return .init(verified: true, basis: "content_changed") }
+        if expected.contains(.content), content == true { return .init(verified: true, basis: "content_changed") }
         if pixels?.anyChange == true { return .init(verified: false, basis: "pixels_only") }
         if !seen.isEmpty || wrongText || windowChanged || (focusIsText && content == true) { return .init(verified: false, basis: "unpredicted_change") }
         let read = ref.after != nil || focus.after != nil || content != nil
