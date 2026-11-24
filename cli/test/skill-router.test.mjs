@@ -273,7 +273,7 @@ test("--base accepts relabeled base cases only under a rename accepted-drops.jso
 		});
 	const base = oldBase();
 	const why = "the skill took the product's name";
-	const drops = (renamed, removed = [{ skill: "old-dorks", reason: why }]) => JSON.stringify({ ...JSON.parse(read("accepted-drops.json")), removed, renamed });
+	const drops = (renamed) => JSON.stringify({ ...JSON.parse(read("accepted-drops.json")), removed: [], renamed });
 	const rename = { from: "old-dorks", to: "dorks", reason: why };
 	const gates = (head, from = base) => baseRun(headCheckout(head), from).gates;
 	const refused = (head, from) => {
@@ -283,7 +283,7 @@ test("--base accepts relabeled base cases only under a rename accepted-drops.jso
 	};
 	// Recorded, with the exact old and new names: every case moved, and the floor with them.
 	const ok = gates({ drops: drops([rename]) });
-	for (const gate of ["base cases kept", "skills kept", "base baseline"]) assert.ok(ok[gate].ok, ok[gate].detail);
+	for (const gate of ["base cases kept", "skills kept", "base baseline", "base-code eval"]) assert.ok(ok[gate].ok, ok[gate].detail);
 	assert.match(ok["base cases kept"].detail, new RegExp(`${moved} under a renamed skill`));
 	// The new name starts at the old one's floor: a lower value, or none, fails.
 	for (const now of [{ ...others, dorks: dorks - 0.2 }, others]) {
@@ -291,20 +291,49 @@ test("--base accepts relabeled base cases only under a rename accepted-drops.jso
 		assert.equal(lower.ok, false);
 		assert.match(lower.detail, /dorks/);
 	}
+	// The base's own cases still judge it, under the new name: easy cases a pull request adds can't make up for them.
+	const lost = Array.from({ length: 20 }, (_, i) => JSON.stringify({ task: `Qwzx plover ${i}`, skill: "dorks" }).replaceAll('":"', '": "')).join("\n");
+	const hard = baseCheckout({
+		"router-cases.jsonl": relabel(`${cases.trimEnd()}\n${lost}\n`, "old-dorks"),
+		"router-heldout.jsonl": relabel(read("router-heldout.jsonl"), "old-dorks"),
+		"baseline.json": JSON.stringify({ accuracy: { ...others, "old-dorks": dorks } }),
+	});
+	const judged = gates({ drops: drops([rename]), cases: `${cases.trimEnd()}\n${lost}\n` }, hard);
+	assert.ok(judged["base cases kept"].ok, judged["base cases kept"].detail);
+	assert.equal(judged["base-code eval"].ok, false);
+	assert.match(judged["base-code eval"].detail, /dorks/);
+	// Every case moves: one left under the old name is a removed case.
+	const leftover = cases.split("\n");
+	const one = leftover.findIndex((l) => l.includes('"skill": "dorks"'));
+	leftover[one] = relabel(leftover[one], "old-dorks");
+	assert.match(refused({ drops: drops([rename]), cases: leftover.join("\n") }), /\(old-dorks\)/);
 	// Not recorded, or recorded with another old name: a relabel is a removed case.
 	for (const renamed of [[], [{ ...rename, from: "older-dorks" }]]) assert.match(refused({ drops: drops(renamed) }), /\(old-dorks\)/);
 	// A rename to a skill that doesn't exist moves nothing.
 	assert.match(refused({ drops: drops([{ ...rename, to: "ghost-skill" }]), cases: relabel(cases, "ghost-skill") }), /\(old-dorks\)/);
 	// Cases can't move between two skills: the old one must be gone, and the new one new to the base.
-	const osint = { from: "osint", to: "dorks", reason: why };
-	const both = oldBase({ ...others, dorks }, "osint");
-	assert.match(refused({ drops: drops([osint], []) }, both), /\(osint\)/);
+	const noOsint = (text) => relabel(text.split("\n").filter((l) => !l.includes('"skill": "osint"')).join("\n"), "osint");
+	const both = baseCheckout({
+		"router-cases.jsonl": noOsint(cases),
+		"router-heldout.jsonl": noOsint(read("router-heldout.jsonl")),
+		"baseline.json": JSON.stringify({ accuracy: others }),
+	});
+	assert.match(refused({ drops: drops([{ from: "osint", to: "dorks", reason: why }]) }, both), /\(osint\)/);
 	assert.match(refused({ drops: drops([rename]) }, oldBase({ ...others, dorks, "old-dorks": dorks })), /\(old-dorks\)/);
 	// A recorded rename doesn't excuse deleting a case.
 	const lines = cases.split("\n");
 	const first = lines.findIndex((l) => l.includes('"skill": "dorks"'));
 	assert.match(refused({ drops: drops([rename]), cases: lines.filter((_, j) => j !== first).join("\n") }), /\(old-dorks\)/);
-	// A malformed rename is refused.
+	// A malformed rename, one of "none", and two skills renamed to one are refused.
+	const twice = oldBase({ ...others, "old-dorks": dorks, "older-dorks": dorks });
+	for (const bad of [drops([{ from: "none", to: "dorks", reason: why }]), drops([{ from: "old-dorks", to: "none", reason: why }])]) {
+		const r = run(["skill", "eval", "--json", "--base", base, "--cases", join(headCheckout({ drops: bad }), "skills-eval", "router-cases.jsonl")]);
+		assert.equal(r.code, 1);
+		assert.match(r.out, /needs \{\"from\"/);
+	}
+	const merge = run(["skill", "eval", "--json", "--base", twice, "--cases", join(headCheckout({ drops: drops([rename, { ...rename, from: "older-dorks" }]) }), "skills-eval", "router-cases.jsonl")]);
+	assert.equal(merge.code, 1);
+	assert.match(merge.out, /names a skill twice/);
 	for (const bad of [drops([{ from: "old-dorks", to: "dorks" }]), drops([{ ...rename, from: "dorks" }]), JSON.stringify({ drops: [], renamed: {} })]) {
 		const r = run(["skill", "eval", "--json", "--base", base, "--cases", join(headCheckout({ drops: bad }), "skills-eval", "router-cases.jsonl")]);
 		assert.equal(r.code, 1);

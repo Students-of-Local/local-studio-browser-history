@@ -448,7 +448,7 @@ export function parseRemoved(text: string | undefined): Array<{ skill: string; r
 
 /**
  * The `renamed` list of accepted-drops.json: skills a pull request renames, each with its exact old and new name and a
- * reason. A base case labeled `from` may move to `to`, and only there.
+ * reason. Every base case labeled `from` must move to `to`, and only there.
  */
 export function parseRenamed(text: string | undefined): Array<{ from: string; to: string; reason: string }> {
 	if (text === undefined) return [];
@@ -460,10 +460,11 @@ export function parseRenamed(text: string | undefined): Array<{ from: string; to
 	}
 	const renamed = (data as { renamed?: unknown }).renamed ?? [];
 	if (!Array.isArray(renamed)) throw new EvalError('accepted-drops.json "renamed" must be a list.');
-	const name = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+	// "none" labels cases no skill should take: it is no skill, so it can't be renamed.
+	const isName = (n: unknown): n is string => typeof n === "string" && n !== "none" && /^[a-z0-9]+(-[a-z0-9]+)*$/.test(n);
 	return renamed.map((r, i) => {
 		const e = r as { from?: unknown; to?: unknown; reason?: unknown };
-		if (typeof e.from !== "string" || !name.test(e.from) || typeof e.to !== "string" || !name.test(e.to) || e.from === e.to || typeof e.reason !== "string" || !e.reason.trim()) {
+		if (!isName(e.from) || !isName(e.to) || e.from === e.to || typeof e.reason !== "string" || !e.reason.trim()) {
 			throw new EvalError(`accepted-drops.json renamed entry ${i + 1} needs {"from": "<old name>", "to": "<new name>", "reason": "..."}.`);
 		}
 		return { from: e.from, to: e.to, reason: e.reason.trim() };
@@ -485,15 +486,19 @@ export function runBaseCheck(
 	const gates: Gate[] = [];
 	const names = new Set(skills.map((s) => s.name));
 	const key = (c: EvalCase) => `${c.skill}\u0000${c.task}`;
-	const baseBaseline = base.baseline === undefined ? undefined : parseBaseline(base.baseline);
-	// A base case may change its label only by a rename the pull request records, with the exact old and new names: the
-	// old skill is gone from skills/, the new one is there and is new to the base, so cases can't be moved between two
-	// skills. The case must still be there under the new name. Anything else is a removed case.
-	const renamedTo = new Map<string, string>();
-	for (const r of parseRenamed(head.drops)) {
-		const measured = baseBaseline?.accuracy ?? {};
-		if (names.has(r.to) && !names.has(r.from) && measured[r.to] === undefined && measured[r.from] !== undefined) renamedTo.set(r.from, r.to);
-	}
+	// A rename the pull request records (parseRenamed) is applied to the base once, here: its cases and its floor move to
+	// the new name, and every gate below then holds the new name to what the base held the old one to. It counts only
+	// when the old skill is gone from skills/ and the new one is there and new to the base, so cases can't move between
+	// two skills, and an entry left from an earlier rename does nothing.
+	const measured = base.baseline === undefined ? undefined : parseBaseline(base.baseline);
+	const renames = parseRenamed(head.drops).filter((r) => names.has(r.to) && !names.has(r.from) && measured?.accuracy[r.from] !== undefined && measured.accuracy[r.to] === undefined);
+	const renamedTo = new Map(renames.map((r) => [r.from, r.to]));
+	// Two old skills for one new one is a merge, which would leave one floor for both.
+	const ends = renames.flatMap((r) => [r.from, r.to]);
+	if (new Set(ends).size < ends.length) throw new EvalError('accepted-drops.json "renamed" names a skill twice: one old name moves to one new one.');
+	const named = (name: string) => renamedTo.get(name) ?? name;
+	const baseBaseline = measured && { accuracy: Object.fromEntries(Object.entries(measured.accuracy).map(([name, value]) => [named(name), value])) };
+	const baseCases = (text: string, label?: string) => parseCases(text, label).map((c) => ({ ...c, skill: named(c.skill) }));
 	const missing: string[] = [];
 	let moved = 0;
 	for (const [label, baseText, headText] of [
@@ -503,10 +508,9 @@ export function runBaseCheck(
 		if (baseText === undefined) continue;
 		const kept = new Set(parseCases(headText ?? "", label).map(key));
 		for (const c of parseCases(baseText, label)) {
-			if (kept.has(key(c))) continue;
-			const to = renamedTo.get(c.skill);
-			if (to !== undefined && kept.has(key({ ...c, skill: to }))) moved++;
-			else missing.push(`${label}: ${JSON.stringify(c.task)} (${c.skill})`);
+			const to = named(c.skill);
+			if (!kept.has(key({ ...c, skill: to }))) missing.push(`${label}: ${JSON.stringify(c.task)} (${c.skill})`);
+			else if (to !== c.skill) moved++;
 		}
 	}
 	gates.push({
@@ -549,9 +553,7 @@ export function runBaseCheck(
 	});
 	gates.push({ gate: "accepted drops", ok: invalid.length === 0, detail: invalid.length ? `invalid entries: ${invalid.join("; ")}` : added.length ? `${added.length} added, each a skill's new baseline below the base` : "none added" });
 	const acceptedValue = new Map(added.filter((d) => !invalid.some((i) => i.startsWith(`${d.skill} `))).map((d) => [d.skill, d.value]));
-	// A renamed skill keeps its floor under the new name.
 	const lowered = Object.entries(baseBaseline?.accuracy ?? {})
-		.map(([name, value]) => [renamedTo.get(name) ?? name, value] as const)
 		.filter(([name]) => name === "none" || names.has(name))
 		.filter(([name, value]) => {
 			const now = headBaseline.accuracy[name];
@@ -585,7 +587,7 @@ export function runBaseCheck(
 	const known = new Set([...names].filter((n) => baseBaseline?.accuracy[n] !== undefined));
 	if (base.cases !== undefined) {
 		const floorBaseline = baseBaseline && { accuracy: Object.fromEntries(Object.entries(baseBaseline.accuracy).filter(([n]) => !acceptedValue.has(n))) };
-		report = runEval(skills, parseCases(base.cases), floorBaseline, base.heldout === undefined ? undefined : parseCases(base.heldout, "router-heldout.jsonl"), {
+		report = runEval(skills, baseCases(base.cases), floorBaseline, base.heldout === undefined ? undefined : baseCases(base.heldout, "router-heldout.jsonl"), {
 			covered: new Set([...known].filter((n) => !acceptedValue.has(n))),
 			floors: acceptedValue,
 			// An accepted drop for none replaces its baseline with the floor; false invokes stay gated.

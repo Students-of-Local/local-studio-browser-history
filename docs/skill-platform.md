@@ -283,7 +283,8 @@ router runs only inside the judge's sandboxed child process.
    - removed or relabeled a case from either case file. A relabel passes only when
      `accepted-drops.json` records the rename with the exact old and new names, the old
      skill is gone from `skills/`, the new one is there and new to the base branch, and the
-     case is still there under the new name. The new name keeps the old one's floor:
+     case is still there under the new name. The new name is then held to everything the base
+     held the old one to (`none` is no skill, and two skills can't move to one name):
      `{"renamed": [{"from": "old-skill", "to": "new-skill", "reason": "..."}]}`;
    - lowered a skill's value in `baseline.json` below the base branch's, or dropped it,
      without an accepted drop;
