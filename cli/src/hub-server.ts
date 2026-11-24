@@ -48,7 +48,7 @@ import {
 	SILENT_MS,
 	type StatusFrame,
 } from "./link-protocol.ts";
-import { closeAfterUnreadBody, handleOAuth, readBody, requestSource, sendJson } from "./oauth-http.ts";
+import { closeAfterUnreadBody, handleOAuth, KEEP_ALIVE_MS, readBody, requestSource, sendJson } from "./oauth-http.ts";
 import { liveGrantIds, mintApprovalCode, normalizePublicUrl, type OAuthConfig, resourceMetadataUrl, verifyAccessToken } from "./oauth.ts";
 import { authenticate, hubHeaders, loadTokens, SCOPES, safeCallerName, tokenLive } from "./remote.ts";
 import { pageCss } from "./theme.ts";
@@ -256,6 +256,7 @@ export async function startHub(options: HubOptions): Promise<HubHandle> {
 			else res.end();
 		});
 	});
+	http.keepAliveTimeout = KEEP_ALIVE_MS;
 	const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_FRAME_BYTES });
 
 	const port = () => {

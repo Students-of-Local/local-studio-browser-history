@@ -21,7 +21,7 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { COMPUTER_ACT_TOOLS, COMPUTER_READ_TOOLS, computerHelper, openComputer } from "./computer.ts";
 import { argumentNeeds, type CallCheck, createMcpServer } from "./mcp.ts";
 import { MAX_LINK_SESSIONS, type RosterDevice } from "./link-protocol.ts";
-import { handleOAuth, readBody } from "./oauth-http.ts";
+import { handleOAuth, KEEP_ALIVE_MS, readBody } from "./oauth-http.ts";
 import { liveGrantIds, type OAuthConfig, oauthForHost, oauthStateFile, resourceMetadataUrl, verifyAccessToken } from "./oauth.ts";
 import { envVar } from "./env.ts";
 import { configDir } from "./files.ts";
@@ -500,6 +500,8 @@ export async function serve(options: ServeOptions): Promise<{ close: () => Promi
 			else res.end();
 		});
 	});
+
+	http.keepAliveTimeout = KEEP_ALIVE_MS;
 
 	async function readJson(req: IncomingMessage): Promise<unknown> {
 		return JSON.parse(await readBody(req));
