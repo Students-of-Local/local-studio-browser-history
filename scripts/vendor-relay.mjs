@@ -13,6 +13,11 @@ if (!checkout) {
 	process.exit(2);
 }
 const commit = execFileSync("git", ["-C", checkout, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+// The stamped commit must hold the bytes it names.
+if (execFileSync("git", ["-C", checkout, "status", "--porcelain", "--", "relay"], { encoding: "utf8" })) {
+	console.error(`${checkout} has uncommitted changes under relay/.`);
+	process.exit(1);
+}
 const read = (name) => readFileSync(join(checkout, "relay", "dist", name), "utf8");
 // A template literal keeps the file readable line by line; only backslashes, backticks and "${" need escaping.
 const literal = (text) => `\`${text.replace(/\\/g, "\\\\").replace(/`/g, "\\`").replace(/\$\{/g, "\\${")}\``;

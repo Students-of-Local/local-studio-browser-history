@@ -31,7 +31,7 @@ import { extractZip } from "./zip.ts";
 import { COMMAND_NAME } from "./self.ts";
 import { envVar } from "./env.ts";
 import { installCommandFor } from "../../src/install-command.ts";
-import { configDir, dataDir } from "./files.ts";
+import { configDir, dataDir, writeJsonPrivate } from "./files.ts";
 
 export { configDir };
 
@@ -110,9 +110,8 @@ export function readSettings(): UpdateSettings {
 }
 
 function writeSettings(settings: UpdateSettings): void {
-	mkdirSync(configDir(), { recursive: true, mode: 0o700 });
 	settings.autoCheck = settings.policy !== "off";
-	writeFileSync(settingsFile(), `${JSON.stringify(settings, null, 2)}\n`);
+	writeJsonPrivate(settingsFile(), settings);
 }
 
 /** Settings > Updates and `polycarp browser update --auto-check`. */

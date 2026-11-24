@@ -5,7 +5,7 @@ import extensionId from "../../src/bridge/extension-id.json" with { type: "json"
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -375,6 +375,28 @@ test("nightly channel sees prereleases; stable does not", async () => {
 	releases.delete("v9.2.0-nightly.20261025");
 });
 
+test("settings are saved whole and private, and a save that fails leaves them as they were", { skip: process.platform === "win32" && "ulimit" }, async () => {
+	const dir = join(home, ".config", "failed-save");
+	const settings = join(dir, "update.json");
+	const extra = { TYCHICUS_CONFIG_DIR: dir };
+	assert.equal((await runWith(extra, cli, "update", "--auto-check", "off")).code, 0);
+	assert.deepEqual(JSON.parse(readFileSync(settings, "utf8")), { channel: "stable", autoCheck: false, policy: "off" });
+	assert.equal(statSync(settings).mode & 0o777, 0o600);
+	const saved = readFileSync(settings, "utf8");
+	// No file may grow past 0 bytes, as on a full disk.
+	const failed = await new Promise((resolve) => {
+		const child = spawn("sh", ["-c", 'ulimit -f 0; exec "$@"', "sh", process.execPath, cli, "update", "--auto-check", "on"], { env: env(extra), stdio: ["ignore", "ignore", "pipe"] });
+		let err = "";
+		child.stderr.on("data", (d) => {
+			err += d;
+		});
+		child.on("close", (code) => resolve({ code, err }));
+	});
+	assert.equal(failed.code, 1, failed.err);
+	assert.match(failed.err, /EFBIG/);
+	assert.equal(readFileSync(settings, "utf8"), saved);
+});
+
 test("an update interrupted between the two renames is undone", async () => {
 	// The crash window: app/ was moved to previous/ and the new release never landed.
 	rmSync(join(tabkyraHome, "previous"), { recursive: true, force: true });
@@ -510,6 +532,8 @@ test("release mode from the side panel: the same signed install, streamed as ste
 	const phases = r.events.map((e) => e.phase);
 	for (const p of ["checking", "downloading", "verifying", "installing", "done"]) assert.ok(phases.includes(p), `${p} in ${phases}`);
 	assert.equal(r.last.staged, true, "verified and unpacked, waiting to be activated");
+	assert.equal(JSON.parse(readFileSync(join(tabkyraHome, "staged", ".pending.json"), "utf8")).to, "9.5.0");
+	if (process.platform !== "win32") assert.equal(statSync(join(tabkyraHome, "staged", ".pending.json")).mode & 0o777, 0o600);
 	assert.equal(appVersion(), from, "nothing live changes before activation");
 	const a = await runHostUpdate("--activate");
 	assert.equal(a.code, 0, a.out);
