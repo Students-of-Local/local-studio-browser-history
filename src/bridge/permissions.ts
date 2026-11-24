@@ -289,7 +289,8 @@ export async function isUrlAllowed(url: string, tier?: ModelTier, remote?: boole
 	if (mode === "yolo") return true;
 	const host = hostOf(url);
 	if (host && hostAllowed(host, await getAllowedHosts())) return true;
-	if (opensAnySite(mode, tier)) return !sensitiveSite(url);
+	// view-source:, blob: and filesystem: URLs carry the page's own address after the scheme.
+	if (opensAnySite(mode, tier)) return !sensitiveSite(url.replace(/^\s*(?:(?:view-source|blob|filesystem):)+/i, ""));
 	return !host && url === "about:blank";
 }
 

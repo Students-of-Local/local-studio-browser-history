@@ -39,7 +39,7 @@ export const MODE_CHOICES: ReadonlyArray<{ mode: PermissionMode; title: string; 
 	{
 		mode: "auto",
 		title: "Auto (default)",
-		help: "agents on frontier models open ordinary sites; small or unknown models ask first. Every agent asks before it opens mail, a bank or another sensitive site",
+		help: "agents on frontier models open ordinary sites; small or unknown models ask first. Every agent asks before it goes straight to mail, a bank or another sensitive site you haven't allowed (a link it clicks there isn't checked)",
 	},
 	{
 		mode: "yolo",
