@@ -106,13 +106,17 @@ for (let i = 0; i < runs; i++) {
 }
 const warmReady = [];
 for (let i = 0; i < runs; i++) {
-	vm("reset", guest); // down: drop the saved session, so up restores the ready point
-	warmReady.push(vm("up", guest, ...force).ms);
+	vm("reset", guest); // stopped: drops the session and the disk, so --from-ready may make a new one
+	const up = vm("up", guest, "--from-ready", "--json", ...force);
+	if (up.json?.boot !== "ready") throw new Error(`warm start did not use the ready point: ${up.json?.boot}`);
+	warmReady.push(up.ms);
 	vm("down", guest);
 }
 const warmSession = [];
 for (let i = 0; i < runs; i++) {
-	warmSession.push(vm("up", guest, ...force).ms);
+	const up = vm("up", guest, "--json", ...force);
+	if (up.json?.boot !== "session") throw new Error(`warm start did not resume the session: ${up.json?.boot}`);
+	warmSession.push(up.ms);
 	vm("down", guest);
 }
 
