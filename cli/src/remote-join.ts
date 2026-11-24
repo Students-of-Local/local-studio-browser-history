@@ -1,6 +1,6 @@
 /**
  * Joining Local Studio's tunnel (docs/decisions.md, D59; baney75/local-studio docs/tunnel.md). Local Studio owns a machine's one
- * public route on every route (hosted, cloudflare, tailnet) and writes the route record; Tychicus reads it and serves on its port.
+ * public route on every route (cloudflare, tailnet) and writes the route record; Tychicus reads it and serves on its port.
  *
  * - `remote join`: read the record, save remote.json on the custom route (`https://<hostname>`, plus the record's aliases), move serve
  *   onto `ports.mcp`, take down any tunnel of Tychicus's own (its Cloudflare service, Funnel or tailnet mounts) without deleting the
@@ -283,9 +283,10 @@ export type Standalone = { standalone: true; localStudio?: Record<string, unknow
 
 /**
  * For an agent, when an older Local Studio gates tunnel setup: its `channel`, and the one command that gives claude.ai, ChatGPT and
- * grok.com a free public route with no domain (Tailscale Funnel). `next.why` says to update Local Studio and run setup again, and
- * that Local Studio's own route is on the person's Cloudflare account (`local-studio tunnel byo --json`). `remote setup --json` puts
- * it beside `localStudio`; its own `next` is unchanged. There is no signup address: no Local Studio tunnel has a waitlist now.
+ * grok.com a free public route with no domain (Tailscale Funnel). `next.why` says how to share Local Studio's tunnel once it is
+ * updated: on a Cloudflare route `local-studio tunnel adopt`, on a tailnet route `remote off` and setup again. `remote setup --json`
+ * puts it beside `localStudio`, which keeps only Local Studio's `state`, `channel` and `message`; its own `next` is unchanged. There
+ * is no signup address: no Local Studio tunnel has a waitlist now.
  */
 export interface WaitlistAdvice {
 	channel?: string;
@@ -294,19 +295,24 @@ export interface WaitlistAdvice {
 
 /**
  * What setup says and returns when an older Local Studio answers `state: "waitlist"`: that build still gates tunnel setup. The
- * person updates Local Studio and runs setup again; every Local Studio tunnel now runs on their own Cloudflare account. The route
- * setup goes on to make is the one asked for (`asked`); this also says, before it starts, which route web assistants can use with no
+ * route setup goes on to make is the one asked for (`asked`), Tychicus's own, so sharing Local Studio's tunnel later depends on it:
+ * a Cloudflare route is taken over by `local-studio tunnel adopt` (a rerun of setup would keep Tychicus's own route), and a tailnet
+ * route is turned off first so Local Studio's tailnet setup can serve its paths. This also says, before it starts, which route web assistants can use with no
  * domain. After a saved tailnet or Cloudflare route a Funnel setup refuses until `remote off`, so both commands start with it.
  * Local Studio's own signup `url`, if it sends one, is dropped.
  */
 export function waitlistAdvice(answer: Record<string, unknown>, asked: "tailnet" | "cloudflare"): { lines: string[]; advice: WaitlistAdvice } {
 	const channel = typeof answer.channel === "string" ? answer.channel : undefined;
 	const funnel = `${COMMAND_NAME} remote setup --tailscale`;
-	const update = `update Local Studio (local-studio update apply, or reinstall it) and run ${COMMAND_NAME} remote setup again`;
+	const updated = "update Local Studio (local-studio update apply, or reinstall it)";
+	const share =
+		asked === "cloudflare"
+			? `${updated}, then run local-studio tunnel adopt: it takes over this Cloudflare route and joins ${COMMAND_NAME} to it`
+			: `${updated}, then run ${COMMAND_NAME} remote off and ${COMMAND_NAME} remote setup --tailnet again`;
 	const lines = [
-		`${sym.warn} This Local Studio is an older build that still gates tunnel setup${channel ? ` (${channel} channel)` : ""}. Every Local Studio tunnel now runs on your own Cloudflare account: ${update}. local-studio tunnel byo shows the steps.`,
+		`${sym.warn} This Local Studio is an older build that still gates tunnel setup${channel ? ` (${channel} channel)` : ""}. To share one tunnel with it later, ${share}.`,
 	];
-	const shared = `To share Local Studio's tunnel instead, the person should ${update}; Local Studio's own route runs on their Cloudflare account, and local-studio tunnel byo --json gives the steps.`;
+	const shared = `To share Local Studio's tunnel instead, the person should ${share}.`;
 	let advice: WaitlistAdvice;
 	if (asked === "tailnet") {
 		lines.push(
@@ -386,7 +392,10 @@ export async function setupThroughLocalStudio(options: SetupOptions): Promise<nu
 		if (r.answer?.state === "waitlist") {
 			const { lines, advice } = waitlistAdvice(r.answer, options.tailnet ? "tailnet" : "cloudflare");
 			if (!json) console.log(lines.join("\n"));
-			return { standalone: true, localStudio: r.answer, waitlist: advice };
+			// Only what an agent needs: an older build's `url` and `next` point at its signup page.
+			const { state, channel, message } = r.answer;
+			const localStudio = Object.fromEntries(Object.entries({ state, channel, message }).filter(([, v]) => v !== undefined));
+			return { standalone: true, localStudio, waitlist: advice };
 		}
 		// A Local Studio from before tunnel setup doesn't know the command and answers no JSON: it runs no tunnel, so Tychicus does.
 		if (r.code !== 0 && !r.answer) {

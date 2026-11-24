@@ -201,7 +201,7 @@ tunnel, credentials-file and log lines as they are.
 
 ## One tunnel with Local Studio
 
-On a computer with Local Studio, Local Studio owns the one tunnel, on every route (hosted, Cloudflare or tailnet), and
+On a computer with Local Studio, Local Studio owns the one tunnel, on every route (Cloudflare or tailnet), and
 Tychicus joins it. The design is in Local Studio's `docs/tunnel.md` (baney75/local-studio). Local Studio writes the route
 record, `$LOCAL_STUDIO_DATA_DIR/tunnel/route.json` (else `~/.local-studio/tunnel/route.json`):
 
@@ -226,11 +226,13 @@ Tychicus only reads it and never creates Local Studio's folder. The route carrie
 - Local Studio has no hosted tunnels and no waitlist: its tunnel setup runs on every channel, on your own Cloudflare
   account, and `local-studio tunnel byo` gives the steps ([its guide](https://github.com/baney75/local-studio/blob/main/docs/tunnel.md#your-own-cloudflare-tunnel-step-by-step)).
   Only an older Local Studio still gates tunnel setup and answers `state: "waitlist"`. Then Tychicus says that build is
-  older, to update it (`local-studio update apply`, or reinstall) and run `tychicus remote setup` again, gives the Funnel
+  older and how to share its tunnel once updated (`local-studio update apply`, or reinstall): on a Cloudflare route
+  `local-studio tunnel adopt`, which takes the route over and joins Tychicus; on a tailnet route `tychicus remote off`,
+  then `tychicus remote setup --tailnet` again. It gives the Funnel
   command for claude.ai, ChatGPT and grok.com with no domain (free: `tychicus remote setup --tailscale`), and sets up the
   route that was asked for, its own. It never passes on a signup address. Asked for `--tailnet`, it says first that web
   assistants can't use a tailnet-only address, and the Funnel command starts with `tychicus remote off`. `--json` puts
-  the whole answer in `localStudio`, and adds `waitlist` (the name stays for agents): `channel`, and `next`
+  Local Studio's `state`, `channel` and `message` in `localStudio` (never its `url` or `next`), and adds `waitlist` (the name stays for agents): `channel`, and `next`
   (`{ "kind": "run_command", "command", "why" }`), the Funnel command an agent runs with the person's yes; `why` carries
   the update advice. The report's own `next` is unchanged. A `local-studio` that answers no JSON (a build from before tunnel setup) also
   leaves Tychicus its own route. One that answers JSON and fails is a refusal with code `local_studio`.

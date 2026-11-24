@@ -656,15 +656,21 @@ test("with Local Studio's record already there, a route flag for another route r
 // on the person's own Cloudflare account now (baney75/local-studio#123), so the advice is to update Local Studio.
 const WAITLIST = "https://local-studio-waitlist.magnus-b37.workers.dev";
 
-/** The advice an older Local Studio gets, said to a person or an agent: update it, its tunnel is on their Cloudflare, no signup. */
-function assertUpdateAdvice(text) {
+/**
+ * The advice an older Local Studio gets, said to a person or an agent: update it, then share its tunnel the way that works for the
+ * route Tychicus made (a rerun of setup on Tychicus's own Cloudflare route would keep it Tychicus's), and no signup.
+ */
+function assertUpdateAdvice(text, route) {
 	assert.ok(!text.includes(WAITLIST), text);
 	assert.doesNotMatch(text, /join the waitlist|on a waitlist|waitlisted|hosted route|sign up/i);
-	assert.match(text, /older build that still gates tunnel setup/);
 	assert.match(text, /local-studio update apply/);
-	assert.match(text, /\S*tychicus remote setup again/);
-	assert.match(text, /own Cloudflare account|their Cloudflare account/);
-	assert.match(text, /local-studio tunnel byo/);
+	if (route === "cloudflare") {
+		assert.match(text, /local-studio tunnel adopt/);
+		assert.doesNotMatch(text, /remote setup --cloudflare|remote setup again/);
+	} else {
+		assert.match(text, /\S*tychicus remote off and \S*tychicus remote setup --tailnet again/);
+		assert.doesNotMatch(text, /Cloudflare account|tunnel byo|tunnel adopt/);
+	}
 }
 
 test("an older Local Studio that gates tunnel setup: setup says to update it, gives no signup address and sets up Tychicus's own route", { skip: unixOnly }, async () => {
@@ -677,12 +683,13 @@ test("an older Local Studio that gates tunnel setup: setup says to update it, gi
 		const r = await s.runAsync([...args, "--json"]);
 		const report = r.json();
 		assert.notEqual(report.state, "waitlist", r.out);
-		assert.deepEqual(report.localStudio, answer);
+		assert.deepEqual(report.localStudio, { state: "waitlist", channel: "stable" }, "only Local Studio's state and channel, no signup url or next");
+		assert.ok(!JSON.stringify(report).includes(WAITLIST), r.out);
 		// An agent gets the update advice and the Funnel step web assistants need, beside Local Studio's answer; the report's own
 		// next is unchanged.
 		assert.equal(report.waitlist.url, undefined);
 		assert.equal(report.waitlist.channel, "stable");
-		assertUpdateAdvice(report.waitlist.next.why);
+		assertUpdateAdvice(report.waitlist.next.why, "tailnet");
 		assert.deepEqual(report.waitlist.next.kind, "run_command");
 		assert.match(report.waitlist.next.command, /^\S*tychicus remote off && \S*tychicus remote setup --tailscale --no-passcode$/);
 		assert.match(report.waitlist.next.why, /claude\.ai, ChatGPT or grok\.com/);
@@ -693,7 +700,7 @@ test("an older Local Studio that gates tunnel setup: setup says to update it, gi
 		assert.equal(Object.keys(handlers(s)).length, TYCHICUS_PATHS.length);
 		const text = await s.runAsync(args);
 		assert.match(text.out, /stable channel/);
-		assertUpdateAdvice(text.out);
+		assertUpdateAdvice(text.out, "tailnet");
 		assert.doesNotMatch(text.out, /undefined/);
 		// Said up front, before the tailnet route is made: web assistants can't use it, and Funnel is their free route with no domain.
 		const warn = text.out.indexOf("can't use a tailnet-only address");
@@ -706,12 +713,12 @@ test("an older Local Studio that gates tunnel setup: setup says to update it, gi
 	}
 });
 
-test("an older Local Studio's advice says to update it, names local-studio tunnel byo and Tailscale Funnel, and no signup page", () => {
+test("an older Local Studio's advice says to update it, how to share its tunnel for the route made, Tailscale Funnel, and no signup page", () => {
 	const answer = { state: "waitlist", next: { kind: "open_page", url: WAITLIST }, url: WAITLIST, channel: "nightly" };
 	const tailnet = mod.waitlistAdvice(answer, "tailnet");
 	assert.match(tailnet.lines[0], /older build that still gates tunnel setup \(nightly channel\)/);
-	assertUpdateAdvice(tailnet.lines.join("\n"));
-	assertUpdateAdvice(tailnet.advice.next.why);
+	assertUpdateAdvice(tailnet.lines.join("\n"), "tailnet");
+	assertUpdateAdvice(tailnet.advice.next.why, "tailnet");
 	assert.match(tailnet.lines.join("\n"), /claude\.ai, ChatGPT and grok\.com .* can't use a tailnet-only address/);
 	assert.match(tailnet.advice.next.command, /remote off && \S*tychicus remote setup --tailscale --no-passcode$/);
 	assert.deepEqual({ url: tailnet.advice.url, channel: tailnet.advice.channel, kind: tailnet.advice.next.kind }, { url: undefined, channel: "nightly", kind: "run_command" });
@@ -720,15 +727,15 @@ test("an older Local Studio's advice says to update it, names local-studio tunne
 	assert.match(cloudflare.lines.join("\n"), /need a public route\. Your Cloudflare route is one\. Without a domain on Cloudflare, Tailscale Funnel is the free one: \S*tychicus remote off, then \S*tychicus remote setup --tailscale/);
 	assert.match(cloudflare.advice.next.command, /^\S*tychicus remote off && \S*tychicus remote setup --tailscale --no-passcode$/);
 	assert.match(cloudflare.advice.next.why, /only if it can't be made/);
-	assertUpdateAdvice(cloudflare.lines.join("\n"));
-	assertUpdateAdvice(cloudflare.advice.next.why);
+	assertUpdateAdvice(cloudflare.lines.join("\n"), "cloudflare");
+	assertUpdateAdvice(cloudflare.advice.next.why, "cloudflare");
 
 	// A signup URL inside Local Studio's own next is dropped too, and the channel may be missing.
 	const bare = mod.waitlistAdvice({ state: "waitlist", next: { url: WAITLIST } }, "tailnet");
 	assert.equal(bare.advice.url, undefined);
 	assert.equal(bare.advice.channel, undefined);
-	assert.match(bare.lines[0], /older build that still gates tunnel setup\. Every Local Studio tunnel now runs on your own Cloudflare account/);
-	assertUpdateAdvice(bare.lines.join("\n"));
+	assert.match(bare.lines[0], /older build that still gates tunnel setup\. To share one tunnel with it later, update Local Studio/);
+	assertUpdateAdvice(bare.lines.join("\n"), "tailnet");
 	assert.doesNotMatch(bare.lines.join("\n"), /undefined/);
 });
 
