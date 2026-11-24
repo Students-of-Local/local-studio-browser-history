@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -102,9 +102,10 @@ function run(command, args, env) {
 }
 
 /** Run an installer from an empty home; `fetchScript` runs the README's own pipe from curl, as a person would. */
-async function install({ env = {}, args = [], fetchScript = false } = {}) {
+async function install({ env = {}, args = [], fetchScript = false, prepare } = {}) {
 	const home = join(work, `home-${++runs}`);
 	mkdirSync(home, { recursive: true });
+	prepare?.(home);
 	const calls = join(home, "calls.txt");
 	const environment = {
 		...process.env,
@@ -114,7 +115,7 @@ async function install({ env = {}, args = [], fetchScript = false } = {}) {
 		TYCHICUS_GH: "none",
 		TYCHICUS_INSTALL_BASE_URL: base,
 		TYCHICUS_VERSION: "",
-		...env,
+		...(typeof env === "function" ? env(home) : env),
 	};
 	let r;
 	if (windows) {
@@ -140,6 +141,31 @@ test("installs the latest release: hash checked, attestation skip said, then tyc
 	assert.match(r.calls, /^SHA256SUMS$/m);
 	assert.match(r.calls, new RegExp(`^tychicus-9\\.8\\.7-${tag}\\.tar\\.gz$`, "m"));
 	assert.match(r.out, /Next: .*\n.*tychicus setup/);
+});
+
+test("the closing line says plain tychicus only when PATH finds ~/.local/bin/tychicus, else the release path", { skip: windows }, async () => {
+	publish("9.8.7");
+	// What the release's own install leaves: the link to the release, with ~/.local/bin on PATH. Or a link it left alone.
+	const withLink = (to) => ({
+		prepare: (home) => {
+			// The fake release installs nothing, so the program the link names is put there as the real install would.
+			const program = join(home, ".local", "share", "tychicus", "release", "tychicus");
+			mkdirSync(dirname(program), { recursive: true });
+			writeFileSync(program, "#!/bin/sh\n");
+			chmodSync(program, 0o755);
+			mkdirSync(join(home, ".local", "bin"), { recursive: true });
+			symlinkSync(to(home), join(home, ".local", "bin", "tychicus"));
+		},
+		env: (home) => ({ PATH: `${join(home, ".local", "bin")}:${process.env.PATH}` }),
+	});
+	const linked = await install(withLink((home) => join(home, ".local", "share", "tychicus", "release", "tychicus")));
+	assert.equal(linked.status, 0, linked.out);
+	assert.match(linked.out, /Then connect your coding agents: tychicus setup$/m);
+	const someoneElses = await install(withLink(() => "/usr/bin/true"));
+	assert.match(someoneElses.out, /Then connect your coding agents: \S+\/release\/tychicus setup$/m);
+	const bare = await install();
+	assert.equal(bare.status, 0, bare.out);
+	assert.match(bare.out, /Then connect your coding agents: \S+\/\.local\/share\/tychicus\/release\/tychicus setup$/m);
 });
 
 test("TYCHICUS_VERSION picks that release", { skip: windows }, async () => {

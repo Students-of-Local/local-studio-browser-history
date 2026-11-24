@@ -21,6 +21,7 @@ import { basename, delimiter, dirname, join, relative, resolve, sep } from "node
 import { browserDirs } from "./install.ts";
 import { releaseBase, releaseProgram, releaseRoot } from "./paths.ts";
 import { eukheSettingsPath, localStudioPluginsDir, PLUGINS } from "./local-studio.ts";
+import { linkOnPath } from "./path-link.ts";
 import { NATIVE_HOST_NAMES } from "../../src/bridge/protocol.ts";
 import { COMMAND_NAME } from "./self.ts";
 import { restartCommand, serviceName, staleLines, staleServices, versionName } from "./service-version.ts";
@@ -417,6 +418,7 @@ export async function installFromRelease(dir: string, options: { dryRun?: boolea
 			console.log(`  ${eukheSettingsPath()} (mcpServers.tychicus)`);
 		}
 		console.log(`${sym.ok} Then would point ${c.dim(`${root} -> ${target}`)}, copy its extension to ${c.dim(releaseExtensionDir(base))} and remove older versions no program runs from`);
+		await linkOnPath({ dryRun: true });
 		const stale = staleServices(versionPath(target), { root, before: real(root) }).map((s) => `${serviceName(s.spec)} (${s.running})`);
 		if (stale.length) console.log(`${sym.ok} Then would ${options.noRestart ? "name" : "restart"} the services on another version: ${stale.join(", ")}`);
 		return 0;
@@ -447,6 +449,8 @@ export async function installFromRelease(dir: string, options: { dryRun?: boolea
 		return 1;
 	}
 	console.log(`${sym.ok} ${c.dim(`${root} -> ${target}`)}`);
+	// `tychicus` on PATH runs the release from now on: ~/.local/bin/tychicus names the pointer, not this version.
+	await linkOnPath();
 	const restarted = restartServices(target, root, before, options.noRestart === true);
 	const removed = pruneVersions(target, base);
 	if (removed.length) console.log(`${sym.ok} Removed ${removed.length} older version${removed.length === 1 ? "" : "s"} no program runs from`);
