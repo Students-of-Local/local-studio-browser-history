@@ -11,7 +11,7 @@ after(() => rmSync(root, { recursive: true, force: true }));
 
 const mod = await loadTs(`
 export { RELAY_JS, RELAY_WRANGLER } from "@src/relay-dist.ts";
-export { deploy, deployedAddress, needsSubdomain, onboardingUrl, parseWhoami, putKey, runWrangler, validRelayName, whoami } from "@src/relay-setup.ts";
+export { deploy, deployedAddress, needsSubdomain, onboardingUrl, parseWhoami, putKey, runWrangler, whoami } from "@src/relay-setup.ts";
 `);
 
 const ACCOUNT = "0123456789abcdef0123456789abcdef";
@@ -120,12 +120,10 @@ test("a name that isn't a Worker name never reaches wrangler", async () => {
 	await inConfig("names", async () => {
 		const cf = cloudflare();
 		for (const name of ["x & calc", "-x", "x-", "X", "", "a".repeat(64), "--env=x"]) {
-			assert.ok(!mod.validRelayName(name), name);
-			assert.equal((await mod.deploy(name, ACCOUNT, {}, cf)).ok, false);
+			assert.equal((await mod.deploy(name, ACCOUNT, {}, cf)).ok, false, name);
 			assert.equal((await mod.putKey(name, "k", ACCOUNT, cf)).ok, false);
 		}
 		assert.equal(cf.calls.length, 0);
-		assert.ok(mod.validRelayName("a") && mod.validRelayName("a".repeat(63)));
 	});
 });
 
