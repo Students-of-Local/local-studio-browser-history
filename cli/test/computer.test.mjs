@@ -1,5 +1,5 @@
 // Computer use through the connector: off unless a token or grant names it, only the tools its scopes allow and this repo's
-// list names, and always through `polycarp-spaces mcp --connector`, which is what makes the app treat the caller as remote.
+// list names, and always through `tychicus-hands mcp --connector`, which is what makes the helper treat the caller as remote.
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
@@ -38,7 +38,7 @@ const tools = [
 require("node:readline").createInterface({ input: process.stdin }).on("line", (line) => {
 	const m = JSON.parse(line);
 	const reply = (result) => process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: m.id, result }) + "\\n");
-	if (m.method === "initialize") return reply({ serverInfo: { name: process.env.FAKE_SERVER_NAME ?? "polycarp-connector" } });
+	if (m.method === "initialize") return reply({ serverInfo: { name: process.env.FAKE_SERVER_NAME ?? "tychicus-connector" } });
 	if (m.method === "tools/list") return reply({ tools });
 	appendFileSync(${JSON.stringify(log)}, JSON.stringify(m.params) + "\\n");
 	if (m.params.name === "click") process.exit(3);
@@ -84,7 +84,7 @@ const computerTools = async (client) => (await client.listTools()).tools.map((t)
 let withHelper;
 
 before(async () => {
-	withHelper = await serve({ POLYCARP_SPACES_BIN: helper });
+	withHelper = await serve({ TYCHICUS_HANDS_BIN: helper });
 });
 
 const locals = [];
@@ -143,14 +143,17 @@ test("the instructions name the limits to a session that has the tools, and not 
 
 test("a helper older than the connector flag is never used: its calls wouldn't be capped", async () => {
 	rmSync(log, { force: true });
-	const old = join(bin, "old-spaces");
-	writeFileSync(old, `#!/bin/sh\nFAKE_SERVER_NAME=baneyspaces exec ${JSON.stringify(helper)} "$@"\n`);
-	chmodSync(old, 0o755);
-	const url = await serve({ POLYCARP_SPACES_BIN: old });
-	const client = await connect(url, token("old-helper", "computer.act"));
-	assert.deepEqual(await computerTools(client), ["computer_status"]);
-	assert.match((await client.callTool({ name: "computer_status", arguments: {} })).content[0].text, /isn't available/);
-	await client.close();
+	// baneyspaces ignores the flag; polycarp-connector is Polycarp's helper, which no longer ships computer use.
+	for (const name of ["baneyspaces", "polycarp-connector"]) {
+		const old = join(bin, `old-${name}`);
+		writeFileSync(old, `#!/bin/sh\nFAKE_SERVER_NAME=${name} exec ${JSON.stringify(helper)} "$@"\n`);
+		chmodSync(old, 0o755);
+		const url = await serve({ TYCHICUS_HANDS_BIN: old });
+		const client = await connect(url, token(`old-helper-${name}`, "computer.act"));
+		assert.deepEqual(await computerTools(client), ["computer_status"], name);
+		assert.match((await client.callTool({ name: "computer_status", arguments: {} })).content[0].text, /isn't available/);
+		await client.close();
+	}
 });
 
 test("a helper that stops turns into an error on that call and the next, not a hang", async () => {
@@ -165,7 +168,7 @@ test("a helper that stops turns into an error on that call and the next, not a h
 });
 
 test("with no helper on this machine the scope grants nothing and the session still works", async () => {
-	const url = await serve({ POLYCARP_SPACES_BIN: join(root, "nope") });
+	const url = await serve({ TYCHICUS_HANDS_BIN: join(root, "nope") });
 	const client = await connect(url, token("nothing", "computer.act,browser.read"));
 	assert.deepEqual(await computerTools(client), ["computer_status"], "the session can say why");
 	assert.ok((await client.listTools()).tools.some((t) => t.name === "read_page"));
@@ -182,14 +185,14 @@ async function consent(extra) {
 }
 
 test("the approval page offers computer use only where the helper is, and never ticks it", async () => {
-	assert.ok((await consent({ POLYCARP_SPACES_BIN: helper })).includes("computer.act"));
-	assert.ok(!(await consent({ POLYCARP_SPACES_BIN: join(root, "nope") })).includes("computer.act"));
+	assert.ok((await consent({ TYCHICUS_HANDS_BIN: helper })).includes("computer.act"));
+	assert.ok(!(await consent({ TYCHICUS_HANDS_BIN: join(root, "nope") })).includes("computer.act"));
 	const page = readFileSync(join(here, "..", "src", "oauth.ts"), "utf8");
 	const grant = /export const DEFAULT_GRANT = \[(.*?)\]/.exec(page)[1];
 	assert.ok(!grant.includes("computer"), "off until a person ticks it");
 });
 
-// The local stdio server (`polycarp browser mcp`) runs as the user, so it runs the helper without --connector and offers
+// The local stdio server (`tychicus mcp`) runs as the user, so it runs the helper without --connector and offers
 // every tool the helper lists, as the helper describes it. A missing, hung or slow helper never holds up the browser tools.
 const localLog = join(root, "local-helper.log");
 const localHelper = join(bin, "fake-spaces-local");
@@ -244,7 +247,7 @@ async function local(extra) {
 
 test("the local server lists computer_* tools from the helper's own list, as the helper describes them", async () => {
 	rmSync(localLog, { force: true });
-	const client = await local({ POLYCARP_SPACES_BIN: localHelper });
+	const client = await local({ TYCHICUS_HANDS_BIN: localHelper });
 	const { tools } = await client.listTools();
 	const names = tools.map((t) => t.name).filter((n) => n.startsWith("computer_")).sort();
 	assert.deepEqual(names, ["computer_brand_new_verb", "computer_click", "computer_open", "computer_run_steps", "computer_shot", "computer_snapshot", "computer_status", "computer_windows"], "every helper tool but lend");
@@ -263,7 +266,7 @@ test("the local server lists computer_* tools from the helper's own list, as the
 
 test("the local server runs the helper without --connector", async () => {
 	rmSync(localLog, { force: true });
-	const client = await local({ POLYCARP_SPACES_BIN: localHelper });
+	const client = await local({ TYCHICUS_HANDS_BIN: localHelper });
 	await client.listTools();
 	const first = JSON.parse(readFileSync(localLog, "utf8").trim().split("\n")[0]);
 	assert.deepEqual(first.argv, ["mcp"]);
@@ -279,19 +282,20 @@ test("a remote session still runs the helper with --connector", async () => {
 });
 
 test("with no helper the local server keeps its browser tools, and computer_status says how to get computer use", async () => {
-	const client = await local({ POLYCARP_SPACES_BIN: join(root, "nope") });
+	const client = await local({ TYCHICUS_HANDS_BIN: join(root, "nope") });
 	const { tools } = await client.listTools();
 	assert.deepEqual(tools.map((t) => t.name).filter((n) => n.startsWith("computer_")), ["computer_status"]);
 	assert.ok(tools.some((t) => t.name === "read_page"));
 	assert.doesNotMatch(client.getInstructions(), /computer_open/);
 	const status = (await client.callTool({ name: "computer_status", arguments: {} })).content[0].text;
-	assert.match(status, /no computer-use helper is installed here/);
-	assert.match(status, /install Tychicus's tychicus-hands/);
+	assert.match(status, /Tychicus's computer-use helper, tychicus-hands, isn't installed here/);
+	assert.match(status, process.platform === "linux" ? /build tychicus-hands from hands\/linux/ : /tychicus-hands/);
+	assert.doesNotMatch(status, /Polycarp|polycarp-spaces/);
 	await client.close();
 });
 
 test("a hung helper doesn't hold tools/list past its budget, and computer_status says it's starting", async () => {
-	const client = await local({ POLYCARP_SPACES_BIN: localHelper, FAKE_HANG: "1" });
+	const client = await local({ TYCHICUS_HANDS_BIN: localHelper, FAKE_HANG: "1" });
 	const started = Date.now();
 	const { tools } = await client.listTools();
 	const took = Date.now() - started;
@@ -303,7 +307,7 @@ test("a hung helper doesn't hold tools/list past its budget, and computer_status
 });
 
 test("a slow helper's tools arrive on a later list", async () => {
-	const client = await local({ POLYCARP_SPACES_BIN: localHelper, FAKE_LIST_DELAY_MS: "2600" });
+	const client = await local({ TYCHICUS_HANDS_BIN: localHelper, FAKE_LIST_DELAY_MS: "2600" });
 	const computer = async () => (await client.listTools()).tools.map((t) => t.name).filter((n) => n.startsWith("computer_"));
 	assert.deepEqual(await computer(), ["computer_status"], "past the budget, browser tools only");
 	await new Promise((done) => setTimeout(done, 1500));
@@ -312,7 +316,7 @@ test("a slow helper's tools arrive on a later list", async () => {
 });
 
 test("the helper's answers pass through unchanged: a shot's image and a structured error", async () => {
-	const client = await local({ POLYCARP_SPACES_BIN: localHelper });
+	const client = await local({ TYCHICUS_HANDS_BIN: localHelper });
 	await client.listTools();
 	const shot = await client.callTool({ name: "computer_shot", arguments: { window: 7 } });
 	assert.equal(shot.isError, false);
@@ -357,7 +361,7 @@ test("a connector session's computer_run_steps can't reach a verb the connector'
 
 test("the local server's computer_run_steps takes its steps as objects and hands them to the helper unchanged", async () => {
 	rmSync(localLog, { force: true });
-	const client = await local({ POLYCARP_SPACES_BIN: localHelper });
+	const client = await local({ TYCHICUS_HANDS_BIN: localHelper });
 	await client.listTools();
 	const answer = await client.callTool({ name: "computer_run_steps", arguments: { steps: STEPS } });
 	assert.equal(answer.isError, false, JSON.stringify(answer.content));
@@ -368,7 +372,7 @@ test("the local server's computer_run_steps takes its steps as objects and hands
 	await client.close();
 });
 
-// Issue #27: Tychicus's own helper first, Polycarp's after it, and the status and doctor name whichever answered.
+// Issue #27: Tychicus's own helper, and the status and doctor name it when it answers.
 function namedHelper(dir, name, serverName) {
 	mkdirSync(dir, { recursive: true });
 	const path = join(dir, name);
@@ -385,11 +389,9 @@ test("a connector session takes a helper that answers as tychicus-connector", as
 	await client.close();
 });
 
-test("tychicus-hands wins over polycarp-spaces, and computer_status names the one that answered", async () => {
-	const dir = join(root, "both");
+test("tychicus-hands on PATH answers, and computer_status names it", async () => {
+	const dir = join(root, "on-path");
 	const ours = namedHelper(dir, "tychicus-hands", "tychicus-hands");
-	namedHelper(dir, "polycarp-spaces", "baneyspaces");
-	// PATH holds both, node and sh: tychicus-hands is found on PATH before polycarp-spaces is looked for.
 	const client = await local({ PATH: `${dir}:${bin}:/bin:/usr/bin` });
 	await client.listTools();
 	const status = (await client.callTool({ name: "computer_status", arguments: {} })).content[0].text;
@@ -399,21 +401,16 @@ test("tychicus-hands wins over polycarp-spaces, and computer_status names the on
 	await client.close();
 });
 
-test("TYCHICUS_HANDS_BIN wins over POLYCARP_SPACES_BIN", async () => {
-	const ours = namedHelper(join(root, "env-both"), "tychicus-hands", "tychicus-hands");
-	const client = await local({ TYCHICUS_HANDS_BIN: ours, POLYCARP_SPACES_BIN: localHelper });
-	await client.listTools();
+test("Polycarp's polycarp-spaces is never used: on PATH, in ~/.local/bin or named by POLYCARP_SPACES_BIN", async () => {
+	const dir = join(root, "polycarp-only");
+	namedHelper(dir, "polycarp-spaces", "baneyspaces");
+	const home = join(root, "polycarp-home");
+	namedHelper(join(home, ".local", "bin"), "polycarp-spaces", "baneyspaces");
+	const client = await local({ PATH: `${dir}:${bin}:/bin:/usr/bin`, HOME: home, POLYCARP_SPACES_BIN: localHelper });
+	const { tools } = await client.listTools();
+	assert.deepEqual(tools.map((t) => t.name).filter((n) => n.startsWith("computer_")), ["computer_status"]);
 	const status = (await client.callTool({ name: "computer_status", arguments: {} })).content[0].text;
-	assert.ok(status.includes(`tychicus-hands (${ours})`), status);
-	await client.close();
-});
-
-test("Polycarp's helper still answers when it's the only one, and the status says so", async () => {
-	const client = await local({ POLYCARP_SPACES_BIN: localHelper });
-	await client.listTools();
-	const status = (await client.callTool({ name: "computer_status", arguments: {} })).content[0].text;
-	assert.ok(status.includes(`Polycarp's polycarp-spaces (${localHelper})`), status);
-	assert.match(status, /answered as baneyspaces/);
+	assert.match(status, /tychicus-hands, isn't installed here/);
 	await client.close();
 });
 
@@ -440,7 +437,7 @@ test("doctor names the helper that answered, or says there is none", () => {
 
 test("a connector's helper gets the way to the desktop and the settings folder, and nothing else of the service's", async () => {
 	rmSync(log, { force: true });
-	const url = await serve({ POLYCARP_SPACES_BIN: helper, DISPLAY: ":3", WAYLAND_DISPLAY: "wayland-9", DBUS_SESSION_BUS_ADDRESS: "unix:path=/tmp/bus", FAKE_LEAK: "service only" });
+	const url = await serve({ TYCHICUS_HANDS_BIN: helper, DISPLAY: ":3", WAYLAND_DISPLAY: "wayland-9", DBUS_SESSION_BUS_ADDRESS: "unix:path=/tmp/bus", FAKE_LEAK: "service only" });
 	const client = await connect(url, token("desktop-env", "computer.read"));
 	await client.callTool({ name: "computer_windows", arguments: {} });
 	const first = JSON.parse(readFileSync(log, "utf8").trim().split("\n")[0]);

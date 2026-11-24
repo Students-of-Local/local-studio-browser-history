@@ -1,8 +1,9 @@
 // The market eval: Tychicus's scores and speeds in one run, gated on floors.json (README.md).
 //   npm run evals:market                      # everything, then the floor check; exits 1 below a floor
 //   node evals/market/run.mjs --only tasks,speed [--repeat 3] [--speed-n 9] [--out file.json] [--no-check]
-// Parts: `tasks` (the ten-task set, 3 reps), `speed` (median click, fill and first page text on t02's form) and
-// `dom-bench` (cli/test/dom-bench, its own per-case ratchet too). Needs the root and cli builds and Playwright's
+// Parts: `tasks` (the ten-task set, 3 reps), `speed` (median click, fill and first page text on t02's form),
+// `dom-bench` (cli/test/dom-bench, its own per-case ratchet too) and `riskyActions` (Auto's rule list on the labeled
+// risky-action set, risky-actions/README.md; no browser). Needs the root and cli builds and Playwright's
 // Chromium (README.md, "Run"). Rivals are not run here: rivals/README.md.
 import { spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -17,7 +18,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, "..", "..");
 const argv = process.argv.slice(2);
 const opt = (n, d) => (argv.includes(n) ? argv[argv.indexOf(n) + 1] : d);
-const parts = (opt("--only") ?? "tasks,speed,dom-bench").split(",");
+const parts = (opt("--only") ?? "tasks,speed,dom-bench,riskyActions").split(",");
 const repeat = Number(opt("--repeat", 3));
 const speedN = Number(opt("--speed-n", 9));
 const out = opt("--out", join(here, "results", "last.json"));
@@ -65,6 +66,17 @@ if (parts.includes("dom-bench")) {
 	// dom-bench's own ratchet (floor.json: each passing id, within its tool-call ceiling) is part of this gate.
 	results.domBenchRatchet = r.status === 0;
 	results.detail.domBench = last.results.map(({ id, pass, calls, ms, error }) => ({ id, pass, calls, ms, error }));
+}
+
+if (parts.includes("riskyActions")) {
+	// The rules are TypeScript (src/bridge/risk-rules.ts): the scorer runs under tsx, as the extension tests do.
+	const r = spawnSync(process.execPath, ["--import", "tsx", "evals/market/risky-actions/score.mjs", "--json"], { cwd: repo, encoding: "utf8" });
+	if (r.status !== 0) throw new Error(`risky-actions scorer failed: ${r.stderr}`);
+	const s = JSON.parse(r.stdout);
+	// The floor is recall: of the actions labeled risky, how many the rules ask about. False flags are reported.
+	results.scores.riskyActions = { pass: s.caught, of: s.risky };
+	results.detail.riskyActions = s;
+	console.error(`risky actions: ${s.caught}/${s.risky} caught, ${s.falseFlags.length} false flags of ${s.cases - s.risky} safe cases`);
 }
 
 mkdirSync(dirname(out), { recursive: true });

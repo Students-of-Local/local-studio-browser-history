@@ -126,6 +126,8 @@ export interface HandlerContext {
 	guardedHosts?: readonly string[];
 	/** How capable the calling client's model is (its hello, D60); unset counts as unknown. */
 	tier?: ModelTier;
+	/** Set for a remote connector session: never in Yolo (D67). */
+	remote?: boolean;
 	/**
 	 * Whether a frame at `url` on a page at `topUrl` may be read and acted in: its host is the page's or one the
 	 * person allowed for agents. Unset (the side panel): every frame that isn't guarded.
@@ -706,16 +708,21 @@ const editHandlers: Record<string, Handler> = {
 	},
 };
 
+const LEGACY_MODE_NAME = { manual: "ask", auto: "by_model", yolo: "allow_all" } as const;
+
 /** The part of `status` that is about the extension, not a session. */
 export async function extensionStatus() {
-	const [permissionMode, allowedHosts] = await Promise.all([getPermissionMode(), getAllowedHosts()]);
+	const [mode, allowedHosts] = await Promise.all([getPermissionMode(), getAllowedHosts()]);
 	return {
 		extensionVersion: chrome.runtime.getManifest().version,
 		// What this extension was built from, for `polycarp version`.
 		...(BUILD
 			? { build: { commit: BUILD.commit, commitDate: BUILD.commitDate ?? "", dirty: BUILD.dirty === true } }
 			: {}),
-		permissionMode,
+		/** The permission mode by name (D67). */
+		mode,
+		/** The same mode by its 1.4.0 name, for an older CLI's `status`. */
+		permissionMode: LEGACY_MODE_NAME[mode],
 		allowedHosts,
 	};
 }

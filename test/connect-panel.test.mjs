@@ -109,10 +109,10 @@ test("Privacy keeps one sentence visible and every long explanation in a named d
 test("Page scripts reads as one plain sentence with the old wording under Details", () => {
 	const text = read("src/dialogs/BridgeTab.ts");
 	assert.match(text, /Turning this on makes agents' page scripts run faster\./);
-	assert.match(text, /Tychicus has not been granted the userScripts permission\./);
+	assert.match(text, /Local Studio has not been granted the userScripts permission\./);
 	assert.match(text, /<summary class="cursor-pointer text-foreground">Details<\/summary>/);
 	// The jargon is no longer a visible line.
-	assert.doesNotMatch(text, /line\(\s*['"]Off: Tychicus has not been granted/);
+	assert.doesNotMatch(text, /line\(\s*['"]Off: Local Studio has not been granted/);
 });
 
 // ---------- round-1 review fixes ----------
@@ -200,7 +200,7 @@ test("a request the helper never answers fails with no_reply after 20 s (30 s fo
 	const err = await status;
 	assert.ok(err instanceof client.ConnectRequestError);
 	assert.equal(err.code, "no_reply");
-	assert.equal(err.message, "Tychicus's helper didn't answer. Update it: tychicus update");
+	assert.equal(err.message, "Local Studio's helper didn't answer. Update it: tychicus update");
 	assert.equal(client.isNoHost(err), false);
 	// A late answer for the forgotten request is ignored.
 	port.listener({ id: port.posted[0].id, result: { route: "none" } });
@@ -250,7 +250,7 @@ test("Join a hub asks for a Device code from Add a device, takes an optional nam
 	assert.doesNotMatch(tab, /<span>Connect code<\/span>/);
 	assert.match(tab, /<span>Device name \(optional\)<\/span>/);
 	assert.match(tab, /this\.joinName\.trim\(\) \|\| undefined/);
-	assert.match(tab, /Tychicus may have linked this device\. Reopen Settings to check\./);
+	assert.match(tab, /Local Studio may have linked this device\. Reopen Settings to check\./);
 	assert.match(tab, /linkWritten && err instanceof ConnectRequestError && err\.code === "no_reply"/);
 });
 
@@ -429,11 +429,11 @@ test("first-F1: the bridge never opens Tychicus's own pages, in any permission m
 	assert.equal(perms.isOwnExtensionUrl("filesystem:https://example.com/temporary/x.html"), false);
 	assert.equal(perms.isOwnExtensionUrl("https://example.com/"), false);
 	assert.equal(perms.isOwnExtensionUrl("not a url"), false);
-	await perms.setPermissionMode("allow_all");
+	await perms.setPermissionMode("yolo");
 	assert.equal(await perms.isUrlAllowed(`blob:chrome-extension://${chrome.runtime.id}/6f1c0c3e-2f4b-4a53-9d40-0e1f9f3a7b11`), false);
 	assert.equal(await perms.isUrlAllowed("https://example.com/"), true);
-	assert.equal(await perms.isUrlAllowed(own), false, "allow_all opened the extension's own page");
-	await perms.setPermissionMode("ask");
+	assert.equal(await perms.isUrlAllowed(own), false, "yolo opened the extension's own page");
+	await perms.setPermissionMode("manual");
 	await perms.allowHost(chrome.runtime.id);
 	assert.equal(await perms.isUrlAllowed(own), false, "an allowed host named like the extension id opened its page");
 	// native.ts checks before it asks the user, and says why.
@@ -486,7 +486,7 @@ test("second-S2: on the link route the connector URL is the hub's own, shown onc
 
 test("first-F3/second-G2: a helper that lists no scopes in {id, what} form gets no Confirm; the confirm lists descriptions, never 'the hub's choice'", async () => {
 	const { joinScopesOf, helperOutOfDateMessage } = await import("../src/connect/format.ts");
-	assert.equal(helperOutOfDateMessage(), "Tychicus's helper is out of date. Run tychicus update, then try again.");
+	assert.equal(helperOutOfDateMessage(), "Local Studio's helper is out of date. Run tychicus update, then try again.");
 	const rows = [{ id: "browser.read", what: "See the agent's own tabs and read pages" }];
 	assert.deepEqual(joinScopesOf({ joinScopes: rows }), rows);
 	for (const bad of [undefined, [], ["browser.read"], [{ id: "a" }], [{ id: "", what: "x" }], [rows[0], null], "browser.read"]) assert.equal(joinScopesOf({ joinScopes: bad }), undefined, JSON.stringify(bad));

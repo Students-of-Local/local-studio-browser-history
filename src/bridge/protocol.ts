@@ -71,6 +71,11 @@ export interface ClientHello {
 		tier?: ModelTier;
 		/** The model's name, when the client knows it (TYCHICUS_MODEL). */
 		model?: string;
+		/**
+		 * A remote session (one through `tychicus serve`: a web connector, a token, a hub's caller) or a scoped one: never
+		 * in Yolo, and it may not answer its own asks or change permissions (docs/decisions.md, D67).
+		 */
+		remote?: boolean;
 	};
 }
 

@@ -66,7 +66,7 @@ For driving the browser from an agent on this computer, use the `polycarp-browse
 | `waitlist` (in `localStudio.state`) | There is no waitlist to join. The person's Local Studio is an older build that still gates tunnel setup. Tell them to update it (`local-studio update apply`, or reinstall); `waitlist.next.why` then says how to share its tunnel (`local-studio tunnel adopt` on a Cloudflare route, `tychicus remote off` and setup again on a tailnet route). Ask before you run either: both change what is reachable from the internet. For a new route of Local Studio's own, show them the steps `local-studio tunnel byo` prints: they make the Cloudflare account, add the domain and sign in themselves. Until then, if the report's own route is public (`state: on` on Funnel or Cloudflare), go on with its `next`. Only when that route can't reach web assistants (a tailnet-only route, or Cloudflare with no domain), with their yes run `waitlist.next.command`: `tychicus remote off && tychicus remote setup --tailscale --no-passcode`. It turns the saved route off first, because Funnel setup refuses while a tailnet or Cloudflare route is saved. `waitlist.next.why` says which case applies. |
 | `problem` | Read `message` and pass it on. |
 
-If an assistant says computer use isn't available, its `computer_status` tool explains why: Polycarp's Mac app isn't running here, or needs updating.
+If an assistant says computer use isn't available, its `computer_status` tool explains why: Tychicus's computer-use helper, `tychicus-hands`, isn't installed on that computer, or isn't answering.
 
 To stop everything: with their yes, `tychicus remote off`. To end one assistant: `tychicus token clients`, then `tychicus token revoke <client id>`.
 

@@ -115,7 +115,7 @@ declare module "@mariozechner/mini-lit" {
 		"Waiting for selection": string;
 		"Preparing element selector...": string;
 		About: string;
-		"You steer. Tychicus works the tabs.": string;
+		"You steer. Local Studio works the tabs.": string;
 		"An AI agent in your side panel, and a browser your coding agents can drive.": string;
 		"Built on the work of": string;
 		"the agent bridge, the CLI and MCP server, agent tab groups, per-tab side panels and the foreground guard.": string;
@@ -282,7 +282,7 @@ const tabkyraTranslations = {
 		"Waiting for selection": "Waiting for selection",
 		"Preparing element selector...": "Preparing element selector...",
 		About: "About",
-		"You steer. Tychicus works the tabs.": "You steer. Tychicus works the tabs.",
+		"You steer. Local Studio works the tabs.": "You steer. Local Studio works the tabs.",
 		"An AI agent in your side panel, and a browser your coding agents can drive.":
 			"An AI agent in your side panel, and a browser your coding agents can drive.",
 		"Built on the work of": "Built on the work of",
@@ -450,7 +450,7 @@ const tabkyraTranslations = {
 		"Waiting for selection": "Warte auf Auswahl",
 		"Preparing element selector...": "Bereite Element-Auswahl vor...",
 		About: "Über",
-		"You steer. Tychicus works the tabs.": "Du steuerst. Tychicus bedient die Tabs.",
+		"You steer. Local Studio works the tabs.": "Du steuerst. Local Studio bedient die Tabs.",
 		"An AI agent in your side panel, and a browser your coding agents can drive.":
 			"Ein KI-Agent in deiner Seitenleiste und ein Browser, den deine Coding-Agenten steuern können.",
 		"Built on the work of": "Aufgebaut auf der Arbeit von",
