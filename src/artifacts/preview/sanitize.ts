@@ -1,42 +1,52 @@
+import DOMPurify, { type Config } from "dompurify";
+
 /**
- * Allow-list HTML sanitizer for untrusted fragments (notebook outputs). The input is parsed in
- * an inert document (no scripts run, no images load), then rebuilt element by element in the
- * target document with only the tags and attributes below. Styles, scripts, event handlers,
- * forms, frames and remote images never make it across.
+ * Sanitizes untrusted HTML fragments (notebook outputs) with DOMPurify, narrowed to the tags and
+ * attributes previews show. Styles, scripts, event handlers, forms, frames and remote images never
+ * make it across.
  */
 
-const ALLOWED_TAGS = new Set(
-	"a abbr b blockquote br caption code col colgroup dd del details div dl dt em figcaption figure h1 h2 h3 h4 h5 h6 hr i img ins kbd li mark ol p pre q s samp small span strong sub summary sup table tbody td tfoot th thead tr u ul var".split(
-		" ",
-	),
-);
+const words = (list: string) => list.split(" ");
 
-/** Elements dropped with everything inside them. */
-const DROP_WITH_CONTENT = new Set(
-	"script style template iframe frame frameset object embed applet noscript svg math form input button select textarea audio video source track link meta base title head canvas".split(
-		" ",
-	),
-);
+const COMMON_ATTRS = words("title colspan rowspan align valign dir lang");
 
-const ALLOWED_ATTRS: Record<string, Set<string>> = {
-	"*": new Set(["title", "colspan", "rowspan", "align", "valign", "dir", "lang"]),
-	a: new Set(["href"]),
-	img: new Set(["src", "alt", "width", "height"]),
-	ol: new Set(["start", "type"]),
-	td: new Set(["headers", "scope"]),
-	th: new Set(["headers", "scope"]),
+const TAG_ATTRS = new Map([
+	["a", ["href"]],
+	["img", words("src alt width height")],
+	["ol", words("start type")],
+	["td", words("headers scope")],
+	["th", words("headers scope")],
+]);
+
+const CONFIG: Config & { RETURN_DOM_FRAGMENT: true } = {
+	ALLOWED_TAGS: words(
+		"a abbr b blockquote br caption code col colgroup dd del details div dl dt em figcaption figure h1 h2 h3 h4 h5 h6 hr i img ins kbd li mark ol p pre q s samp small span strong sub summary sup table tbody td tfoot th thead tr u ul var",
+	),
+	ALLOWED_ATTR: [...COMMON_ATTRS, ...[...TAG_ATTRS.values()].flat()],
+	ALLOW_ARIA_ATTR: false,
+	ALLOW_DATA_ATTR: false,
+	// Dropped with everything inside them, on top of DOMPurify's own list (script, style, svg, iframe...).
+	ADD_FORBID_CONTENTS: words(
+		"frame frameset object embed applet form input button select textarea source track link meta base canvas",
+	),
+	RETURN_DOM_FRAGMENT: true,
 };
 
+const INLINE_IMAGE = /^data:image\/(png|jpeg|gif|webp);base64,/;
 const SAFE_IMAGE = /^data:image\/(png|jpeg|gif|webp);base64,[a-z0-9+/=\s]+$/i;
 const SAFE_LINK = /^(https?:|mailto:)/i;
 
 export const MAX_SANITIZE_CHARS = 5_000_000;
 const MAX_NODES = 50_000;
+const MAX_DEPTH = 64;
 
 /** Nodes several sanitizeHtml calls may still create together, e.g. all outputs of one notebook. */
 export interface NodeBudget {
 	nodes: number;
 }
+
+/** Its own instance, made on first use: hooks stay off the shared one, and Node can import this file. */
+let purify: ReturnType<typeof DOMPurify> | undefined;
 
 /**
  * `resolveImage` maps an img src such as `attachment:name` to a data URL the caller already
@@ -48,58 +58,57 @@ export function sanitizeHtml(
 	budget: NodeBudget = { nodes: MAX_NODES },
 	resolveImage?: (src: string) => string | undefined,
 ): DocumentFragment {
-	const out = target.createDocumentFragment();
 	if (html.length > MAX_SANITIZE_CHARS) {
+		const out = target.createDocumentFragment();
 		const p = target.createElement("p");
 		p.textContent = "[Output too large to display]";
 		out.appendChild(p);
 		return out;
 	}
-	const parsed = new DOMParser().parseFromString(`<!doctype html><body>${html}`, "text/html");
-	const copy = (src: Node, dest: Node, depth: number) => {
-		for (const node of Array.from(src.childNodes)) {
-			if (--budget.nodes < 0 || depth > 64) return;
-			if (node.nodeType === Node.TEXT_NODE) {
-				dest.appendChild(target.createTextNode(node.textContent ?? ""));
-				continue;
-			}
-			if (node.nodeType !== Node.ELEMENT_NODE) continue;
-			const el = node as Element;
-			const tag = el.localName;
-			if (DROP_WITH_CONTENT.has(tag)) continue;
-			if (!ALLOWED_TAGS.has(tag)) {
-				// Unknown wrapper: keep its children, drop the element.
-				copy(el, dest, depth + 1);
-				continue;
-			}
-			const clean = target.createElement(tag);
-			for (const a of Array.from(el.attributes)) {
-				const name = a.name.toLowerCase();
-				if (!ALLOWED_ATTRS["*"].has(name) && !ALLOWED_ATTRS[tag]?.has(name)) continue;
-				let value = a.value.trim();
-				if (tag === "img" && name === "src") {
-					const resolved = resolveImage?.(value);
-					// A resolved image is still checked: its prefix here, its base64 body when it was parsed.
-					if (typeof resolved === "string" && /^data:image\/(png|jpeg|gif|webp);base64,/.test(resolved))
-						value = resolved;
-					else if (!SAFE_IMAGE.test(value)) continue;
-				}
-				if (tag === "a" && name === "href" && !SAFE_LINK.test(value)) continue;
-				clean.setAttribute(name, value);
-			}
-			if (tag === "img" && !clean.hasAttribute("src")) {
-				const alt = el.getAttribute("alt");
-				dest.appendChild(target.createTextNode(alt ? `[Image: ${alt}]` : "[Image]"));
-				continue;
-			}
-			if (tag === "a" && clean.hasAttribute("href")) {
-				clean.setAttribute("target", "_blank");
-				clean.setAttribute("rel", "noopener noreferrer");
-			}
-			copy(el, clean, depth + 1);
-			dest.appendChild(clean);
+	if (budget.nodes <= 0) return target.createDocumentFragment();
+	purify ??= DOMPurify(window);
+	// DOMPurify returns its input unchanged where it can't run.
+	if (!purify.isSupported) throw new Error("This browser can't sanitize HTML");
+	purify.addHook("uponSanitizeAttribute", (node, data) => {
+		const tag = node.localName;
+		const name = data.attrName;
+		if (!COMMON_ATTRS.includes(name) && !TAG_ATTRS.get(tag)?.includes(name)) data.keepAttr = false;
+		else if (name === "href") data.keepAttr = SAFE_LINK.test(data.attrValue);
+		else if (name === "src") {
+			const resolved = resolveImage?.(data.attrValue);
+			// A resolved image is still checked: its prefix here, its base64 body when it was parsed.
+			if (resolved !== undefined && INLINE_IMAGE.test(resolved)) data.attrValue = resolved;
+			else data.keepAttr = SAFE_IMAGE.test(data.attrValue);
 		}
-	};
-	copy(parsed.body, out, 0);
-	return out;
+	});
+	let out: DocumentFragment;
+	try {
+		// The doctype keeps the parser out of quirks mode, where a table nests inside a paragraph.
+		out = purify.sanitize(`<!doctype html><body>${html}`, CONFIG);
+	} finally {
+		purify.removeAllHooks();
+	}
+	finish(out, target, budget, 0);
+	return target.adoptNode(out);
+}
+
+/** Caps the size and depth of clean output, opens links in a new tab, and puts alt text where an image was blocked. */
+function finish(parent: Node, target: Document, budget: NodeBudget, depth: number): void {
+	for (const node of Array.from(parent.childNodes)) {
+		if (--budget.nodes < 0 || depth > MAX_DEPTH) {
+			parent.removeChild(node);
+			continue;
+		}
+		const el = node as Element;
+		if (el.localName === "img" && !el.hasAttribute("src")) {
+			const alt = el.getAttribute("alt");
+			parent.replaceChild(target.createTextNode(alt ? `[Image: ${alt}]` : "[Image]"), node);
+			continue;
+		}
+		if (el.localName === "a" && el.hasAttribute("href")) {
+			el.setAttribute("target", "_blank");
+			el.setAttribute("rel", "noopener noreferrer");
+		}
+		finish(node, target, budget, depth + 1);
+	}
 }
