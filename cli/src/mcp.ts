@@ -31,7 +31,7 @@ import { capCrawl, capJson, capOutput, fitSnapshot, MARKDOWN_CHARS, passwordHand
 import { searxSearch } from "./searx.ts";
 import { selfExec, selfPrefix } from "./self.ts";
 import { VERSION } from "./version.ts";
-import { COMPUTER_INSTRUCTION, COMPUTER_STATUS_TOOL, type ComputerClient, HANDS_COMMAND, handsHowTo, LOCAL_COMPUTER_INSTRUCTION, LocalComputer } from "./computer.ts";
+import { COMPUTER_INSTRUCTION, COMPUTER_STATUS_TOOL, type ComputerClient, grantsText, HANDS_COMMAND, handsHowTo, LOCAL_COMPUTER_INSTRUCTION, LocalComputer } from "./computer.ts";
 import { COMMAND_NAME } from "./self.ts";
 import { envVar } from "./env.ts";
 import { hopTracer } from "./hop-trace.ts";
@@ -1368,9 +1368,13 @@ export function createMcpServer(options: McpServerOptions = {}): { server: McpSe
 		server.registerTool(
 			COMPUTER_STATUS_TOOL,
 			{ description: "Whether computer use is available in this session, and what to tell the user if it isn't.", inputSchema: {}, annotations: { readOnlyHint: true, openWorldHint: false } },
-			async () => ({
-				content: text(options.computer?.tools.length ? "Computer use is available: the agent workspace and apps the user has lent." : `Computer use isn't available right now: Tychicus's computer-use helper, ${HANDS_COMMAND}, isn't on this computer or isn't answering. Tell the user. ${handsHowTo()} Browser tools work as usual.`),
-			}),
+			async () => {
+				const computer = options.computer;
+				if (!computer?.tools.length) {
+					return { content: text(`Computer use isn't available right now: Tychicus's computer-use helper, ${HANDS_COMMAND}, isn't on this computer or isn't answering. Tell the user. ${handsHowTo()} Browser tools work as usual.`) };
+				}
+				return { content: text(grantsText(await computer.grants()) ?? "Computer use is available: the agent workspace and apps the user has lent.") };
+			},
 		);
 	}
 	for (const tool of options.computer?.tools ?? []) {
