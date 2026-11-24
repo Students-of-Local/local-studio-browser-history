@@ -256,6 +256,40 @@ test("--base fails a pull request that drops a base case", () => {
 	assert.match(r.gates["base cases kept"].detail, /A case the pull request deleted/);
 });
 
+test("--base accepts a relabeled base case only under a rename accepted-drops.json records, to a skill that exists", () => {
+	// The base labels one dorks case with an old name; the pull request labels it dorks.
+	const lines = readFileSync(casesFile, "utf8").split("\n");
+	const i = lines.findIndex((l) => l.includes('"skill": "dorks"'));
+	const task = JSON.parse(lines[i]).task;
+	const base = baseCheckout({ "router-cases.jsonl": lines.map((l, j) => (j === i ? l.replace('"skill": "dorks"', '"skill": "old-dorks"') : l)).join("\n") });
+	const kept = (drops, cases) => baseRun(headCheckout({ drops, cases }), base).gates["base cases kept"];
+	const renamed = (...renamed) => JSON.stringify({ ...JSON.parse(readFileSync(join(repo, "skills-eval", "accepted-drops.json"), "utf8")), renamed });
+	const why = "the skill took the product's name";
+	// Recorded, with the exact old and new names, to a skill skills/ has: the case moved.
+	const ok = kept(renamed({ from: "old-dorks", to: "dorks", reason: why }));
+	assert.ok(ok.ok, ok.detail);
+	assert.match(ok.detail, /1 under a renamed skill/);
+	// Not recorded, or recorded with another old name: a relabel is a removed case.
+	for (const drops of [undefined, renamed({ from: "older-dorks", to: "dorks", reason: why })]) {
+		const r = kept(drops);
+		assert.equal(r.ok, false);
+		assert.ok(r.detail.includes(`${JSON.stringify(task)} (old-dorks)`), r.detail);
+	}
+	// A rename to a skill that doesn't exist moves nothing.
+	const ghost = kept(renamed({ from: "old-dorks", to: "ghost-skill", reason: why }), lines.map((l, j) => (j === i ? l.replace('"skill": "dorks"', '"skill": "ghost-skill"') : l)).join("\n"));
+	assert.equal(ghost.ok, false);
+	assert.ok(ghost.detail.includes(`${JSON.stringify(task)} (old-dorks)`), ghost.detail);
+	// A recorded rename doesn't excuse deleting the case.
+	const deleted = kept(renamed({ from: "old-dorks", to: "dorks", reason: why }), lines.filter((_, j) => j !== i).join("\n"));
+	assert.equal(deleted.ok, false);
+	// A malformed rename is refused.
+	for (const bad of [renamed({ from: "old-dorks", to: "dorks" }), renamed({ from: "dorks", to: "dorks", reason: why }), JSON.stringify({ drops: [], renamed: {} })]) {
+		const r = run(["skill", "eval", "--json", "--base", base, "--cases", join(headCheckout({ drops: bad }), "skills-eval", "router-cases.jsonl")]);
+		assert.equal(r.code, 1);
+		assert.match(r.out, /accepted-drops\.json/);
+	}
+});
+
 test("--base: the baseline only ratchets up; any lower value needs an accepted drop the pull request adds", () => {
 	const accuracy = repoBaseline();
 	const lowered = (value, drops, base = {}) => baseRun(headCheckout({ baseline: JSON.stringify({ accuracy: { ...accuracy, dorks: value } }), drops }), baseCheckout(base));

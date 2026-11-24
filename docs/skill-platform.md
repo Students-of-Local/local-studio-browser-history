@@ -280,7 +280,10 @@ router runs only inside the judge's sandboxed child process.
    together; CI fails with that message, with no fallback. The regenerated catalog means new
    skills are indexed and removed ones don't break the build, and CI checks the judge
    indexed as many skills as `skills/` holds. It fails when the pull request:
-   - removed or relabeled a case from either case file;
+   - removed or relabeled a case from either case file. A relabel passes only when
+     `accepted-drops.json` records the rename with the exact old and new names, the new
+     skill is in `skills/`, and the case is still there under the new name:
+     `{"renamed": [{"from": "old-skill", "to": "new-skill", "reason": "..."}]}`;
    - lowered a skill's value in `baseline.json` below the base branch's, or dropped it,
      without an accepted drop;
    - loosened a threshold in `cli/src/skill-eval.ts` (each may only move the strict way);

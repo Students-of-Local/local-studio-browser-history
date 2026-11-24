@@ -447,6 +447,30 @@ export function parseRemoved(text: string | undefined): Array<{ skill: string; r
 }
 
 /**
+ * The `renamed` list of accepted-drops.json: skills a pull request renames, each with its exact old and new name and a
+ * reason. A base case labeled `from` may move to `to`, and only there.
+ */
+export function parseRenamed(text: string | undefined): Array<{ from: string; to: string; reason: string }> {
+	if (text === undefined) return [];
+	let data: unknown;
+	try {
+		data = JSON.parse(text);
+	} catch {
+		throw new EvalError("accepted-drops.json is not JSON.");
+	}
+	const renamed = (data as { renamed?: unknown }).renamed ?? [];
+	if (!Array.isArray(renamed)) throw new EvalError('accepted-drops.json "renamed" must be a list.');
+	const name = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+	return renamed.map((r, i) => {
+		const e = r as { from?: unknown; to?: unknown; reason?: unknown };
+		if (typeof e.from !== "string" || !name.test(e.from) || typeof e.to !== "string" || !name.test(e.to) || e.from === e.to || typeof e.reason !== "string" || !e.reason.trim()) {
+			throw new EvalError(`accepted-drops.json renamed entry ${i + 1} needs {"from": "<old name>", "to": "<new name>", "reason": "..."}.`);
+		}
+		return { from: e.from, to: e.to, reason: e.reason.trim() };
+	});
+}
+
+/**
  * Checks a pull request against its base branch, run by the base branch's build with the
  * pull request's skills bundled. `head` is the pull request's files and its skill-eval.ts
  * source; `base` is the base branch's files. The running code's thresholds are the base's.
@@ -459,19 +483,37 @@ export function runBaseCheck(
 	ranker?: Ranker,
 ): { ok: boolean; skills: number; gates: Gate[]; report?: EvalReport } {
 	const gates: Gate[] = [];
+	const names = new Set(skills.map((s) => s.name));
 	const key = (c: EvalCase) => `${c.skill}\u0000${c.task}`;
+	// A base case may change its label only by a rename the pull request records, with the exact old and new names, to a
+	// skill its skills/ has; the case must still be there under the new name. Anything else is a removed case.
+	const renamedTo = new Map<string, string>();
+	for (const r of parseRenamed(head.drops)) if (names.has(r.to)) renamedTo.set(r.from, r.to);
 	const missing: string[] = [];
+	let moved = 0;
 	for (const [label, baseText, headText] of [
 		["router-cases.jsonl", base.cases, head.cases],
 		["router-heldout.jsonl", base.heldout, head.heldout],
 	] as const) {
 		if (baseText === undefined) continue;
 		const kept = new Set(parseCases(headText ?? "", label).map(key));
-		for (const c of parseCases(baseText, label)) if (!kept.has(key(c))) missing.push(`${label}: ${JSON.stringify(c.task)} (${c.skill})`);
+		for (const c of parseCases(baseText, label)) {
+			if (kept.has(key(c))) continue;
+			const to = renamedTo.get(c.skill);
+			if (to !== undefined && kept.has(key({ ...c, skill: to }))) moved++;
+			else missing.push(`${label}: ${JSON.stringify(c.task)} (${c.skill})`);
+		}
 	}
-	gates.push({ gate: "base cases kept", ok: missing.length === 0, detail: missing.length ? `removed or relabeled: ${missing.slice(0, 5).join("; ")}${missing.length > 5 ? `; and ${missing.length - 5} more` : ""}` : "every base case is still there" });
+	gates.push({
+		gate: "base cases kept",
+		ok: missing.length === 0,
+		detail: missing.length
+			? `removed or relabeled: ${missing.slice(0, 5).join("; ")}${missing.length > 5 ? `; and ${missing.length - 5} more` : ""}`
+			: moved
+				? `every base case is still there, ${moved} under a renamed skill`
+				: "every base case is still there",
+	});
 
-	const names = new Set(skills.map((s) => s.name));
 	const baseBaseline = base.baseline === undefined ? undefined : parseBaseline(base.baseline);
 	// A skill the base measures must still exist, or be listed as removed on purpose: deleting
 	// a folder would otherwise erase its cases' coverage without a trace.
