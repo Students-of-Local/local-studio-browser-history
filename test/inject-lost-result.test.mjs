@@ -53,6 +53,8 @@ chrome.userScripts = {
 		return mode === "lose" ? [] : [{ frameId: 0, result: JSON.parse(JSON.stringify(result)) }];
 	},
 };
+const onEvent = [];
+chrome.debugger.onEvent.addListener = (fn) => onEvent.push(fn);
 const plain = chrome.debugger.sendCommand;
 chrome.debugger.sendCommand = async (target, method, params) => {
 	sent.push(method);
@@ -64,7 +66,11 @@ chrome.debugger.sendCommand = async (target, method, params) => {
 	}
 	if (method === "Runtime.enable" || method === "Runtime.addBinding") return {};
 	if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "top" } } };
-	if (method === "Page.createIsolatedWorld") return { executionContextId: 7 };
+	if (method === "Page.createIsolatedWorld") {
+		const context = { id: 7, name: params.worldName, uniqueId: "page.7" };
+		for (const fn of onEvent) fn({ tabId: target.tabId }, "Runtime.executionContextCreated", { context });
+		return { executionContextId: 7 };
+	}
 	return plain.call(chrome.debugger, target, method, params);
 };
 const { injectScript, terminateInjection } = await import("../src/browser/inject.ts");

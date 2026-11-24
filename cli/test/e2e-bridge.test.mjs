@@ -1203,10 +1203,13 @@ Object.defineProperty(window, "__probe", { configurable: true, set(v) { window.s
 test("run_js runs apart from the page's own scripts, whatever path it takes; world main still reaches them", async () => {
 	await go("globals");
 	assert.equal(await js(`(() => { window.__probe = "ours"; return [typeof window.mine, window.__probe, document.querySelector("h1").textContent].join(); })()`), "undefined,ours,Shop");
+	// These runs take the debugger path (no "Allow user scripts" here): its binding is in that world, in each document.
+	assert.equal(await js(`typeof window.__tabkyraSend`), "function");
 	assert.deepEqual(await js(`[window.seen.length, typeof window.__tabkyraSend, typeof window.__tabkyraChrome, window.mine].join()`, { world: "main" }), "0,undefined,undefined,the page's");
 	// A navigation gives the next run a world of the new document.
 	await go("globals");
 	assert.equal(await js(`typeof window.__probe + document.title`), "undefinedPolycarp globals");
+	assert.equal(await js(`typeof window.__tabkyraSend`), "function");
 });
 
 test("press select-all (Meta+a and Control+a) selects the field's text, so typing replaces it", async () => {

@@ -9,13 +9,19 @@ installFakeChrome();
 // The router listens for sandbox messages on window, as in the panel.
 globalThis.window ??= Object.assign(globalThis, { addEventListener() {}, removeEventListener() {} });
 delete chrome.userScripts;
+const onEvent = [];
+chrome.debugger.onEvent.addListener = (fn) => onEvent.push(fn);
 const plain = chrome.debugger.sendCommand;
 chrome.debugger.sendCommand = async (target, method, params) => {
 	// The page answers with no value: a result that was lost on its way back.
 	if (method === "Runtime.evaluate") return { result: {} };
 	if (method === "Runtime.enable" || method === "Runtime.addBinding") return {};
 	if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "top" } } };
-	if (method === "Page.createIsolatedWorld") return { executionContextId: 7 };
+	if (method === "Page.createIsolatedWorld") {
+		const context = { id: 7, name: params.worldName, uniqueId: "page.7" };
+		for (const fn of onEvent) fn({ tabId: target.tabId }, "Runtime.executionContextCreated", { context });
+		return { executionContextId: 7 };
+	}
 	return plain.call(chrome.debugger, target, method, params);
 };
 const { setAppStorage } = await import("@mariozechner/pi-web-ui");
