@@ -1236,9 +1236,10 @@ test("PR 228 r1 second-S2: a frame found again after its look failed still keeps
 test("a frame whose page has not arrived is waited for once, so the first read holds it; an older one, or a refused one, is not", async () => {
 	const { snapshot } = await import("../src/browser/page.ts");
 	const getTab = chrome.tabs.get;
+	const getAllFrames = chrome.webNavigation.getAllFrames;
 	chrome.tabs.get = async (id) => ({ id, url: "https://shop.example/" });
 	const line = { ...frameLine("e1", [100, 50, 400, 150]), href: "https://pay.example/" };
-	const loading = { ...line, states: ["frame still loading: read_page again"] };
+	const loading = { ...line, states: ["frame not loaded yet"] };
 	const arrived = { trees: { "": node("TOP", "https://shop.example", [node("PAY", "https://pay.example")]) }, holds: { PAY: "TOP" }, owners: { PAY: 11 }, shown: { PAY: "shown" } };
 	const empty = { ...arrived, trees: { "": node("TOP", "https://shop.example", []) } };
 	/** A read of a tab whose top document answers with `looks` in turn (the last from then on), its frames from `frames`. */
@@ -1247,31 +1248,56 @@ test("a frame whose page has not arrived is waited for once, so the first read h
 		fakeTab(tab, { ...frames, evaluate: (id) => (id === undefined ? structuredClone(looks[Math.min(n++, looks.length - 1)]) : inner(n)) });
 		const start = Date.now();
 		const snap = await snapshot(tab, { skip: open });
-		assert.deepEqual(Object.keys(snap).filter((k) => /crossFrames|settling|parsing/.test(k)), []);
+		assert.deepEqual(Object.keys(snap).filter((k) => /crossFrames|settling|parsing|born/.test(k)), []);
 		return { names: snap.nodes.map((x) => x.name), states: snap.nodes[0].states, looks: n, ms: Date.now() - start };
 	};
 	try {
 		chrome.webNavigation.getAllFrames = async () => [{}, {}];
 		// Its first empty page, then the payment form.
-		const late = await read(61, arrived, [{ ...pageWith([loading]), settling: 1 }, { ...pageWith([line]), settling: 1 }]);
+		const late = await read(161, arrived, [{ ...pageWith([loading]), settling: 1 }, { ...pageWith([line]), settling: 1 }]);
 		assert.ok(late.names.includes("pay button"), JSON.stringify(late));
 		// Its document is there and still being parsed.
-		const parsing = await read(62, arrived, [{ ...pageWith([line]), settling: 1 }], (n) => (n < 3 ? { ...frameSnap("pay"), nodes: [], text: "", parsing: true } : frameSnap("pay")));
+		const parsing = await read(162, arrived, [{ ...pageWith([line]), settling: 1 }], (n) => (n < 3 ? { ...frameSnap("pay"), nodes: [], text: "", parsing: true } : frameSnap("pay")));
 		assert.ok(parsing.names.includes("pay button") && parsing.looks >= 3, JSON.stringify(parsing));
 		// Never arrives: about a second, and the line says so.
-		const never = await read(63, empty, [{ ...pageWith([loading]), settling: 1 }]);
+		const never = await read(163, empty, [{ ...pageWith([loading]), settling: 1 }]);
 		assert.ok(never.ms >= 900 && never.ms < 4000, `${never.ms} ms`);
-		assert.deepEqual(never.states, ["frame still loading: read_page again"]);
+		assert.deepEqual(never.states, ["frame not loaded yet"]);
 		// Seen over a second ago: no wait.
-		assert.equal((await read(64, empty, [pageWith([loading])])).looks, 1);
+		assert.equal((await read(164, empty, [pageWith([loading])])).looks, 1);
 		// A site that refuses to be framed: the browser has no page to wait for.
-		chrome.webNavigation.getAllFrames = async () => [{}, { errorOccurred: true }];
-		assert.equal((await read(65, empty, [{ ...pageWith([line]), settling: 1 }])).looks, 1);
+		chrome.webNavigation.getAllFrames = async () => [{}, { errorOccurred: true, url: "https://pay.example/?t=1" }];
+		assert.equal((await read(165, empty, [{ ...pageWith([line]), settling: 1 }])).looks, 1);
+		// Another frame's failure is not this one's.
+		chrome.webNavigation.getAllFrames = async () => [{}, { errorOccurred: true, url: "https://ads.example/" }];
+		assert.ok((await read(167, empty, [{ ...pageWith([line]), settling: 1 }])).looks > 1);
 		// In the browser but not yet told to the debugger.
 		chrome.webNavigation.getAllFrames = async () => [{}, {}];
-		assert.ok((await read(66, empty, [{ ...pageWith([line]), settling: 1 }])).looks > 1);
+		assert.ok((await read(166, empty, [{ ...pageWith([line]), settling: 1 }])).looks > 1);
+		// A new frame inside one read before (a 3-D Secure step): the outer page isn't settling, the frame is.
+		const step = { ...frameLine("e9", [0, 0, 50, 50]), href: "https://bank.example/", states: ["frame not loaded yet"] };
+		const nested = await read(168, arrived, [pageWith([line])], (n) => (n < 2 ? { ...frameSnap("pay"), nodes: [step], settling: 1 } : frameSnap("pay")));
+		assert.ok(nested.names.includes("pay button"), JSON.stringify(nested));
+		// No answer from the frame's document.
+		assert.ok((await read(169, arrived, [{ ...pageWith([line]), settling: 1 }], (n) => (n < 2 ? undefined : frameSnap("pay")))).names.includes("pay button"));
+		// The page goes, or becomes another, during the wait: the read is of the one it started on.
+		const gone = { ...pageWith([loading], "first"), settling: 1, born: 1 };
+		for (const [tab, next] of [[170, { ...pageWith([], "other page"), born: 2 }], [171, undefined]]) {
+			let n = 0;
+			fakeTab(tab, {
+				...empty,
+				evaluate: () => {
+					if (n++ === 0) return structuredClone(gone);
+					if (!next) throw new Error("Cannot find context with specified id");
+					return next;
+				},
+			});
+			assert.equal((await snapshot(tab, { skip: open })).text, "first");
+			assert.equal(n > 1, true);
+		}
 	} finally {
 		chrome.tabs.get = getTab;
+		chrome.webNavigation.getAllFrames = getAllFrames;
 	}
 });
 

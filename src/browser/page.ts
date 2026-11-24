@@ -1033,10 +1033,14 @@ export function pageSnapshot(
 			} catch {
 				doc = null;
 			}
+			const src = el.getAttribute("src")?.trim() && String((el as HTMLIFrameElement).src);
+			// A page may fill an about:blank frame itself: only an empty one is a page that has not arrived.
 			if (
-				doc?.documentElement &&
-				doc.URL === "about:blank" &&
-				/^https?:/.test(String((el as HTMLIFrameElement).src))
+				src &&
+				/^https?:/.test(src) &&
+				doc?.URL === "about:blank" &&
+				!doc.body?.firstElementChild &&
+				!doc.body?.textContent?.trim()
 			) {
 				blank.add(el);
 				crossFrames.push({ el, at });
@@ -1380,6 +1384,7 @@ export function pageSnapshot(
 		...(ranked ? { ranked } : {}),
 		...(crossFrames.length ? { crossFrames: crossFrames.length } : {}),
 		...(settling ? { settling } : {}),
+		born: typeof performance === "object" ? performance.timeOrigin : 0,
 		...(document.readyState === "loading" ? { parsing: true } : {}),
 	};
 }
@@ -1561,21 +1566,25 @@ export async function snapshot(
 	const code = (n: number, t: number, r = "") =>
 		`(${pageSnapshot.toString()})(${n}, ${t}, ${JSON.stringify(filter)}, ${refLive.toString()}, ${refPrint.toString()}, false, ${frameShown.toString()}, ${JSON.stringify(FRAME_STATES)}${r})`;
 	const until = Date.now() + FRAME_ARRIVE_MS;
+	let last: { snap: Snapshot; born?: number } | undefined;
 	for (;;) {
-		const snap = await runInPage<Snapshot & FramesAt>(tabId, code(maxNodes, maxTextChars, rank));
+		let snap: Snapshot & FramesAt;
+		try {
+			snap = await runInPage<Snapshot & FramesAt>(tabId, code(maxNodes, maxTextChars, rank));
+		} catch (err) {
+			// The page went away during the wait: what it showed before is the read.
+			if (last) return last.snap;
+			throw err;
+		}
+		if (last && snap?.born !== last.born) return last.snap;
 		if (typeof snap?.url === "string") snap.url = maskUrl(snap.url);
-		const { crossFrames, settling } = snap ?? {};
-		for (const key of ["crossFrames", "settling", "parsing"] as const) delete snap?.[key];
+		const { crossFrames, settling, born } = snap ?? {};
+		for (const key of ["crossFrames", "settling", "born", "parsing"] as const) delete snap?.[key];
 		if (!crossFrames) return snap;
-		const whole = await readFrames(
-			tabId,
-			snap,
-			{ maxNodes, maxTextChars, floor },
-			code,
-			options.skip ?? FRAMES_CLOSED,
-		);
+		const got = await readFrames(tabId, snap, { maxNodes, maxTextChars, floor }, code, options.skip ?? FRAMES_CLOSED);
 		// A payment frame arrives just after the page around it: a first read that came in between would leave it out.
-		if (whole || !settling || Date.now() >= until) return snap;
+		if (got.whole || !(settling || got.settling) || Date.now() >= until) return snap;
+		last = { snap, born };
 		await new Promise((r) => setTimeout(r, 50));
 	}
 }
@@ -1589,6 +1598,8 @@ interface FramesAt {
 	crossFrames?: number;
 	/** Of those, the shown ones first seen under a second ago. */
 	settling?: number;
+	/** When the document began: a new one is another page. */
+	born?: number;
 	/** The document is still being parsed. */
 	parsing?: boolean;
 }
@@ -1788,7 +1799,7 @@ export const FRAME_STATES = {
 	shown: "cross-origin: read it with navigate to its URL",
 	hidden: "cross-origin frame, not shown, so not read",
 	away: "cross-origin frame out of view: scroll to it, then read_page",
-	loading: "frame still loading: read_page again",
+	loading: "frame not loaded yet",
 } as const;
 const CROSS_NOTE = FRAME_STATES.shown;
 const NOT_SHOWN_NOTE = FRAME_STATES.hidden;
@@ -1867,7 +1878,7 @@ async function readFrames(
 	budget: { maxNodes: number; maxTextChars: number; floor: boolean },
 	code: (n: number, t: number) => string,
 	rule: FrameRule,
-): Promise<boolean> {
+): Promise<{ whole: boolean; settling: boolean }> {
 	const frames = await crossOriginFrames(tabId, rule).catch(() => [] as PageFrame[]);
 	const end = Date.now() + FRAMES_READ_MS;
 	const { maxNodes, maxTextChars, floor } = budget;
@@ -1876,7 +1887,8 @@ async function readFrames(
 	const { width, height } = snap.viewport;
 	const taken = new Set<SnapshotNode>();
 	let read = 0;
-	let whole = !snap.nodes.some((n) => (n as Line).states?.[0] === FRAME_STATES.loading);
+	let whole = true;
+	let settling = false;
 	// Outermost first: a frame's line is in the snapshot only once the frame around it is read.
 	for (let depth = 1; depth <= MAX_DEPTH; depth++) {
 		const level = frames.filter((f) => f.chain.length === depth);
@@ -1922,9 +1934,11 @@ async function readFrames(
 		);
 		wanted.forEach(({ f, own }, i) => {
 			const s = got[i];
+			// No answer (its document is being replaced), or one still being parsed.
+			if (!s?.nodes || s.parsing) whole = false;
+			if (s?.settling) settling = true;
 			if (!s?.nodes || room <= 0) return;
 			read++;
-			if (s.parsing) whole = false;
 			const label = frameHost(f.url);
 			const nodes = s.nodes.slice(0, room).map((n) => {
 				const x = Math.round(f.offset.x + f.scale * n.x);
@@ -1952,14 +1966,19 @@ async function readFrames(
 			}
 		});
 	}
-	// A line no frame claimed is one the browser hasn't told of yet, unless its page failed to load (a site refusing to
-	// be framed) or it names no web page.
-	const unclaimed = snap.nodes.filter(
-		(n) => !taken.has(n) && (n as Line).states?.[0] === CROSS_NOTE && /^https?:/.test(n.href ?? ""),
-	).length;
-	if (!whole || unclaimed === 0) return whole;
+	// A line no frame claimed is one the browser hasn't told of yet, unless it names no web page, a frame found but not
+	// matched, or one that failed to load (a site refusing to be framed).
+	const bare = (u: string) => u.split(/[?#]/)[0].slice(0, 200);
+	const known = new Set(frames.map((f) => bare(f.url)));
 	const all = await chrome.webNavigation.getAllFrames({ tabId }).catch(() => null);
-	return unclaimed <= (all ?? []).filter((f) => f.errorOccurred).length;
+	for (const f of all ?? []) if (f.errorOccurred) known.add(bare(f.url));
+	for (const n of snap.nodes as Line[]) {
+		const state = n.states?.[0];
+		if (state === FRAME_STATES.loading) whole = false;
+		else if (state === CROSS_NOTE && !taken.has(n) && /^https?:/.test(n.href ?? "") && !known.has(bare(n.href ?? "")))
+			whole = false;
+	}
+	return { whole, settling };
 }
 
 /**
