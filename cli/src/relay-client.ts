@@ -1,5 +1,5 @@
 // Vendored, unchanged below this header, from baney75/local-studio-tunnels relay/client/relay-client.ts
-// at commit 342b763ca0c6f89ce0eb784c6227044a03c8304a (2026-11-24). Change it upstream and copy it again;
+// at commit adfe3db4dbe5a8731ff1ed55871f53ac7c783d5c (2026-11-24). Change it upstream and copy it again;
 // cli/test/relay-vendor.test.mjs fails when the body below stops matching that copy's SHA-256.
 // License: the upstream file has no license header and its repository no license file. Both repositories are
 // baney75's, and this copy is distributed under Tychicus's license (AGPL-3.0, LICENSE).
@@ -18,7 +18,7 @@
 
 import { createHash, randomBytes } from "node:crypto";
 import { request as httpRequest, type ClientRequest, type IncomingMessage } from "node:http";
-import type { Duplex } from "node:stream";
+import type { Duplex, Readable } from "node:stream";
 
 /** Public path to loopback origin, as in docs/INTERFACE.md. */
 export const DEFAULT_ROUTES: Readonly<Record<string, string>> = {
@@ -50,7 +50,8 @@ export interface RelayClientOptions {
   /** RELAY_KEY. Never logged. */
   key: string;
   routes?: Readonly<Record<string, string>>;
-  onState?: (state: RelayState) => void;
+  /** `error` says why start() could not run; only "stopped" ever carries one. */
+  onState?: (state: RelayState, error?: string) => void;
   /** Keepalive period; the protocol says 30 seconds. */
   pingMs?: number;
 }
@@ -65,6 +66,8 @@ const CHUNK = 64 * 1024;
 const HIGH_WATER = 1024 * 1024;
 /** Largest message accepted from an origin WebSocket. */
 const MAX_MESSAGE = 16 * 1024 * 1024;
+/** Most bytes held, over every stream, for origins that read slower than the relay sends. */
+const MAX_QUEUED = 32 * 1024 * 1024;
 const USER_AGENT = "local-studio-relay-client/1";
 
 type Pairs = [string, string][];
@@ -81,6 +84,8 @@ interface Req {
 
 interface Stream {
   req?: ClientRequest;
+  /** Body bytes the request's content-length still promises; unset without one. */
+  left?: number;
   res?: IncomingMessage;
   origin?: OriginSocket;
 }
@@ -92,6 +97,10 @@ export class RelayClient {
   private streams = new Map<number, Stream>();
   private current: RelayState = "stopped";
   private attempt = 0;
+  /** From start() until it stops for good. */
+  private running = false;
+  /** Counts starts and stops: work begun under an earlier run changes nothing. */
+  private run = 0;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private pinger: ReturnType<typeof setInterval> | undefined;
   private lastPong = 0;
@@ -111,9 +120,22 @@ export class RelayClient {
 
   /** Starts, or starts again after replaced, unauthorized, outdated or stopped. */
   start(): void {
-    if (this.ws || this.timer) return;
+    if (this.running) return;
+    if (typeof WebSocket !== "function") {
+      this.current = "stopped";
+      this.opts.onState?.("stopped", "The relay client needs a built-in WebSocket (Node 22 or later); this runtime has none.");
+      return;
+    }
+    this.running = true;
+    this.run++;
     this.attempt = 0;
-    this.connect();
+    this.upSince = 0;
+    try {
+      this.connect();
+    } catch (e) {
+      this.halt("stopped");
+      throw e;
+    }
   }
 
   stop(): void {
@@ -133,7 +155,9 @@ export class RelayClient {
   }
 
   private connect(): void {
+    const run = this.run;
     this.set("connecting");
+    if (run !== this.run) return; // onState stopped or restarted the client
     const ws = new WebSocket(this.connectUrl(), {
       headers: { authorization: `Bearer ${this.opts.key}`, "user-agent": USER_AGENT },
     });
@@ -142,6 +166,7 @@ export class RelayClient {
     let opened = false;
     ws.addEventListener("open", () => {
       opened = true;
+      if (this.ws !== ws) return;
       this.upSince = Date.now();
       this.lastPong = Date.now();
       this.pinger = setInterval(() => this.keepalive(ws), this.pingMs);
@@ -160,7 +185,7 @@ export class RelayClient {
       if (this.ws !== ws) return;
       this.down();
       if (code === 4000) return this.halt("replaced");
-      if (!opened) void this.probe();
+      if (!opened) void this.probe(run);
       else this.retry();
     };
     ws.addEventListener("close", (e) => lost(e.code));
@@ -185,27 +210,29 @@ export class RelayClient {
   }
 
   /** A browser-style WebSocket can't read a refused handshake's status; ask once over plain HTTP. */
-  private async probe(): Promise<void> {
+  private async probe(run: number): Promise<void> {
+    let status = 0;
     try {
       const res = await fetch(new URL("/_relay/connect", this.opts.url), {
         headers: { authorization: `Bearer ${this.opts.key}`, "user-agent": USER_AGENT },
       });
+      status = res.status;
       await res.body?.cancel();
-      if (res.status === 401) return this.halt("unauthorized");
     } catch {
       // Offline or the relay is down; retry below.
     }
-    if (this.current !== "stopped") this.retry();
+    if (run !== this.run) return;
+    if (status === 401) this.halt("unauthorized");
+    else this.retry();
   }
 
   private retry(): void {
-    if (this.current === "stopped" || this.timer) return;
+    if (this.timer) return;
     // Start over only when the socket that just dropped had been up a minute; a
     // relay that is down, or one that keeps dropping, backs off to 30 s.
     if (this.upSince && Date.now() - this.upSince > 60_000) this.attempt = 0;
     this.upSince = 0;
     const base = Math.min(30_000, 1000 * 2 ** this.attempt++);
-    this.set("disconnected");
     this.timer = setTimeout(
       () => {
         this.timer = undefined;
@@ -213,6 +240,8 @@ export class RelayClient {
       },
       base / 2 + Math.random() * (base / 2),
     );
+    // Last: onState may call stop(), which clears the timer.
+    this.set("disconnected");
   }
 
   /** The relay socket is gone: stop its timers and every stream on it. */
@@ -224,6 +253,8 @@ export class RelayClient {
   }
 
   private halt(state: RelayState): void {
+    this.running = false;
+    this.run++;
     clearTimeout(this.timer);
     this.timer = undefined;
     const ws = this.ws;
@@ -277,6 +308,7 @@ export class RelayClient {
         if (this.ws === ws) this.open(m as unknown as Req);
         return;
       case "end":
+        if (s?.left) return this.fail(m.id, "body shorter than its content-length");
         s?.req?.end();
         return;
       case "cancel":
@@ -292,10 +324,27 @@ export class RelayClient {
     if (f.byteLength < 5) return;
     const id = new DataView(f.buffer, f.byteOffset).getUint32(1);
     const s = this.streams.get(id);
+    if (!s) return;
     const payload = f.subarray(5);
-    if (f[0] === DATA) s?.req?.write(payload);
-    else if (f[0] === WS_TEXT) s?.origin?.send(1, Buffer.from(payload));
-    else if (f[0] === WS_BINARY) s?.origin?.send(2, Buffer.from(payload));
+    let flowing = true;
+    if (f[0] === DATA && s.req) {
+      if (s.left !== undefined) {
+        s.left -= payload.byteLength;
+        if (s.left < 0) return this.fail(id, "body longer than its content-length");
+      }
+      flowing = s.req.write(payload);
+    } else if (f[0] === WS_TEXT) flowing = s.origin?.send(1, Buffer.from(payload)) ?? true;
+    else if (f[0] === WS_BINARY) flowing = s.origin?.send(2, Buffer.from(payload)) ?? true;
+    // The relay socket can't be paused, so the stream whose origin is furthest behind pays, not the process.
+    if (flowing || this.queued() <= MAX_QUEUED) return;
+    const [worst] = [...this.streams].reduce((x, y) => (queuedFor(y[1]) > queuedFor(x[1]) ? y : x));
+    this.fail(worst, "origin reads too slowly");
+  }
+
+  private queued(): number {
+    let n = 0;
+    for (const s of this.streams.values()) n += queuedFor(s);
+    return n;
   }
 
   private abort(id: number): void {
@@ -317,39 +366,53 @@ export class RelayClient {
       this.forward(m);
     } catch {
       // node:http refuses some values a public client can send (a header above U+00FF, an odd method).
-      this.streams.get(m.id)?.req?.destroy();
-      this.streams.delete(m.id);
-      this.send({ t: "res", id: m.id, status: 400, headers: [["content-type", "text/plain; charset=utf-8"]] });
-      this.sendFrame(DATA, m.id, new TextEncoder().encode("Bad request.\n"));
-      this.send({ t: "end", id: m.id });
+      this.abort(m.id);
+      this.answer(m.id, 400, "Bad request.\n");
     }
+  }
+
+  private answer(id: number, status: number, text: string): void {
+    this.send({ t: "res", id, status, headers: [["content-type", "text/plain; charset=utf-8"]] });
+    this.sendFrame(DATA, id, new TextEncoder().encode(text));
+    this.send({ t: "end", id });
   }
 
   private forward(m: Req): void {
     const pathname = new URL(m.path, "http://relay").pathname;
     const origin = this.routes[pathname];
-    if (!origin) {
-      this.send({ t: "res", id: m.id, status: 404, headers: [["content-type", "text/plain; charset=utf-8"]] });
-      this.sendFrame(DATA, m.id, new TextEncoder().encode("No local route for this path.\n"));
-      this.send({ t: "end", id: m.id });
-      return;
-    }
+    if (!origin) return this.answer(m.id, 404, "No local route for this path.\n");
     const target = new URL(origin);
-    const flat = m.headers.flat();
+    const body = m.body && !m.ws;
+    const headers = grouped(m.headers);
+    const lengths = headers.get("content-length") ?? [];
+    if (lengths.length && (lengths.length > 1 || headers.has("transfer-encoding") || !/^\d{1,15}$/.test(lengths[0]!))) {
+      return this.answer(m.id, 400, "Bad request.\n");
+    }
+    // The connector frames the body itself, for every method: node:http leaves some methods' bodies unframed.
+    headers.delete("transfer-encoding");
+    headers.delete("expect"); // the body comes without waiting for a 100
+    if (!body) headers.delete("content-length");
+    else if (!lengths.length) headers.set("transfer-encoding", ["chunked"]);
     let key = "";
     if (m.ws) {
       key = randomBytes(16).toString("base64");
-      flat.push("connection", "Upgrade", "upgrade", "websocket", "sec-websocket-version", "13", "sec-websocket-key", key);
+      headers.set("connection", ["Upgrade"]).set("upgrade", ["websocket"]).set("sec-websocket-version", ["13"]).set("sec-websocket-key", [key]);
     }
     const req = httpRequest({
       host: target.hostname,
       port: Number(target.port) || 80,
       method: m.method,
       path: m.path,
-      headers: flat,
+      // node:http wants a lone value as a string, Host above all; two Hosts throw, and open() answers 400.
+      headers: Object.fromEntries([...headers].map(([k, v]) => [k, v.length === 1 ? v[0]! : v])),
       setHost: false,
     });
-    const s: Stream = { req };
+    if (!body) {
+      // Otherwise node:http adds its own framing to a POST that has no body.
+      req.removeHeader("content-length");
+      req.removeHeader("transfer-encoding");
+    }
+    const s: Stream = { req, left: body && lengths.length ? Number(lengths[0]) : undefined };
     this.streams.set(m.id, s);
 
     req.on("response", (res) => this.respond(m.id, s, res));
@@ -361,16 +424,19 @@ export class RelayClient {
       }
       s.req = undefined;
       s.origin = new OriginSocket(socket, head, {
-        message: (op, payload) => this.sendFrame(op === 1 ? WS_TEXT : WS_BINARY, m.id, payload),
+        message: (op, payload) => {
+          this.sendFrame(op === 1 ? WS_TEXT : WS_BINARY, m.id, payload);
+          this.backpressure(socket);
+        },
         close: (code, reason) => {
-          if (this.streams.delete(m.id)) this.send({ t: "ws_close", id: m.id, code: sendableCode(code), reason });
+          if (this.streams.delete(m.id)) this.send({ t: "ws_close", id: m.id, code: closeCode(code), reason });
         },
       });
       const protocol = res.headers["sec-websocket-protocol"];
       this.send({ t: "res", id: m.id, status: 101, headers: protocol ? [["sec-websocket-protocol", String(protocol)]] : [] });
     });
     req.on("error", () => this.fail(m.id, "origin unreachable"));
-    if (!m.body) req.end();
+    if (!body) req.end();
   }
 
   private respond(id: number, s: Stream, res: IncomingMessage): void {
@@ -386,31 +452,40 @@ export class RelayClient {
     });
     res.on("end", () => {
       if (this.streams.delete(id)) this.send({ t: "end", id });
+      // The origin answered before the body ended; the rest is dropped, so the socket can't be reused.
+      if (s.req && !s.req.writableFinished) s.req.destroy();
     });
     res.on("error", () => this.fail(id, "origin response failed"));
   }
 
-  private backpressure(res: IncomingMessage): void {
+  private backpressure(from: Readable): void {
     const ws = this.ws;
-    if (!ws || ws.bufferedAmount < HIGH_WATER || res.isPaused()) return;
-    res.pause();
+    if (!ws || ws.bufferedAmount < HIGH_WATER || from.isPaused()) return;
+    from.pause();
     const check = (): void => {
-      if (this.ws !== ws || res.destroyed) return;
-      if (ws.bufferedAmount < HIGH_WATER / 2) res.resume();
+      if (this.ws !== ws || from.destroyed) return;
+      if (ws.bufferedAmount < HIGH_WATER / 2) from.resume();
       else setTimeout(check, 10);
     };
     setTimeout(check, 10);
   }
 }
 
-/** A close code a WebSocket endpoint may send: 1000 or 3000 to 4999. */
-function sendableCode(code: number): number {
-  return code === 1000 || (code >= 3000 && code <= 4999) ? code : 1000;
+/** Header values by lowercase name, in order. */
+function grouped(pairs: Pairs): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const [name, value] of pairs) {
+    const k = name.toLowerCase();
+    out.set(k, [...(out.get(k) ?? []), value]);
+  }
+  return out;
 }
 
-/** A close code RFC 6455 lets an endpoint put on the wire. */
-function wireCode(code: number): number {
-  return (code >= 1000 && code <= 1003) || (code >= 1007 && code <= 1011) || (code >= 3000 && code <= 4999) ? code : 1000;
+/** The close code to pass on for `code`: no status is 1000, and one that can't go on the wire is 1011. */
+function closeCode(code: number): number {
+  if (code === 1005) return 1000;
+  const pass = code === 1000 || code === 1001 || code === 1003 || (code >= 1007 && code <= 1014) || (code >= 3000 && code <= 4999);
+  return pass ? code : 1011;
 }
 
 interface OriginEvents {
@@ -418,12 +493,19 @@ interface OriginEvents {
   close: (code: number, reason: string) => void;
 }
 
+function queuedFor(s: Stream): number {
+  return (s.req?.writableLength ?? 0) + (s.origin?.queued ?? 0);
+}
+
 /**
  * The client end of an RFC 6455 WebSocket on an upgraded socket: masked frames
  * out, fragments joined, pings answered, close handshake. No extensions.
  */
 class OriginSocket {
-  private buf: Buffer;
+  /** Bytes read and not parsed yet: joined only once the next frame is whole. */
+  private chunks: Buffer[] = [];
+  private have = 0;
+  private need = 2;
   private parts: Buffer[] = [];
   private size = 0;
   private op = 0;
@@ -436,26 +518,31 @@ class OriginSocket {
   constructor(socket: Duplex, head: Buffer, on: OriginEvents) {
     this.socket = socket;
     this.on = on;
-    this.buf = head;
-    socket.on("data", (chunk: Buffer) => {
-      this.buf = this.buf.length ? Buffer.concat([this.buf, chunk]) : chunk;
-      this.parse();
-    });
+    socket.on("data", (chunk: Buffer) => this.feed(chunk));
     socket.on("close", () => this.gone(1006, ""));
     socket.on("error", () => socket.destroy());
-    if (head.length) queueMicrotask(() => this.parse());
+    if (head.length) {
+      this.chunks = [head];
+      this.have = head.length;
+      queueMicrotask(() => this.parse());
+    }
   }
 
-  send(op: number, payload: Buffer): void {
-    if (this.closeSent || this.closed) return;
-    this.write(op, payload);
+  get queued(): number {
+    return this.socket.writableLength;
+  }
+
+  /** False when the origin is behind, as in stream.write(). */
+  send(op: number, payload: Buffer): boolean {
+    if (this.closeSent || this.closed) return true;
+    return this.write(op, payload);
   }
 
   close(code: number, reason: string): void {
     if (this.closeSent || this.closed) return;
     const r = Buffer.from(reason).subarray(0, 123);
     const body = Buffer.alloc(2 + r.length);
-    body.writeUInt16BE(wireCode(code));
+    body.writeUInt16BE(closeCode(code));
     r.copy(body, 2);
     this.write(8, body);
     this.closeSent = true;
@@ -467,7 +554,7 @@ class OriginSocket {
     this.socket.destroy();
   }
 
-  private write(op: number, payload: Buffer): void {
+  private write(op: number, payload: Buffer): boolean {
     const len = payload.length;
     const head = Buffer.alloc(len < 126 ? 2 : len < 65536 ? 4 : 10);
     head[0] = 0x80 | op;
@@ -482,35 +569,43 @@ class OriginSocket {
     const mask = randomBytes(4);
     const body = Buffer.allocUnsafe(len);
     for (let i = 0; i < len; i++) body[i] = payload[i]! ^ mask[i & 3]!;
-    this.socket.write(Buffer.concat([head, mask, body]));
+    return this.socket.write(Buffer.concat([head, mask, body]));
+  }
+
+  private feed(chunk: Buffer): void {
+    if (this.closed) return;
+    this.chunks.push(chunk);
+    this.have += chunk.length;
+    this.parse();
   }
 
   private parse(): void {
-    while (!this.closed && this.buf.length >= 2) {
-      const b0 = this.buf[0]!;
-      const b1 = this.buf[1]!;
+    while (!this.closed && this.have >= this.need) {
+      const buf = this.chunks.length === 1 ? this.chunks[0]! : Buffer.concat(this.chunks);
+      this.chunks = [buf];
+      const b0 = buf[0]!;
+      const b1 = buf[1]!;
       let len = b1 & 0x7f;
-      let off = 2;
-      if (len === 126) {
-        if (this.buf.length < 4) return;
-        len = this.buf.readUInt16BE(2);
-        off = 4;
-      } else if (len === 127) {
-        if (this.buf.length < 10) return;
-        const big = this.buf.readBigUInt64BE(2);
-        if (big > BigInt(MAX_MESSAGE)) return this.tooBig();
-        len = Number(big);
-        off = 10;
-      }
+      const off = len === 126 ? 4 : len === 127 ? 10 : 2;
+      this.need = off;
+      if (buf.length < off) return;
+      if (len === 126) len = buf.readUInt16BE(2);
+      else if (len === 127) len = Number(buf.readBigUInt64BE(2));
+      const joined = (b0 & 0x0f) === 0 ? this.size : 0;
+      if (joined + len > MAX_MESSAGE) return this.tooBig();
       const masked = (b1 & 0x80) !== 0;
       const at = off + (masked ? 4 : 0);
-      if (this.buf.length < at + len) return;
-      let payload = this.buf.subarray(at, at + len);
+      this.need = at + len;
+      if (buf.length < this.need) return;
+      let payload = buf.subarray(at, at + len);
       if (masked) {
-        const mask = this.buf.subarray(off, off + 4);
+        const mask = buf.subarray(off, off + 4);
         payload = Buffer.from(payload.map((x, i) => x ^ mask[i & 3]!));
       }
-      this.buf = this.buf.subarray(at + len);
+      const rest = buf.subarray(at + len);
+      this.chunks = rest.length ? [rest] : [];
+      this.have = rest.length;
+      this.need = 2;
       this.frame((b0 & 0x80) !== 0, b0 & 0x0f, payload);
     }
   }
@@ -523,7 +618,7 @@ class OriginSocket {
       this.socket.end();
       return this.gone(code, reason);
     }
-    if (op === 9) return this.send(10, payload);
+    if (op === 9) return void this.send(10, payload);
     if (op === 10) return;
     if (op !== 0) {
       this.op = op;
@@ -531,8 +626,7 @@ class OriginSocket {
       this.size = 0;
     }
     this.size += payload.length;
-    if (this.size > MAX_MESSAGE) return this.tooBig();
-    this.parts.push(Buffer.from(payload));
+    if (payload.length) this.parts.push(Buffer.from(payload));
     if (!fin) return;
     const message = this.parts.length === 1 ? this.parts[0]! : Buffer.concat(this.parts);
     this.parts = [];
@@ -541,7 +635,10 @@ class OriginSocket {
   }
 
   private tooBig(): void {
+    this.chunks = [];
+    this.parts = [];
     this.close(1009, "message too big");
+    this.socket.end(() => this.socket.destroy());
     this.gone(1009, "message too big");
   }
 

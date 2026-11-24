@@ -45,13 +45,16 @@ function connect(): chrome.runtime.Port {
 		}
 		if (reply.event) deliver(reply.conversation, reply.event);
 		if (reply.closed)
-			deliver(reply.conversation, { type: "session_closed", reason: "the connection to Local Studio closed" });
+			deliver(reply.conversation, {
+				type: "session_closed",
+				reason: "the connection to the Local Studio app closed",
+			});
 	});
 	next.onDisconnect.addListener(() => {
 		if (port === next) port = undefined;
 		for (const w of waiters.values()) {
 			clearTimeout(w.timer);
-			w.reject(new EukheRequestError("no_host", "Lost the connection to Tychicus's background worker."));
+			w.reject(new EukheRequestError("no_host", "Lost the connection to Local Studio's background worker."));
 		}
 		waiters.clear();
 		for (const conversation of listeners.keys())
@@ -74,7 +77,7 @@ export function eukheRequest<T = Record<string, unknown>>(
 		if (timeoutMs)
 			w.timer = setTimeout(() => {
 				waiters.delete(id);
-				reject(new EukheRequestError("timeout", "Local Studio did not answer in time."));
+				reject(new EukheRequestError("timeout", "The Local Studio app did not answer in time."));
 			}, timeoutMs);
 		waiters.set(id, w);
 		connect().postMessage({ id, op, conversation, ...(command ? { command } : {}) } satisfies EukheRequest);

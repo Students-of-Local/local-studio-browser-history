@@ -7,6 +7,7 @@
 import {
 	addNotice,
 	BrowserSession,
+	GROUP_PREFIX,
 	isAgentSession,
 	listSessions,
 	sanitizeLabel,
@@ -77,7 +78,9 @@ async function resolve(query: string, panel = false) {
 		throw new BridgeError(ERR.BAD_PARAMS, `Which session? Give its name (${hostCommand()} sessions lists them).`);
 	const all = (await listSessions()).filter((s) => panel || isAgentSession(s.id));
 	const exact = all.filter((s) =>
-		[nameOf(s), s.id, s.label, `Tychicus · ${s.label}`].some((v) => v.toLowerCase() === q),
+		[nameOf(s), s.id, s.label, `${GROUP_PREFIX} · ${s.label}`, `Tychicus · ${s.label}`].some(
+			(v) => v.toLowerCase() === q,
+		),
 	);
 	const hits = exact.length ? exact : all.filter((s) => nameOf(s).toLowerCase().startsWith(q));
 	if (hits.length === 1) return hits[0];
