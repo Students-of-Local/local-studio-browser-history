@@ -631,7 +631,7 @@ test("open a page, snapshot, type, click and read back through MCP", async () =>
 
 	const status = JSON.parse(await tool("status"));
 	assert.equal(status.connected, true);
-	assert.equal(status.tabGroup, "Tychicus · e2e");
+	assert.equal(status.tabGroup, "Local Studio · e2e");
 	// Nothing stored is Auto (D67); this client names no model, so it asks before new sites.
 	assert.equal(status.mode, "auto");
 	assert.ok(status.tabs.some((t) => t.current && t.url.startsWith(pageUrl)), JSON.stringify(status.tabs));
@@ -1016,7 +1016,7 @@ test("three agents in one project at once: a group each, titled with agent and p
 		const tabs = (await groupsOf()).filter((t) => /\?agent=\d/.test(t.url));
 		const titles = new Set(tabs.map((t) => t.group));
 		assert.equal(titles.size, 3, JSON.stringify(tabs));
-		for (const title of titles) assert.match(title, /^Tychicus · claude · demo-shop( \d)?$/);
+		for (const title of titles) assert.match(title, /^Local Studio · claude · demo-shop( \d)?$/);
 		assert.equal(new Set(tabs.map((t) => t.color)).size, 3, "two concurrent sessions share a color");
 		// The CLI sees all three, connected.
 		const listed = JSON.parse(tk("sessions", "--json")).filter((s) => s.project === "demo-shop");
@@ -1072,7 +1072,7 @@ test("tabs_release, a capped group, and ending and renaming a session from the C
 		assert.match(over.content[0].text, /^tab_limit: Your tab group already has 15 tabs.*tabs_close/);
 		const name = JSON.parse(tk("sessions", "--json")).find((s) => s.project === "release").name;
 		assert.match(tk("sessions", "rename", name, "release-demo"), /is now release-demo/);
-		assert.match(await on(agent, "tabs_context"), /^Session release-demo \| group "Tychicus · claude · release-demo"/);
+		assert.match(await on(agent, "tabs_context"), /^Session release-demo \| group "Local Studio · claude · release-demo"/);
 		assert.match(tk("sessions", "end", "release-demo", "--close"), /Ended release-demo: 15 tabs closed/);
 		assert.match(await on(agent, "tabs_context"), /News: The user ended your session from the terminal and closed its tabs/);
 	} finally {

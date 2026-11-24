@@ -60,7 +60,7 @@ test("manual asks a frontier client, and yolo opens for an unknown one", async (
 	assert.equal(opensAnySite("yolo", "small"), true);
 });
 
-test("auto never opens Tychicus's own pages, even for a frontier model", async () => {
+test("auto never opens the extension's own pages, even for a frontier model", async () => {
 	fresh();
 	const own = `chrome-extension://${chrome.runtime.id}/sidepanel.html`;
 	assert.equal(await isUrlAllowed(own, "frontier"), false);
