@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### Added
+- The side panel shows what an agent is waiting on (a site to open, files to upload) as a card above the chat, with the
+  same buttons as Settings > Agents, which draws the same card. A remote session's questions come up in those two places only. Two agents
+  asking at once both get a card, a card takes no click for half a second after it comes up or another card goes, and a question left by an earlier worker, which nothing could answer, is cleared. Test:
+  `test/agent-asks.test.mjs`.
 - A remote session (through `tychicus serve`: a web connector, a token, a hub) is never in Yolo: under Yolo it gets
   Auto's rule, and it can't answer its own question, allow a site or change the mode. Every bridge step in the
   Runs log records the mode it started under. A session from an older CLI counts as remote when `serve` named it. Decision D67. Tests: `test/permission-guard.test.mjs`, `test/dialog-preset.test.mjs`,
@@ -40,12 +44,17 @@
   and 0 of the 27 safe ones are flagged. Decision D67. Issue #33. Tests: `test/risk-rules.test.mjs` (one per rule).
 
 ### Changed
+- In Auto, an agent on a frontier model now asks before it opens a sensitive site (mail, a bank or payments, a password
+  manager, a cloud console, a government or health site, a site's account settings pages), unless your allowed sites
+  cover it. A sensitive site's frame on another page isn't read without that either. Where a clicked link or a redirect
+  leads isn't checked, in Manual either. Ordinary sites open as before, Manual and Yolo are unchanged, and a remote
+  session under Yolo gets this rule too. Decision D67. Test: `test/permission-guard.test.mjs`.
 - `tychicus setup --agents` renames an agent's old `polycarp` or `tabkyra` entry that runs Tychicus to `tychicus`. Before, the entry kept the old name until a separate `setup --agents --finish`, and `tychicus doctor` called it fine. Now the agent step moves entries that run Polycarp's browser server, then renames every entry that runs Tychicus under an old name, after a backup and a question (`--yes` skips it). The finish's rules stay: an old entry beside a `tychicus` entry is removed only when the two match in every field, and otherwise both are named for a manual fix. `tychicus doctor` warns about an old name with one fix, `tychicus setup --agents`. `--agents --finish` still runs the rename alone. Rules that named the old server, such as a Claude Code permission rule for `mcp__polycarp`, need the new name; setup says so after a rename. Decision D65. Tests: `cli/test/agent-migration.test.mjs`.
 - Messages about missing computer use name Tychicus's own helper, `tychicus-hands`, and how to get it on that OS. `computer_status`, `tychicus doctor`, `link --scope computer.*` and a hub's refusal said computer use needed Polycarp's Mac app, which no longer has it (baney75/polycarp #568). `handsHowTo` in `cli/src/computer.ts` writes the line. `test/product-name.test.mjs` now also fails when a `KEPT` rule or `POLYCARP_ALLOW` file excuses no line.
 - Tychicus opens in its dark look until you pick Light or Match system in Settings > Appearance. The side panel, its first frame and the in-use veil on agents' pages all follow it. Before, nothing saved meant Match system, so a Mac in light mode got a white panel; that choice is now stored by name, and anyone who never picked one gets dark. Tests: `test/appearance.test.mjs`.
 - Site access is now a permission mode: Manual, Auto (the default) or Yolo, in Settings > Agents. Manual is the
   old "Ask before opening a new site", Yolo the old "Always allow", and Auto keeps "Match the model" (frontier models
-  open any site, small or unknown models ask). A stored setting moves to its new name on update; an install
+  open ordinary sites, small or unknown models ask). A stored setting moves to its new name on update; an install
   that never chose one is Auto, with a one-time notice in the side panel and a Switch to Manual button. The mode is
   one store (`permission_mode`), for computer use and VMs to read too; `permission.setMode` and `status` take and
   report the new names (`mode`), and still take and report the 1.4.0 ones for an older CLI. Decision D67. Issue #33.

@@ -2243,8 +2243,8 @@ The rules read only what `read_page` shows and what a page can't hide from the e
 autocomplete, a link's href, a control's form and dialog). They are a net for an agent's mistakes, not a sandbox:
 a page can name its Send button something else. Manual is the mode for a person who wants every new site asked.
 
-The ask is the one Manual uses for a site: MCP elicitation in the agent's harness, and "Waiting for your answer" in
-Settings > Agents. For an action it offers allow once, allow on this site (risky actions there stop asking; a
+The ask is the one Manual uses for a site: MCP elicitation in the agent's harness, a card above the side panel's chat,
+and the same card under "Waiting for your answer" in Settings > Agents. For an action it offers allow once, allow on this site (risky actions there stop asking; a
 separate list from the sites an agent may open) and deny. The answer has 60 seconds, inside the bridge's 90-second
 limit for a call; no answer is a no, and the tool result says what was not done and how the person can allow it.
 `TYCHICUS_AUTO_ALLOW` answers site questions only, never an action question, as it never answered an upload.
