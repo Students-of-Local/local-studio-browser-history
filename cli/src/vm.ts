@@ -9,6 +9,8 @@
  *   guests/<name>/disk.raw      an APFS clone of the base the guest runs on
  *   guests/<name>/ready.raw     the disk at the first ready state, with ready.vzvmsave its saved memory
  *   guests/<name>/session.vzvmsave   what `down` saved; `up` resumes it
+ *
+ * Only `reset` discards a guest's disk.raw. `up` without a saved session boots disk.raw as it stands.
  */
 
 import { createHash } from "node:crypto";
@@ -41,7 +43,7 @@ import { releaseBase, repoRoot } from "./paths.ts";
 import { COMMAND_NAME } from "./self.ts";
 
 /** Must match `version` in vm/mac/Sources/tychicus-vm/main.swift; a different helper is rebuilt. */
-export const HELPER_VERSION = "0.1.0";
+export const HELPER_VERSION = "0.1.1";
 
 /**
  * Debian 13 generic for arm64, pinned by release and SHA-512 from Debian's SHA512SUMS. Not genericcloud: its kernel
@@ -60,13 +62,14 @@ export const MIN_FREE_DISK = 5 * GiB;
 /** Free RAM the host keeps beyond the guest's own. */
 export const RAM_HEADROOM = GiB;
 
-export const VM_USAGE = `Usage: ${COMMAND_NAME} vm list [--json] | up <name> [--cold] [--force] [--json] | down <name> [--json] | reset <name> [--json] | shot <name> [--out FILE] | exec <name> -- <command>`;
+export const VM_USAGE = `Usage: ${COMMAND_NAME} vm list [--json] | up <name> [--cold | --from-ready] [--force] [--json] | down <name> [--json] | reset <name> [--json] | shot <name> [--out FILE] | exec <name> -- <command>`;
 
 export type VmSub = "list" | "up" | "down" | "reset" | "shot" | "exec";
 export interface VmArgs {
 	sub: VmSub;
 	name?: string;
 	cold: boolean;
+	fromReady: boolean;
 	force: boolean;
 	json: boolean;
 	out?: string;
@@ -75,7 +78,7 @@ export interface VmArgs {
 
 const SUBS: Record<VmSub, string[]> = {
 	list: ["--json"],
-	up: ["--cold", "--force", "--json"],
+	up: ["--cold", "--from-ready", "--force", "--json"],
 	down: ["--json"],
 	reset: ["--json"],
 	shot: ["--out"],
@@ -86,7 +89,7 @@ const SUBS: Record<VmSub, string[]> = {
 export function parseVmArgs(args: string[]): VmArgs | string {
 	const [sub, ...rest] = args;
 	if (!sub || !(sub in SUBS)) return sub ? `Unknown vm command "${sub}".` : "vm needs a command.";
-	const out: VmArgs = { sub: sub as VmSub, cold: false, force: false, json: false };
+	const out: VmArgs = { sub: sub as VmSub, cold: false, fromReady: false, force: false, json: false };
 	const dash = rest.indexOf("--");
 	const own = dash >= 0 ? rest.slice(0, dash) : rest;
 	const tail = dash >= 0 ? rest.slice(dash + 1) : [];
@@ -105,9 +108,11 @@ export function parseVmArgs(args: string[]): VmArgs | string {
 			out.out = value;
 		} else if (arg.includes("=")) return `${flag} takes no value.`;
 		else if (flag === "--cold") out.cold = true;
+		else if (flag === "--from-ready") out.fromReady = true;
 		else if (flag === "--force") out.force = true;
 		else if (flag === "--json") out.json = true;
 	}
+	if (out.cold && out.fromReady) return "--cold and --from-ready exclude each other.";
 	if (out.sub === "list") {
 		if (positional.length) return `vm list takes no name.`;
 		return out;
@@ -162,6 +167,12 @@ export function gateProblems(host: HostSnapshot, memoryBytes: number, force: boo
 	if (!force && host.onAC === false) problems.push("this Mac is on battery; plug it in, or pass --force");
 	if (!force && host.load1 > host.cpus) problems.push(`load is ${host.load1.toFixed(1)} on ${host.cpus} cores; wait for it to drop, or pass --force`);
 	return problems;
+}
+
+/** How the helper starts: without a disk.raw (a stopped guest was reset) the ready point is the only start there is. */
+export function startFlags(args: Pick<VmArgs, "cold">, hasDisk: boolean): string[] {
+	if (!hasDisk) return ["--from-ready"];
+	return args.cold ? ["--cold"] : [];
 }
 
 export function vmRoot(): string {
@@ -415,6 +426,20 @@ async function running(dir: string): Promise<Status | undefined> {
 	}
 }
 
+/**
+ * Whether no helper runs the guest: no socket, or one nobody listens on. A helper too slow to answer is not gone,
+ * and its guest's disk must stay.
+ */
+async function helperGone(dir: string): Promise<boolean> {
+	if (!existsSync(join(dir, "control.sock"))) return true;
+	try {
+		await request(dir, { op: "status" }, 2000);
+		return false;
+	} catch (err) {
+		return ["ENOENT", "ECONNREFUSED"].includes((err as NodeJS.ErrnoException).code ?? "");
+	}
+}
+
 const seconds = (ms: number | undefined) => (ms === undefined ? "?" : `${(ms / 1000).toFixed(2)} s`);
 const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
 
@@ -468,6 +493,15 @@ export async function runVm(args: VmArgs, out: { log: (line: string) => void; er
 			report(current, `${name} is already ${current.state}.`);
 			return 0;
 		}
+		const disk = join(dir, "disk.raw");
+		if (args.fromReady && existsSync(disk)) {
+			out.err(`${name} has a disk of its own, and --from-ready never overwrites one. To discard what is on it, run \`${COMMAND_NAME} vm reset ${name}\` first.`);
+			return 1;
+		}
+		if (args.fromReady && !existsSync(join(dir, "ready.raw"))) {
+			out.err(`${name} has no ready point yet: run \`${COMMAND_NAME} vm up ${name}\` once.`);
+			return 1;
+		}
 		const problems = gateProblems(hostSnapshot(root), GUEST.memoryMiB * 1024 * 1024, args.force);
 		if (problems.length) {
 			for (const problem of problems) out.err(`Not starting ${name}: ${problem}.`);
@@ -477,7 +511,7 @@ export async function runVm(args: VmArgs, out: { log: (line: string) => void; er
 		await ensureGuest(name, out.err);
 		const t0 = performance.now();
 		const logFd = openSync(join(dir, "helper.log"), "w", 0o600);
-		const child = spawn(helper, ["serve", dir, ...(args.cold ? ["--cold"] : [])], { detached: true, stdio: ["ignore", logFd, logFd] });
+		const child = spawn(helper, ["serve", dir, ...startFlags(args, existsSync(disk))], { detached: true, stdio: ["ignore", logFd, logFd] });
 		closeSync(logFd);
 		let exited: number | null | undefined;
 		child.on("exit", (code) => {
@@ -507,7 +541,10 @@ export async function runVm(args: VmArgs, out: { log: (line: string) => void; er
 			out.err(`${name} has no ready point yet: run \`${COMMAND_NAME} vm up ${name}\` once.`);
 			return 1;
 		}
+		if (!(await helperGone(dir))) throw new Error(`${name}'s helper did not answer; try again when it does`);
+		// The session goes first: without its disk it must never be resumed.
 		rmSync(join(dir, "session.vzvmsave"), { force: true });
+		rmSync(join(dir, "disk.raw"), { force: true });
 		report({ ok: true, state: "down" }, `${name} is down; its next \`up\` starts from the ready point.`);
 		return 0;
 	}
