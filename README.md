@@ -74,7 +74,11 @@ checks the archive's SHA-256, checks its build attestation with `gh attestation 
 [GitHub CLI](https://cli.github.com) is installed and signed in (and says so when it isn't; `gh auth
 login` turns the check on), then runs the
 release's own `tychicus install --release`, which checks again and registers the helper. It needs
-no sudo and refuses to run as root or administrator unless you pass `--allow-root`.
+no sudo and refuses to run as root or administrator unless you pass `--allow-root`. On macOS and
+Linux it links `~/.local/bin/tychicus` to the installed release, so `tychicus` works in a new
+terminal; it says so when `~/.local/bin` isn't on your PATH or another `tychicus` comes first, and
+asks before replacing a `tychicus` there that isn't Tychicus's (without a terminal it leaves it and
+prints the `ln -sf` command).
 `TYCHICUS_VERSION=1.2.3` installs that release instead of the latest, and options after
 `sh -s --` go to the installer: `curl -fsSL <address above> | sh -s -- --local-studio`. Releases
 are built for macOS on Apple silicon, Linux x64 and Windows x64.
@@ -111,8 +115,8 @@ and shows the helper connected once the command has run.
    unpacked** and pick the folder the installer printed. Its ID is fixed by the manifest key, so
    the host registration already allows it.
 
-Then point your agent at it, for example
-`claude mcp add --scope user tychicus -- ~/.local/share/tychicus/release/tychicus mcp`.
+Then connect your agents: `tychicus setup --agents` (or point one at it yourself, for example
+`claude mcp add --scope user tychicus -- ~/.local/share/tychicus/release/tychicus mcp`).
 CI's `clean-install` job runs the one command and these steps from an empty home folder on every
 pull request, and fails if the steps grow past three, if the command takes more than 60 seconds
 to the first page read, or if a changed file is accepted.
@@ -179,8 +183,10 @@ end-to-end tests.
 
 ## Platforms
 
-macOS and Linux run the extension, the CLI and the MCP server. Native app control on Linux is
-not built yet; see [docs/LINUX.md](docs/LINUX.md) for what works there and what is missing.
+macOS and Linux run the extension, the CLI and the MCP server. Native app control on Linux comes
+from `tychicus-hands` ([hands/linux/README.md](hands/linux/README.md)), a static helper you build and put in
+`~/.local/bin`; it works through AT-SPI in the background and never sends physical input. The
+release archive does not carry it yet. [docs/LINUX.md](docs/LINUX.md) covers the rest of Linux.
 
 ## More
 

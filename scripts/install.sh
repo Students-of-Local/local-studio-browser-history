@@ -180,5 +180,11 @@ program="$dir/${archive%.tar.gz}/tychicus"
 root="${XDG_DATA_HOME:-$HOME/.local/share}/tychicus/release"
 say ""
 say "Tychicus $version is installed in $root."
+# The release's install links ~/.local/bin/tychicus to it. When this shell finds that link and it names the release, the
+# short name works; a link it left alone (someone else's tychicus) doesn't count.
+run="$root/tychicus"
+if [ "$(command -v tychicus 2>/dev/null || true)" = "$HOME/.local/bin/tychicus" ] && [ "$(readlink "$HOME/.local/bin/tychicus" 2>/dev/null || true)" = "$root/tychicus" ]; then
+	run=tychicus
+fi
 say "Next: if you added Tychicus from the Chrome Web Store, its side panel now shows the helper connected. Otherwise load"
-say "the extension from the folder printed above. Then connect your coding agents: $root/tychicus setup"
+say "the extension from the folder printed above. Then connect your coding agents: $run setup"

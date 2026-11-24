@@ -5,7 +5,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -84,6 +84,27 @@ test("a clean release verifies, unpacks into the install folder and runs the unp
 	assert.ok(r.out.includes(extension), r.out);
 	assert.ok(lstatSync(extension).isDirectory() && !lstatSync(extension).isSymbolicLink());
 	assert.equal(JSON.parse(readFileSync(join(extension, "manifest.json"), "utf8")).version, "9.9.9");
+});
+
+test("install --release puts tychicus on PATH: ~/.local/bin/tychicus names the release, an old checkout's link included", { skip: process.platform === "win32" }, () => {
+	const home = freshHome();
+	// The owner's Mac: the link ran an old dev checkout's CLI, so `tychicus` wasn't the release just installed.
+	const checkout = join(home, "Projects", "tychicus", "cli");
+	mkdirSync(join(checkout, "dist"), { recursive: true });
+	writeFileSync(join(checkout, "package.json"), JSON.stringify({ name: "tychicus" }));
+	writeFileSync(join(checkout, "dist", "index.js"), "#!/usr/bin/env node\n");
+	const bin = join(home, ".local", "bin");
+	mkdirSync(bin, { recursive: true });
+	symlinkSync(join(checkout, "dist", "index.js"), join(bin, "tychicus"));
+	const r = run(home, ["install", "--release", makeRelease().dir], { PATH: `${bin}:${process.env.PATH}` });
+	assert.equal(r.status, 0, r.out);
+	assert.equal(readlinkSync(join(bin, "tychicus")), join(releaseRoot(home), "tychicus"), r.out);
+	assert.match(r.out, /Linked .*\.local\/bin\/tychicus -> .*release\/tychicus \(it ran .*Projects\/tychicus\/cli\/dist\/index\.js\)/);
+	// Without ~/.local/bin on PATH, the install says so.
+	const bare = freshHome();
+	const out = run(bare, ["install", "--release", makeRelease().dir], { PATH: "/usr/bin:/bin" }).out;
+	assert.equal(readlinkSync(join(bare, ".local", "bin", "tychicus")), join(releaseRoot(bare), "tychicus"), out);
+	assert.match(out, /\.local\/bin isn't on your PATH, so typing tychicus won't find it/);
 });
 
 test("a second run of the same release unpacks nothing again", { skip: process.platform === "win32" }, () => {
