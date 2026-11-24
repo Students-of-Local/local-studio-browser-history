@@ -1,6 +1,6 @@
 import Foundation
 
-/// Which agent actions are running, or just finished, so BaneySpaces' follow-the-focus logic can tell an
+/// Which agent actions are running, or just finished, so the host's follow-the-focus logic can tell an
 /// activation an action caused from the user picking an app. An action holds its mark from before it
 /// is queued until a short tail after it ends; the mark is for one window of one process, so the user's
 /// own windows of the same app are never ignored. An app the agent launched itself is marked for the

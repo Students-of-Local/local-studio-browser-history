@@ -2,7 +2,7 @@ import Foundation
 
 /// The stdio MCP server behind `tychicus-hands mcp`: JSON-RPC 2.0, one message per line. It owns no
 /// logic of its own; every tool call becomes a `HandsRequest` and goes to `perform`, which asks the
-/// BaneySpaces app, so Claude Code, Codex and a shell all get the same checks and the same answers.
+/// same router, so Claude Code, Codex and a shell all get the same checks and the same answers.
 public struct HandsMCP {
     public static let serverName = "tychicus-hands"
     public static let defaultProtocol = "2025-06-18"

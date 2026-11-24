@@ -43,12 +43,12 @@ public struct SessionClipboard: Equatable, Sendable {
 
     /// No session, or the "default" every caller without a terminal shares: no clipboard, so two agents never share one
     /// (198 r1 first-F3). An entry is keyed on the session id the caller gives, and that id is trusted as given: MCP gives
-    /// each connection its own, but a CLI caller that sets BANEYSPACES_SESSION to another agent's id (or its tty name)
+    /// each connection its own, but a CLI caller that sets TYCHICUS_HANDS_SESSION to another agent's id (or its tty name)
     /// reads what that agent copied. Nothing here keeps apart two agents of the same user that choose ids (198 r2 second-S3).
     static func sessionRefusal(_ session: String) -> HandsError? {
         guard session.isEmpty || session == "default" else { return nil }
         return HandsError(.badArguments, "the agent clipboard needs a session of its own, and this call has none",
-                          suggestion: "Use the MCP server, which gives each connection its own session, or set BANEYSPACES_SESSION to a name only this agent uses.",
+                          suggestion: "Use the MCP server, which gives each connection its own session, or set TYCHICUS_HANDS_SESSION to a name only this agent uses.",
                           retry: .never, nextCall: .null)
     }
 

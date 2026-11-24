@@ -178,7 +178,7 @@ public enum BackgroundRoute: String, Codable, Sendable {
 }
 
 /// `full`: one of Donovan's windows under Full Access. Like a lent window it is his own process, so it is not
-/// asked to be one BaneySpaces started; every later check (in front, hidden, sheet, siblings) still holds.
+/// asked to be one the hands started; every later check (in front, hidden, sheet, siblings) still holds.
 public enum ScopeKind: String, Sendable { case agentWorkspace, lent, full, outside }
 public enum WindowCondition: String, Sendable { case normal, minimized, appHidden }
 
@@ -209,7 +209,7 @@ public struct BackgroundFacts: Equatable, Sendable {
     public var pid: Int32
     public var window: UInt32
     public var scope: ScopeKind
-    /// The pid is one BaneySpaces started (same pid and start time), not just any process with a window here.
+    /// The pid is one the hands started (same pid and start time), not just any process with a window here.
     public var pidIsAgentOwned: Bool
     /// What the window server says owns the window now.
     public var windowOwnerPid: Int32?
@@ -404,7 +404,7 @@ public enum BackgroundPlanner {
     /// that matters: whose process, then whether Donovan is there, then the window, then the route's own needs.
     public static func plan(_ f: BackgroundFacts) -> Result<BackgroundPermit, HandsError> {
         if f.scope == .outside { return .failure(BackgroundRefusal.outside(f.app, window: f.window)) }
-        // On the agent workspace the process must be one BaneySpaces started. A lent app is Donovan's own process;
+        // On the agent workspace the process must be one the hands started. A lent app is Donovan's own process;
         // the lend names its windows.
         if f.scope == .agentWorkspace, !f.pidIsAgentOwned { return .failure(BackgroundRefusal.notOurProcess(f.app, pid: f.pid)) }
         if f.windowOwnerPid != f.pid { return .failure(BackgroundRefusal.windowChanged(window: f.window, owner: f.windowOwnerPid, pid: f.pid)) }
@@ -617,7 +617,7 @@ public enum PostGuard {
         /// The pointer moved and a hardware event explains it: Donovan's own hand.
         case userMoved
         case moved(from: CGPoint, to: CGPoint)
-        /// An event posted by BaneySpaces' own process reached the session: it was not sent to one process only.
+        /// An event posted by the helper's own process reached the session: it was not sent to one process only.
         case leaked(Int)
         public var error: HandsError? {
             switch self {
