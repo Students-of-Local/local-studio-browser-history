@@ -1,6 +1,6 @@
-# Tychicus on Linux
+# Local Studio's browser and computer use on Linux
 
-Tychicus has to cover Linux as well as macOS. This page says what works on Linux today and what is
+These tools have to cover Linux as well as macOS. This page says what works on Linux today and what is
 missing. It is measured, not assumed: the probe below was run on a Linux host (Omarchy, Hyprland,
 x86_64) on 2026-11-16.
 
