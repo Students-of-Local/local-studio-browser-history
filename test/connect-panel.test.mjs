@@ -429,11 +429,11 @@ test("first-F1: the bridge never opens Tychicus's own pages, in any permission m
 	assert.equal(perms.isOwnExtensionUrl("filesystem:https://example.com/temporary/x.html"), false);
 	assert.equal(perms.isOwnExtensionUrl("https://example.com/"), false);
 	assert.equal(perms.isOwnExtensionUrl("not a url"), false);
-	await perms.setPermissionMode("allow_all");
+	await perms.setPermissionMode("yolo");
 	assert.equal(await perms.isUrlAllowed(`blob:chrome-extension://${chrome.runtime.id}/6f1c0c3e-2f4b-4a53-9d40-0e1f9f3a7b11`), false);
 	assert.equal(await perms.isUrlAllowed("https://example.com/"), true);
-	assert.equal(await perms.isUrlAllowed(own), false, "allow_all opened the extension's own page");
-	await perms.setPermissionMode("ask");
+	assert.equal(await perms.isUrlAllowed(own), false, "yolo opened the extension's own page");
+	await perms.setPermissionMode("manual");
 	await perms.allowHost(chrome.runtime.id);
 	assert.equal(await perms.isUrlAllowed(own), false, "an allowed host named like the extension id opened its page");
 	// native.ts checks before it asks the user, and says why.

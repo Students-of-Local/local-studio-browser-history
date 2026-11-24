@@ -33,6 +33,21 @@ import { saveSwitch } from "./switch-save.js";
  * Code, Codex through `tabkyra mcp`), which hosts they may open, and pending
  * permission requests.
  */
+/** The three modes as Settings > Agents offers them (D65), in this order. */
+export const MODE_CHOICES: ReadonlyArray<{ mode: PermissionMode; title: string; help: string }> = [
+	{ mode: "manual", title: "Manual", help: "agents ask before opening any site you haven't allowed" },
+	{
+		mode: "auto",
+		title: "Auto (default)",
+		help: "agents on frontier models open ordinary sites; small or unknown models ask first",
+	},
+	{
+		mode: "yolo",
+		title: "Yolo",
+		help: "nothing asks: agents open any site except Tychicus's own pages, its approval page and its local services",
+	},
+];
+
 const fileSize = (n: number) =>
 	n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} bytes`;
 
@@ -41,7 +56,7 @@ export class BridgeTab extends SettingsTab {
 	@state() private enabled = true;
 	@state() private veil = true;
 	@state() private pointer = true;
-	@state() private mode: PermissionMode = "by_model";
+	@state() private mode: PermissionMode = "auto";
 	@state() private hosts: string[] = [];
 	@state() private pending: PendingRequest[] = [];
 	@state() private sessions: Array<{ id: string; label: string; tabs: number }> = [];
@@ -230,29 +245,17 @@ export class BridgeTab extends SettingsTab {
 					!this.veil,
 				)}
 
-				<div class="space-y-2">
-					<div class="text-sm font-medium text-foreground">Site access</div>
-					<label class="flex items-start gap-2 text-sm text-foreground cursor-pointer">
-						<input type="radio" name="bridge-mode" value="by_model" .checked=${this.mode === "by_model"} @change=${async () => {
-							await setPermissionMode("by_model");
-							await this.load();
-						}} />
-						Match the model: agents on frontier models open any site; small or unknown models ask first
-					</label>
-					<label class="flex items-start gap-2 text-sm text-foreground cursor-pointer">
-						<input type="radio" name="bridge-mode" value="ask" .checked=${this.mode === "ask"} @change=${async () => {
-							await setPermissionMode("ask");
-							await this.load();
-						}} />
-						Ask before opening a new site (the agent prompts you, or you answer here)
-					</label>
-					<label class="flex items-start gap-2 text-sm text-foreground cursor-pointer">
-						<input type="radio" name="bridge-mode" value="allow_all" .checked=${this.mode === "allow_all"} @change=${async () => {
-							await setPermissionMode("allow_all");
-							await this.load();
-						}} />
-						Always allow: agents can open any site except Tychicus's own pages, its approval page and its local services
-					</label>
+				<div class="space-y-2" role="radiogroup" aria-label="Permission mode">
+					<div class="text-sm font-medium text-foreground">Permission mode</div>
+					${MODE_CHOICES.map(
+						(m) => html`<label class="flex items-start gap-2 text-sm text-foreground cursor-pointer">
+							<input type="radio" name="bridge-mode" value=${m.mode} .checked=${this.mode === m.mode} @change=${async () => {
+								await setPermissionMode(m.mode);
+								await this.load();
+							}} />
+							<span><span class="font-medium">${m.title}</span>: ${m.help}</span>
+						</label>`,
+					)}
 				</div>
 
 				${
