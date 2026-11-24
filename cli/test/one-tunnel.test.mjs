@@ -653,7 +653,7 @@ test("with Local Studio's record already there, a route flag for another route r
 });
 
 // An older Local Studio gated tunnel setup and sent a signup address. Tychicus never passes it on: every Local Studio tunnel runs
-// on the person's own Cloudflare account now (baney75/local-studio#122), so the advice is to update Local Studio.
+// on the person's own Cloudflare account now (baney75/local-studio#123), so the advice is to update Local Studio.
 const WAITLIST = "https://local-studio-waitlist.magnus-b37.workers.dev";
 
 /** The advice an older Local Studio gets, said to a person or an agent: update it, its tunnel is on their Cloudflare, no signup. */
