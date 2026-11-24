@@ -581,14 +581,7 @@ export async function remoteSetup(options: SetupOptions): Promise<number> {
 		// One tunnel per machine (D59): where Local Studio runs the tunnel, Tychicus joins it. --public-url is the person's own front door.
 		if (options.publicUrl) return await runSetup(options);
 		const via = await setupThroughLocalStudio(options);
-		if (typeof via === "number") return via;
-		// Its own route instead; an app also gets Local Studio's answer, and when an older Local Studio gates tunnel setup, an agent
-		// gets `waitlist`: update Local Studio and rerun setup, and the Funnel command web assistants can use with no domain.
-		const answer = via.localStudio;
-		const waitlist = via.waitlist;
-		const emit = options.report ?? printReport;
-		const json = options.json === true || options.report !== undefined;
-		return await runSetup(answer && json ? { ...options, report: (report) => emit({ ...report, localStudio: answer, ...(waitlist ? { waitlist } : {}) }) } : options);
+		return via ?? (await runSetup(options));
 	} finally {
 		closeInput();
 	}
