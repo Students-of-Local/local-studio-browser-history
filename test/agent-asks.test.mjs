@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { Window } from "happy-dom";
 import { addPendingRequest, clearPendingRequests, getPendingRequests, PENDING_KEY, recordDecision, removePendingRequest } from "../src/bridge/permissions.ts";
 import { installFakeChrome } from "./fake-chrome.mjs";
 
@@ -24,30 +25,72 @@ const upload = { files: [{ name: "cv.pdf", bytes: 2048 }] };
 const panel = () => import(`../src/components/AgentAsks.ts?ctx=${Math.random()}`);
 /** storage.onChanged comes a moment after the write. */
 const changed = () => new Promise((r) => setTimeout(r, 20));
-/** A drawn card's click handlers, in order. */
-const clicks = (section, i = 0) =>
-	section.values[0][i].values
-		.flat(Number.POSITIVE_INFINITY)
-		.flatMap((v) => (v?.values ? v.values : [v]))
-		.filter((v) => typeof v === "function");
+/** A panel document to draw in, and the clock the cards read: `later()` is past the moment a moved card ignores. */
+const page = new Window({ url: "https://panel.example/" });
+globalThis.document = page.document;
+const { render } = await import("lit");
+let now = Date.now();
+Date.now = () => now;
+const later = () => {
+	now += 500;
+};
+const draw = (what) => {
+	if (!page.document.body.firstElementChild) page.document.body.append(page.document.createElement("main"));
+	render(what, page.document.body.firstElementChild);
+	return [...page.document.querySelectorAll('[data-testid="agent-ask"]')];
+};
+const buttons = (card) => [...card.querySelectorAll("button")];
+const text = (el) => el.textContent.replace(/\s+/g, " ").trim();
 
 test("each kind of question offers its own answers: an upload is never allowed for a whole site", async () => {
 	installFakeChrome();
-	const { askChoices, askLine } = await panel();
-	assert.deepEqual(
-		askChoices(ask("s")).map((c) => [c.decision, c.label]),
-		[["allow_host", "Allow site"], ["allow_once", "Allow once"], ["deny", "Deny"]],
+	const { askCards } = await panel();
+	const cards = draw(
+		askCards()([ask("s"), ask("u", { upload }), ask("v", { upload: { files: [...upload.files, ...upload.files] } })], () => undefined),
 	);
-	assert.deepEqual(
-		askChoices(ask("u", { upload })).map((c) => [c.decision, c.label]),
-		[["allow_once", "Upload this once"], ["deny", "Deny"]],
-	);
-	assert.equal(askLine(ask("s")), "claude wants to open news.example.com");
-	assert.equal(askLine(ask("u", { upload })), "claude wants to upload a file from this computer to news.example.com");
-	assert.equal(
-		askLine(ask("u", { upload: { files: [...upload.files, ...upload.files] } })),
+	const labels = cards.map((c) => buttons(c).map(text));
+	assert.deepEqual(labels, [["Allow site", "Allow once", "Deny"], ["Upload this once", "Deny"], ["Upload this once", "Deny"]]);
+	const lines = cards.map((c) => text(c.firstElementChild));
+	assert.deepEqual(lines, [
+		"claude wants to open news.example.com",
+		"claude wants to upload a file from this computer to news.example.com",
 		"claude wants to upload 2 files from this computer to news.example.com",
-	);
+	]);
+	assert.deepEqual(cards.map((c) => c.dataset.kind), ["site", "upload", "upload"]);
+	const answers = [];
+	const asked = [ask("s"), ask("u", { upload })];
+	const list = askCards();
+	const [site, file] = draw(list(asked, (p, d) => answers.push([p.requestId, d])));
+	later();
+	for (const b of [...buttons(site), ...buttons(file)]) b.click();
+	assert.deepEqual(answers, [["s", "allow_host"], ["s", "allow_once"], ["s", "deny"], ["u", "allow_once"], ["u", "deny"]]);
+});
+
+test("a card that takes another's place has neither its focus nor the click meant for it", async () => {
+	installFakeChrome();
+	const { askCards } = await panel();
+	const answers = [];
+	const list = askCards();
+	const show = (...asked) => draw(list(asked, (p, d) => answers.push([p.requestId, d])));
+	const one = ask("one");
+	const two = ask("two", { upload });
+	const [first, second] = show(one, two);
+	buttons(first)[0].click();
+	assert.deepEqual(answers, [], "a card that just came up takes no click");
+	later();
+	show(one, two);
+	buttons(first)[0].focus();
+	assert.ok(page.document.activeElement === buttons(first)[0]);
+	// The first question is answered elsewhere, and the second moves up under the pointer.
+	const [left] = show(two);
+	assert.ok(left === second, "the card is the question's own");
+	assert.ok(!left.contains(page.document.activeElement), "focus went with the card that held it");
+	buttons(left)[0].click();
+	assert.deepEqual(answers, [], "the second half of a double-click");
+	later();
+	show(two, ask("three"));
+	buttons(left)[0].click();
+	assert.deepEqual(answers, [["two", "allow_once"]], "a card that stood still answers, whatever comes up below it");
 });
 
 test("the side panel draws a waiting question; one click answers it and takes the card down", async () => {
@@ -57,10 +100,11 @@ test("the side panel draws a waiting question; one click answers it and takes th
 	assert.equal(typeof agentAsks(), "symbol", "nothing before it loads");
 	let redraws = 0;
 	await watchAgentAsks(() => redraws++);
-	const buttons = clicks(agentAsks());
-	assert.equal(buttons.length, 3);
+	const shown = () => buttons(draw(agentAsks())[0]);
+	assert.equal(shown().length, 3);
 	const before = redraws;
-	await buttons[2]();
+	later();
+	shown()[2].click();
 	await changed();
 	assert.equal((await chrome.storage.session.get("bridge_decision_c1:q1"))["bridge_decision_c1:q1"], "deny");
 	assert.equal(typeof agentAsks(), "symbol", "answered: the card is gone");
@@ -68,7 +112,7 @@ test("the side panel draws a waiting question; one click answers it and takes th
 	// A question asked while the panel is open comes up, and one answered in the agent's own prompt goes.
 	await addPendingRequest(ask("c1:q2"));
 	await changed();
-	assert.equal(clicks(agentAsks()).length, 3);
+	assert.equal(shown().length, 3);
 	await removePendingRequest("c1:q2");
 	await changed();
 	assert.equal(typeof agentAsks(), "symbol");
@@ -107,5 +151,5 @@ test("the side panel and Settings > Agents draw the same card", () => {
 	assert.match(side, /\$\{modeNotice\(\)\}\s*\$\{agentAsks\(\)\}/);
 	// Every way the panel opens watches them: a new chat and a saved one.
 	assert.equal(side.match(/watchAgentAsks\(renderApp\)/g).length, side.match(/watchBridgeQuestions\(renderApp\)/g).length);
-	assert.match(read("src/dialogs/BridgeTab.ts"), /this\.pending\.map\(\(p\) => askCard\(p, \(d\) => this\.decide\(p, d\)\)\)/);
+	assert.match(read("src/dialogs/BridgeTab.ts"), /this\.askCards\(this\.pending, \(p, d\) => this\.decide\(p, d\)\)/);
 });

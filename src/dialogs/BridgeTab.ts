@@ -23,7 +23,7 @@ import type { UserScriptsStatus } from "../bridge/protocol.js";
 import { listSessions } from "../browser/session.js";
 import { probeUserScripts, userScriptsHiddenHelp } from "../browser/userscripts-status.js";
 import { isPointerEnabled, isVeilEnabled, setPointerEnabled, setVeilEnabled } from "../browser/veil-shared.js";
-import { askCard } from "../components/AgentAsks.js";
+import { askCards } from "../components/AgentAsks.js";
 import { agentSetupPromptButton } from "../components/AgentSetupPrompt.js";
 import { Toast } from "../components/Toast.js";
 import { runningFromStore } from "../update/store-install.js";
@@ -57,6 +57,7 @@ export class BridgeTab extends SettingsTab {
 	@state() private mode: PermissionMode = "auto";
 	@state() private hosts: string[] = [];
 	@state() private pending: PendingRequest[] = [];
+	private askCards = askCards();
 	@state() private sessions: Array<{ id: string; label: string; tabs: number }> = [];
 	@state() private newHost = "";
 	@state() private newHostError = "";
@@ -261,7 +262,7 @@ export class BridgeTab extends SettingsTab {
 						? html`
 							<div class="space-y-2">
 								<div class="text-sm font-medium text-foreground">Waiting for your answer</div>
-								${this.pending.map((p) => askCard(p, (d) => this.decide(p, d)))}
+								${this.askCards(this.pending, (p, d) => this.decide(p, d))}
 							</div>
 						`
 						: ""

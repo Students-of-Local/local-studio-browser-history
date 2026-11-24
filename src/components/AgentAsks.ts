@@ -6,6 +6,7 @@
  */
 
 import { html, nothing, type TemplateResult } from "lit";
+import { repeat } from "lit/directives/repeat.js";
 import {
 	getPendingRequests,
 	PENDING_KEY,
@@ -18,7 +19,7 @@ const fileSize = (n: number) =>
 	n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} bytes`;
 
 /** The buttons a question offers, in order: the first is the one to reach for. */
-export function askChoices(p: PendingRequest): Array<{ decision: PermissionDecision; label: string }> {
+function askChoices(p: PendingRequest): Array<{ decision: PermissionDecision; label: string }> {
 	if (p.upload)
 		return [
 			{ decision: "allow_once", label: "Upload this once" },
@@ -31,15 +32,14 @@ export function askChoices(p: PendingRequest): Array<{ decision: PermissionDecis
 	];
 }
 
-/** What the question asks, in one line. */
-export function askLine(p: PendingRequest): string {
-	if (p.upload)
-		return `${p.clientName} wants to upload ${p.upload.files.length === 1 ? "a file from this computer" : `${p.upload.files.length} files from this computer`} to ${p.host}`;
-	return `${p.clientName} wants to open ${p.host}`;
+/** What the agent wants to do with the host, in a few words. */
+function askWhat(p: PendingRequest): string {
+	if (!p.upload) return "wants to open";
+	return `wants to upload ${p.upload.files.length === 1 ? "a file from this computer" : `${p.upload.files.length} files from this computer`} to`;
 }
 
 /** One question with its buttons. `decide` answers it. */
-export function askCard(p: PendingRequest, decide: (decision: PermissionDecision) => unknown): TemplateResult {
+function askCard(p: PendingRequest, decide: (decision: PermissionDecision) => unknown): TemplateResult {
 	const [first, ...rest] = askChoices(p);
 	const button = (c: { decision: PermissionDecision; label: string }, strong: boolean) =>
 		html`<button
@@ -54,18 +54,53 @@ export function askCard(p: PendingRequest, decide: (decision: PermissionDecision
 		data-testid="agent-ask"
 		data-kind=${p.upload ? "upload" : "site"}
 	>
-		<div class="text-sm text-foreground">${askLine(p)}</div>
+		<div class="text-sm text-foreground [overflow-wrap:anywhere]">
+			<span class="font-medium">${p.clientName}</span> ${askWhat(p)} <span class="font-mono">${p.host}</span>
+		</div>
 		${
 			p.upload
-				? html`<div class="text-xs text-muted-foreground break-all">${p.upload.files.map((f) => `${f.name} (${fileSize(f.bytes)})`).join(", ")}</div>
+				? html`<div class="text-xs text-muted-foreground break-all max-h-24 overflow-y-auto">${p.upload.files.map((f) => `${f.name} (${fileSize(f.bytes)})`).join(", ")}</div>
 					<div class="text-xs text-muted-foreground">Only the name is shown here. The agent may be acting on what a page told it, so don't take its word for where the file is: say yes only if you asked for this file.</div>`
-				: html`<div class="text-xs text-muted-foreground break-all">${p.url}</div>`
+				: html`<div class="text-xs text-muted-foreground break-all max-h-24 overflow-y-auto">${p.url}</div>`
 		}
 		<div class="flex gap-2 flex-wrap">${button(first, true)}${rest.map((c) => button(c, false))}</div>
 	</div>`;
 }
 
+/** How long a card must have stood still before its buttons answer: a click meant for the card it replaced doesn't. */
+const STILL_MS = 500;
+
+/**
+ * Draws one surface's cards. Each card is its question's own (keyed), so one that goes takes its focus with it and the
+ * next never inherits it. A card that just came up or moved up ignores clicks for a moment.
+ */
+export function askCards(): (
+	pending: PendingRequest[],
+	decide: (p: PendingRequest, decision: PermissionDecision) => unknown,
+) => unknown {
+	let places = new Map<string, { i: number; since: number }>();
+	return (pending, decide) => {
+		const now = Date.now();
+		places = new Map(
+			pending.map(({ requestId }, i) => {
+				const was = places.get(requestId);
+				return [requestId, was?.i === i ? was : { i, since: now }];
+			}),
+		);
+		return repeat(
+			pending,
+			(p) => p.requestId,
+			(p) =>
+				askCard(p, (d) => {
+					const since = places.get(p.requestId)?.since;
+					if (since !== undefined && Date.now() - since >= STILL_MS) return decide(p, d);
+				}),
+		);
+	};
+}
+
 let pending: PendingRequest[] = [];
+const sideCards = askCards();
 const listeners = new Set<() => void>();
 let loading: Promise<void> | undefined;
 
@@ -93,8 +128,9 @@ export async function watchAgentAsks(onChange: () => void): Promise<() => void> 
 
 /** The side panel's cards, above the chat; nothing when no agent is waiting. */
 export function agentAsks(): TemplateResult | typeof nothing {
+	const cards = sideCards(pending, (p, d) => recordDecision(p.requestId, d));
 	if (pending.length === 0) return nothing;
-	return html`<section class="mx-3 my-2 space-y-2 shrink-0" aria-label="Agents waiting for your answer" role="alert">
-		${pending.map((p) => askCard(p, (d) => recordDecision(p.requestId, d)))}
+	return html`<section class="mx-3 my-2 space-y-2 shrink-0 max-h-[60vh] overflow-y-auto" aria-label="Agents waiting for your answer" role="alert">
+		${cards}
 	</section>`;
 }
