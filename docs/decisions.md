@@ -2254,9 +2254,10 @@ action question, as it never answered an upload.
 The bridge checks an input before it goes out (`HandlerContext.guard`: click, type, press, fill, and each step of
 `actions`), looking at the target beside the change report's look so the check adds no round trip of its own. In
 Yolo only text entry gets the look (for the hard limits). If the look fails, Manual and Auto fail closed: a commit (a
-click, Enter, `type` with submit) is `unchecked` and asks, as a risky one does; text entry that commits nothing goes on. A look that failed because the ref is gone, covered or never given out
-asks nothing, since the input refuses that target itself. A navigation to a program (`.exe`, `.dmg`, `.pkg` and the like) asks in Manual
-and Auto. The side panel's own agent is the person's and is not checked.
+click, Enter, `type` with submit) is `unchecked` and asks, as a risky one does; text entry that commits nothing goes on.
+A look that failed because the ref is gone, covered or never given out refuses the call itself and asks nothing: the
+page can change before the input looks again. A navigation to a program (`.exe`, `.dmg`, `.pkg` and the like) asks in
+Manual and Auto. The side panel's own agent is the person's and is not checked.
 
 A remote session says so in its hello (`remote`, set by the CLI for `--connector` and scoped sessions). The bridge
 runs it in Auto when the mode is Yolo, and refuses `permission.respond`, `permission.allow` and `permission.setMode`
