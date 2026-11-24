@@ -19,7 +19,7 @@ export const unix = process.platform === "linux" || process.platform === "darwin
  * a signed-in file, and whoami answers `afterLogin` from then on when one is given; `loginCode` is what it exits with.
  * `subdomainAfter` is how many deploys fail for want of a workers.dev subdomain before one works. The browser opener logs its URL.
  */
-export function machine(root, name, { whoami = { loggedIn: true, accounts: [{ id: ACCOUNT, name: "Mine" }] }, afterLogin, loginCode = 0, deploy = "ok", subdomainAfter = 0 } = {}) {
+export function machine(root, name, { whoami = { loggedIn: true, accounts: [{ id: ACCOUNT, name: "Mine" }] }, afterLogin, loginCode = 0, deploy = "ok", subdomainAfter = 0, keyed = false } = {}) {
 	const dir = join(root, name);
 	const bin = join(dir, "bin");
 	const home = join(dir, "home");
@@ -54,6 +54,9 @@ if (args[0] === "login") {
 	const tries = readFileSync(${JSON.stringify(log)}, "utf8").split("\\n").filter((l) => l.startsWith("npx ") && l.includes(" deploy ")).length;
 	if (${JSON.stringify(deploy)} === "subdomain" || tries <= ${subdomainAfter}) { console.error("You need to register a workers.dev subdomain before publishing to workers.dev"); process.exit(1); }
 	writeFileSync(process.env.WRANGLER_OUTPUT_FILE_PATH, JSON.stringify({ type: "deploy", targets: ["https://" + args[2] + ".test-sub.workers.dev"] }) + "\\n");
+} else if (args[1] === "list") {
+	if (!${keyed} && !existsSync(${JSON.stringify(join(dir, "secret"))})) { console.error("This Worker does not exist on your account. [code: 10007]"); process.exit(1); }
+	console.log(JSON.stringify([{ name: "RELAY_KEY", type: "secret_text" }]));
 } else if (args[0] === "secret") {
 	writeFileSync(${JSON.stringify(join(dir, "secret"))}, readFileSync(0, "utf8"));
 }
