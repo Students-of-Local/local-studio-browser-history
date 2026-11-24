@@ -1,0 +1,48 @@
+// What each permission mode lets an agent do (docs/decisions.md, D67), beyond the store and its migration
+// (permission-modes.test.mjs): a remote session is never in Yolo, and every step in the Runs log carries its mode. The
+// bridge itself is driven in dialog-preset.test.mjs.
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import test from "node:test";
+import { fileURLToPath } from "node:url";
+import { isUrlAllowed, LEGACY_MODE_KEY, MODE_KEY, modeFor, peekPermissionMode, setPermissionMode } from "../src/bridge/permissions.ts";
+import { addStep } from "../src/runs/log.ts";
+import { installFakeChrome } from "./fake-chrome.mjs";
+
+const repo = join(dirname(fileURLToPath(import.meta.url)), "..");
+const read = (p) => readFileSync(join(repo, p), "utf8");
+
+function fresh() {
+	installFakeChrome();
+	chrome.runtime.id = "abcdefghijklmnopabcdefghijklmnop";
+}
+
+test("a remote session is never in Yolo: it gets Auto's rule", async () => {
+	fresh();
+	assert.deepEqual(
+		["manual", "auto", "yolo"].map((m) => [modeFor(m, false), modeFor(m, true)]),
+		[["manual", "manual"], ["auto", "auto"], ["yolo", "auto"]],
+	);
+	await setPermissionMode("yolo");
+	assert.equal(await isUrlAllowed("https://news.example.com/", "unknown", false), true);
+	assert.equal(await isUrlAllowed("https://news.example.com/", "unknown", true), false, "remote, unknown model: asks");
+	assert.equal(await isUrlAllowed("https://news.example.com/", "frontier", true), true, "remote, frontier: Auto's rule");
+});
+
+test("peeking at the mode migrates nothing: the Runs log reads it on every step", async () => {
+	fresh();
+	await chrome.storage.local.set({ [LEGACY_MODE_KEY]: "allow_all" });
+	assert.equal(await peekPermissionMode(), "yolo");
+	assert.equal((await chrome.storage.local.get(MODE_KEY))[MODE_KEY], undefined, "nothing written");
+	await setPermissionMode("manual");
+	assert.equal(await peekPermissionMode(), "manual");
+});
+
+test("every step in the Runs log carries the mode it ran under", () => {
+	const log = addStep({ runs: [] }, "s1", { who: "claude", tool: "click", params: { ref: "e3" }, ok: true, ms: 12, mode: "yolo" }, 1);
+	assert.equal(log.runs[0].steps[0].mode, "yolo");
+	const native = read("src/bridge/native.ts");
+	assert.match(native, /if \(isRunStep\(req\.method\)\) runMode = modeFor\(await peekPermissionMode\(\), state\.remote\);/);
+	assert.match(native, /\.\.\.\(runMode \? \{ mode: runMode \} : \{\}\),/);
+});

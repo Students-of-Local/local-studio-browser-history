@@ -411,6 +411,8 @@ export function createMcpServer(options: McpServerOptions = {}): { server: McpSe
 		named: !options.session && choice.named === true,
 		project: "project" in choice ? choice.project : undefined,
 		...(options.model ? { tier: options.model.tier, ...(options.model.model ? { model: options.model.model } : {}) } : {}),
+		// A scoped session counts as remote here too (as for skills and files): Yolo never widens it (D67).
+		...(options.remote || allowedTools ? { remote: true } : {}),
 		...tracer?.client,
 		onEvent: (event, data) => {
 			if (event === "permission_request") void handlePermission(data);

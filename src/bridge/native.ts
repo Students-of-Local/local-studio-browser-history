@@ -64,8 +64,11 @@ import {
 	isGuardedUrl,
 	isOwnExtensionUrl,
 	isUrlAllowed,
+	modeFor,
 	opensAnySite,
 	type PermissionDecision,
+	type PermissionMode,
+	peekPermissionMode,
 	removePendingRequest,
 	setPermissionMode,
 } from "./permissions.js";
@@ -115,6 +118,8 @@ interface ClientState {
 	name: string;
 	/** How capable the client's model is, from its hello; "unknown" when it said nothing (D60). */
 	tier: ModelTier;
+	/** A remote connector session (its hello): never in Yolo, and it may not change permissions (D67). */
+	remote?: boolean;
 	sessionKey: string;
 	/** Group label: the agent, then the project or session name ("claude · tabkyra"). */
 	label?: string;
@@ -225,6 +230,7 @@ async function onClientConnected(msg: HostClientConnected): Promise<void> {
 		clientId: msg.clientId,
 		name,
 		tier: asModelTier(msg.client.tier),
+		...(msg.client.remote === true ? { remote: true } : {}),
 		sessionKey: key,
 		label: subject && subject !== name ? `${name} · ${subject}` : name,
 		meta: { agent: name, ...(project ? { project } : {}), ...(sessionName ? { name: sessionName } : {}) },
@@ -302,7 +308,7 @@ async function onClientDisconnected(clientId: string): Promise<void> {
 
 async function askPermission(state: ClientState, url: string): Promise<boolean> {
 	if (isOwnExtensionUrl(url)) return false;
-	if (await isUrlAllowed(url, state.tier)) return true;
+	if (await isUrlAllowed(url, state.tier, state.remote)) return true;
 	const host = hostOf(url);
 	if (!host) return false;
 	const requestId = `${state.clientId}:${crypto.randomUUID()}`;
@@ -509,6 +515,8 @@ async function runRequest(state: ClientState, req: HostForwardedRequest, answer?
 	let veilBegun: Promise<number | undefined> | undefined;
 	/** The session this call ran in, for its step in the Runs view (src/runs/). */
 	let runSession: BrowserSession | undefined;
+	/** The mode the call ran under, for its step: every step carries it, so a run can be audited (D67). */
+	let runMode: PermissionMode | undefined;
 	const tRun = performance.now();
 	const step = (ok: boolean, result?: unknown, error?: BridgeError) => {
 		if (!runSession || !isRunStep(req.method)) return;
@@ -521,6 +529,7 @@ async function runRequest(state: ClientState, req: HostForwardedRequest, answer?
 			result,
 			error: error?.message,
 			ms: performance.now() - tRun,
+			...(runMode ? { mode: runMode } : {}),
 		});
 		if (ok && req.method === "session.end") runEnded(runSession.id);
 	};
@@ -543,6 +552,7 @@ async function runRequest(state: ClientState, req: HostForwardedRequest, answer?
 		const session = await withTimeout(getSession(state), 15000, "session open");
 		const tSession = Math.round(performance.now() - t0);
 		runSession = session;
+		if (isRunStep(req.method)) runMode = modeFor(await peekPermissionMode(), state.remote);
 		// The session can take seconds to open; the host may have gone meanwhile.
 		if (gone()) return;
 		mark("ext.session");
@@ -559,15 +569,16 @@ async function runRequest(state: ClientState, req: HostForwardedRequest, answer?
 			isGuarded: (url: string) => isGuardedUrl(url, req.guardedHosts),
 			guardedHosts: req.guardedHosts ?? [],
 			tier: state.tier,
+			...(state.remote ? { remote: true } : {}),
 			// A frame is the page's own when it is on the page's host; any other host needs the person's allow (D46).
 			frameAllowed: async (url, topUrl) =>
 				(!!topUrl && hostOf(url) === hostOf(topUrl) && !isOwnExtensionUrl(url)) ||
-				(await isUrlAllowed(url, state.tier)),
+				(await isUrlAllowed(url, state.tier, state.remote)),
 			askUpload: (url, files, askId) => askUpload(state, url, files, askId),
 			checkUrl: async (url: string) => {
 				if (isGuardedUrl(url, req.guardedHosts)) throw guardedError(url);
 				if (!(await askPermission(state, url))) {
-					const asks = !opensAnySite(await getPermissionMode(), state.tier);
+					const asks = !opensAnySite(modeFor(await getPermissionMode(), state.remote), state.tier);
 					throw new BridgeError(
 						ERR.PERMISSION_DENIED,
 						isOwnExtensionUrl(url)
@@ -942,6 +953,19 @@ function onHostMessage(message: HostToExt): void {
 			return;
 		case "request": {
 			if (Array.isArray(message.trace)) message.trace.push(["ext.in", traceNow()]);
+			if (
+				clients.get(message.clientId)?.remote &&
+				["permission.respond", "permission.allow", "permission.setMode"].includes(message.method)
+			) {
+				// A remote connector session never answers its own asks or widens what it may do (D67).
+				send({
+					type: "response",
+					clientId: message.clientId,
+					id: message.id,
+					error: { code: ERR.PERMISSION_DENIED, message: "A remote session can't change Tychicus's permissions." },
+				});
+				return;
+			}
 			if (message.method === "permission.respond") {
 				// Answers must bypass the per-client queue: the request waiting for them is at its head.
 				const p = message.params ?? {};

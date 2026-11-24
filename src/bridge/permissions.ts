@@ -120,6 +120,12 @@ export async function getPermissionMode(): Promise<PermissionMode> {
 	});
 }
 
+/** The mode as getPermissionMode would give it, without migrating or writing anything (the runs log reads it). */
+export async function peekPermissionMode(): Promise<PermissionMode> {
+	const data = await chrome.storage.local.get([MODE_KEY, LEGACY_MODE_KEY]);
+	return asPermissionMode(data[MODE_KEY]) ?? migrateLegacyMode(data[LEGACY_MODE_KEY]).mode;
+}
+
 /** A new install: Auto, with no notice about a change it never saw. */
 export function startFreshInstall(): Promise<void> {
 	return oneModeWrite(async () => {
@@ -152,6 +158,14 @@ export function setPermissionMode(mode: PermissionMode): Promise<void> {
 export function opensAnySite(mode: PermissionMode, tier: ModelTier | undefined): boolean {
 	if (mode === "yolo") return true;
 	return mode === "auto" && tier === "frontier";
+}
+
+/**
+ * The mode a client works under: a remote connector session is never in Yolo (D67). Yolo widens what a local agent
+ * may do, never what a remote caller may reach, so a remote client in Yolo gets Auto's asks.
+ */
+export function modeFor(mode: PermissionMode, remote: boolean | undefined): PermissionMode {
+	return remote && mode === "yolo" ? "auto" : mode;
 }
 
 /** A hello's tier as the extension trusts it: anything but a known value, or none (older CLIs), is unknown. */
@@ -253,10 +267,13 @@ export function isOwnExtensionUrl(url: string): boolean {
 	}
 }
 
-/** `tier` is the calling client's (its hello); without one the client counts as unknown. */
-export async function isUrlAllowed(url: string, tier?: ModelTier): Promise<boolean> {
+/**
+ * `tier` is the calling client's (its hello); without one the client counts as unknown. `remote` is set for a remote
+ * connector session, which is never in Yolo.
+ */
+export async function isUrlAllowed(url: string, tier?: ModelTier, remote?: boolean): Promise<boolean> {
 	if (isOwnExtensionUrl(url)) return false;
-	if (opensAnySite(await getPermissionMode(), tier)) return true;
+	if (opensAnySite(modeFor(await getPermissionMode(), remote), tier)) return true;
 	const host = hostOf(url);
 	if (!host) return url === "about:blank";
 	return hostAllowed(host, await getAllowedHosts());

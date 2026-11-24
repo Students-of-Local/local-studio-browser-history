@@ -126,6 +126,8 @@ export interface HandlerContext {
 	guardedHosts?: readonly string[];
 	/** How capable the calling client's model is (its hello, D60); unset counts as unknown. */
 	tier?: ModelTier;
+	/** Set for a remote connector session: never in Yolo (D67). */
+	remote?: boolean;
 	/**
 	 * Whether a frame at `url` on a page at `topUrl` may be read and acted in: its host is the page's or one the
 	 * person allowed for agents. Unset (the side panel): every frame that isn't guarded.

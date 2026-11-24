@@ -161,21 +161,9 @@ const frame = (m) => {
 	return Buffer.concat([head, body]);
 };
 
-/** Start `mcp` as client `name` against a fake host and return the first frame it sends: its hello. */
-async function helloFrom(name, env = {}, { settings, launch } = {}) {
-	const dir = mkdtempSync(join(root, "sock-"));
+/** A fake host in `dir`: `hello` is the first frame a client sends it. */
+async function fakeHost(dir, extensionConnected = false) {
 	chmodSync(dir, 0o700);
-	const home = join(dir, "home");
-	mkdirSync(home);
-	if (settings) {
-		mkdirSync(join(home, ".claude"));
-		writeFileSync(join(home, ".claude", "settings.json"), JSON.stringify(settings));
-	}
-	const wrapper = join(dir, "agent.mjs");
-	writeFileSync(
-		wrapper,
-		`import { spawn } from "node:child_process";\nconst child = spawn(process.execPath, [${JSON.stringify(cli)}, "mcp"], { stdio: "inherit" });\nchild.on("exit", (code) => process.exit(code ?? 0));\nprocess.on("SIGTERM", () => child.kill());\n`,
-	);
 	const path = join(dir, `${process.pid}.sock`);
 	let gotHello;
 	const hello = new Promise((resolve) => {
@@ -187,11 +175,29 @@ async function helloFrom(name, env = {}, { settings, launch } = {}) {
 			buffered = Buffer.concat([buffered, chunk]);
 			if (buffered.length < 4 || buffered.length < 4 + buffered.readUInt32LE(0)) return;
 			gotHello(JSON.parse(buffered.subarray(4, 4 + buffered.readUInt32LE(0)).toString("utf8")));
-			socket.write(frame({ type: "welcome", clientId: "c1", hostVersion: "0", extensionConnected: false }));
+			socket.write(frame({ type: "welcome", clientId: "c1", hostVersion: "0", extensionConnected }));
 		});
 	});
 	await new Promise((r) => server.listen(path, r));
 	chmodSync(path, 0o600);
+	return { hello, close: () => server.close() };
+}
+
+/** Start `mcp` as client `name` against a fake host and return the first frame it sends: its hello. */
+async function helloFrom(name, env = {}, { settings, launch } = {}) {
+	const dir = mkdtempSync(join(root, "sock-"));
+	const home = join(dir, "home");
+	mkdirSync(home);
+	if (settings) {
+		mkdirSync(join(home, ".claude"));
+		writeFileSync(join(home, ".claude", "settings.json"), JSON.stringify(settings));
+	}
+	const wrapper = join(dir, "agent.mjs");
+	writeFileSync(
+		wrapper,
+		`import { spawn } from "node:child_process";\nconst child = spawn(process.execPath, [${JSON.stringify(cli)}, "mcp"], { stdio: "inherit" });\nchild.on("exit", (code) => process.exit(code ?? 0));\nprocess.on("SIGTERM", () => child.kill());\n`,
+	);
+	const { hello, close } = await fakeHost(dir);
 	const client = new Client({ name, version: "0.0.0" });
 	try {
 		await client.connect(
@@ -209,7 +215,7 @@ async function helloFrom(name, env = {}, { settings, launch } = {}) {
 		return await Promise.race([hello, timeout]).finally(() => clearTimeout(timer));
 	} finally {
 		await client.close().catch(() => {});
-		server.close();
+		close();
 	}
 }
 
@@ -236,4 +242,27 @@ test("the hello rates Claude Code by its --model launch flag and its settings.js
 	const settings = await helloFrom("claude-code", {}, { settings: { model: "haiku" } });
 	assert.equal(settings.client.tier, S, "model: haiku in ~/.claude/settings.json");
 	assert.equal((await helloFrom("claude-code", { ANTHROPIC_BASE_URL: "http://127.0.0.1:4000" }, { launch: ["--model", "opus"] })).client.tier, U);
+});
+
+test("the hello marks a remote or scoped session, so the extension never runs it in Yolo, and no other", async () => {
+	const { build } = await import("esbuild");
+	const out = join(root, "mcp-remote.mjs");
+	await build({ entryPoints: [join(dirname(cli), "..", "src", "mcp.ts")], bundle: true, platform: "node", format: "esm", outfile: out, loader: { ".md": "text", ".pub": "text" }, logLevel: "silent" });
+	const { createMcpServer } = await import(out);
+	const saved = process.env.TYCHICUS_SOCKET_DIR;
+	try {
+		for (const [options, remote] of [[{ remote: true }, true], [{ allowedTools: new Set(["read_page"]) }, true], [{}, undefined]]) {
+			const dir = mkdtempSync(join(root, "sock-"));
+			const host = await fakeHost(dir, true);
+			process.env.TYCHICUS_SOCKET_DIR = dir;
+			const { client } = createMcpServer({ session: "one", ...options });
+			await client.connect();
+			assert.equal((await host.hello).client.remote, remote, JSON.stringify(options));
+			client.close();
+			host.close();
+		}
+	} finally {
+		if (saved === undefined) delete process.env.TYCHICUS_SOCKET_DIR;
+		else process.env.TYCHICUS_SOCKET_DIR = saved;
+	}
 });
