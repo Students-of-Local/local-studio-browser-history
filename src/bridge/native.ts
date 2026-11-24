@@ -63,6 +63,7 @@ import {
 	isBridgeEnabled,
 	isGuardedUrl,
 	isOwnExtensionUrl,
+	isRemoteClient,
 	isUrlAllowed,
 	modeFor,
 	opensAnySite,
@@ -230,7 +231,7 @@ async function onClientConnected(msg: HostClientConnected): Promise<void> {
 		clientId: msg.clientId,
 		name,
 		tier: asModelTier(msg.client.tier),
-		...(msg.client.remote === true ? { remote: true } : {}),
+		...(isRemoteClient(msg.client) ? { remote: true } : {}),
 		sessionKey: key,
 		label: subject && subject !== name ? `${name} · ${subject}` : name,
 		meta: { agent: name, ...(project ? { project } : {}), ...(sessionName ? { name: sessionName } : {}) },
@@ -515,7 +516,7 @@ async function runRequest(state: ClientState, req: HostForwardedRequest, answer?
 	let veilBegun: Promise<number | undefined> | undefined;
 	/** The session this call ran in, for its step in the Runs view (src/runs/). */
 	let runSession: BrowserSession | undefined;
-	/** The mode the call ran under, for its step: every step carries it, so a run can be audited (D67). */
+	/** The mode the call started under, for its step, so a run can be audited (D67). */
 	let runMode: PermissionMode | undefined;
 	const tRun = performance.now();
 	const step = (ok: boolean, result?: unknown, error?: BridgeError) => {

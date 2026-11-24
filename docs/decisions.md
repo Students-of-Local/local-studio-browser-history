@@ -2251,7 +2251,9 @@ limit for a call; no answer is a no, and the tool result says what was not done 
 
 A remote session says so in its hello (`remote`, set by the CLI for a session through `tychicus serve` and for a scoped
 one). The bridge runs it in Auto when the mode is Yolo, and refuses `permission.respond`, `permission.allow` and
-`permission.setMode` from it, so it can't answer its own question or widen its own reach.
+`permission.setMode` from it, so it can't answer its own question or widen its own reach. A CLI from before `remote` can't say it, but `serve` has
+always named its sessions `remote-<caller>`, so the bridge goes by that name too. The MCP server puts no site question
+to a remote or scoped session's caller: it waits in the side panel.
 
 Migration: a stored `ask` is Manual, `allow_all` is Yolo. Nothing stored on an existing install is Auto with a
 one-time side panel notice naming the change and a one-click way back to Manual, since that person never chose
@@ -2259,7 +2261,7 @@ what Auto adds; 1.4.0's stored `by_model` gets the same. A fresh install (`onIns
 Auto with no notice.
 
 The upload question (D38) is still asked in every mode, Yolo included: it is about files leaving the computer, not
-about what an agent does in a page. Every step in the Runs log carries the mode it ran under.
+about what an agent does in a page. Every bridge step in the Runs log carries the mode it started under.
 
 **Why these defaults.** Auto keeps what 1.4.0 got right (frontier agents are not stopped at every new site) and adds
 the asks the competitors make, at the actions that act as the person. Recall is the floor because a missed risky

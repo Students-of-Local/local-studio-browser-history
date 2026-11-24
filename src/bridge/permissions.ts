@@ -123,7 +123,7 @@ export async function getPermissionMode(): Promise<PermissionMode> {
 /** The mode as getPermissionMode would give it, without migrating or writing anything (the runs log reads it). */
 export async function peekPermissionMode(): Promise<PermissionMode> {
 	const data = await chrome.storage.local.get([MODE_KEY, LEGACY_MODE_KEY]);
-	return asPermissionMode(data[MODE_KEY]) ?? migrateLegacyMode(data[LEGACY_MODE_KEY]).mode;
+	return storedMode(data) ?? migrateLegacyMode(data[LEGACY_MODE_KEY]).mode;
 }
 
 /** A new install: Auto, with no notice about a change it never saw. */
@@ -166,6 +166,14 @@ export function opensAnySite(mode: PermissionMode, tier: ModelTier | undefined):
  */
 export function modeFor(mode: PermissionMode, remote: boolean | undefined): PermissionMode {
 	return remote && mode === "yolo" ? "auto" : mode;
+}
+
+/**
+ * Whether a hello is a remote session's. A CLI from before `remote` says nothing, but `tychicus serve` has named every
+ * one of its sessions `remote-<caller>` since it shipped, so an older CLI's are told by that.
+ */
+export function isRemoteClient(client: { name?: string; remote?: boolean }): boolean {
+	return client.remote === true || /^remote-/.test(client.name ?? "");
 }
 
 /** A hello's tier as the extension trusts it: anything but a known value, or none (older CLIs), is unknown. */

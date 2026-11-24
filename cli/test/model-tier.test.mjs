@@ -256,10 +256,13 @@ test("the hello marks a remote or scoped session, so the extension never runs it
 			const host = await fakeHost(dir, true);
 			process.env.TYCHICUS_SOCKET_DIR = dir;
 			const { client } = createMcpServer({ session: "one", ...options });
-			await client.connect();
-			assert.equal((await host.hello).client.remote, remote, JSON.stringify(options));
-			client.close();
-			host.close();
+			try {
+				await client.connect();
+				assert.equal((await host.hello).client.remote, remote, JSON.stringify(options));
+			} finally {
+				client.close();
+				host.close();
+			}
 		}
 	} finally {
 		if (saved === undefined) delete process.env.TYCHICUS_SOCKET_DIR;

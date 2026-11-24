@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { isUrlAllowed, LEGACY_MODE_KEY, MODE_KEY, modeFor, peekPermissionMode, setPermissionMode } from "../src/bridge/permissions.ts";
+import { getPermissionMode, isRemoteClient, isUrlAllowed, LEGACY_MODE_KEY, MODE_KEY, modeFor, peekPermissionMode, setPermissionMode } from "../src/bridge/permissions.ts";
 import { addStep } from "../src/runs/log.ts";
 import { installFakeChrome } from "./fake-chrome.mjs";
 
@@ -30,11 +30,31 @@ test("a remote session is never in Yolo: it gets Auto's rule", async () => {
 	assert.equal(await isUrlAllowed("https://news.example.com/", "frontier", true), true, "remote, frontier: Auto's rule");
 });
 
+test("an older CLI says nothing about remote, but its remote sessions are told by the name serve gives them", () => {
+	for (const [client, remote] of [
+		[{ name: "claude", remote: true }, true],
+		[{ name: "remote-web" }, true],
+		[{ name: "claude" }, false],
+		[{ name: "claude", remote: "yes" }, false],
+		[{ name: "my-remote-agent" }, false],
+		[{}, false],
+	])
+		assert.equal(isRemoteClient(client), remote, JSON.stringify(client));
+	// The name this rests on.
+	assert.match(read("cli/src/remote.ts"), /name: `remote-\$\{label\}`,/);
+});
+
 test("peeking at the mode migrates nothing: the Runs log reads it on every step", async () => {
 	fresh();
 	await chrome.storage.local.set({ [LEGACY_MODE_KEY]: "allow_all" });
 	assert.equal(await peekPermissionMode(), "yolo");
 	assert.equal((await chrome.storage.local.get(MODE_KEY))[MODE_KEY], undefined, "nothing written");
+	// getPermissionMode migrates a legacy name kept under the current key like no mode at all.
+	await chrome.storage.local.remove(LEGACY_MODE_KEY);
+	await chrome.storage.local.set({ [MODE_KEY]: "allow_all" });
+	const peeked = await peekPermissionMode();
+	assert.equal(peeked, await getPermissionMode());
+	assert.equal(peeked, "auto");
 	await setPermissionMode("manual");
 	assert.equal(await peekPermissionMode(), "manual");
 });
