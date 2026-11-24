@@ -18,9 +18,9 @@ build)
     ;;
 
 deploy)
-    # The upstream target was Sitegeist's own server. Tychicus has no hosting yet:
+    # The upstream target was Sitegeist's own server. The site has no hosting yet:
     # build, then publish dist/ wherever the site should live.
-    echo "No deploy target is configured for Tychicus. Run '$0 build' and publish dist/." >&2
+    echo "No deploy target is configured for this site. Run '$0 build' and publish dist/." >&2
     exit 1
     ;;
 
