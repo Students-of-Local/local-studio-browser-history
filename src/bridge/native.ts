@@ -57,6 +57,7 @@ import {
 	allowHost,
 	asModelTier,
 	asPermissionMode,
+	clearPendingRequests,
 	DECISION_KEY_PREFIX,
 	getPermissionMode,
 	hostOf,
@@ -1427,6 +1428,7 @@ let alarmTicks = 0;
 
 /** Wire the bridge into the service worker. Safe to call on every worker start. */
 export function startBridge(): void {
+	clearPendingRequests().catch(() => undefined);
 	dropEmptyBridgeSessions().catch(() => undefined);
 	// Clients are re-announced when the host sees our hello; give that a moment before
 	// deciding which bridge sessions are abandoned.

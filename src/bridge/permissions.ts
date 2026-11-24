@@ -22,7 +22,7 @@ export const MODE_NOTICE_KEY = "permission_mode_notice";
 /** Set once the person has seen the Yolo warning. */
 export const YOLO_WARNED_KEY = "permission_yolo_warned";
 const HOSTS_KEY = "bridge_allowed_hosts";
-const PENDING_KEY = "bridge_pending_requests";
+export const PENDING_KEY = "bridge_pending_requests";
 
 export type PermissionMode = "manual" | "auto" | "yolo";
 export const PERMISSION_MODES: readonly PermissionMode[] = ["manual", "auto", "yolo"];
@@ -88,14 +88,19 @@ function storedMode(data: Record<string, unknown>): PermissionMode | undefined {
  * panel and pages, so a migration can't land between another context's read and its choice. A browser without them
  * gets one at a time in this context only.
  */
-const MODE_LOCK = "tychicus-permission-mode";
-let modeWrites: Promise<unknown> = Promise.resolve();
-async function oneModeWrite<T>(write: () => Promise<T>): Promise<T> {
-	const locks = globalThis.navigator?.locks;
-	if (locks) return locks.request(MODE_LOCK, { mode: "exclusive" }, write);
-	const run = modeWrites.then(write, write);
-	modeWrites = run.catch(() => undefined);
-	return run;
+const oneModeWrite = oneAtATime("tychicus-permission-mode");
+/** The same for the questions agents wait on: a worker's write never undoes the one a panel made meanwhile. */
+const onePendingWrite = oneAtATime("tychicus-pending-requests");
+
+function oneAtATime(lock: string): <T>(write: () => Promise<T>) => Promise<T> {
+	let writes: Promise<unknown> = Promise.resolve();
+	return async (write) => {
+		const locks = globalThis.navigator?.locks;
+		if (locks) return locks.request(lock, { mode: "exclusive" }, write);
+		const run = writes.then(write, write);
+		writes = run.catch(() => undefined);
+		return run;
+	};
 }
 
 /**
@@ -269,14 +274,23 @@ export async function getPendingRequests(): Promise<PendingRequest[]> {
 	return (data[PENDING_KEY] as PendingRequest[] | undefined) ?? [];
 }
 
-export async function addPendingRequest(request: PendingRequest): Promise<void> {
-	const pending = await getPendingRequests();
-	await chrome.storage.session.set({ [PENDING_KEY]: [...pending, request] });
+export function addPendingRequest(request: PendingRequest): Promise<void> {
+	return onePendingWrite(async () => {
+		const pending = await getPendingRequests();
+		await chrome.storage.session.set({ [PENDING_KEY]: [...pending, request] });
+	});
 }
 
-export async function removePendingRequest(requestId: string): Promise<void> {
-	const pending = await getPendingRequests();
-	await chrome.storage.session.set({ [PENDING_KEY]: pending.filter((p) => p.requestId !== requestId) });
+export function removePendingRequest(requestId: string): Promise<void> {
+	return onePendingWrite(async () => {
+		const pending = await getPendingRequests();
+		await chrome.storage.session.set({ [PENDING_KEY]: pending.filter((p) => p.requestId !== requestId) });
+	});
+}
+
+/** A new worker waits on no question: one an earlier worker left can't be answered, and its card would stay up. */
+export function clearPendingRequests(): Promise<void> {
+	return onePendingWrite(() => chrome.storage.session.remove(PENDING_KEY));
 }
 
 /**

@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### Added
+- The side panel shows what an agent is waiting on (a site to open, files to upload) as a card above the chat, with the
+  same buttons as Settings > Agents, which draws the same card. A remote session's questions come up in those two places only. Two agents
+  asking at once both get a card, and a question left by an earlier worker, which nothing could answer, is cleared. Test:
+  `test/agent-asks.test.mjs`.
 - Settings > Privacy has a switch that stops the model detail lookup on models.dev. The lookup (the public
   table at `https://models.dev/api.json`, when the copy is a day old, only while a key is saved for a provider that lists
   its models) had no off switch. Off, `loadMetadata` in `src/models/registry.ts` never fetches it. Test: `test/models-dev-switch.test.mjs`.
