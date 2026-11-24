@@ -532,17 +532,13 @@ const PAYMENT_FRAME_HOSTS = [
 	"checkout.shopifycs.com",
 ];
 
-/** Tools that put text into a field. */
-const ENTERS_TEXT = new Set(["fill", "type", "press"]);
-
 /**
  * What no mode lets an agent do: type a password or a payment detail. The person types those themselves (the agent
  * calls tabs_show and asks). Checked before the mode, in Yolo too.
  */
 export function hardLimit(f: ActionFacts): Verdict<HardLimit> | undefined {
-	if (!ENTERS_TEXT.has(f.tool)) return undefined;
 	// A press of Enter or Tab enters no text; a press of a character does.
-	if (f.tool === "press" && !/^(shift\+)?.$/i.test((f.key ?? "").trim())) return undefined;
+	if (!entersText(f.tool, f.key)) return undefined;
 	const t = f.target;
 	if (!t) return undefined;
 	const type = squash(t.inputType);
@@ -566,4 +562,9 @@ export function hardLimit(f: ActionFacts): Verdict<HardLimit> | undefined {
 export function isRiskyAction(f: ActionFacts): boolean {
 	if (hardLimit(f) || actionRisk(f)) return true;
 	return f.tool === "navigate" && sensitiveSite(f.url) !== undefined;
+}
+
+/** Whether a tool call enters text into the field it names or the one in focus: the hard limits look at it first. */
+export function entersText(tool: string, key?: string): boolean {
+	return tool === "fill" || tool === "type" || (tool === "press" && /^(shift\+)?.$/i.test((key ?? "").trim()));
 }

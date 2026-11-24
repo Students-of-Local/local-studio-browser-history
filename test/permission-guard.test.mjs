@@ -7,6 +7,7 @@ import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { getPermissionMode, isRemoteClient, isUrlAllowed, LEGACY_MODE_KEY, MODE_KEY, modeFor, peekPermissionMode, setPermissionMode } from "../src/bridge/permissions.ts";
+import { entersText } from "../src/bridge/risk-rules.ts";
 import { addStep } from "../src/runs/log.ts";
 import { installFakeChrome } from "./fake-chrome.mjs";
 
@@ -65,4 +66,22 @@ test("every step in the Runs log carries the mode it ran under", () => {
 	const native = read("src/bridge/native.ts");
 	assert.match(native, /if \(isRunStep\(req\.method\)\) runMode = modeFor\(await peekPermissionMode\(\), state\.remote\);/);
 	assert.match(native, /\.\.\.\(runMode \? \{ mode: runMode \} : \{\}\),/);
+});
+
+test("the tools that enter text all pass the mode's check, beside the look before them; the side panel's own agent has none", () => {
+	for (const [tool, key, want] of [
+		["fill", undefined, true],
+		["type", undefined, true],
+		["press", "a", true],
+		["press", "Shift+A", true],
+		["press", "Enter", false],
+		["press", "Tab", false],
+		["press", "Meta+a", false],
+		["click", undefined, false],
+	])
+		assert.equal(entersText(tool, key), want, `${tool} ${key ?? ""}`);
+	const tools = read("src/bridge/tools.ts");
+	for (const [tool, n] of [["type", 2], ["press", 1], ["fill", 1]])
+		assert.equal(tools.split(`beforeInput(ctx, "${tool}", tabId, params`).length - 1, n, tool);
+	assert.doesNotMatch(read("src/bridge/panel-calls.ts"), /guard:/, "the side panel's agent is the person's own");
 });

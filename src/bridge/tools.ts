@@ -53,6 +53,7 @@ import type { FrameRule } from "../browser/frames.js";
 import { injectScript } from "../browser/inject.js";
 import {
 	type Aim,
+	describeTarget,
 	fillElement,
 	goBack,
 	goForward,
@@ -103,6 +104,7 @@ import {
 import { getAllowedHosts, getPermissionMode } from "./permissions.js";
 import { ERR, type ModelTier } from "./protocol.js";
 import { cleanRef, lookUpName, nodeLine, REF_RE } from "./ref-lookup.js";
+import { type ActionFacts, entersText, type TargetFacts } from "./risk-rules.js";
 
 export { BridgeError, detachedError };
 
@@ -178,6 +180,11 @@ export interface HandlerContext {
 	batch?: boolean;
 	/** Set only when the client traces its calls (TYCHICUS_TRACE): note that this phase of the call ended now. */
 	mark?(label: string): void;
+	/**
+	 * The permission mode's check before text goes into a field (D67, risk-rules.ts): it refuses a hard limit (a password
+	 * or payment field) by throwing, or lets the input go. Unset (the side panel's own agent): no check.
+	 */
+	guard?(facts: ActionFacts): void;
 }
 
 /**
@@ -314,6 +321,49 @@ async function changesBefore(ctx: HandlerContext, tabId: number, params?: Params
 		ctx.guardedHosts ?? [],
 		skipFor(ctx, tabId),
 	);
+}
+
+/**
+ * What the rules read about an input before it goes out: the tab's URL and the element it will reach. A look that fails
+ * refuses the call: the rules can't tell that the field isn't a password.
+ */
+async function actionFacts(ctx: HandlerContext, tool: string, tabId: number, params: Params): Promise<ActionFacts> {
+	const tab = await chrome.tabs.get(tabId).catch(() => undefined);
+	const look = () => describeTarget(tabId, target(params), skipFor(ctx, tabId));
+	const found = await look().catch(async (err: unknown) => {
+		// The debugger came off before anything was sent: attach again and look once more, as the input would.
+		if (!isDetachError(err) || isNavigatedError(err)) throw err;
+		await reattach(tabId);
+		return look();
+	});
+	// Only a look at the focus says so: with a ref or selector the look runs in the field's own frame.
+	if (found.otherSite === true)
+		throw new BridgeError(
+			ERR.BAD_PARAMS,
+			"Nothing was typed: the focus is in a frame from another site, where Tychicus can't see which field has it. Call read_page, then type or fill with the field's ref.",
+		);
+	return {
+		tool,
+		url: tab?.pendingUrl || tab?.url,
+		target: found as TargetFacts,
+		...(str(params, "key") ? { key: str(params, "key") } : {}),
+		...(params.submit === true ? { submit: true } : {}),
+	};
+}
+
+/** changesBefore and the mode's check (HandlerContext.guard) together: the check's page look costs no time of its own. */
+async function beforeInput(
+	ctx: HandlerContext,
+	tool: string,
+	tabId: number,
+	params: Params,
+	withRef: boolean,
+): Promise<Before | undefined> {
+	const guard = async () => {
+		if (ctx.guard && entersText(tool, str(params, "key"))) ctx.guard(await actionFacts(ctx, tool, tabId, params));
+	};
+	const [before] = await Promise.all([changesBefore(ctx, tabId, withRef ? params : undefined), guard()]);
+	return before;
 }
 
 function stopIfAborted(ctx: HandlerContext): void {
@@ -564,7 +614,7 @@ const pasteText: Handler = async (ctx, params) => {
 	const t = target(params);
 	/** Set once the paste goes to the page: from then on the field may hold the text. */
 	let handed = false;
-	const before = await changesBefore(ctx, tabId, params);
+	const before = await beforeInput(ctx, "type", tabId, params, true);
 	const since = await actionStart(ctx, tabId);
 	const attempt = async (): Promise<"page" | "inserted"> => {
 		if (t.ref || t.selector) {
@@ -1184,7 +1234,7 @@ export const handlers: Record<string, Handler> = {
 		const t = target(params);
 		/** Set just before the first key event goes out: after that the page may hold some of the text. */
 		let keysStarted = false;
-		const before = await changesBefore(ctx, tabId, params);
+		const before = await beforeInput(ctx, "type", tabId, params, true);
 		const since = await actionStart(ctx, tabId);
 		const attempt = async () => {
 			if (t.ref || t.selector) {
@@ -1236,7 +1286,7 @@ export const handlers: Record<string, Handler> = {
 		const key = requireStr(params, "key");
 		const tabId = await resolveTab(ctx, params, true);
 		const repeat = num(params, "repeat") ?? 1;
-		const before = await changesBefore(ctx, tabId);
+		const before = await beforeInput(ctx, "press", tabId, params, false);
 		const since = await actionStart(ctx, tabId);
 		try {
 			for (let i = 0; i < repeat; i++) {
@@ -1297,7 +1347,7 @@ export const handlers: Record<string, Handler> = {
 		const t = target(params);
 		if (!t.ref && !t.selector)
 			throw new BridgeError(ERR.BAD_PARAMS, "fill needs a ref from read_page, or a selector.");
-		const before = await changesBefore(ctx, tabId, params);
+		const before = await beforeInput(ctx, "fill", tabId, params, true);
 		ctx.mark?.("before");
 		const since = await actionStart(ctx, tabId);
 		ctx.mark?.("start");

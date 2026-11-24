@@ -2284,6 +2284,107 @@ export async function fillElement(
 }
 
 /**
+ * What an action is about to reach, for Auto's rules (src/bridge/risk-rules.ts TargetFacts): the control's role and
+ * name (as read_page showed them, when it has the ref), an input's type and autocomplete, the link, dialog and form
+ * around it, and the frame it is in. Finds the element by ref, else selector, else the CSS point, else the focus.
+ * Reads only; never heals a ref (the action's own lookup does that, and refuses what this can't find).
+ */
+const DESCRIBE_LIB: PageLib = {
+	name: "describe",
+	source: () => String.raw`(ref, sel, x, y) => {
+		const W = window;
+		const squash = (t) => String(t || "").replace(/\s+/g, " ").trim();
+		const out = {};
+		let el = null;
+		let meta;
+		if (ref) {
+			if (W.__tabkyraRefs instanceof Map) el = W.__tabkyraRefs.get(ref) || null;
+			if (W.__tabkyraRefMeta instanceof Map) meta = W.__tabkyraRefMeta.get(ref);
+			if (el && !el.isConnected) el = null;
+		}
+		if (!el && sel) { try { el = document.querySelector(sel); } catch {} }
+		if (!el && typeof x === "number" && typeof y === "number") el = document.elementFromPoint(x, y);
+		if (!el && !ref && !sel && typeof x !== "number") {
+			el = document.activeElement;
+			// Through open shadow roots and same-origin frames, as pasteInto: a cross-origin frame can't be read from here.
+			for (let d = 0; el && d < 12; d++) {
+				if (el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement;
+				else if (/^(IFRAME|FRAME)$/.test(el.tagName)) {
+					let doc = null;
+					try { doc = el.contentDocument; } catch {}
+					if (!doc) { out.otherSite = true; break; }
+					if (!doc.activeElement) break;
+					out.frameUrl = doc.location.href;
+					el = doc.activeElement;
+				} else break;
+			}
+		}
+		try { if (W.top !== W) out.frameUrl = location.href; } catch { out.frameUrl = location.href; }
+		if (meta) { out.role = meta.role; out.name = meta.name; }
+		if (!el) return out;
+		if (/^(IFRAME|FRAME)$/.test(el.tagName) && el.src) out.frameUrl = el.src;
+		const ctl = el.closest("button,a[href],input,select,textarea,summary,[role],[contenteditable=''],[contenteditable=true]") || (el.closest("label") || {}).control || el;
+		const tag = ctl.tagName.toLowerCase();
+		const type = tag === "input" ? String(ctl.type || "text").toLowerCase() : "";
+		if (!out.role) {
+			const own = ctl.getAttribute("role");
+			out.role = own ? own.split(" ")[0]
+				: tag === "button" || tag === "summary" || /^(submit|button|image|reset)$/.test(type) ? "button"
+				: tag === "a" ? "link"
+				: type === "checkbox" ? "checkbox"
+				: type === "radio" ? "radio"
+				: type === "search" ? "searchbox"
+				: tag === "select" ? "combobox"
+				: tag === "input" || tag === "textarea" || ctl.isContentEditable ? "textbox"
+				: tag;
+		}
+		if (!out.name) {
+			const by = ctl.getAttribute("aria-labelledby");
+			const labelled = by ? by.split(/\s+/).map((id) => { const n = document.getElementById(id); return n ? n.textContent : ""; }).join(" ") : "";
+			const label = ctl.labels && ctl.labels[0] ? ctl.labels[0].textContent : "";
+			const field = tag === "input" || tag === "textarea" || tag === "select";
+			out.name = squash(
+				ctl.getAttribute("aria-label") || labelled || label ||
+				(field ? (/^(submit|button|reset)$/.test(type) ? ctl.value : "") || ctl.getAttribute("placeholder") || ctl.getAttribute("title") || ctl.getAttribute("name") || ""
+					: ctl.innerText || ctl.textContent || ctl.getAttribute("title") || ctl.getAttribute("alt") || ""),
+			).slice(0, 200);
+		}
+		if (type) out.inputType = type;
+		const auto = ctl.getAttribute("autocomplete");
+		if (auto) out.autocomplete = auto;
+		const link = el.closest("a[href]");
+		if (link) out.href = link.href;
+		const dialog = el.closest("dialog,[role=dialog],[role=alertdialog]");
+		if (dialog) out.dialog = squash(dialog.innerText || dialog.textContent).slice(0, 300);
+		const form = ctl.form || el.closest("form");
+		if (form) {
+			const b = form.querySelector("button[type=submit],button:not([type]),input[type=submit],input[type=image]");
+			out.form = {};
+			if (b) out.form.submit = squash(b.getAttribute("aria-label") || b.innerText || b.value || b.textContent).slice(0, 100);
+			if (form.getAttribute("action")) out.form.action = form.action;
+		}
+		return out;
+	}`,
+};
+
+/**
+ * The facts Auto's rules read about the element an action is about to reach (DESCRIBE_LIB). `point` is in CSS
+ * pixels. Runs where the ref lives (a cross-origin frame's isolated world for a frame ref).
+ */
+export async function describeTarget(
+	tabId: number,
+	target: { ref?: string; selector?: string; point?: { x: number; y: number } },
+	rule: FrameRule = FRAMES_CLOSED,
+): Promise<Record<string, unknown>> {
+	const code = (r: string | undefined, inFrame: boolean): LibCall => ({
+		lib: DESCRIBE_LIB,
+		args: [r ?? "", inFrame ? "" : (target.selector ?? ""), target.point?.x, target.point?.y],
+	});
+	const { value } = await runForRef<Record<string, unknown>>(tabId, target.ref, code, rule);
+	return value && typeof value === "object" ? value : {};
+}
+
+/**
  * The note an action's ref left when resolveRef found its control again (D51), per tab: set by locate and fillElement,
  * read once into the action's result.
  */

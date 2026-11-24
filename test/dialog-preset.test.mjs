@@ -47,8 +47,15 @@ const box = (tabId, type, message) =>
 /** What each tab's page does when it is clicked at (x, y) or gets an Enter: it may open boxes, one after another. */
 const programs = new Map();
 const send = chrome.debugger.sendCommand;
+/** What the page says about an action's target (src/browser/page.ts describeTarget), when a test sets it; { fails } fails the look with that error. */
+let targetFacts;
+/** Every input event a test's tabs got, for "nothing went to the page". */
+const inputs = [];
 chrome.debugger.sendCommand = async (target, method, params) => {
 	const tabId = target.tabId;
+	if (targetFacts && method === "Runtime.evaluate" && String(params?.expression).includes("(ref, sel, x, y) =>"))
+		return { result: { value: targetFacts.fails ? { ok: false, error: targetFacts.fails } : { ok: true, value: targetFacts } } };
+	if (method.startsWith("Input.")) inputs.push({ tabId, method, params });
 	if (method === "Page.handleJavaScriptDialog") {
 		await holdAnswer;
 		const w = waiting.get(tabId);
@@ -1005,6 +1012,86 @@ test(`a remote connector session in Yolo still asks before a site, and can't ans
 	// The person says no, through another client or the side panel.
 	assert.equal((await request("permission.respond", { requestId: ask.requestId, decision: "deny" })).result?.accepted, true);
 	assert.equal((await reply(call)).error?.code, "permission_denied");
+});
+
+// The hard limits hold in every mode: these run in Yolo, with a target the test describes.
+async function yoloTest(t, facts) {
+	setup(t);
+	targetFacts = facts;
+	inputs.length = 0;
+	t.after(() => {
+		targetFacts = undefined;
+		return chrome.storage.local.set({ permission_mode: "auto" });
+	});
+	await chrome.storage.local.set({ permission_mode: "yolo" });
+	const tab = await agentTab(async () => undefined);
+	return { tab, sent: () => inputs.filter((i) => i.tabId === tab).length };
+}
+
+test("hard limit in Yolo: a password field is refused, nothing is typed, and the agent is told to hand over", async (t) => {
+	const { tab, sent } = await yoloTest(t, { role: "textbox", name: "Password", inputType: "password", autocomplete: "current-password" });
+	for (const [method, params] of [
+		["type", { text: "hunter2" }],
+		["type", { text: "hunter2\nhunter2", paste: true }],
+		["fill", { ref: "e5", value: "hunter2" }],
+		["press", { key: "h" }],
+		["press", { key: "Shift+H" }],
+	]) {
+		const r = await request(method, { tabId: tab, ...params });
+		assert.equal(r.error?.code, "permission_denied", `${method} ${JSON.stringify(r)}`);
+		assert.match(r.error.message, /^Nothing was entered: this field is a password field\. Tychicus never lets an agent enter passwords or payment details, in any permission mode\./);
+		assert.match(r.error.message, /do not submit the form: .*call tabs_show/);
+		assert.doesNotMatch(r.error.message, /hunter2/);
+	}
+	assert.equal(sent(), 0, "no key went out");
+	// A key that enters no text goes out: the person may be typing the password and the agent moving on.
+	assert.equal((await request("press", { tabId: tab, key: "Tab" })).error, undefined);
+	assert.ok(sent() > 0);
+});
+
+test("hard limit in Yolo: a card number field is refused, by its autocomplete or by a payment frame", async (t) => {
+	const { tab, sent } = await yoloTest(t, { role: "textbox", name: "Number", autocomplete: "cc-number" });
+	const r = await request("type", { tabId: tab, text: "4242424242424242" });
+	assert.equal(r.error?.code, "permission_denied", JSON.stringify(r));
+	assert.match(r.error.message, /this field is a payment field/);
+	targetFacts = { role: "textbox", name: "", frameUrl: "https://js.stripe.com/v3/elements-inner-card.html" };
+	assert.equal((await request("type", { tabId: tab, text: "4242" })).error?.code, "permission_denied");
+	assert.equal(sent(), 0);
+	targetFacts = { role: "textbox", name: "Your name" };
+	assert.equal((await request("type", { tabId: tab, text: "Ann" })).error, undefined, "an ordinary field takes text");
+	assert.ok(sent() > 0);
+});
+
+test("hard limit: text waits for a look that can tell: a failed look, or a focus in another site's frame, refuses it", async (t) => {
+	const { tab, sent } = await yoloTest(t, { fails: "the look's script crashed" });
+	for (const [method, params] of [["type", { text: "Ann" }], ["press", { key: "a" }], ["fill", { ref: "e5", value: "Ann" }]])
+		assert.match((await request(method, { tabId: tab, ...params })).error?.message ?? "", /the look's script crashed/, method);
+	targetFacts = { otherSite: true, frameUrl: "https://forms.example.net/" };
+	for (const [method, params] of [["type", { text: "Ann" }], ["press", { key: "a" }]]) {
+		const r = await request(method, { tabId: tab, ...params });
+		assert.equal(r.error?.code, "bad_params", JSON.stringify(r));
+		assert.match(r.error.message, /^Nothing was typed: the focus is in a frame from another site/);
+	}
+	assert.equal(sent(), 0, "nothing went to the page");
+});
+
+test("hard limit: a look the debugger's detach cut off is taken again", async (t) => {
+	const { tab, sent } = await yoloTest(t, { role: "textbox", name: "Your name" });
+	let failed = 0;
+	const inner = chrome.debugger.sendCommand;
+	chrome.debugger.sendCommand = (target, method, params) => {
+		if (!failed && method === "Runtime.evaluate" && String(params?.expression).includes("(ref, sel, x, y) =>")) {
+			failed++;
+			return Promise.reject(new Error("Detached while handling command."));
+		}
+		return inner(target, method, params);
+	};
+	t.after(() => {
+		chrome.debugger.sendCommand = inner;
+	});
+	assert.equal((await request("type", { tabId: tab, text: "Ann" })).error, undefined);
+	assert.equal(failed, 1);
+	assert.ok(sent() > 0);
 });
 
 // Last: it takes the native host away, and nothing after it could reach the bridge.

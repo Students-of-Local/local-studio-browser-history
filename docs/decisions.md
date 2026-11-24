@@ -2255,6 +2255,13 @@ one). The bridge runs it in Auto when the mode is Yolo, and refuses `permission.
 always named its sessions `remote-<caller>`, so the bridge goes by that name too. The MCP server puts no site question
 to a remote or scoped session's caller: it waits in the side panel.
 
+The bridge checks the hard limits before `type`, `fill`, a paste and a press of a character: it looks at the element the
+text would reach (`describeTarget`: by ref, selector or the focus, through open shadow roots and same-origin frames) and
+refuses with nothing sent. The look runs beside the change report's, so it costs no time of its own. Text is refused
+when the look fails, and when the focus is in a frame from another site, where the page can't say which field has it:
+the agent names the field by its ref instead. A script (`run_js`) is not checked, and the side panel's own agent has no
+such check; it is the person's own.
+
 Migration: a stored `ask` is Manual, `allow_all` is Yolo. Nothing stored on an existing install is Auto with a
 one-time side panel notice naming the change and a one-click way back to Manual, since that person never chose
 what Auto adds; 1.4.0's stored `by_model` gets the same. A fresh install (`onInstalled` with reason `install`) is
@@ -2270,4 +2277,5 @@ action is one the person never saw; a false flag costs one click and "allow on t
 **Proof.** `test/permission-modes.test.mjs` (each migration, the notice, a fresh install), `test/risk-rules.test.mjs`
 (each rule) and `evals/market/risky-actions`: 86 labeled actions, 59 risky, recall 100% held as the `riskyActions`
 floor in `evals/market/floors.json`; 0 of 27 safe actions flagged. `test/permission-guard.test.mjs`,
-`test/dialog-preset.test.mjs` and `cli/test/model-tier.test.mjs` (the remote cap, the mode on every Runs step).
+`test/dialog-preset.test.mjs` and `cli/test/model-tier.test.mjs` (the remote cap, the mode on every bridge step, the hard
+limits), and `cli/test/e2e-bridge.test.mjs` (a password refused in a page, a shadow root and a frame).
