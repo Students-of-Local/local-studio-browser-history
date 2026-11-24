@@ -7,5 +7,6 @@ let package = Package(
     targets: [
         // The protocol: tools, arguments, envelopes, policies. Foundation only.
         .target(name: "HandsCore"),
+        .testTarget(name: "HandsCoreTests", dependencies: ["HandsCore"]),
     ]
 )

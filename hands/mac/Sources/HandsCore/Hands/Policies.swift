@@ -337,7 +337,8 @@ public struct AXNodeInfo: Equatable, Sendable {
     /// A label's text (AXValue of a static text), when it was read.
     public var value: String?
     public var children: [AXNodeInfo]
-    /// False when the node's children could not be read: the panel check then fails closed.
+    /// False when the node's children could not be read: the panel check then fails closed, for a sheet or dialog
+    /// anywhere (`looksLikeFilePanel`) and for the window itself (`inspect`).
     public var readable: Bool
     public init(role: String? = nil, subrole: String? = nil, identifier: String? = nil, title: String? = nil, value: String? = nil,
                 children: [AXNodeInfo] = [], readable: Bool = true) {
@@ -377,11 +378,13 @@ public enum PanelDetector {
     }
 
     /// The panel check of a placed window, from its element: a one-level read (a dialog's, or a sheet's, deep and whole).
+    /// A window whose children could not be read may hold an Open or Save sheet, so it is off limits until a read works.
+    /// Here and not in `windowIsOffLimits`: the menu watch presses Cancel on what that calls a panel.
     public static func inspect<E>(_ root: E, bundle: String, string: (E, String) -> String?,
                                   children: (E) -> (list: [E], readable: Bool)) -> Bool {
         let asWindow = readsAsWindow(bundle: bundle, identifier: string(root, "AXIdentifier"))
         let node = AXTreeRead.node(root, depth: 1, deep: asWindow ? false : nil, string: string, children: children)
-        return windowIsOffLimits(node, asWindow: asWindow)
+        return !node.readable || windowIsOffLimits(node, asWindow: asWindow)
     }
 
     /// A child window recognized as a sheet, dialog or alert (by role, subrole or AXModal): off limits when any part of its

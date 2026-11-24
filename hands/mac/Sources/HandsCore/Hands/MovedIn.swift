@@ -194,6 +194,7 @@ public enum MoveDecision {
 /// dialog's subtree is read deeper than a window's; whenever any part of it is cut off (more children than `perLevel`, the
 /// depth limit reached with children left, the node budget spent, or children that could not be read) it is marked
 /// unreadable, so `PanelDetector` fails closed and the sheet is refused. A sheet is allowed only when the read saw all of it.
+/// A window's own children read that failed is kept the same way, and `PanelDetector.inspect` refuses the window.
 public enum AXTreeRead {
     public static let perLevel = 40
     public static let budget = 1500
@@ -215,6 +216,8 @@ public enum AXTreeRead {
             guard reach > 0 || deep else { return n }
             let (kids, readable) = children(el)
             if deep && (!readable || left <= 0 || kids.count > perLevel || (reach <= 0 && !kids.isEmpty)) { n.readable = false; return n }
+            // Unknown, not "no children": a sheet may be among the ones this read didn't get.
+            if !readable { n.readable = false }
             guard reach > 0 else { return n }
             n.children = kids.prefix(perLevel).map { read($0, depth: reach - 1, strict: deep) }
             if deep && (left <= 0 || n.children.contains { !$0.readable }) { n.readable = false }
