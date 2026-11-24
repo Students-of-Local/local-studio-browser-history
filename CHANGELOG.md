@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- PRIVACY.md names every host the code contacts by itself or on request, when, and how to turn it off where there is a switch. It also says the
+  chat copy for coding agents is on by default, and which other agents' settings files the helper opens. `test/privacy-hosts.test.mjs` fails when code
+  names a host the policy doesn't, and when the policy names one nothing here contacts. Settings > Privacy says the copy is on by default and is not uploaded.
 - The side panel shows what an agent is waiting on (a site to open, files to upload) as a card above the chat, with the
   same buttons as Settings > Agents, which draws the same card. A remote session's questions come up in those two places only. Two agents
   asking at once both get a card, a card takes no click for half a second after it comes up or another card goes, and a question left by an earlier worker, which nothing could answer, is cleared. Test:
