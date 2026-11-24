@@ -512,7 +512,7 @@ async function waitForTailscale(ports: number[], first: FunnelPlan, say: (line: 
 }
 
 /** The step that writes the launcher without registering Polycarp with browsers the person never set up. */
-const launcherStep = () => `${COMMAND_NAME} install --browser <name> for the browser you use Tychicus in (it writes the launcher and registers only that browser; plain install registers every browser on this computer)`;
+const launcherStep = () => `${COMMAND_NAME} install --browser <name> for the browser you use Local Studio in (it writes the launcher and registers only that browser; plain install registers every browser on this computer)`;
 
 /**
  * In a terminal: the service runs the agent launcher, so setup writes that one file. Not `install`: that registers the native
@@ -555,7 +555,7 @@ async function waitForFunnel(bin: string, dns: string, port: number, first: Funn
 				say(`${sym.dot} Tailscale asks you to allow Funnel for this computer. ${started ? "Your browser opened" : "Open"} ${opened.url}`);
 				say("  Sign in if it asks, then press the button that enables Funnel (and HTTPS, if it asks) for this computer.");
 			} else {
-				say(`${sym.dot} Tailscale refused the change because your user isn't its operator. In another terminal, run this once (Tychicus never runs sudo):\n\n  ${TAILSCALE_OPERATOR_FIX}\n`);
+				say(`${sym.dot} Tailscale refused the change because your user isn't its operator. In another terminal, run this once (Local Studio never runs sudo):\n\n  ${TAILSCALE_OPERATOR_FIX}\n`);
 			}
 			say(`Waiting for Tailscale to allow Funnel, trying again every ${duration(every)} for up to ${duration(total)}. Ctrl-C stops; ${COMMAND_NAME} remote setup continues from here.`);
 		}
@@ -845,7 +845,7 @@ async function runSetup(options: SetupOptions): Promise<number> {
 		if (!restartsOurs) {
 			return fail(
 				"port_busy",
-				`Something already listens on 127.0.0.1:${port} and isn't Tychicus serve for ${publicUrl} (${probe.detail}). Nothing was changed. Stop it (a ${COMMAND_NAME} serve you started by hand, or another program), or pick another port with --port, then run ${COMMAND_NAME} remote setup again.`,
+				`Something already listens on 127.0.0.1:${port} and isn't ${COMMAND_NAME} serve for ${publicUrl} (${probe.detail}). Nothing was changed. Stop it (a ${COMMAND_NAME} serve you started by hand, or another program), or pick another port with --port, then run ${COMMAND_NAME} remote setup again.`,
 				{ code: "local_port" },
 			);
 		}
@@ -860,7 +860,7 @@ async function runSetup(options: SetupOptions): Promise<number> {
 		say(`${sym.ok} Passcode, shown once:\n\n  ${madePasscode}\n`);
 		say(
 			c.dim(
-				`It re-approves an assistant you already approved. A new assistant needs a one-time connect code instead; ${codeSource}. Keep the passcode in a password manager, but not one the browser Tychicus drives can fill. ${COMMAND_NAME} token passcode replaces it.`,
+				`It re-approves an assistant you already approved. A new assistant needs a one-time connect code instead; ${codeSource}. Keep the passcode in a password manager, but not one the browser that agents use can fill. ${COMMAND_NAME} token passcode replaces it.`,
 			),
 		);
 	}
@@ -1069,7 +1069,7 @@ async function runSetup(options: SetupOptions): Promise<number> {
 		}
 		const codeLines = connect
 			? `Connect code: ${c.bold(connect.code)}
-  Type it on the approval page when you add Tychicus to an assistant for the first time.
+  Type it on the approval page when you add Local Studio to an assistant for the first time.
   It works once, for 10 minutes. Each new assistant needs its own: ${COMMAND_NAME} token approval-code makes another.`
 			: connectProblem
 				? `Connect code: none made (${connectProblem}). Make one with ${COMMAND_NAME} token approval-code before you add an assistant.`
@@ -1088,7 +1088,7 @@ Add it to an assistant (paste the connector URL):
   claude.ai   Settings > Connectors > Add custom connector.
   ChatGPT     Settings > Apps & Connectors (turn on developer mode) > Create. Choose OAuth.
   grok.com    grok.com/connectors > New Connector > Custom.
-Each opens Tychicus's approval page: check the name, tick what it may do, type the connect code and press Allow.
+Each opens the approval page: check the name, tick what it may do, type the connect code and press Allow.
 
 Check it with: ${COMMAND_NAME} remote status`);
 		return options.connectCode && !connect ? 1 : 0;
@@ -1225,7 +1225,7 @@ export async function preflight(seam: ProbeSeam = {}, read?: TailscaleReady, por
 	const plan = planFrom(read ?? (await tailscaleReadyAsync(seam)), [port]);
 	if (!plan.ok) return { state: plan.state, message: plan.message, ...(plan.code ? { code: plan.code } : {}) };
 	const probe = await probeLocal(port, `https://${plan.dns}:${FUNNEL_PORT}`);
-	if (probe.state === "other") return { state: "port_busy", message: `Something already listens on 127.0.0.1:${port} and isn't Tychicus serve (${probe.detail}).`, code: "local_port" };
+	if (probe.state === "other") return { state: "port_busy", message: `Something already listens on 127.0.0.1:${port} and isn't ${COMMAND_NAME} serve (${probe.detail}).`, code: "local_port" };
 	return { state: "ready", message: "Ready to turn on." };
 }
 
@@ -1516,7 +1516,7 @@ export function tailnetOff(bin: string | undefined, config: RemoteConfig): { ok:
 	const oursPaths = new Set(ours.map((m) => m.path));
 	const left = TYCHICUS_PATHS.filter((path) => handlers[path] && !oursPaths.has(path));
 	const leftNote = left.length ? ` ${left.join(", ")} ${left.length === 1 ? "points" : "point"} somewhere else, so ${left.length === 1 ? "it was" : "they were"} left on.` : "";
-	return { ok: true, removed: r.removed, message: `${r.removed.length ? `Took down the tailnet route's ${r.removed.length} paths on port 443.` : "Nothing of Tychicus's was mounted on port 443."}${leftNote}` };
+	return { ok: true, removed: r.removed, message: `${r.removed.length ? `Took down the tailnet route's ${r.removed.length} paths on port 443.` : "Nothing of the helper's was mounted on port 443."}${leftNote}` };
 }
 
 /**
@@ -1619,7 +1619,7 @@ export async function remoteOff(options: { json?: boolean } = {}): Promise<numbe
 			note(sym.ok, r.message);
 		} else if (stray.kind === "found") {
 			problem(
-				`Tailscale Funnel on port ${FUNNEL_PORT} forwards ${stray.paths.join(", ")} to a local port, but not everything there answers like Tychicus serve, so it was left on. If it is yours to close, run tailscale funnel --https=${FUNNEL_PORT} off.`,
+				`Tailscale Funnel on port ${FUNNEL_PORT} forwards ${stray.paths.join(", ")} to a local port, but not everything there answers like ${COMMAND_NAME} serve, so it was left on. If it is yours to close, run tailscale funnel --https=${FUNNEL_PORT} off.`,
 			);
 			code = 1;
 		}

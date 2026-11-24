@@ -164,7 +164,7 @@ const isComputerScope = (scope: string) => scope.startsWith("computer.");
 /** Why a scope can't be on this device's cap, or undefined when it can be. */
 function scopeRefusal(scope: string): string | undefined {
 	if (!Object.hasOwn(SCOPES, scope)) return `Unknown scope ${scope}. Scopes: ${Object.keys(SCOPES).join(", ")}.`;
-	if (!Object.hasOwn(offeredScopes(), scope)) return `This computer can't serve ${scope}: computer use needs Tychicus's computer-use helper, ${HANDS_COMMAND}, and it isn't on this computer. ${handsHowTo()}`;
+	if (!Object.hasOwn(offeredScopes(), scope)) return `This computer can't serve ${scope}: computer use needs Local Studio's computer-use helper, ${HANDS_COMMAND}, and it isn't on this computer. ${handsHowTo()}`;
 	return undefined;
 }
 
@@ -177,7 +177,7 @@ export function servedCap(cap: string[]): { scopes: string[]; stripped: Array<{ 
 	const stripped: Array<{ scope: string; why: string }> = [];
 	const offered = offeredScopes();
 	for (const scope of cap) {
-		if (isComputerScope(scope)) stripped.push({ scope, why: "computer use over a link needs the owner's approval on this computer, which Tychicus can't ask for yet" });
+		if (isComputerScope(scope)) stripped.push({ scope, why: "computer use over a link needs the owner's approval on this computer, which the helper can't ask for yet" });
 		else if (!Object.hasOwn(offered, scope)) stripped.push({ scope, why: "this computer can't serve it" });
 		else scopes.push(scope);
 	}
@@ -208,7 +208,7 @@ export function liveCallCheck(liveCap: () => string[]): (tool: string, args: unk
 
 /** Why the CLI won't grant a computer scope. */
 export const computerNotGrantable = (scope: string) =>
-	`${scope} can't be turned on from the command line: granting computer use over a link needs the owner's approval on this computer, and Tychicus can't ask for it yet.`;
+	`${scope} can't be turned on from the command line: granting computer use over a link needs the owner's approval on this computer, and the helper can't ask for it yet.`;
 
 async function hubPost(config: { hubUrl: string }, path: string, body: unknown, credential?: string): Promise<{ status: number; body: Record<string, unknown> }> {
 	const res = await fetch(`${config.hubUrl}${path}`, {
@@ -404,7 +404,7 @@ export async function enrollDevice(options: Omit<EnrollOptions, "json">, hooks: 
 	try {
 		reservation = await takeJoinReservation();
 	} catch (err) {
-		if (err instanceof LockTimeoutError) return failed("Another Tychicus join is starting on this computer. Try again in a moment. Nothing was changed.", { type: "busy" });
+		if (err instanceof LockTimeoutError) return failed("Another Local Studio join is starting on this computer. Try again in a moment. Nothing was changed.", { type: "busy" });
 		throw err;
 	}
 	if (!reservation) return failed("Another join is already running on this computer. Wait for it, or try again in a few minutes. Nothing was changed.", { type: "busy" });
@@ -426,7 +426,7 @@ export async function enrollDevice(options: Omit<EnrollOptions, "json">, hooks: 
 		const body = result.body;
 		if (typeof body.deviceId !== "string" || typeof body.secret !== "string" || typeof body.name !== "string") return failed(`The hub refused: ${describe(body, result.status)}`, { type: "malformed" });
 		// The hub chooses the name; it ends up in link.json, the service and the panel, so it must be a plain one.
-		if (!validDeviceName(body.name)) return failed("The hub answered with a device name Tychicus won't use, so nothing was linked.", { type: "malformed" });
+		if (!validDeviceName(body.name)) return failed("The hub answered with a device name this helper won't use, so nothing was linked.", { type: "malformed" });
 		deviceId = body.deviceId;
 		name = body.name;
 		config = { hubUrl: options.hubUrl, deviceId, secret: body.secret, name, manage: body.manage === true, scopes };
@@ -446,7 +446,7 @@ export async function enrollDevice(options: Omit<EnrollOptions, "json">, hooks: 
 				);
 			} catch (err) {
 				if (err instanceof LinkError) return failed(err.message, { type: "linked" });
-				if (err instanceof LockTimeoutError) return failed("Another Tychicus window is writing link.json. Try again in a moment.", { type: "busy" });
+				if (err instanceof LockTimeoutError) return failed("Another Local Studio window is writing link.json. Try again in a moment.", { type: "busy" });
 				throw err;
 			}
 		}
@@ -957,7 +957,7 @@ export async function linkOff(): Promise<number> {
 		);
 	} catch (err) {
 		if (!(err instanceof LockTimeoutError)) throw err;
-		console.error(`${sym.fail} ${linkFile()} is locked by another Tychicus window. The service is stopped; run ${COMMAND_NAME} link off again in a moment to remove it.`);
+		console.error(`${sym.fail} ${linkFile()} is locked by another Local Studio window. The service is stopped; run ${COMMAND_NAME} link off again in a moment to remove it.`);
 		return 1;
 	}
 	console.log(config || removed ? `${sym.ok} Removed ${c.dim(linkFile())}.${config ? ` The hub still lists ${config.name} until you run: ${COMMAND_NAME} hub remove ${config.name}` : ""}` : `${sym.dot} No link.json; nothing else to remove.`);
@@ -1062,7 +1062,7 @@ export async function linkScopes(options: { add?: string; remove?: string; json:
 			return out(true, `${sym.ok} Added ${scope}. This device allows: ${scopes.join(", ")}. ${await restartForCap()}`, scopes);
 		}
 	} catch (err) {
-		if (err instanceof LockTimeoutError) return out(false, "Another Tychicus window is writing link.json. Try again in a moment.");
+		if (err instanceof LockTimeoutError) return out(false, "Another Local Studio window is writing link.json. Try again in a moment.");
 		if (err instanceof LinkError) return out(false, err.message);
 		throw err;
 	}
@@ -1074,7 +1074,7 @@ export async function linkScopes(options: { add?: string; remove?: string; json:
 	}
 	console.log(`${sym.dot} This device allows: ${cap.join(", ")}`);
 	if (stripped.length) console.log(`${sym.warn} link.json also lists scopes link run doesn't serve: ${strippedWords(stripped)}.`);
-	if (computerHere) console.log(`${sym.dot} Computer use is off here. It can't be turned on from the command line: it needs the owner's approval on this computer, which Tychicus can't ask for yet.`);
+	if (computerHere) console.log(`${sym.dot} Computer use is off here. It can't be turned on from the command line: it needs the owner's approval on this computer, which the helper can't ask for yet.`);
 	return 0;
 }
 

@@ -246,11 +246,11 @@ export async function remoteJoin(options: JoinOptions = {}): Promise<number> {
 		const why = `Joined Local Studio's ${record.route} route at ${connectorUrl}, but the connect code couldn't be made (${connectProblem}). remote.json is kept. Make one with ${COMMAND_NAME} token approval-code.`;
 		return finish({ ok: false, state: "problem", code: "connect_code", message: why, ...way, connectCodeProblem: connectProblem }, all, true);
 	}
-	if (connect) say(`${sym.ok} Connect code: ${connect.code}. Type it on the approval page when you add Tychicus to an assistant; it works once, for 10 minutes.`);
+	if (connect) say(`${sym.ok} Connect code: ${connect.code}. Type it on the approval page when you add Local Studio to an assistant; it works once, for 10 minutes.`);
 	return finish({
 		ok: true,
 		state: "on",
-		message: `Joined Local Studio's ${record.route} route: ${connectorUrl} reaches serve on 127.0.0.1:${port}${aliases.length ? `, and so ${aliases.length === 1 ? "does" : "do"} ${aliases.map((a) => `https://${a}/mcp`).join(", ")} while connectors move` : ""}. No tunnel of Tychicus's own runs now.`,
+		message: `Joined Local Studio's ${record.route} route: ${connectorUrl} reaches serve on 127.0.0.1:${port}${aliases.length ? `, and so ${aliases.length === 1 ? "does" : "do"} ${aliases.map((a) => `https://${a}/mcp`).join(", ")} while connectors move` : ""}. No tunnel of the helper's own runs now.`,
 		...way,
 		...(connect ? { connectCode: connect.code, connectCodeExpiresAt: connect.expiresAt } : {}),
 		next: { kind: "add_connector", url: connectorUrl },

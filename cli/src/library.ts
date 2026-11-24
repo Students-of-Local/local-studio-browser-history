@@ -82,7 +82,7 @@ export function loadLibrary(): Library {
 	const file = libraryFile();
 	if (!existsSync(file)) return { version: 1, items: [] };
 	const data = JSON.parse(readFileSync(file, "utf8")) as Library;
-	if (data.version !== 1 || !Array.isArray(data.items)) throw new Error(`${file} is not a Tychicus library.`);
+	if (data.version !== 1 || !Array.isArray(data.items)) throw new Error(`${file} is not a library file.`);
 	// Entries saved before notices were deduplicated can hold the same notice several times.
 	for (const item of data.items) {
 		const v = item?.tabkyra?.verified;
@@ -1043,7 +1043,7 @@ export async function runLibrary(args: string[]): Promise<number> {
 			if (positional.length !== 1) throw new Error(LIBRARY_USAGE);
 			const { written, kept, stale } = writeObsidian(positional[0], opts.folder);
 			console.log(`Wrote ${written.length} notes to ${join(positional[0], opts.folder ?? "Sources")}`);
-			for (const k of kept) console.log(`  kept ${k}: you edited it, or Tychicus didn't write it`);
+			for (const k of kept) console.log(`  kept ${k}: you edited it, or the helper didn't write it`);
 			// A kept note can't show a new warning, so say it here, loudly.
 			for (const x of stale) console.log(`  NOT UPDATED, ${x}. Add the warning to that note yourself.`);
 			return stale.length ? 3 : 0;
