@@ -63,7 +63,7 @@ await skill({
   action: 'create',
   data: {
     name: 'github',
-    domainPatterns: ['github.com', 'github.com/*/issues'],
+    domainPatterns: ['github.com', 'github.com/*/*/issues'],
     shortDescription: 'GitHub automation for issues and PRs',
     description: '# GitHub Skill\n\nAutomation for...',
     examples: '// Get issue list\nconst issues = github.getIssues();',
@@ -121,8 +121,11 @@ await skill({ action: 'delete', name: 'old-skill' })
 ## Domain Matching
 
 A pattern is a host glob with an optional path glob. `*` is any run of characters but `/`, `?` is one character and
-`**` is any number of path segments; everything else is itself (no braces, classes or negation). Case and a leading
-`www.` don't count. A pattern over 256 characters, and any after a skill's first 100, match nothing:
+`**` is any number of path segments; everything else is itself (no braces, classes or negation). A `**` at the end
+needs one segment at least (`/a/**` isn't `/a`), and a wildcard that starts a segment takes none that begins with a dot.
+A path is compared as the address has it, percent-encoded (`/caf%C3%A9`). Case, a leading `www.` and doubled slashes
+don't count. A pattern over 256 characters, and any after a skill's first 100, match nothing; a path over 1,024
+characters matches only a pattern that ends in `/**`:
 
 ```javascript
 // One host, every page on it

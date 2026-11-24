@@ -2,6 +2,8 @@
 const MAX_PATTERNS = 100;
 const MAX_PATTERN = 256;
 const MAX_PATH = 1024;
+/** No host name is longer. */
+const MAX_HOST = 253;
 
 /** `*` and `?` in one path segment or host, in time that grows with the product of the lengths and no more. */
 function segmentMatches(text: string, glob: string): boolean {
@@ -30,23 +32,21 @@ function segmentMatches(text: string, glob: string): boolean {
 /** A path against a path glob: `**` as a whole segment is any number of segments (at the end, one or more). */
 function pathMatches(path: string, glob: string): boolean {
 	// "/a/" is ["a", ""]: a trailing slash is a last, empty segment.
-	const segments = path.split("/").slice(1);
-	const globs = glob.split("/").slice(1);
+	const segments = path.split(/\/+/).slice(1);
+	const globs = glob.split(/\/+/).slice(1);
 	/** Which of the path's first n segments the globs so far match. */
 	let reach = [true, ...segments.map(() => false)];
 	for (const [i, part] of globs.entries()) {
-		const next = segments.map(() => false);
 		if (part === "**") {
 			const last = i === globs.length - 1;
 			let open = false;
-			const row = reach.map((ok, n) => {
+			reach = reach.map((ok, n) => {
 				if (n > 0 && segments[n - 1].startsWith(".")) open = false;
 				const here = last ? open && n > 0 : open || ok;
 				open ||= ok;
 				return here;
 			});
-			reach = row;
-		} else reach = [false, ...next.map((_, n) => reach[n] && segmentMatches(segments[n], part))];
+		} else reach = [false, ...segments.map((text, n) => reach[n] && segmentMatches(text, part))];
 	}
 	// "/a/" is also "/a".
 	return reach[segments.length] || (segments.at(-1) === "" && globs.at(-1) !== "" && reach[segments.length - 1]);
@@ -69,7 +69,11 @@ export function matchesDomainPatterns(url: string, patterns: readonly string[]):
 	}
 	if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
 	const host = parsed.hostname.replace(/^www\./, "");
-	const path = parsed.pathname.slice(0, MAX_PATH).toLowerCase();
+	if (host.length > MAX_HOST) return false;
+	let path = parsed.pathname.toLowerCase();
+	// A cut path is known by its first segments only, so just a pattern that takes any rest (`/a/**`) matches it.
+	const cut = path.length > MAX_PATH;
+	if (cut) path = path.slice(0, path.lastIndexOf("/", MAX_PATH));
 	for (const pattern of patterns.slice(0, MAX_PATTERNS)) {
 		const trimmed = pattern.trim().toLowerCase();
 		if (!trimmed || trimmed.length > MAX_PATTERN) continue;
@@ -77,7 +81,8 @@ export function matchesDomainPatterns(url: string, patterns: readonly string[]):
 		const hostPattern = (slash < 0 ? trimmed : trimmed.slice(0, slash)).replace(/^www\./, "");
 		const pathPattern = slash < 0 ? "" : trimmed.slice(slash);
 		if (!hostPattern || !segmentMatches(host, hostPattern)) continue;
-		if (!pathPattern || pathPattern === "/" || pathMatches(path, pathPattern)) return true;
+		if (!pathPattern || pathPattern === "/") return true;
+		if ((!cut || pathPattern.endsWith("/**")) && pathMatches(path, pathPattern)) return true;
 	}
 	return false;
 }

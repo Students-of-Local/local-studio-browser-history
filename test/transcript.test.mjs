@@ -64,6 +64,10 @@ test("path globs: what each wildcard stands for", () => {
 		["/a/", ["/a/"], ["/a"]],
 		["/A.b", ["/a.B"], ["/axb"]],
 		["/{a,b}", [], ["/a", "/b"]],
+		["/%7Ba,b%7D", ["/{a,b}"], ["/a"]],
+		["/a/*", ["/a/b", "/a//b"], ["/a/b/c"]],
+		["/a//b", ["/a/b"], ["/a"]],
+		["/a", ["//a"], []],
 		["/[ab]", ["/[ab]"], ["/a"]],
 		["/!(a)", ["/!(a)"], ["/b"]],
 	];
@@ -85,6 +89,10 @@ test("a lookup stays quick whatever the pattern, and one past the limits matches
 	assert.equal(matchesDomainPatterns("https://x.test/a", [...Array(100).fill("y.test"), "x.test"]), false, "past the first hundred");
 	assert.equal(matchesDomainPatterns("https://x.test/a", [...Array(99).fill("y.test"), "x.test"]), true);
 	assert.equal(matchesDomainPatterns(`https://x.test/a/${"b/".repeat(2000)}`, ["x.test/a/**"]), true, "a long path still matches by its start");
+	for (const glob of ["/*", "/a*", "/**/a*", "/**/admin"]) assert.equal(matchesDomainPatterns(`https://x.test/${"a".repeat(1023)}/admin`, [`x.test${glob}`]), false, `a cut path is not the whole path: ${glob}`);
+	const start = performance.now();
+	assert.equal(matchesDomainPatterns(`https://${"a".repeat(1e6)}/`, Array(100).fill(`*${"a".repeat(200)}b`)), false);
+	assert.ok(performance.now() - start < 2000, `a long host took ${performance.now() - start} ms`);
 });
 
 test("an unedited stored copy of the old calendar skill is replaced; an edited one is kept", () => {
