@@ -72,7 +72,7 @@ test("a frontier model's sensitive site is put to the person, and a no says how 
 	await recordDecision(asked.data.requestId, "deny");
 	const refused = await sent((m) => m.type === "response" && m.id === 2);
 	assert.equal(refused.error?.code, "permission_denied");
-	assert.match(refused.error.message, /Not allowed to open mail\.google\.com\. The user can allow it in the Tychicus side panel/);
+	assert.match(refused.error.message, /Not allowed to open mail\.google\.com\. The user can allow it in the Local Studio side panel/);
 });
 
 test("an older CLI says nothing about remote, but its remote sessions are told by the name serve gives them", () => {

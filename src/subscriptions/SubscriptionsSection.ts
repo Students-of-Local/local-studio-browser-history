@@ -117,7 +117,7 @@ export class SubscriptionsSection extends LitElement {
 			const result = await request<{ revoked: boolean; revokeUrl?: string }>(`${which}.signout`);
 			if (which === "chatgpt" && !result.revoked)
 				this.notice =
-					'Signed out here, but OpenAI didn\'t confirm the session was revoked. You can disconnect "Tychicus" in ChatGPT Settings (a sign-in from before the rename is listed as "Polycarp" or "Tabkyra").'; // product-name allowlist: the names OpenAI lists for older sign-ins
+					'Signed out here, but OpenAI didn\'t confirm the session was revoked. You can disconnect "Local Studio" in ChatGPT Settings (a sign-in from before the rename may be listed as "Tychicus", "Polycarp" or "Tabkyra").'; // product-name allowlist: the names OpenAI lists for older sign-ins
 			if (which === "copilot")
 				this.notice = `Signed out: the token is deleted from this computer. To remove its access on GitHub too, revoke it at ${COPILOT.revokeUrl}.`;
 			await refreshSubscriptionModels();

@@ -413,7 +413,7 @@ test("first-F1: the panel's client mints a gesture only while the click is live,
 	for (const text of [relay, gate]) assert.doesNotMatch(text.replace(/\/\*[\s\S]*?\*\//g, ""), /TEST|process\.env|__TABKYRA|allowTab|globalThis/i);
 });
 
-test("first-F1: the bridge never opens Tychicus's own pages, in any permission mode, and never asks the user about them", async () => {
+test("first-F1: the bridge never opens the extension's own pages, in any permission mode, and never asks the user about them", async () => {
 	const { installFakeChrome } = await import("./fake-chrome.mjs");
 	const fake = installFakeChrome?.();
 	void fake;
@@ -439,7 +439,7 @@ test("first-F1: the bridge never opens Tychicus's own pages, in any permission m
 	// native.ts checks before it asks the user, and says why.
 	const native = read("src/bridge/native.ts");
 	assert.match(native, /async function askPermission\([^)]*\): Promise<boolean> \{\s*if \(isOwnExtensionUrl\(url\)\) return false;/);
-	assert.match(native, /isOwnExtensionUrl\(url\)\s*\? "Not allowed to open Tychicus's own pages\."/);
+	assert.match(native, /isOwnExtensionUrl\(url\)\s*\? "Not allowed to open Local Studio's own pages\."/);
 });
 
 test("first-F2: joining shows the hub's host, the warning and the scopes, and sends nothing until Confirm; success lists the scopes", () => {
