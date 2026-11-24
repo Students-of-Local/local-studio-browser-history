@@ -3,6 +3,16 @@
 ## [Unreleased]
 
 ### Added
+- In Auto and Manual, agents now ask before they send, post, buy, delete or change settings as you. The question
+  shows in the agent's own prompt and as a card above the side panel chat: Allow once, Allow on this site, or Deny,
+  with 60 seconds to answer and a clear result for the agent either way. Auto also asks before mail, banks and other
+  sensitive sites, even for a frontier model. In every mode, Yolo included, an agent can't type into a password or
+  card field (it's told to hand the tab to you), and a remote session is never in Yolo and can't answer its own
+  question. A click or Enter whose page couldn't be read first asks too, rather than going ahead.
+  `tychicus mode manual|auto|yolo` shows or sets the mode (`ask` and `allow-all` still work), Yolo needs a
+  person at a terminal and warns once, as Settings > Agents does, and `tychicus doctor` has a mode row. Every Runs
+  step records its mode. Decision D67. Issue #33. Docs: `docs/permissions.md`. Tests: `test/dialog-preset.test.mjs`,
+  `test/permission-guard.test.mjs`, `cli/test/mode.test.mjs`.
 - Agents can now filter a site's feed for you, by topic or account, on every visit. Ask "hide every post about crypto
   on x.com" and the new `site_filter` MCP tool saves words, phrases, `/regex/` terms and account handles for a site; posts that match are hidden
   with a class and a stylesheet (never removed), new ones too as you scroll, and a count on the page ("12 hidden by your
@@ -21,7 +31,7 @@
   password managers, cloud consoles and DNS, government, health, account settings pages), sensitive apps for
   computer use, and the password and payment fields no mode may type into. `evals/market/risky-actions` holds 86
   labeled actions; recall on the 59 risky ones is the new `riskyActions` floor in `evals/market/floors.json` (100%),
-  and 0 of the 27 safe ones are flagged. Decision D65. Issue #33. Tests: `test/risk-rules.test.mjs` (one per rule).
+  and 0 of the 27 safe ones are flagged. Decision D67. Issue #33. Tests: `test/risk-rules.test.mjs` (one per rule).
 
 ### Changed
 - Site access is now a permission mode: Manual, Auto (the default) or Yolo, in Settings > Agents. Manual is the
@@ -29,7 +39,7 @@
   open ordinary sites, small or unknown models ask). A stored setting moves to its new name on update; an install
   that never chose one is Auto, with a one-time notice in the side panel and a Switch to Manual button. The mode is
   one store (`permission_mode`), for computer use and VMs to read too; `permission.setMode` and `status` take and
-  report the new names (`mode`), and still take and report the 1.4.0 ones for an older CLI. Decision D65. Issue #33.
+  report the new names (`mode`), and still take and report the 1.4.0 ones for an older CLI. Decision D67. Issue #33.
   Tests: `test/permission-modes.test.mjs`, `test/site-access-by-model.test.mjs`. Also removes leftover merge markers
   from `docs/decisions.md` around D63 and D64.
 - Clicks, fills and page loads answer faster: an action no longer waits out a hidden tab's 50 ms input hold. While an agent acts, its tab draws (a 1x1 screencast that stops 3 s after the last action), so Chromium's `DeferRendererTasksAfterInput` hold ends at the next frame. The settle after an action returns at the drained look (`IDLE_MS` and `LOADED_QUIET_MS` are 0) and counts `Page.frameRequestedNavigation` as a reaction. The change report's look, fill and locate scripts are installed once per document and called by a salted key, so V8 no longer recompiles 15 to 25 KB per call. A click on a download link waits for the download to begin (at most 1 s), and a recording takes over the tab's frame-keeping cast. The tab's activity pill is put up while the action finds its target, not before; the first input still waits for it. `TYCHICUS_TRACE=1` records per-hop times. Decision D62. Trace: `docs/verification/speed-trace.md`.

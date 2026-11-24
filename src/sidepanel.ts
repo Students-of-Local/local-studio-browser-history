@@ -123,6 +123,7 @@ import * as port from "./utils/port.js";
 import "./utils/i18n-extension.js";
 import { createArtifactViewer } from "./artifacts/viewers.js";
 import { bridgeQuestions, watchBridgeQuestions } from "./ask/bridge-panel.js";
+import { agentAsks, watchAgentAsks } from "./components/AgentAsks.js";
 import { modeNotice, watchModeNotice } from "./components/ModeNotice.js";
 import { updateNotice, watchUpdateStatus } from "./components/UpdateNotice.js";
 import { handbackCards, watchHandbacks } from "./handback/panel.js";
@@ -1482,6 +1483,7 @@ const renderApp = () => {
 
 			${updateNotice()}
 			${modeNotice()}
+			${agentAsks()}
 			${handbackCards()}
 			${bridgeQuestions()}
 			${planBadge(agent?.state.model?.provider)}
@@ -1808,6 +1810,7 @@ async function initApp() {
 	performance.mark("panel:rendered");
 	void watchUpdateStatus(renderApp).catch(() => {});
 	void watchModeNotice(renderApp).catch(() => {});
+	void watchAgentAsks(renderApp).catch(() => {});
 	// External agents' questions (ask_user over the bridge) show above the chat.
 	void watchBridgeQuestions(renderApp).catch(() => {});
 	void watchHandbacks(renderApp).catch(() => {});

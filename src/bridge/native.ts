@@ -54,20 +54,27 @@ import { dropAllTransfers, dropTransfersForClient } from "./files.js";
 import { HOST_CONNECTED_KEY } from "./host-state.js";
 import {
 	addPendingRequest,
+	allowActionsOn,
 	allowHost,
 	asModelTier,
 	asPermissionMode,
 	DECISION_KEY_PREFIX,
+	getActionHosts,
 	getPermissionMode,
+	hostAllowed,
 	hostOf,
 	isBridgeEnabled,
 	isGuardedUrl,
 	isOwnExtensionUrl,
 	isUrlAllowed,
-	opensAnySite,
+	modeFor,
+	type PendingAction,
 	type PermissionDecision,
+	type PermissionMode,
+	peekPermissionMode,
 	removePendingRequest,
 	setPermissionMode,
+	turnOnYolo,
 } from "./permissions.js";
 import {
 	BRIDGE_METHODS,
@@ -94,6 +101,7 @@ import {
 	UPDATE_PROGRESS_KEY,
 	UPDATE_STATUS_KEY,
 } from "./protocol.js";
+import { type ActionFacts, actionRisk, hardLimit, needsTarget } from "./risk-rules.js";
 import { handleSessionsAdmin } from "./sessions-admin.js";
 import { type DeliveredStep, extensionStatus, type HandlerContext, handlers, normalizeStep } from "./tools.js";
 
@@ -109,12 +117,16 @@ export function trace(line: string): void {
 const RECONNECT_MIN_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
 const PERMISSION_TIMEOUT_MS = 120000;
+/** How long a risky action waits for the person's answer (D67): inside the call's 90 s, with time left to act. */
+const ACTION_ASK_TIMEOUT_MS = 60000;
 
 interface ClientState {
 	clientId: string;
 	name: string;
 	/** How capable the client's model is, from its hello; "unknown" when it said nothing (D60). */
 	tier: ModelTier;
+	/** A remote connector session (its hello): never in Yolo, and it may not change permissions (D67). */
+	remote?: boolean;
 	sessionKey: string;
 	/** Group label: the agent, then the project or session name ("claude · tabkyra"). */
 	label?: string;
@@ -225,6 +237,7 @@ async function onClientConnected(msg: HostClientConnected): Promise<void> {
 		clientId: msg.clientId,
 		name,
 		tier: asModelTier(msg.client.tier),
+		...(msg.client.remote === true ? { remote: true } : {}),
 		sessionKey: key,
 		label: subject && subject !== name ? `${name} · ${subject}` : name,
 		meta: { agent: name, ...(project ? { project } : {}), ...(sessionName ? { name: sessionName } : {}) },
@@ -302,7 +315,7 @@ async function onClientDisconnected(clientId: string): Promise<void> {
 
 async function askPermission(state: ClientState, url: string): Promise<boolean> {
 	if (isOwnExtensionUrl(url)) return false;
-	if (await isUrlAllowed(url, state.tier)) return true;
+	if (await isUrlAllowed(url, state.tier, state.remote)) return true;
 	const host = hostOf(url);
 	if (!host) return false;
 	const requestId = `${state.clientId}:${crypto.randomUUID()}`;
@@ -371,6 +384,109 @@ async function askUpload(
 	const result = await decision;
 	await removePendingRequest(requestId);
 	return result === "allow_once";
+}
+
+/**
+ * Ask the person about one risky action (D67), the way a site question reaches them: the agent's own prompt (MCP
+ * elicitation) and the side panel. Allow once lets this action go; allow on this site lets every risky action on the
+ * host go from now on; deny, or no answer within ACTION_ASK_TIMEOUT_MS, refuses it.
+ */
+async function askAction(
+	state: ClientState,
+	url: string,
+	host: string,
+	action: PendingAction,
+): Promise<PermissionDecision | "timeout"> {
+	const requestId = `${state.clientId}:${crypto.randomUUID()}`;
+	let timedOut = false;
+	const decision = new Promise<PermissionDecision>((resolve) => {
+		pendingDecisions.set(requestId, resolve);
+		setTimeout(() => {
+			if (!pendingDecisions.delete(requestId)) return;
+			timedOut = true;
+			resolve("deny");
+		}, ACTION_ASK_TIMEOUT_MS);
+	});
+	await addPendingRequest({
+		requestId,
+		clientId: state.clientId,
+		clientName: state.name,
+		host,
+		url,
+		createdAt: Date.now(),
+		action,
+	});
+	send({
+		type: "event",
+		clientId: state.clientId,
+		event: "permission_request",
+		data: { requestId, host, url, timeoutMs: ACTION_ASK_TIMEOUT_MS, kind: "action", agent: state.name, action },
+	});
+	const result = await decision;
+	await removePendingRequest(requestId);
+	if (timedOut) return "timeout";
+	if (result === "allow_host") await allowActionsOn(host);
+	return result;
+}
+
+/** How an action reads in a question and a refusal: `click "Send"`, `press Enter in "Message"`. */
+function actionLabel(f: ActionFacts): string {
+	const name = (f.target?.name ?? "").replace(/\s+/g, " ").trim().slice(0, 80);
+	const on = name ? ` "${name}"` : "";
+	if (f.tool === "press") return `press ${f.key ?? "Enter"}${on ? ` in${on}` : ""}`;
+	if (f.tool === "type") return `type and submit${on ? ` in${on}` : ""}`;
+	if (f.tool === "navigate") return `open ${f.url ?? "the link"}`;
+	return `${f.tool}${on}`;
+}
+
+/**
+ * The permission mode's check before an input (HandlerContext.guard, D67). A hard limit (a password or payment field)
+ * is refused in every mode. In Yolo nothing else asks; in Manual and Auto a risky action under the person's sign-in
+ * (risk-rules.ts) asks unless they allowed actions on the site. Resolves true when it asked. When the look at the page
+ * failed, Manual and Auto fail closed: the action is unchecked and asks.
+ */
+async function guardAction(
+	state: ClientState,
+	mode: PermissionMode,
+	tool: string,
+	params: Record<string, unknown>,
+	facts: () => Promise<ActionFacts>,
+): Promise<boolean> {
+	const key = typeof params.key === "string" ? params.key : undefined;
+	if (!needsTarget(tool, key, params.submit === true, mode === "yolo")) return false;
+	const f: ActionFacts = (await facts().catch(() => undefined)) ?? { tool, unchecked: true };
+	const limit = hardLimit(f);
+	if (limit)
+		throw new BridgeError(
+			ERR.PERMISSION_DENIED,
+			`Nothing was entered: this field ${limit.why}. Tychicus never lets an agent enter passwords or payment details, in any permission mode. Leave it empty and do not submit the form: fill in the rest, call tabs_show, and ask the user to enter it themselves.`,
+		);
+	if (mode === "yolo") return false;
+	return askIfRisky(state, mode, f);
+}
+
+/** The ask for a risky action (or a navigation that runs a file): true when it asked and the person said yes. */
+async function askIfRisky(state: ClientState, mode: PermissionMode, f: ActionFacts): Promise<boolean> {
+	const risk = actionRisk(f);
+	if (!risk) return false;
+	const host = hostOf(f.url ?? "");
+	if (host && hostAllowed(host, await getActionHosts())) return false;
+	const what = actionLabel(f);
+	const answer = await askAction(state, f.url ?? "", host || "this page", {
+		tool: f.tool,
+		target: what,
+		rule: risk.rule,
+		why: risk.why,
+	});
+	if (answer === "allow_once" || answer === "allow_host") return true;
+	const where = host ? ` on ${host}` : "";
+	throw new BridgeError(
+		ERR.PERMISSION_DENIED,
+		(answer === "timeout"
+			? `Not done: ${what}${where} ${risk.why}, so Tychicus (${mode === "manual" ? "Manual" : "Auto"} mode) asked the user first, and no answer came within ${ACTION_ASK_TIMEOUT_MS / 1000} s.`
+			: `Not done: ${what}${where} ${risk.why}, and the user said no.`) +
+			" Nothing went to the page. Tell the user what you were about to do and let them decide; they can allow it when asked, or do it themselves.",
+	);
 }
 
 function guardedError(url: string): BridgeError {
@@ -509,6 +625,8 @@ async function runRequest(state: ClientState, req: HostForwardedRequest, answer?
 	let veilBegun: Promise<number | undefined> | undefined;
 	/** The session this call ran in, for its step in the Runs view (src/runs/). */
 	let runSession: BrowserSession | undefined;
+	/** The mode the call ran under, for its step: every step carries it, so a run can be audited (D67). */
+	let runMode: PermissionMode | undefined;
 	const tRun = performance.now();
 	const step = (ok: boolean, result?: unknown, error?: BridgeError) => {
 		if (!runSession || !isRunStep(req.method)) return;
@@ -521,6 +639,7 @@ async function runRequest(state: ClientState, req: HostForwardedRequest, answer?
 			result,
 			error: error?.message,
 			ms: performance.now() - tRun,
+			...(runMode ? { mode: runMode } : {}),
 		});
 		if (ok && req.method === "session.end") runEnded(runSession.id);
 	};
@@ -543,6 +662,7 @@ async function runRequest(state: ClientState, req: HostForwardedRequest, answer?
 		const session = await withTimeout(getSession(state), 15000, "session open");
 		const tSession = Math.round(performance.now() - t0);
 		runSession = session;
+		if (isRunStep(req.method)) runMode = modeFor(await peekPermissionMode(), state.remote);
 		// The session can take seconds to open; the host may have gone meanwhile.
 		if (gone()) return;
 		mark("ext.session");
@@ -559,26 +679,28 @@ async function runRequest(state: ClientState, req: HostForwardedRequest, answer?
 			isGuarded: (url: string) => isGuardedUrl(url, req.guardedHosts),
 			guardedHosts: req.guardedHosts ?? [],
 			tier: state.tier,
+			...(state.remote ? { remote: true } : {}),
 			// A frame is the page's own when it is on the page's host; any other host needs the person's allow (D46).
 			frameAllowed: async (url, topUrl) =>
 				(!!topUrl && hostOf(url) === hostOf(topUrl) && !isOwnExtensionUrl(url)) ||
-				(await isUrlAllowed(url, state.tier)),
+				(await isUrlAllowed(url, state.tier, state.remote)),
 			askUpload: (url, files, askId) => askUpload(state, url, files, askId),
 			checkUrl: async (url: string) => {
 				if (isGuardedUrl(url, req.guardedHosts)) throw guardedError(url);
 				if (!(await askPermission(state, url))) {
-					const asks = !opensAnySite(await getPermissionMode(), state.tier);
 					throw new BridgeError(
 						ERR.PERMISSION_DENIED,
 						isOwnExtensionUrl(url)
 							? "Not allowed to open Tychicus's own pages."
-							: `Not allowed to open ${hostOf(url) || url}. ` +
-									(asks
-										? "The user can allow it in the Tychicus side panel under Settings > Agents, or answer the permission prompt."
-										: "Bridge navigation is blocked."),
+							: `Not allowed to open ${hostOf(url) || url}. The user can allow it in the Tychicus side panel under Settings > Agents, or answer the permission prompt.`,
 					);
 				}
+				// A link that downloads a program and runs it asks in Manual and Auto (D67).
+				const mode = modeFor(await getPermissionMode(), state.remote);
+				if (mode !== "yolo") await askIfRisky(state, mode, { tool: "navigate", url });
 			},
+			guard: async (tool, params, facts) =>
+				guardAction(state, modeFor(await getPermissionMode(), state.remote), tool, params, facts),
 		};
 		const dialogSafe = isDialogSafe(req.method, req.params);
 		if (!dialogSafe) {
@@ -942,6 +1064,19 @@ function onHostMessage(message: HostToExt): void {
 			return;
 		case "request": {
 			if (Array.isArray(message.trace)) message.trace.push(["ext.in", traceNow()]);
+			if (
+				clients.get(message.clientId)?.remote &&
+				["permission.respond", "permission.allow", "permission.setMode"].includes(message.method)
+			) {
+				// A remote connector session never answers its own asks or widens what it may do (D67).
+				send({
+					type: "response",
+					clientId: message.clientId,
+					id: message.id,
+					error: { code: ERR.PERMISSION_DENIED, message: "A remote session can't change Tychicus's permissions." },
+				});
+				return;
+			}
 			if (message.method === "permission.respond") {
 				// Answers must bypass the per-client queue: the request waiting for them is at its head.
 				const p = message.params ?? {};
@@ -976,7 +1111,7 @@ function onHostMessage(message: HostToExt): void {
 			}
 			if (message.method === "permission.setMode") {
 				// `tychicus mode`, and an older CLI's `ask` / `allow-all`: a local user process setting the permission mode,
-				// same trust as the Settings > Agents control (D65). An older CLI's names mean the mode they became.
+				// same trust as the Settings > Agents control (D67). An older CLI's names mean the mode they became.
 				const mode = asPermissionMode(message.params?.mode);
 				if (!mode) {
 					send({
@@ -987,7 +1122,8 @@ function onHostMessage(message: HostToExt): void {
 					});
 					return;
 				}
-				setPermissionMode(mode).then(() =>
+				// `tychicus mode yolo` shows the Yolo warning and asks before it sends this, so Settings won't show it again.
+				(mode === "yolo" ? turnOnYolo() : setPermissionMode(mode)).then(() =>
 					send({ type: "response", clientId: message.clientId, id: message.id, result: { mode } }),
 				);
 				return;
@@ -1051,14 +1187,16 @@ function onHostMessage(message: HostToExt): void {
 						return { tabId: tab.id, url: tab.url, groupId: tab.groupId, options };
 					}),
 					probeUserScripts(),
+					getPermissionMode().catch(() => undefined),
 				])
-					.then(([sessions, perms, panelState, groups, windows, activeTab, userScripts]) =>
+					.then(([sessions, perms, panelState, groups, windows, activeTab, userScripts, mode]) =>
 						send({
 							type: "response",
 							clientId: message.clientId,
 							id: message.id,
 							result: {
 								version: chrome.runtime.getManifest().version,
+								mode,
 								// Old CLIs read only this boolean; newer ones read `userScripts` for the cause.
 								userScriptsApi: userScripts.state === "ready",
 								userScripts,

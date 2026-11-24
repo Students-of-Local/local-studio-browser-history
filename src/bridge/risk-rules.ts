@@ -1,5 +1,5 @@
 /**
- * Auto mode's rule list (docs/decisions.md, D65): which agent actions are risky enough to ask the person first, which
+ * Auto mode's rule list (docs/decisions.md, D67): which agent actions are risky enough to ask the person first, which
  * sites and apps are sensitive, and what no mode allows (password and payment entry). Pure and in one file, so every
  * surface reads the same rules: the extension's bridge, and computer use and VMs when they read the mode.
  *
@@ -45,9 +45,12 @@ export interface ActionFacts {
 	submit?: boolean;
 	/** type and fill: the text, only so a hard limit can see that something is being entered. Never logged. */
 	text?: string;
+	/** The look at the page before the action failed, so the rules can't tell what it does: Auto and Manual ask. */
+	unchecked?: boolean;
 }
 
-export type ActionRule = "send" | "post" | "pay" | "delete" | "account" | "oauth" | "run-file";
+/** "unchecked" is no word rule: the page could not be read before the action, so it asks rather than guess (D67). */
+export type ActionRule = "send" | "post" | "pay" | "delete" | "account" | "oauth" | "run-file" | "unchecked";
 export type SiteClass = "mail" | "bank" | "passwords" | "cloud" | "government" | "health" | "account-pages";
 export type AppClass = "keychain" | "system-settings" | "terminal" | "password-manager";
 export type HardLimit = "password-field" | "payment-field";
@@ -245,6 +248,14 @@ export function actionRisk(f: ActionFacts): Verdict<ActionRule> | undefined {
 	const t = f.target ?? {};
 	const role = squash(t.role);
 	const tool = f.tool;
+	// Fail closed: a commit (a click, Enter, type with submit) Tychicus could not look at first asks, not lets through.
+	// Text entry that commits nothing is no risky action, so it goes on.
+	const commits =
+		tool === "click" ||
+		(tool === "press" && SENDS_FIELD.test((f.key ?? "").trim())) ||
+		(tool === "type" && f.submit === true);
+	if (f.unchecked && commits)
+		return { rule: "unchecked", why: "could not be checked on the page first, so Tychicus can't tell what it does" };
 	if (tool === "navigate") {
 		const u = urlOf(f.url);
 		if (!u) return undefined;
@@ -566,4 +577,22 @@ export function hardLimit(f: ActionFacts): Verdict<HardLimit> | undefined {
 export function isRiskyAction(f: ActionFacts): boolean {
 	if (hardLimit(f) || actionRisk(f)) return true;
 	return f.tool === "navigate" && sensitiveSite(f.url) !== undefined;
+}
+
+/**
+ * Whether the rules need to look at the action's target before it runs: an action they could refuse or ask about.
+ * In Yolo only the hard limits are checked, so only text entry needs a look; a plain key (Tab, an arrow) never does.
+ * The look costs one round trip to the page, so the bridge skips it when this is false.
+ */
+export function needsTarget(
+	tool: string,
+	key: string | undefined,
+	submit: boolean | undefined,
+	yolo: boolean,
+): boolean {
+	const k = (key ?? "").trim();
+	const entersText = tool === "fill" || tool === "type" || (tool === "press" && /^(shift\+)?.$/i.test(k));
+	if (entersText) return true;
+	if (yolo) return false;
+	return tool === "click" || (tool === "press" && SENDS_FIELD.test(k)) || (tool === "type" && submit === true);
 }

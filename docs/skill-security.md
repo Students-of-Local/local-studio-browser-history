@@ -43,7 +43,7 @@ these defenses:
 | `secret-exfiltration` | Printing, posting, saving or returning passwords, keys, tokens, cookies, card numbers; secret environment variables by name (`$OPENAI_API_KEY`); dumping the environment (`printenv`) |
 | `credential-files` | Reading `~/.ssh`, `~/.aws`, `.env`, browser cookie and login stores, keychain dumps |
 | `config-tamper` | Agent settings, hooks, MCP config, shell startup files, cron, launch agents; writing `rsi.json`, `skills-local`, `skill-history`, a harness's skills folder, `AGENTS.md` or `CLAUDE.md` |
-| `safety-bypass` | `--dangerously-*`, `--no-verify`, `tychicus allow-all`, disabling prompts or sandboxes |
+| `safety-bypass` | `--dangerously-*`, `--no-verify`, `tychicus allow-all`, `tychicus mode yolo`, disabling prompts or sandboxes |
 | `encoded-blob` | Base64 or similar strings of 100+ characters |
 | `remote-image` | Any image that isn't a relative path inside the skill, including reference-style images |
 | `suspicious-link` | Plain http, raw IPs, link shorteners, punycode, protocol-relative `//host`, `data:`/`javascript:`/`file:` URLs, credentials in URLs |

@@ -182,6 +182,19 @@ end-to-end tests.
 macOS and Linux run the extension, the CLI and the MCP server. Native app control on Linux is
 not built yet; see [docs/LINUX.md](docs/LINUX.md) for what works there and what is missing.
 
+## Permission modes
+
+One mode decides what agents may do in your browser without asking. Set it in Settings > Agents or with
+`tychicus mode manual|auto|yolo`.
+
+- **Manual**: agents ask before any site you haven't allowed and before any risky action.
+- **Auto** (the default): agents on frontier models open ordinary sites on their own. Every agent asks before mail,
+  banks and other sensitive sites, and before it sends, posts, buys, deletes or changes settings as you.
+- **Yolo**: nothing asks. A one-time warning comes first.
+
+In every mode agents can't type passwords or card numbers, never open Tychicus's own pages, and a remote session is
+never in Yolo. [docs/permissions.md](docs/permissions.md) has the details.
+
 ## More
 
 - [GUIDE.md](GUIDE.md): the full user guide (sessions, skills, library, remote MCP, safety model).

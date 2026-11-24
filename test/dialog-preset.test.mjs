@@ -26,6 +26,8 @@ globalThis.setTimeout = (fn, ms, ...args) => {
 native.startBridge();
 const port = fake.ports[0];
 const SITE = "https://shop.example.com/admin";
+// The Delete and Enter here would ask under Auto (docs/decisions.md, D67); these tests are about the boxes they open.
+await chrome.storage.local.set({ bridge_action_hosts: ["shop.example.com"] });
 
 /** Every answer a box got from Page.handleJavaScriptDialog, in order, with the box it went to. */
 let answers = [];
@@ -47,8 +49,15 @@ const box = (tabId, type, message) =>
 /** What each tab's page does when it is clicked at (x, y) or gets an Enter: it may open boxes, one after another. */
 const programs = new Map();
 const send = chrome.debugger.sendCommand;
+/** What the page says about an action's target (src/browser/page.ts describeTarget), when a test sets it; "fail" fails the look. */
+let targetFacts;
+/** Every input event a test's tabs got, for "nothing went to the page". */
+const inputs = [];
 chrome.debugger.sendCommand = async (target, method, params) => {
 	const tabId = target.tabId;
+	if (targetFacts && method === "Runtime.evaluate" && String(params?.expression).includes("(ref, sel, x, y) =>"))
+		return { result: { value: targetFacts === "fail" ? { ok: false, error: "the look's script crashed" } : { ok: true, value: targetFacts } } };
+	if (method.startsWith("Input.")) inputs.push({ tabId, method, params });
 	if (method === "Page.handleJavaScriptDialog") {
 		await holdAnswer;
 		const w = waiting.get(tabId);
@@ -973,6 +982,194 @@ test("second-S1 (round 2 of the review of PR 230): on_dialog ok never answers a 
 	assert.equal(openDialog(tab)?.type, "beforeunload");
 	await pastGrace();
 	assert.deepEqual(answers.map((x) => x.accept), [false]);
+});
+
+// ---- The permission mode at the bridge (docs/decisions.md, D67): Auto asks before a risky action, Yolo never does,
+// and the hard limits hold in every mode. These run on /admin, an account page, with a target the test describes.
+
+/** The action question the bridge sent a client, once it comes. */
+async function actionAsk(client) {
+	for (let i = 0; i < 400; i++) {
+		const ev = port.sent.find(
+			(m) => m.type === "event" && m.clientId === client && m.event === "permission_request" && m.data.kind === "action" && !m.seen,
+		);
+		if (ev) {
+			ev.seen = true;
+			return ev.data;
+		}
+		await wait(5);
+	}
+	throw new Error(`no action question for ${client}`);
+}
+const actionAsks = (client) =>
+	port.sent.filter((m) => m.type === "event" && m.clientId === client && m.event === "permission_request" && m.data.kind === "action");
+
+function modeTest(t, mode, facts) {
+	setup(t);
+	targetFacts = facts;
+	inputs.length = 0;
+	t.after(async () => {
+		targetFacts = undefined;
+		await chrome.storage.local.set({ permission_mode: "auto", bridge_action_hosts: ["shop.example.com"] });
+	});
+	return chrome.storage.local.set({ permission_mode: mode, bridge_action_hosts: [] });
+}
+
+test("Auto asks before a Delete click; Deny refuses it, says what was not done, and nothing reaches the page", async (t) => {
+	await modeTest(t, "auto", { role: "button", name: "Delete record" });
+	records.deleted = 0;
+	const tab = await agentTab(deletePage);
+	const before = port.sent.length;
+	const call = deliver("c1", "click", { tabId: tab, x: 10, y: 10 });
+	const ask = await actionAsk("c1");
+	assert.equal(ask.action.rule, "delete");
+	assert.equal(ask.action.target, 'click "Delete record"');
+	assert.equal(ask.host, "shop.example.com");
+	assert.equal(ask.timeoutMs, 60_000);
+	const pending = (await chrome.storage.session.get("bridge_pending_requests")).bridge_pending_requests;
+	assert.equal(pending.find((p) => p.requestId === ask.requestId)?.action?.why, ask.action.why, "the side panel lists it");
+	assert.equal(inputs.filter((i) => i.tabId === tab).length, 0, "no input goes out while it waits");
+	assert.equal((await request("permission.respond", { requestId: ask.requestId, decision: "deny" })).result?.accepted, true);
+	const r = await reply(call);
+	assert.equal(r.error?.code, "permission_denied", JSON.stringify(r));
+	assert.match(r.error.message, /^Not done: click "Delete record" on shop\.example\.com deletes or cancels something of yours, and the user said no\. Nothing went to the page\./);
+	assert.equal(records.deleted, 0);
+	assert.equal(inputs.filter((i) => i.tabId === tab).length, 0, "the click never went out");
+	assert.ok(port.sent.length > before);
+});
+
+test("Auto: Allow on this site lets the click go and every later risky action there, without asking", async (t) => {
+	await modeTest(t, "auto", { role: "button", name: "Delete record" });
+	records.deleted = 0;
+	const tab = await agentTab(deletePage);
+	const call = deliver("c1", "click", { tabId: tab, x: 10, y: 10, on_dialog: "ok" });
+	const ask = await actionAsk("c1");
+	await request("permission.respond", { requestId: ask.requestId, decision: "allow_host" });
+	const r = await reply(call);
+	assert.equal(r.error, undefined, JSON.stringify(r.error));
+	assert.equal(records.deleted, 1);
+	assert.deepEqual((await chrome.storage.local.get("bridge_action_hosts")).bridge_action_hosts, ["shop.example.com"]);
+	assert.deepEqual((await chrome.storage.local.get("bridge_allowed_hosts")).bridge_allowed_hosts ?? [], [], "not the site list");
+	await pastGrace();
+	const asked = actionAsks("c1").length;
+	const again = await request("click", { tabId: tab, x: 10, y: 10, on_dialog: "ok" });
+	assert.equal(again.error, undefined, JSON.stringify(again.error));
+	assert.equal(actionAsks("c1").length, asked, "no second question on an allowed site");
+});
+
+test("Auto lets an ordinary click go with no question, and Manual asks before a risky one too", async (t) => {
+	await modeTest(t, "auto", { role: "link", name: "Next page", href: "https://shop.example.com/admin?page=2" });
+	const tab = await agentTab(async () => undefined);
+	const asked = actionAsks("c1").length;
+	const r = await request("click", { tabId: tab, x: 10, y: 10 });
+	assert.equal(r.error, undefined, JSON.stringify(r.error));
+	assert.equal(actionAsks("c1").length, asked);
+	await chrome.storage.local.set({ permission_mode: "manual" });
+	targetFacts = { role: "button", name: "Send" };
+	const call = deliver("c1", "click", { tabId: tab, x: 10, y: 10 });
+	const ask = await actionAsk("c1");
+	assert.equal(ask.action.rule, "send");
+	await request("permission.respond", { requestId: ask.requestId, decision: "allow_once" });
+	assert.equal((await reply(call)).error, undefined);
+	assert.deepEqual((await chrome.storage.local.get("bridge_action_hosts")).bridge_action_hosts, [], "allow once keeps nothing");
+});
+
+test("Auto fails closed: a click whose look at the page failed asks, and nothing goes out until the person answers", async (t) => {
+	await modeTest(t, "auto", "fail");
+	const tab = await agentTab(async () => undefined);
+	const call = deliver("c1", "click", { tabId: tab, x: 10, y: 10 });
+	const ask = await actionAsk("c1");
+	assert.equal(ask.action.rule, "unchecked");
+	assert.match(ask.action.why, /could not be checked/);
+	assert.equal(inputs.filter((i) => i.tabId === tab).length, 0, "no input goes out while it waits");
+	await request("permission.respond", { requestId: ask.requestId, decision: "allow_once" });
+	assert.equal((await reply(call)).error, undefined);
+	assert.ok(inputs.some((i) => i.tabId === tab), "the click went out after Allow once");
+});
+
+test("Yolo: the same Delete click asks nothing", async (t) => {
+	await modeTest(t, "yolo", { role: "button", name: "Delete record" });
+	records.deleted = 0;
+	const tab = await agentTab(deletePage);
+	const asked = actionAsks("c1").length;
+	const r = await request("click", { tabId: tab, x: 10, y: 10, on_dialog: "ok" });
+	assert.equal(r.error, undefined, JSON.stringify(r.error));
+	assert.equal(records.deleted, 1);
+	assert.equal(actionAsks("c1").length, asked);
+	await pastGrace();
+});
+
+test("hard limit in Yolo: a password field is refused, nothing is typed, and the agent is told to hand over", async (t) => {
+	await modeTest(t, "yolo", { role: "textbox", name: "Password", inputType: "password", autocomplete: "current-password" });
+	const tab = await agentTab(async () => undefined);
+	const r = await request("type", { tabId: tab, text: "hunter2" });
+	assert.equal(r.error?.code, "permission_denied", JSON.stringify(r));
+	assert.match(r.error.message, /is a password field\. Tychicus never lets an agent enter passwords or payment details, in any permission mode\./);
+	assert.match(r.error.message, /call tabs_show/);
+	assert.equal(inputs.filter((i) => i.tabId === tab).length, 0, "no key went out");
+	const press = await request("press", { tabId: tab, key: "h" });
+	assert.equal(press.error?.code, "permission_denied", "a single key is text too");
+});
+
+test("hard limit in Yolo: a card number field is refused, by its autocomplete or by a payment frame", async (t) => {
+	await modeTest(t, "yolo", { role: "textbox", name: "Number", autocomplete: "cc-number" });
+	const tab = await agentTab(async () => undefined);
+	const r = await request("type", { tabId: tab, text: "4242424242424242" });
+	assert.equal(r.error?.code, "permission_denied", JSON.stringify(r));
+	assert.match(r.error.message, /is a payment field/);
+	targetFacts = { role: "textbox", name: "", frameUrl: "https://js.stripe.com/v3/elements-inner-card.html" };
+	assert.equal((await request("type", { tabId: tab, text: "4242" })).error?.code, "permission_denied");
+	assert.equal(inputs.filter((i) => i.tabId === tab).length, 0);
+});
+
+test("a remote connector session in Yolo still asks, and can't answer its own question or change the mode", async (t) => {
+	await modeTest(t, "yolo", { role: "button", name: "Delete record" });
+	port.deliver({ type: "client_connected", clientId: "r1", client: { name: "claude", session: "remote-1", remote: true } });
+	const tab = (await request("tabs.create", {}, "r1")).result.tabId;
+	fake.commitNav(tab, SITE);
+	t.after(() => void request("tabs.close", { tabId: tab }, "r1").catch(() => undefined));
+	const call = deliver("r1", "click", { tabId: tab, x: 10, y: 10 });
+	const ask = await actionAsk("r1");
+	assert.equal(ask.action.rule, "delete");
+	const self = await request("permission.respond", { requestId: ask.requestId, decision: "allow_once" }, "r1");
+	assert.equal(self.error?.code, "permission_denied", "a remote caller never answers its own question");
+	const mode = await request("permission.setMode", { mode: "yolo" }, "r1");
+	assert.equal(mode.error?.code, "permission_denied");
+	assert.equal((await request("permission.allow", { host: "evil.example" }, "r1")).error?.code, "permission_denied");
+	// The person says no in the side panel.
+	await request("permission.respond", { requestId: ask.requestId, decision: "deny" });
+	assert.equal((await reply(call)).error?.code, "permission_denied");
+});
+
+test("hard limits in Yolo: a guarded host and Tychicus's own pages are refused", async (t) => {
+	await modeTest(t, "yolo", undefined);
+	const tab = await agentTab(async () => undefined);
+	const id = nextId++;
+	port.deliver({
+		type: "request",
+		clientId: "c1",
+		id,
+		method: "navigate",
+		params: { tabId: tab, url: "http://127.0.0.1:7777/approve" },
+		guardedHosts: ["127.0.0.1:7777"],
+	});
+	const guarded = await reply({ client: "c1", id });
+	assert.equal(guarded.error?.code, "permission_denied", JSON.stringify(guarded));
+	const own = await request("navigate", { tabId: tab, url: `chrome-extension://${chrome.runtime.id}/sidepanel.html` });
+	assert.equal(own.error?.code, "permission_denied", JSON.stringify(own));
+	assert.match(own.error.message, /own pages/);
+});
+
+test("Auto asks before a link that downloads a program and runs it", async (t) => {
+	await modeTest(t, "auto", undefined);
+	await chrome.storage.local.set({ bridge_allowed_hosts: ["downloads.example.net"] });
+	t.after(() => chrome.storage.local.set({ bridge_allowed_hosts: [] }));
+	const tab = await agentTab(async () => undefined);
+	const call = deliver("c1", "navigate", { tabId: tab, url: "https://downloads.example.net/setup.exe" });
+	const ask = await actionAsk("c1");
+	assert.equal(ask.action.rule, "run-file");
+	await request("permission.respond", { requestId: ask.requestId, decision: "deny" });
+	assert.match((await reply(call)).error?.message ?? "", /downloads a program and runs it, and the user said no/);
 });
 
 // Last: it takes the native host away, and nothing after it could reach the bridge.

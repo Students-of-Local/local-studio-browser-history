@@ -2187,7 +2187,7 @@ changes.
 took 16.1 ms, a 2,000-post scroll batch 14.7 ms, and a recheck of 4,000 posts after the filters changed 16.4 ms. The
 test fails over 50 ms per batch.
 
-## D65. One permission mode for all of Tychicus: Manual, Auto (default), Yolo (Claude, 2026-11-24)
+## D67. One permission mode for all of Tychicus: Manual, Auto (default), Yolo (Claude, 2026-11-24)
 
 **Context.** The owner asked for three modes across browser, computer use and VMs: "Auto by default, they can select
 Yolo and they can select manual" (#33, 2026-11-18). 1.4.0's default, "Match the model" (D60), lets an agent on a
@@ -2223,11 +2223,26 @@ The rules read only what `read_page` shows and what a page can't hide from the e
 autocomplete, a link's href, a control's form and dialog). They are a net for an agent's mistakes, not a sandbox:
 a page can name its Send button something else. Manual is the mode for a person who wants every new site asked.
 
-The ask is the one Manual uses for a site: MCP elicitation in the agent's harness, and "Waiting for your answer" in
-Settings > Agents. For an action it offers allow once, allow on this site (risky actions there stop asking; a
-separate list from the sites an agent may open) and deny. The answer has 60 seconds, inside the bridge's 90-second
-limit for a call; no answer is a no, and the tool result says what was not done and how the person can allow it.
-`TYCHICUS_AUTO_ALLOW` answers site questions only, never an action question, as it never answered an upload.
+The ask is the one Manual uses for a site: MCP elicitation in the agent's harness, "Waiting for your answer" in
+Settings > Agents, and the same card above the chat in the side panel. For an action it offers allow once, allow on
+this site (risky actions there stop asking; a separate list from the sites an agent may open, with Remove in
+Settings > Agents) and deny. The answer has 60 seconds, inside the bridge's 90-second limit for a call; no answer is
+a no, and the tool result says what was not done and what to tell the person. A hard limit's result tells the agent
+to leave the field empty, call `tabs_show` and hand over. `TYCHICUS_AUTO_ALLOW` answers site questions only, never an
+action question, as it never answered an upload.
+
+The bridge checks an input before it goes out (`HandlerContext.guard`: click, type, press, fill, and each step of
+`actions`), looking at the target beside the change report's look so the check adds no round trip of its own. In
+Yolo only text entry gets the look (for the hard limits). If the look fails, Manual and Auto fail closed: a commit (a
+click, Enter, `type` with submit) is `unchecked` and asks, as a risky one does; text entry that commits nothing goes on. A look that failed because the ref is gone, covered or never given out
+asks nothing, since the input refuses that target itself. A navigation to a program (`.exe`, `.dmg`, `.pkg` and the like) asks in Manual
+and Auto. The side panel's own agent is the person's and is not checked.
+
+A remote session says so in its hello (`remote`, set by the CLI for `--connector` and scoped sessions). The bridge
+runs it in Auto when the mode is Yolo, and refuses `permission.respond`, `permission.allow` and `permission.setMode`
+from it, so it can't answer its own question or widen its own reach. `tychicus mode yolo` (and the older
+`allow-all`) needs a person at a terminal and shows the warning first, as `claude-allow on` does; the skill lint
+flags `tychicus mode yolo` in a skill as a safety bypass.
 
 Migration: a stored `ask` is Manual, `allow_all` is Yolo. Nothing stored on an existing install is Auto with a
 one-time side panel notice naming the change and a one-click way back to Manual, since that person never chose
@@ -2243,4 +2258,9 @@ action is one the person never saw; a false flag costs one click and "allow on t
 
 **Proof.** `test/permission-modes.test.mjs` (each migration, the notice, a fresh install), `test/risk-rules.test.mjs`
 (each rule) and `evals/market/risky-actions`: 86 labeled actions, 59 risky, recall 100% held as the `riskyActions`
-floor in `evals/market/floors.json`; 0 of 27 safe actions flagged.
+floor in `evals/market/floors.json`; 0 of 27 safe actions flagged. At the bridge, `test/dialog-preset.test.mjs`: Auto
+asks before a Delete click and Deny keeps it off the page, allow on this site stores the host, Manual asks too, Yolo
+asks nothing, and in Yolo a password field, a card field, a guarded host and the extension's own pages are refused
+while a remote session still asks and can't answer itself. `test/permission-guard.test.mjs` (sensitive sites in Auto,
+the remote cap, when the target is looked at, the Yolo warning once, the mode on every Runs step, the side panel card)
+and `cli/test/mode.test.mjs` (`tychicus mode`, Yolo refused without a terminal, the doctor row).

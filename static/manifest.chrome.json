@@ -3,7 +3,7 @@
 	"minimum_chrome_version": "141",
 	"name": "Tychicus",
 	"description": "Lets AI agents work in your browser, in their own tab group, while you keep working.",
-	"version": "1.4.0",
+	"version": "1.1.4",
 	"key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA21eAXbfHcAxTmH4I/a0OD1ga+ZnemJrA3mw517aa5BniZvExkYcLI5/p/OFiNUZ4aU/uxoDuHS7qrjoOBKlOd7nNcJEG1WWqa+Rexb7ILygX/F6f2Qi5Jx7zcOWOlCrNlYK3vOAUvbeBy+/OWvA7L3MHRkOT3jeRxEcIoB/rkSDnNF0SI2dV7GbdPdOU/pnzNHKV5VptNWCjjPaZMxrJ/di/Ge9vekrnDZJmxTAHPbyd+bBi5gZKaHNICr5PdeCFPdmAQnpFs/79nGN3SCi70l8tzLyeX7GXkJIuSt5tPuhQX9bC4VTIq7QclFmKBvj+/6Ni0RfF7x4BTpPwk5KHDQIDAQAB",
 	"action": {
 		"default_title": "Open Tychicus"

@@ -411,6 +411,8 @@ export function createMcpServer(options: McpServerOptions = {}): { server: McpSe
 		named: !options.session && choice.named === true,
 		project: "project" in choice ? choice.project : undefined,
 		...(options.model ? { tier: options.model.tier, ...(options.model.model ? { model: options.model.model } : {}) } : {}),
+		// A scoped session counts as remote here too (as for skills and files): Yolo never widens it (D67).
+		...(options.remote || allowedTools ? { remote: true } : {}),
 		...tracer?.client,
 		onEvent: (event, data) => {
 			if (event === "permission_request") void handlePermission(data);
@@ -425,6 +427,7 @@ export function createMcpServer(options: McpServerOptions = {}): { server: McpSe
 		const requestId = String(data.requestId);
 		const host = String(data.host);
 		if (data.kind === "upload") return handleUploadQuestion(requestId, host, data);
+		if (data.kind === "action") return handleActionQuestion(requestId, host, data);
 		let decision: "allow_once" | "allow_host" | "deny" = "deny";
 		if (envVar("AUTO_ALLOW") === "1") {
 			await client.call("permission.respond", { requestId, decision: "allow_once" }).catch(() => undefined);
@@ -456,6 +459,47 @@ export function createMcpServer(options: McpServerOptions = {}): { server: McpSe
 			process.stderr.write(
 				`[tychicus] ${host} needs approval: run \`${COMMAND_NAME} allow ${host}\`, use the side panel (Settings > Agents), or set TABKYRA_AUTO_ALLOW=1.\n`,
 			);
+		}
+		await client.call("permission.respond", { requestId, decision }).catch(() => undefined);
+	}
+
+	/**
+	 * Auto and Manual ask before a risky action under the person's sign-in (D67): a send, post, payment, delete,
+	 * settings change, OAuth grant or a program run. TABKYRA_AUTO_ALLOW does not answer it: that setting is for sites.
+	 * A client that can't show questions leaves it to the side panel, which shows it above the chat.
+	 */
+	async function handleActionQuestion(requestId: string, host: string, data: Record<string, unknown>): Promise<void> {
+		const action = (data.action ?? {}) as { target?: unknown; why?: unknown };
+		const what = `${String(data.agent || "The browser agent")} wants to ${String(action.target || "act")} on ${host}. This ${String(action.why || "acts as you")}.`;
+		if (!server.server.getClientCapabilities()?.elicitation) {
+			process.stderr.write(`[tychicus] ${what} Answer in the Tychicus side panel.\n`);
+			return;
+		}
+		let decision: "allow_once" | "allow_host" | "deny" = "deny";
+		try {
+			const answer = await server.server.elicitInput(
+				{
+					message: `Tychicus: ${what} Allow?`,
+					requestedSchema: {
+						type: "object",
+						properties: {
+							decision: {
+								type: "string",
+								title: "Decision",
+								enum: ["allow_once", "allow_host", "deny"],
+								enumNames: ["Allow once", `Allow on ${host} from now on`, "Deny"],
+							},
+						},
+						required: ["decision"],
+					},
+				},
+				{ timeout: Number(data.timeoutMs) || 60000 },
+			);
+			const d = answer.action === "accept" ? (answer.content as { decision?: string } | undefined)?.decision : undefined;
+			if (d === "allow_once" || d === "allow_host") decision = d;
+		} catch {
+			// The question came back unusable: that is not a yes. The side panel can still answer until the ask times out.
+			return;
 		}
 		await client.call("permission.respond", { requestId, decision }).catch(() => undefined);
 	}

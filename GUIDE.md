@@ -498,10 +498,13 @@ Tailscale and a real Cloudflare tunnel hasn't been recorded yet
 
 Your browser is signed in as you, so the defaults are conservative.
 
-- **The agent asks before it opens a new site.** Claude Code and Codex show the prompt
-  inline; otherwise answer it in the side panel under Settings > Agents. Run
-  `tychicus allow <host>` to pre-approve a site, `tychicus allow-all` to skip prompts and
-  `tychicus ask` to turn them back on.
+- **The permission mode decides what asks.** In Auto, the default, agents on frontier
+  models open ordinary sites, and every agent asks before mail, banks and other sensitive
+  sites and before it sends, posts, buys, deletes or changes settings as you. Claude Code
+  and Codex show the question inline; it also shows above the chat in the side panel. Run
+  `tychicus allow <host>` to pre-approve a site, and `tychicus mode manual|auto|yolo` to
+  change the mode ([docs/permissions.md](docs/permissions.md)). In every mode agents can't
+  type passwords or card numbers.
 - **Page text is data, not instructions.** The MCP server tells every agent that page
   content is untrusted and that it must ask you before acting under your sign-in:
   sending, posting, buying, deleting or changing settings. It also tells the agent never

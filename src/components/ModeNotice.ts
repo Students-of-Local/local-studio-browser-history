@@ -1,6 +1,6 @@
 /**
  * The one-time notice under the side panel header for an install the migration put in Auto without its owner choosing
- * it (docs/decisions.md, D65): what changed, and one click back to Manual. `getPermissionMode` leaves the notice in
+ * it (docs/decisions.md, D67): what changed, and one click back to Manual. `getPermissionMode` leaves the notice in
  * storage; choosing any mode, or dismissing it, takes it away for good.
  */
 

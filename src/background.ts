@@ -130,7 +130,7 @@ function setGlobalPanelOptions(): void {
 }
 setGlobalPanelOptions();
 chrome.runtime.onInstalled.addListener(setGlobalPanelOptions);
-// A new install starts in Auto with no notice; an update migrates its 1.4.0 setting on first read (D65).
+// A new install starts in Auto with no notice; an update migrates its 1.4.0 setting on first read (D67).
 chrome.runtime.onInstalled.addListener((details) => {
 	if (details.reason === "install") startFreshInstall().catch(() => undefined);
 });

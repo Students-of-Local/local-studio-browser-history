@@ -8,7 +8,7 @@ request and held by floors that only go up. Rival tools are measured by the same
 | `tasks` | The study's ten browser tasks, solved by script through the MCP tools, checked by what each page received | passes out of 30 (10 tasks x 3 reps) | [`tasks/`](tasks/README.md) |
 | `speed` | Median ms on t02's form over 9 runs: `click` (the Phone radio), `fill` (the Full name box), `firstText` (navigate plus the first `get_page_text`) | ms, lower is better | `tasks/loop.mjs`, `measureSpeed` |
 | `dom-bench` | 54 hand-written hard pages (frames, shadow roots, stale refs, drag and drop, ...) | passes out of 54, plus its own per-case floor | [`cli/test/dom-bench`](../../cli/test/dom-bench) |
-| `riskyActions` | Auto mode's rule list on labeled agent actions (#33, D65): of the risky ones, how many it asks about | risky actions caught; the floor is all of them | [`risky-actions/`](risky-actions/README.md) |
+| `riskyActions` | Auto mode's rule list on labeled agent actions (#33, D67): of the risky ones, how many it asks about | risky actions caught; the floor is all of them | [`risky-actions/`](risky-actions/README.md) |
 
 The e2e suites stay in CI's `e2e` job: they prove the bridge works, and score nothing.
 

@@ -31,6 +31,8 @@ export interface RunStep {
 	ms: number;
 	/** The change report, when the step returned one. */
 	report?: string;
+	/** The permission mode the step ran under ("manual", "auto" or "yolo"), so a run can be audited (D67). */
+	mode?: string;
 }
 
 export interface Run {
@@ -155,6 +157,7 @@ export interface StepInput {
 	result?: unknown;
 	error?: string;
 	ms: number;
+	mode?: string;
 }
 
 /** Record one step: the run starts if it is new, and is running again if it had ended. */
@@ -178,6 +181,7 @@ export function addStep(log: RunsLog, id: string, s: StepInput, now: number): Ru
 				result: stepResult(s.result, s.error),
 				ms: Math.max(0, Math.round(s.ms)),
 				...(report ? { report } : {}),
+				...(s.mode ? { mode: s.mode } : {}),
 			});
 			if (run.steps.length > MAX_STEPS) {
 				run.dropped += run.steps.length - MAX_STEPS;

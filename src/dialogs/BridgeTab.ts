@@ -7,6 +7,7 @@ import { live } from "lit/directives/live.js";
 import { hostCommand } from "../bridge/host-command.js";
 import {
 	allowHost,
+	getActionHosts,
 	getAllowedHosts,
 	getPendingRequests,
 	getPermissionMode,
@@ -15,14 +16,18 @@ import {
 	type PendingRequest,
 	type PermissionMode,
 	recordDecision,
+	revokeActionsOn,
 	revokeHost,
 	setBridgeEnabled,
 	setPermissionMode,
+	turnOnYolo,
+	yoloWarned,
 } from "../bridge/permissions.js";
 import type { UserScriptsStatus } from "../bridge/protocol.js";
 import { listSessions } from "../browser/session.js";
 import { probeUserScripts, userScriptsHiddenHelp } from "../browser/userscripts-status.js";
 import { isPointerEnabled, isVeilEnabled, setPointerEnabled, setVeilEnabled } from "../browser/veil-shared.js";
+import { askCard } from "../components/AgentAsks.js";
 import { agentSetupPromptButton } from "../components/AgentSetupPrompt.js";
 import { Toast } from "../components/Toast.js";
 import { runningFromStore } from "../update/store-install.js";
@@ -33,13 +38,17 @@ import { saveSwitch } from "./switch-save.js";
  * Code, Codex through `tabkyra mcp`), which hosts they may open, and pending
  * permission requests.
  */
-/** The three modes as Settings > Agents offers them (D65), in this order. */
+/** The three modes as Settings > Agents offers them (D67), in this order. */
 export const MODE_CHOICES: ReadonlyArray<{ mode: PermissionMode; title: string; help: string }> = [
-	{ mode: "manual", title: "Manual", help: "agents ask before opening any site you haven't allowed" },
+	{
+		mode: "manual",
+		title: "Manual",
+		help: "agents ask before opening any site you haven't allowed, and before they send, post, buy, delete or change settings as you",
+	},
 	{
 		mode: "auto",
 		title: "Auto (default)",
-		help: "agents on frontier models open ordinary sites; small or unknown models ask first",
+		help: "agents on frontier models open ordinary sites; small or unknown models ask first. Every agent asks before mail, banks and other sensitive sites, and before it sends, posts, buys, deletes or changes settings as you",
 	},
 	{
 		mode: "yolo",
@@ -48,8 +57,9 @@ export const MODE_CHOICES: ReadonlyArray<{ mode: PermissionMode; title: string; 
 	},
 ];
 
-const fileSize = (n: number) =>
-	n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} bytes`;
+/** Shown once, the first time a person picks Yolo here (or `tychicus mode yolo` asks them). */
+export const YOLO_WARNING =
+	"Yolo turns off every ask: agents open any site and send, post, buy, delete and change settings as you without asking. Password and payment fields, Tychicus's own pages and remote sessions stay limited.";
 
 @customElement("bridge-tab")
 export class BridgeTab extends SettingsTab {
@@ -58,6 +68,9 @@ export class BridgeTab extends SettingsTab {
 	@state() private pointer = true;
 	@state() private mode: PermissionMode = "auto";
 	@state() private hosts: string[] = [];
+	@state() private actionHosts: string[] = [];
+	/** Yolo was picked and its warning is up, waiting for Turn on Yolo or Cancel. */
+	@state() private yoloAsk = false;
 	@state() private pending: PendingRequest[] = [];
 	@state() private sessions: Array<{ id: string; label: string; tabs: number }> = [];
 	@state() private newHost = "";
@@ -96,6 +109,7 @@ export class BridgeTab extends SettingsTab {
 		this.pointer = await isPointerEnabled();
 		this.mode = await getPermissionMode();
 		this.hosts = await getAllowedHosts();
+		this.actionHosts = await getActionHosts();
 		this.pending = await getPendingRequests();
 		this.sessions = (await listSessions())
 			.filter((s) => s.id.startsWith("bridge-"))
@@ -168,6 +182,29 @@ export class BridgeTab extends SettingsTab {
 				${this.userScriptsNote ? line(this.userScriptsNote) : ""}
 			</div>
 		`;
+	}
+
+	/** Picking a mode saves it, except Yolo the first time: its warning comes first (D67). */
+	private async pickMode(mode: PermissionMode) {
+		if (mode === "yolo" && !(await yoloWarned())) {
+			this.yoloAsk = true;
+			this.requestUpdate();
+			return;
+		}
+		this.yoloAsk = false;
+		await setPermissionMode(mode);
+		await this.load();
+	}
+
+	private async confirmYolo() {
+		this.yoloAsk = false;
+		await turnOnYolo();
+		await this.load();
+	}
+
+	private cancelYolo() {
+		this.yoloAsk = false;
+		this.requestUpdate();
 	}
 
 	private async decide(request: PendingRequest, decision: "allow_once" | "allow_host" | "deny") {
@@ -249,13 +286,21 @@ export class BridgeTab extends SettingsTab {
 					<div class="text-sm font-medium text-foreground">Permission mode</div>
 					${MODE_CHOICES.map(
 						(m) => html`<label class="flex items-start gap-2 text-sm text-foreground cursor-pointer">
-							<input type="radio" name="bridge-mode" value=${m.mode} .checked=${this.mode === m.mode} @change=${async () => {
-								await setPermissionMode(m.mode);
-								await this.load();
-							}} />
+							<input type="radio" name="bridge-mode" value=${m.mode} .checked=${live(this.mode === m.mode)} @change=${() => this.pickMode(m.mode)} />
 							<span><span class="font-medium">${m.title}</span>: ${m.help}</span>
 						</label>`,
 					)}
+					${
+						this.yoloAsk
+							? html`<div class="p-3 rounded-lg border border-destructive/50 bg-destructive/10 space-y-2" role="alert" data-testid="yolo-warning">
+								<div class="text-sm text-foreground">${YOLO_WARNING}</div>
+								<div class="flex gap-2 flex-wrap">
+									${Button({ size: "sm", variant: "destructive", children: "Turn on Yolo", onClick: () => this.confirmYolo() })}
+									${Button({ size: "sm", variant: "outline", children: "Cancel", onClick: () => this.cancelYolo() })}
+								</div>
+							</div>`
+							: ""
+					}
 				</div>
 
 				${
@@ -263,33 +308,7 @@ export class BridgeTab extends SettingsTab {
 						? html`
 							<div class="space-y-2">
 								<div class="text-sm font-medium text-foreground">Waiting for your answer</div>
-								${this.pending.map(
-									(p) => html`
-										<div class="p-3 rounded-lg border border-orange-500/40 bg-orange-500/10 space-y-2">
-											${
-												p.upload
-													? html`
-														<div class="text-sm text-foreground"><span class="font-medium">${p.clientName}</span> wants to upload ${p.upload.files.length === 1 ? "a file from this computer" : `${p.upload.files.length} files from this computer`} to <span class="font-mono">${p.host}</span></div>
-														<div class="text-xs text-muted-foreground break-all">${p.upload.files.map((f) => `${f.name} (${fileSize(f.bytes)})`).join(", ")}</div>
-														<div class="text-xs text-muted-foreground">Only the name is shown here. The agent may be acting on what a page told it, so don't take its word for where the file is: say yes only if you asked for this file.</div>
-														<div class="flex gap-2 flex-wrap">
-															${Button({ size: "sm", variant: "default", children: "Upload this once", onClick: () => this.decide(p, "allow_once") })}
-															${Button({ size: "sm", variant: "outline", children: "Deny", onClick: () => this.decide(p, "deny") })}
-														</div>
-													`
-													: html`
-														<div class="text-sm text-foreground"><span class="font-medium">${p.clientName}</span> wants to open <span class="font-mono">${p.host}</span></div>
-														<div class="text-xs text-muted-foreground break-all">${p.url}</div>
-														<div class="flex gap-2 flex-wrap">
-															${Button({ size: "sm", variant: "default", children: "Allow site", onClick: () => this.decide(p, "allow_host") })}
-															${Button({ size: "sm", variant: "secondary", children: "Allow once", onClick: () => this.decide(p, "allow_once") })}
-															${Button({ size: "sm", variant: "outline", children: "Deny", onClick: () => this.decide(p, "deny") })}
-														</div>
-													`
-											}
-										</div>
-									`,
-								)}
+								${this.pending.map((p) => askCard(p, (d) => this.decide(p, d)))}
 							</div>
 						`
 						: ""
@@ -334,6 +353,31 @@ export class BridgeTab extends SettingsTab {
 					</div>
 					${this.newHostError ? html`<div class="text-xs text-destructive" role="alert">${this.newHostError}</div>` : ""}
 				</div>
+
+				${
+					this.actionHosts.length > 0
+						? html`<div class="space-y-2">
+							<div class="text-sm font-medium text-foreground">Sites where agents act without asking</div>
+							<div class="text-xs text-muted-foreground">You chose "Allow on this site" for these: agents send, post, buy, delete and change settings there without asking.</div>
+							${this.actionHosts.map(
+								(h) => html`
+									<div class="flex items-center justify-between gap-2 text-sm">
+										<span class="font-mono text-foreground">${h}</span>
+										${Button({
+											size: "sm",
+											variant: "ghost",
+											children: "Remove",
+											onClick: async () => {
+												await revokeActionsOn(h);
+												await this.load();
+											},
+										})}
+									</div>
+								`,
+							)}
+						</div>`
+						: ""
+				}
 
 				${this.renderUserScripts()}
 

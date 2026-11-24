@@ -1,4 +1,4 @@
-// Auto mode's rule list (src/bridge/risk-rules.ts, docs/decisions.md D65): one test per rule, the actions no rule may
+// Auto mode's rule list (src/bridge/risk-rules.ts, docs/decisions.md D67): one test per rule, the actions no rule may
 // flag, and the labeled set's recall (evals/market/risky-actions).
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -84,6 +84,16 @@ test("run-file: a link to a program, a navigation to one, and a Download and ins
 		assert.equal(ruleOf({ tool: "navigate", url: `https://dl.example.com/tool.${ext}` }), "run-file", ext);
 	assert.equal(ruleOf(click("Download and install")), "run-file");
 	assert.equal(ruleOf({ tool: "click", url: "https://arxiv.org/abs/1", target: { role: "link", name: "Download PDF", href: "https://arxiv.org/pdf/1" } }), undefined, "a document is not a program");
+});
+
+test("an action whose page look failed fails closed: it asks, whatever the control would have been", () => {
+	const at = { url: "https://app.example.com/", unchecked: true };
+	for (const f of [{ tool: "click" }, { tool: "press", key: "Enter" }, { tool: "type", submit: true }])
+		assert.equal(ruleOf({ ...f, ...at }), "unchecked", JSON.stringify(f));
+	// Text entry that commits nothing is no risky action; a navigation reads no control.
+	for (const f of [{ tool: "fill" }, { tool: "type" }, { tool: "press", key: "b" }, { tool: "press", key: "Tab" }, { tool: "navigate" }])
+		assert.equal(ruleOf({ ...f, ...at }), undefined, JSON.stringify(f));
+	assert.ok(!/[A-Z_]{3}/.test(actionRisk({ tool: "click", unchecked: true }).why));
 });
 
 test("every action rule has a reason a person reads", () => {
