@@ -166,8 +166,29 @@ test("a wrong key reads unauthorized, and the connector stays up instead of retr
 	const connector = start(t, dir, ["remote", "relay", "run"]);
 	const file = join(dir, "relay-state.json");
 	await until(() => existsSync(file) && JSON.parse(readFileSync(file, "utf8")).state === "unauthorized", `unauthorized (${connector.out()})`);
-	assert.match(connector.out(), /refused the key/);
+	await until(() => /refused the key/.test(connector.out()), `the log line (${connector.out()})`);
+	// The first retry after a drop waits about a second, so one that retried would have by now.
+	await new Promise((r) => setTimeout(r, 2_500));
 	assert.equal(connector.child.exitCode, null, "still running");
+	assert.equal(connector.out().match(/refused the key|Connecting to the relay/g).length, 2, `one try (${connector.out()})`);
 	assert.equal(relay.connects, 0);
 	assert.equal(mod.readRelayStatus(file).state, "unauthorized");
+});
+
+test("a state file that can't be written never stops the connector", { skip: noWebSocket }, async (t) => {
+	const relay = await standIn(KEY);
+	t.after(relay.close);
+	const dir = join(root, "unwritable");
+	mkdirSync(dir, { mode: 0o700 });
+	writeFileSync(join(dir, "file"), "");
+	const config = { publicUrl: relay.url, port: await freePort(), route: "relay", relay: { name: "tychicus-relay", key: KEY } };
+	const lines = [];
+	let stop;
+	const ran = mod.runRelay({ config, stateFile: join(dir, "file", "relay-state.json"), log: (l) => lines.push(l), until: new Promise((r) => (stop = r)) });
+	t.after(() => stop());
+	await until(() => relay.conn !== null, `connected (${lines.join("\n")})`);
+	await until(() => lines.some((l) => l.startsWith("Connected")), lines.join("\n"));
+	assert.ok(lines.some((l) => /^Couldn't save the state in /.test(l)), lines.join("\n"));
+	stop();
+	assert.equal(await ran, 0);
 });
