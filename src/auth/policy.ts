@@ -25,7 +25,7 @@ export const API_BILLING_NOTE = "API use is billed by the provider to the accoun
 export class RemovedSignInError extends Error {
 	constructor(provider: string) {
 		super(
-			`${provider}: subscription sign-in was removed from Local Studio because it used another app's identity, which the provider's terms forbid. Add an API key in Settings > Providers instead.`,
+			`${provider}: subscription sign-in was removed from the extension because it used another app's identity, which the provider's terms forbid. Add an API key in Settings > Providers instead.`,
 		);
 		this.name = "RemovedSignInError";
 	}

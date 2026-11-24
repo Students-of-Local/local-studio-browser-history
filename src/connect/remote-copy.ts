@@ -119,7 +119,7 @@ export const STEP_COPY = {
 	},
 	tailscale_operator: {
 		title: "Let your user control Tailscale",
-		body: "Tailscale refused because your user isn't its operator. Run this command once in a terminal; the extension never runs sudo. This page moves on by itself.",
+		body: "Tailscale refused because your user isn't its operator. Run this command once in a terminal; Local Studio never runs sudo. This page moves on by itself.",
 		action: { kind: "copy_command", label: "Copy the command" },
 		waits: true,
 	},
@@ -129,7 +129,7 @@ export const STEP_COPY = {
 	 */
 	tailscale_operator_check: {
 		title: "Let your user control Tailscale",
-		body: "Tailscale refused because your user isn't its operator. Run this command once in a terminal; the extension never runs sudo. Then press Check again.",
+		body: "Tailscale refused because your user isn't its operator. Run this command once in a terminal; Local Studio never runs sudo. Then press Check again.",
 		action: { kind: "open_funnel", label: "Check again" },
 	},
 	launcher: {
@@ -210,7 +210,7 @@ export const STEP_COPY = {
 	},
 	cloudflare_name_refused: {
 		title: "Pick another name",
-		body: "Cloudflare can't use that name for a new tunnel: it's taken, or it isn't a valid name. It never replaces a record.",
+		body: "Cloudflare can't use that name for a new tunnel: it's taken, or it isn't a valid name. Local Studio never replaces a record.",
 		action: { kind: "turn_on", label: "Turn on" },
 	},
 	cloudflare_dns: {
@@ -409,13 +409,13 @@ export const ASSISTANT_STEPS = [
 
 /** The line `remote setup` prints after the three assistants. */
 export const APPROVAL_STEP =
-	"Each opens Local Studio's approval page: check the name, tick what it may do, type the connect code and press Allow.";
+	"Each opens the approval page: check the name, tick what it may do, type the connect code and press Allow.";
 
 /** The result screen, in the order a person acts. */
 export const RESULT_COPY = {
 	assistantsStep: "1. In your assistant, add a custom connector",
 	addressStep: "2. Paste this address",
-	codeStep: "3. On Local Studio's approval page, type this code",
+	codeStep: "3. On the approval page, type this code",
 	addressLabel: "Connector URL",
 	codeLabel: "Connect code",
 	expiresIn: "Expires in",

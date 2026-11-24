@@ -44,7 +44,7 @@ export const MODE_CHOICES: ReadonlyArray<{ mode: PermissionMode; title: string; 
 	{
 		mode: "yolo",
 		title: "Yolo",
-		help: "nothing asks: agents open any site except Local Studio's own pages, its approval page and its local services",
+		help: "nothing asks: agents open any site except the extension's own pages, its approval page and the helper's local services",
 	},
 ];
 
@@ -152,7 +152,7 @@ export class BridgeTab extends SettingsTab {
 					${line("Page scripts are slower than they could be: one more switch is needed in the browser.")}
 					${details(
 						status.apiPresent
-							? 'The permission is granted, but "Allow user scripts" is off. Turn it on at chrome://extensions > Local Studio > Details.'
+							? 'The permission is granted, but "Allow user scripts" is off. Turn it on at chrome://extensions > Tychicus > Details.'
 							: userScriptsHiddenHelp(runningFromStore(), hostCommand()),
 					)}
 				`;

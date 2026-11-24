@@ -324,7 +324,7 @@ export class ConnectTab extends SettingsTab {
 								})
 							: html`<p class="text-xs text-muted-foreground">This device can't make codes. Make one on your hub, or on a device linked as a manager.</p>`
 					}
-					${canMint ? html`<p class="text-xs text-muted-foreground">Paste the URL into the assistant's connector settings, then type this code on Local Studio's approval page.</p>` : nothing}
+					${canMint ? html`<p class="text-xs text-muted-foreground">Paste the URL into the assistant's connector settings, then type this code on the approval page.</p>` : nothing}
 				</div>
 			`,
 		);

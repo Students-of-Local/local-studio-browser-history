@@ -104,7 +104,7 @@ test("Allowed sites stores a hostname, because permissions compare hostnames onl
 test("Always allow names what stays refused", () => {
 	const bridge = read("src/dialogs/BridgeTab.ts");
 	assert.doesNotMatch(bridge, /agents can open any site\n/);
-	assert.match(bridge, /any site except Local Studio's own pages, its approval page and its local services/);
+	assert.match(bridge, /any site except the extension's own pages, its approval page and the helper's local services/);
 });
 
 test("a costs load failure shows an error, not an empty range", () => {

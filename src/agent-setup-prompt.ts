@@ -43,7 +43,7 @@ export function agentSetupPrompt(version: string, command = "tychicus"): string 
    - Any MCP client: a stdio server named "tychicus" that runs the full path of the command you use (for a release install, ${RELEASE_PROGRAM}) with the argument "mcp". JSON configs need the full path, not ~.
    - pi has no MCP client: run ${command} pi-extension instead.
 5. Install the skills: ${command} skill install
-   If this harness reads AGENTS.md instead of skill folders: cd back to the directory step 1 printed (my project, not a Local Studio folder); if you aren't sure it's my project's root, ask me. If its AGENTS.md already has a "## Browser: Tychicus" section, leave it as it is. Otherwise run ${command} skill print >> AGENTS.md
+   If this harness reads AGENTS.md instead of skill folders: cd back to the directory step 1 printed (my project, not ~/tychicus-src or ~/tychicus-release); if you aren't sure it's my project's root, ask me. If its AGENTS.md already has a "## Browser: Tychicus" section, leave it as it is. Otherwise run ${command} skill print >> AGENTS.md
 6. Run ${command} doctor and fix anything it reports with the command it prints.
 7. Restart or reload MCP servers if this harness needs it, then call the status tool of the MCP server named tychicus. Tell me whether it says connected.
 
@@ -74,7 +74,7 @@ export function remoteSetupPrompt(version: string, command = "tychicus"): string
 4. Run: ${command} token approval-code
    Show me the code and the connector URL it prints (the URL ends in /mcp). The code works once, for 10 minutes.
 5. Run ${command} remote status (${command} hub status on a hub) and tell me what each line says.
-6. Tell me to add the connector URL as a custom connector in claude.ai (Settings > Connectors), ChatGPT (Settings > Apps & Connectors) or grok.com (grok.com/connectors), and to type the code on Local Studio's approval page when it asks.
+6. Tell me to add the connector URL as a custom connector in claude.ai (Settings > Connectors), ChatGPT (Settings > Apps & Connectors) or grok.com (grok.com/connectors), and to type the code on the approval page when it asks.
 
 ${CLOSING}`;
 }

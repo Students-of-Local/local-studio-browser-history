@@ -18,6 +18,7 @@ import {
 import {
 	countdown,
 	helperOutOfDateMessage,
+	malformedCodeMessage,
 	parseTunnelProgress,
 	safeHelpUrl,
 	safeSignInUrl,
@@ -377,8 +378,7 @@ export class RemoteFlow extends LitElement {
 		this.minting = true;
 		try {
 			const made = await connectApprovalCode();
-			if (!validApprovalCode(made))
-				throw new Error("The helper sent a code this page can't read. Update the browser extension.");
+			if (!validApprovalCode(made)) throw new Error(malformedCodeMessage());
 			this.code = { code: made.code, expiresAt: made.expiresAt };
 			this.codeProblem = undefined;
 			this.now = Date.now();
