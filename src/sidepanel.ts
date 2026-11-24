@@ -1780,6 +1780,7 @@ async function initApp() {
 			});
 
 			renderApp();
+			void watchModeNotice(renderApp).catch(() => {});
 			void watchBridgeQuestions(renderApp).catch(() => {});
 			void watchHandbacks(renderApp).catch(() => {});
 			void watchRuns(renderApp).catch(() => {});

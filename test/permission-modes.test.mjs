@@ -252,5 +252,7 @@ test("the side panel shows the notice once, and its button switches to Manual", 
 	assert.equal(typeof modeNotice(), "symbol", "the card is gone (lit's nothing)");
 	const panel = read("src/sidepanel.ts");
 	assert.match(panel, /\$\{updateNotice\(\)\}\s*\$\{modeNotice\(\)\}/, "drawn under the update notice");
-	assert.match(panel, /watchModeNotice\(renderApp\)/);
+	const [, restored, fresh] = panel.split("thinkingLevel: sessionData.thinkingLevel,").flatMap((part, i) => (i ? part.split("// No session - create new agent") : [part]));
+	assert.match(restored, /watchModeNotice\(renderApp\)/, "a restored chat shows it too");
+	assert.match(fresh, /watchModeNotice\(renderApp\)/);
 });
