@@ -1842,8 +1842,13 @@ test("the in-use veil: drawn over the agent's page, unseen by every read and scr
 		assert.ok(await inPage(target, VEIL_PROBE), "the veil did not come back after the screenshot");
 		await new Promise((r) => setTimeout(r, 400));
 		const direct = await cdp(target.webSocketDebuggerUrl, "Page.captureScreenshot", { format: "png", fromSurface: true });
-		const [r2, , b2] = await pixel(direct.data, "image/png", 1, Math.round(height / 2));
-		assert.ok(b2 - r2 > 40, `the control capture shows no veil, so the check above proves nothing: ${[r2, b2]}`);
+		const [r2, g2, b2] = await pixel(direct.data, "image/png", 1, Math.round(height / 2));
+		// The glow takes the session's tab group color, any of Chrome's nine, so the control only has to fail the
+		// white test the screenshot passed above.
+		assert.ok(
+			Math.min(r2, g2, b2) <= 235,
+			`the control capture shows no veil, so the check above proves nothing: ${[r2, g2, b2]}`,
+		);
 
 		// The agent clicks right where the Take over button is: the click reaches the page, and the tab stays the agent's.
 		const point = await takeOverPoint(tabId);
