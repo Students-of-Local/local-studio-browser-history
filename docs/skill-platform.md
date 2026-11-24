@@ -281,8 +281,9 @@ router runs only inside the judge's sandboxed child process.
    skills are indexed and removed ones don't break the build, and CI checks the judge
    indexed as many skills as `skills/` holds. It fails when the pull request:
    - removed or relabeled a case from either case file. A relabel passes only when
-     `accepted-drops.json` records the rename with the exact old and new names, the new
-     skill is in `skills/`, and the case is still there under the new name:
+     `accepted-drops.json` records the rename with the exact old and new names, the old
+     skill is gone from `skills/`, the new one is there and new to the base branch, and the
+     case is still there under the new name. The new name keeps the old one's floor:
      `{"renamed": [{"from": "old-skill", "to": "new-skill", "reason": "..."}]}`;
    - lowered a skill's value in `baseline.json` below the base branch's, or dropped it,
      without an accepted drop;

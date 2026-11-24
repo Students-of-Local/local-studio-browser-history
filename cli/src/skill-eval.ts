@@ -485,10 +485,15 @@ export function runBaseCheck(
 	const gates: Gate[] = [];
 	const names = new Set(skills.map((s) => s.name));
 	const key = (c: EvalCase) => `${c.skill}\u0000${c.task}`;
-	// A base case may change its label only by a rename the pull request records, with the exact old and new names, to a
-	// skill its skills/ has; the case must still be there under the new name. Anything else is a removed case.
+	const baseBaseline = base.baseline === undefined ? undefined : parseBaseline(base.baseline);
+	// A base case may change its label only by a rename the pull request records, with the exact old and new names: the
+	// old skill is gone from skills/, the new one is there and is new to the base, so cases can't be moved between two
+	// skills. The case must still be there under the new name. Anything else is a removed case.
 	const renamedTo = new Map<string, string>();
-	for (const r of parseRenamed(head.drops)) if (names.has(r.to)) renamedTo.set(r.from, r.to);
+	for (const r of parseRenamed(head.drops)) {
+		const measured = baseBaseline?.accuracy ?? {};
+		if (names.has(r.to) && !names.has(r.from) && measured[r.to] === undefined && measured[r.from] !== undefined) renamedTo.set(r.from, r.to);
+	}
 	const missing: string[] = [];
 	let moved = 0;
 	for (const [label, baseText, headText] of [
@@ -514,7 +519,6 @@ export function runBaseCheck(
 				: "every base case is still there",
 	});
 
-	const baseBaseline = base.baseline === undefined ? undefined : parseBaseline(base.baseline);
 	// A skill the base measures must still exist, or be listed as removed on purpose: deleting
 	// a folder would otherwise erase its cases' coverage without a trace.
 	const removedOk = new Set(parseRemoved(head.drops).map((r) => r.skill));
@@ -545,7 +549,9 @@ export function runBaseCheck(
 	});
 	gates.push({ gate: "accepted drops", ok: invalid.length === 0, detail: invalid.length ? `invalid entries: ${invalid.join("; ")}` : added.length ? `${added.length} added, each a skill's new baseline below the base` : "none added" });
 	const acceptedValue = new Map(added.filter((d) => !invalid.some((i) => i.startsWith(`${d.skill} `))).map((d) => [d.skill, d.value]));
+	// A renamed skill keeps its floor under the new name.
 	const lowered = Object.entries(baseBaseline?.accuracy ?? {})
+		.map(([name, value]) => [renamedTo.get(name) ?? name, value] as const)
 		.filter(([name]) => name === "none" || names.has(name))
 		.filter(([name, value]) => {
 			const now = headBaseline.accuracy[name];
