@@ -43,6 +43,7 @@
   and 0 of the 27 safe ones are flagged. Decision D67. Issue #33. Tests: `test/risk-rules.test.mjs` (one per rule).
 
 ### Changed
+- A site skill's domain patterns are matched by a small matcher of our own (`src/storage/stores/domain-match.ts`) whose time is bounded by the pattern and the address, and a pattern over 256 characters or past a skill's first 100 matches nothing. `*`, `**` and `?` mean what they did; `{a,b}`, `[ab]` and `!(a)` are now plain text, so list each address instead. The `minimatch` dependency is gone. Test: `test/transcript.test.mjs`.
 - In Auto, an agent on a frontier model now asks before it opens a sensitive site (mail, a bank or payments, a password
   manager, a cloud console, a government or health site, a site's account settings pages), unless your allowed sites
   cover it. A sensitive site's frame on another page isn't read without that either. Where a clicked link or a redirect
