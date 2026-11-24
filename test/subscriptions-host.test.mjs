@@ -5,14 +5,14 @@
 import assert from "node:assert/strict";
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { request as httpRequest } from "node:http";
+import { createServer, request as httpRequest } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
 import { CopilotAuth, loadSdk } from "../cli/src/subscriptions/copilot.ts";
 import { CopilotTurns, transcript } from "../cli/src/subscriptions/copilot-turns.ts";
 import { SubscriptionService } from "../cli/src/subscriptions/service.ts";
-import { Siwc } from "../cli/src/subscriptions/siwc.ts";
+import { FETCH_TIMEOUT_MS, Siwc } from "../cli/src/subscriptions/siwc.ts";
 import { streamSimple } from "@mariozechner/pi-ai";
 import { explainSubscriptionError, siwcRequestBody } from "../src/subscriptions/constants.ts";
 
@@ -755,4 +755,90 @@ test("Copilot: an SDK that is installed but broken says so, not 'not installed'"
 	} finally {
 		delete process.env.TABKYRA_COPILOT_SDK_DIR;
 	}
+});
+
+// ---- requests that get no answer ---------------------------------------------------------------
+
+/** A server that takes a request and never answers, the URLs it got, and AbortSignal.timeout at 1/100 of its length. */
+async function silentServer(t) {
+	const asked = [];
+	const server = createServer((req) => asked.push(req.url));
+	await new Promise((r) => server.listen(0, "127.0.0.1", r));
+	t.after(() => {
+		server.closeAllConnections();
+		server.close();
+	});
+	const real = AbortSignal.timeout.bind(AbortSignal);
+	const timeouts = [];
+	t.mock.method(AbortSignal, "timeout", (ms) => {
+		timeouts.push(ms);
+		return real(ms / 100);
+	});
+	const base = `http://127.0.0.1:${server.address().port}`;
+	/** `openai.fetch`, with the named URLs sent to the silent server. */
+	const silence = (openai, ...urls) => (url, init) => (urls.some((u) => String(url).endsWith(u)) ? fetch(`${base}${new URL(url).pathname}`, init) : openai.fetch(url, init));
+	return { asked, timeouts, silence };
+}
+
+const DISCOVERY = "/.well-known/openid-configuration";
+
+test("SIWC: a sign-in ends when discovery or the signing keys never answer", { timeout: 10_000 }, async (t) => {
+	const { asked, silence } = await silentServer(t);
+	for (const path of [DISCOVERY, "/.well-known/jwks.json"]) {
+		const openai = fakeOpenAI();
+		const dir = tempDir();
+		const { pending } = await signedIn(dir, {}, { ...openai, fetch: silence(openai, path) });
+		await assert.rejects(pending.result, { name: "TimeoutError" });
+		assert.equal(asked.at(-1), path);
+		assert.equal(new Siwc({ dir }).status().registered, false);
+	}
+});
+
+test("SIWC: sign-out with a silent server clears the tokens, reports no revoke and frees the lock in time", { timeout: 10_000 }, async (t) => {
+	const { timeouts, silence } = await silentServer(t);
+	for (const path of [DISCOVERY, "/oauth/revoke"]) {
+		const openai = fakeOpenAI();
+		const dir = tempDir();
+		await (await signedIn(dir, {}, openai)).pending.result;
+		const siwc = new Siwc({ fetch: silence(openai, path), dir });
+		timeouts.length = 0;
+		assert.deepEqual(await siwc.signOut(), { revoked: false });
+		assert.equal(siwc.status().signedIn, false);
+		assert.doesNotMatch(readFileSync(join(dir, "chatgpt", `${ISSUED}.json`), "utf8"), /access_token|refresh_token|id_token/);
+		assert.throws(() => statSync(join(dir, "chatgpt", `${ISSUED}.json.lock`)), /ENOENT/);
+		// The requests run under the file lock, which another host may take after 30 s.
+		assert.deepEqual(timeouts, [10_000], "one deadline for all of sign-out");
+	}
+});
+
+test("proxy: the models request gives up after the timeout, and at once when its caller goes", { timeout: 10_000 }, async (t) => {
+	const dir = tempDir();
+	const openai = fakeOpenAI();
+	await (await signedIn(dir, {}, openai)).pending.result;
+	const { asked, timeouts, silence } = await silentServer(t);
+	const siwc = new Siwc({ fetch: openai.fetch, dir });
+	let signal;
+	const models = silence(openai, "/v1/models");
+	const service = new SubscriptionService({
+		fetch: (url, init) => {
+			signal = init.signal;
+			return models(url, init);
+		},
+		siwc,
+		copilot: new CopilotAuth({ dir }),
+	});
+	const { url, secret } = await service.startProxy();
+	const headers = { Authorization: `Bearer ${secret}` };
+	assert.equal((await get(`${url}/chatgpt/v1/models`, headers)).status, 500);
+	assert.deepEqual(timeouts, [FETCH_TIMEOUT_MS]);
+	assert.equal(signal.reason.name, "TimeoutError");
+
+	t.mock.restoreAll(); // the full 15 s, longer than this test may take
+	const req = httpRequest(`${url}/chatgpt/v1/models`, { headers }).on("error", () => undefined);
+	req.end();
+	await until(() => asked.length === 2);
+	req.destroy();
+	await until(() => signal.aborted);
+	assert.equal(signal.reason.name, "AbortError", "the caller's going, not the timeout");
+	await service.stop();
 });

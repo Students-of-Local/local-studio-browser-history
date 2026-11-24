@@ -167,7 +167,7 @@ test("Settings > Providers reads top to bottom: Free mode, API keys with their s
 test("subscription commands are copyable blocks, and a failed copy is a toast that can't overwrite or outlive the section's notice", () => {
 	const source = readFileSync(new URL("../src/subscriptions/SubscriptionsSection.ts", import.meta.url), "utf8");
 	assert.match(source, /this\.command\("Install the Copilot SDK", `\$\{hostCommand\(\)\} copilot-sdk install`\)/);
-	assert.match(source, /this\.command\("Set up Tychicus", `\$\{hostCommand\(\)\} setup`\)/);
+	assert.match(source, /this\.command\("Set up the Local Studio helper", `\$\{hostCommand\(\)\} setup`\)/);
 	assert.doesNotMatch(source, /run <code>/, "no bare inline commands left");
 	const copy = source.slice(source.indexOf("private copy("), source.indexOf("private command("));
 	assert.match(copy, /Toast\.error\(/);
