@@ -183,9 +183,9 @@ export class PrivacyTab extends SettingsTab {
 					${explained(
 						"Fills in prices and limits for models your API keys list. It sends no key, chat or page.",
 						"What is fetched",
-						`When you have an API key for a provider that lists its models, the Local Studio extension downloads the public model
+						`When you have an API key for a provider that lists its models, Local Studio downloads the public model
 						table at https://models.dev/api.json when its copy is a day old or missing, to fill in names, prices and context
-						limits the provider leaves out. models.dev sees your IP address, as any site does. Off: models.dev is never asked; the extension uses the provider's own
+						limits the provider leaves out. models.dev sees your IP address, as any site does. Off: models.dev is never asked; Local Studio uses the provider's own
 						details, its built-in table and a copy it downloaded earlier, if any.`,
 					)}
 				</div>
