@@ -33,7 +33,7 @@ case it is in (`desktop: "atspi-only (GNOME)"`).
 
 ## Who may use what
 
-The person's access mode and app list live in `hands.json` in the helper's config folder (`TYCHICUS_CONFIG_DIR`, else
+The person's access mode and app list live in `hands.json` in the Local Studio helper's config folder (`TYCHICUS_CONFIG_DIR`, else
 `$XDG_CONFIG_HOME/tychicus`, else `~/.config/tychicus`), read on every call so a change applies at once:
 
 ```json
