@@ -14,7 +14,8 @@ chats through its Eukhe daemon, on your local models and the subscriptions you s
 without the extension holding any API key (see below). The rest of the CLI and the outside-agent
 tools work as they did in Polycarp.
 
-The command, the MCP server and the folders still use an earlier name, `tychicus`.
+The command, the MCP server, the native host, the services, the folders and this repository still
+use an earlier name, `tychicus`.
 
 ## How the panel reaches models
 
@@ -35,7 +36,7 @@ tool steps back to the panel. Stop sends Abort to that session.
   private folder, and only reads there run unasked (Eukhe's `shell.autoEffects`, for that session
   alone); the panel says no to every command and write. If Local Studio won't take the limit, the
   chat does not start.
-- **Only this extension.** The host answers only the pinned Local Studio extension ID and exits for
+- **Only this extension.** The host answers only the pinned extension ID and exits for
   any other caller before it reads a message.
 - **When Local Studio is not running**, a chat on it says so and how to fix it (start Local
   Studio, or run `eukhe` in a terminal) within a few seconds, instead of waiting. Local Studio
@@ -76,13 +77,13 @@ release's own `tychicus install --release`, which checks again and registers the
 no sudo and refuses to run as root or administrator unless you pass `--allow-root`. On macOS and
 Linux it links `~/.local/bin/tychicus` to the installed release, so `tychicus` works in a new
 terminal; it says so when `~/.local/bin` isn't on your PATH or another `tychicus` comes first, and
-asks before replacing a `tychicus` there that isn't Local Studio's (without a terminal it leaves it and
+asks before replacing a `tychicus` there that isn't the helper's (without a terminal it leaves it and
 prints the `ln -sf` command).
 `TYCHICUS_VERSION=1.2.3` installs that release instead of the latest, and options after
 `sh -s --` go to the installer: `curl -fsSL <address above> | sh -s -- --local-studio`. Releases
 are built for macOS on Apple silicon, Linux x64 and Windows x64.
 
-Then load the extension as step 3 below says. Once Local Studio is listed on the Chrome Web Store,
+Then load the extension as step 3 below says. Once the extension is listed on the Chrome Web Store,
 that copy works too: its welcome screen shows the command for your computer with a Copy button,
 and shows the helper connected once the command has run.
 
@@ -140,10 +141,10 @@ claude mcp add --scope user tychicus -- tychicus mcp
 ```
 
 The extension ID (`igjafcggmahiboobmnhfkndodphjdnhg`) comes from the manifest key and
-differs from Polycarp's, and the native host is `com.tychicus.browser`, so Local Studio and Polycarp
+differs from Polycarp's, and the native host is `com.tychicus.browser`, so the extension and Polycarp
 can be installed side by side without either one answering for the other.
 
-### Local Studio keeps to its own files
+### The helper keeps to its own files
 
 The helper never writes to Polycarp's files. It has its own config folder (`~/.config/tychicus`),
 data and cache folders, launchers (`tychicus`, `tychicus-host`), native host
@@ -218,12 +219,12 @@ into a Polycarp folder. Tunnel credentials under a Polycarp folder are copied; o
 hostname, tunnel and sign-ins are kept, so the connector needs no change in claude.ai, ChatGPT or grok.com. Nothing under
 Polycarp's folders is changed or deleted.
 
-Then it swaps each service in turn: Polycarp's stops, Local Studio's starts and must answer (serve: `GET /mcp` on this
+Then it swaps each service in turn: Polycarp's stops, the helper's starts and must answer (serve: `GET /mcp` on this
 computer returns 401), or Polycarp's comes back, the copy is undone and the command exits 1 with the reason. On success
 Polycarp's plists move to `~/Library/LaunchAgents/retired-polycarp/` (Linux: its units are disabled, not deleted), and it
-reads back which services are loaded. It refuses when Local Studio already has remote state; `--force` replaces it after
-saving Local Studio's files to a `pre-import-<time>` folder. `tychicus install` prints a hint to run it when Polycarp has a
-`remote.json` and Local Studio doesn't.
+reads back which services are loaded. It refuses when the helper already has remote state; `--force` replaces it after
+saving the helper's files to a `pre-import-<time>` folder. `tychicus install` prints a hint to run it when Polycarp has a
+`remote.json` and the helper doesn't.
 
 ## Moved from Polycarp
 
