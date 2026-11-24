@@ -448,7 +448,7 @@ public enum PanelDetector {
 
     /// The refusal for a window that is or holds an Open or Save panel. The same words wherever it is refused.
     public static func refusal(window: UInt32, app: String) -> HandsError {
-        HandsError(.needsSandbox, "window \(window) of \(app) is or holds an Open or Save panel",
+        HandsError(.needsSandbox, "window \(window) of \(app) is or holds an Open or Save panel, or can't be read now",
                    suggestion: "Agents never drive an Open or Save panel. Wait for it to close, or open the file with `computer_open <app> <file in the handoff folder>`.", retry: .never)
     }
 }
