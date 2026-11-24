@@ -16,10 +16,10 @@ export async function showWaiting<K extends keyof Lists>(kind: K, list: Lists[K]
 	const { questions, handbacks } = lists;
 	const count = questions.length + handbacks.length;
 	const title = handbacks.length
-		? `Tychicus: ${handbacks[0].agent ?? "An agent"} needs you (${handbacks[0].reason ?? "your turn"})`
+		? `Local Studio: ${handbacks[0].agent ?? "An agent"} needs you (${handbacks[0].reason ?? "your turn"})`
 		: questions.length
-			? `Tychicus: ${questions[0].agentName ?? "An agent"} is asking you a question`
-			: "Tychicus";
+			? `Local Studio: ${questions[0].agentName ?? "An agent"} is asking you a question`
+			: "Local Studio";
 	const action = chrome.action;
 	try {
 		await action.setBadgeBackgroundColor?.({ color: "#1b4ed8" });

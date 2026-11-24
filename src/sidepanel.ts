@@ -509,7 +509,9 @@ async function copyCurrentChat() {
 		return;
 	}
 	try {
-		await navigator.clipboard.writeText(chatToMarkdown(messages, currentTitle || "Tychicus chat", agent.state.model));
+		await navigator.clipboard.writeText(
+			chatToMarkdown(messages, currentTitle || "Local Studio chat", agent.state.model),
+		);
 		Toast.success("Chat copied as Markdown");
 	} catch {
 		Toast.error("Couldn't copy the chat");
@@ -1094,7 +1096,7 @@ const createAgent = async (initialState?: Partial<AgentState>, shouldSave = true
 			if (isLocalStudioProvider(provider)) {
 				if (await probeLocalStudio()) return true;
 				Toast.error(
-					"Local Studio isn't running. Start Local Studio, or run eukhe in a terminal, then send again.",
+					"The Local Studio app isn't running. Start it, or run eukhe in a terminal, then send again.",
 					8000,
 				);
 				return false;
@@ -1170,7 +1172,7 @@ const createAgent = async (initialState?: Partial<AgentState>, shouldSave = true
 			const reserved = await reserveRun(markBusyForSend);
 			if (!reserved) {
 				throw new Error(
-					"Tychicus is installing an update and reloads in a moment. Send it again after the reload.",
+					"Local Studio is installing an update and reloads in a moment. Send it again after the reload.",
 				);
 			}
 			if (note && agent) agent.appendMessage(note);
@@ -1407,7 +1409,7 @@ async function saveTitle(value: string) {
 }
 
 function titleArea() {
-	if (!currentTitle) return html`<span class="text-sm font-semibold tracking-tight select-none">Tychicus</span>`;
+	if (!currentTitle) return html`<span class="text-sm font-semibold tracking-tight select-none">Local Studio</span>`;
 	if (isEditingTitle)
 		return html`<div class="flex-1 min-w-0" data-title-input>
 			${Input({
@@ -1656,7 +1658,7 @@ async function initApp() {
 	}
 	watchHandoff(currentWindowId, (tabId) => {
 		// A reload would end the run under way; the user stops it first.
-		if (agent?.state.isStreaming) Toast.info("Tychicus is working. Stop this run, then give the tab again.");
+		if (agent?.state.isStreaming) Toast.info("Local Studio is working. Stop this run, then give the tab again.");
 		else newTaskOnTab(tabId);
 	});
 

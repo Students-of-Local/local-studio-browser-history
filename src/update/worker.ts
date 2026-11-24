@@ -214,7 +214,7 @@ async function advanceOnce(): Promise<void> {
 		if (pending.step !== "reload") await release();
 		const what =
 			pending.step === "reload"
-				? "Reloading Tychicus"
+				? "Reloading the extension"
 				: pending.action === "rollback"
 					? "Rolling back"
 					: "Ready. Installing";
@@ -237,7 +237,7 @@ async function advanceOnce(): Promise<void> {
 		if (!sendUpdateAction(pending.action as UpdateAction)) {
 			await chrome.storage.local.set({ [PENDING_KEY]: pending });
 			await release();
-			await setProgress(pending.action, "waiting", "Waiting for the Tychicus native host to connect.");
+			await setProgress(pending.action, "waiting", "Waiting for the Local Studio native host to connect.");
 			later();
 			return;
 		}
@@ -245,19 +245,19 @@ async function advanceOnce(): Promise<void> {
 		return;
 	}
 	await setPending({ ...pending, reloadedFrom: BUILD?.id ?? "unknown" });
-	await setProgress(pending.action, "reloading", "Reloading Tychicus");
+	await setProgress(pending.action, "reloading", "Reloading the extension");
 	chrome.runtime.reload();
 	// A reload ends this worker at once. Still here a few seconds later means it didn't happen:
 	// let runs start again and say so, rather than hold everything back.
 	const timer = setTimeout(() => {
 		// Try once more. A second miss is reported and runs may start again: holding everything
 		// back for a reload that doesn't come helps nobody.
-		void setProgress(pending.action, "waiting", "Tychicus hasn't reloaded yet; trying again.");
+		void setProgress(pending.action, "waiting", "The extension hasn't reloaded yet; trying again.");
 		chrome.runtime.reload();
 		const again = setTimeout(() => {
 			void release();
 			void chrome.storage.local.remove(PENDING_KEY);
-			void setProgress(pending.action, "failed", "Tychicus didn't reload. Reload it on chrome://extensions.");
+			void setProgress(pending.action, "failed", "The extension didn't reload. Reload it on chrome://extensions.");
 		}, RELOAD_GRACE_MS);
 		(again as { unref?: () => void }).unref?.();
 	}, RELOAD_GRACE_MS);
@@ -284,7 +284,7 @@ async function giveUpOnSent(at: number): Promise<void> {
 		await setProgress(
 			pending.action,
 			"waiting",
-			"No result from the native host. Reloading Tychicus to run what is installed.",
+			"No result from the native host. Reloading the extension to run what is installed.",
 		);
 		await queue("reload", pending.action, {
 			auto: pending.auto,
@@ -324,7 +324,7 @@ async function resume(): Promise<void> {
 			await setProgress(
 				pending.action,
 				"failed",
-				"Tychicus reloaded but still runs the old build, so the browser loads it from another folder. Check the folder on chrome://extensions.",
+				"The extension reloaded but still runs the old build, so the browser loads it from another folder. Check the folder on chrome://extensions.",
 			);
 			return;
 		}
@@ -332,11 +332,11 @@ async function resume(): Promise<void> {
 			await setProgress(
 				pending.action,
 				"failed",
-				`${pending.failure} Tychicus reloaded and runs ${describeBuild(BUILD)}.`,
+				`${pending.failure} The extension reloaded and runs ${describeBuild(BUILD)}.`,
 			);
 			return;
 		}
-		await setProgress(pending.action, "done", `Tychicus reloaded and runs ${describeBuild(BUILD)}.`);
+		await setProgress(pending.action, "done", `The extension reloaded and runs ${describeBuild(BUILD)}.`);
 		return;
 	}
 	// The host follows a running updater after a restart and reports its result.
@@ -370,7 +370,7 @@ async function maybeAutoUpdate(): Promise<void> {
 	}
 	// Only an offer actually sent counts as tried.
 	await chrome.storage.local.set({ [AUTO_KEY]: offerKey(status) });
-	await setProgress("update", "checking", "Updating automatically (Tychicus is idle)");
+	await setProgress("update", "checking", "Updating automatically (the extension is idle)");
 }
 
 /** When the host last sent a frame for each action, for the no-reply check. */
@@ -391,7 +391,7 @@ async function onProgress(progress: HostUpdateProgress): Promise<void> {
 			auto: pending?.auto,
 			failure:
 				progress.phase === "failed"
-					? progress.message.replace(/ Reloading Tychicus to run what is installed\.$/, "")
+					? progress.message.replace(/ Reloading (?:the extension|Tychicus) to run what is installed\.$/, "")
 					: undefined,
 		});
 	}
@@ -408,7 +408,7 @@ function expectReply(action: UpdateAction): void {
 		await setProgress(
 			action,
 			"failed",
-			`The native host didn't answer. It may be older than this extension: update the CLI (${hostCommandText("update")}, or rebuild cli/ in a checkout), then reload Tychicus.`,
+			`The native host didn't answer. It may be older than this extension: update the CLI (${hostCommandText("update")}, or rebuild cli/ in a checkout), then reload the extension.`,
 		);
 		const pending = await getPending();
 		if (pending?.step === "sent" && pending.action === action) await chrome.storage.local.remove(PENDING_KEY);
@@ -477,7 +477,7 @@ function startPanelAction(
 			await setProgress(
 				action,
 				"failed",
-				`The Tychicus native host isn't connected. Run ${hostCommandText("doctor")} in a terminal.`,
+				`The Local Studio native host isn't connected. Run ${hostCommandText("doctor")} in a terminal.`,
 			);
 			sendResponse({ ok: false, message: "No native host" });
 			return;

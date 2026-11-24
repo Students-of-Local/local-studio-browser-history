@@ -258,7 +258,7 @@ export function startFeedFilter(
 		const box = doc.createElement("div");
 		box.className = "b";
 		box.setAttribute("role", "region");
-		box.setAttribute("aria-label", "Tychicus feed filter");
+		box.setAttribute("aria-label", "Local Studio feed filter");
 		const label = doc.createElement("button");
 		label.type = "button";
 		label.className = "show";

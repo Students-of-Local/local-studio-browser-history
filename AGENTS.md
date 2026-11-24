@@ -43,8 +43,8 @@ to make it pass.
 A test that passed proves the logic, not what the user sees. Say which one you ran.
 
 ## Names that keep the old name
-The product is Tychicus: the manifest name, toolbar title, side panel, settings, onboarding, debug page, errors and the
-helper's output all say so, and `tychicus <command>` is the command the text gives. `test/product-name.test.mjs` fails
+The product is Local Studio: the manifest name, toolbar title, side panel, settings, onboarding and debug page say so.
+Tool and model text and the helper's output still say Tychicus (issue #104), and `tychicus <command>` is the command the text gives. `test/product-name.test.mjs` fails
 when "Tabkyra" appears in a user-visible string, when "Polycarp" does outside text about the Polycarp app or a legacy name (its `KEPT` list, or a line marked `product-name allowlist`; a `KEPT` rule or `POLYCARP_ALLOW` file that excuses no line fails it too), and when a renamed
 identifier below comes back anywhere but its named fallback.
 

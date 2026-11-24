@@ -101,7 +101,7 @@ export function addEntry(log: BugEntry[], error: unknown, now = new Date()): Bug
 /** The report text the user reviews and edits before anything is shared. */
 export function reportText(version: string, log: BugEntry[], userAgent: string): string {
 	return [
-		`Tychicus ${version}`,
+		`Local Studio ${version}`,
 		`Browser: ${redact(userAgent)}`,
 		"",
 		"What were you doing?",

@@ -268,7 +268,7 @@ function presetFailedError(tabId: number, dialog: PageDialog, cancelled: boolean
 	}
 	return new BridgeError(
 		ERR.INTERRUPTED,
-		`${box}, but on_dialog's ${asked} did not reach it, and it closed without an answer Tychicus saw. ` +
+		`${box}, but on_dialog's ${asked} did not reach it, and it closed without an answer Local Studio saw. ` +
 			"Read the page (read_page) to see what happened before you act again.",
 		"extension",
 	);
