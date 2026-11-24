@@ -104,7 +104,8 @@ and shows the helper connected once the command has run.
    the native host with each Chromium browser it finds, then points `release` at the new version
    and copies the extension to the fixed folder `~/.local/share/tychicus/extension`. An upgrade
    never deletes a version a running host or MCP server was started from; the old folder is
-   removed by a later install, once nothing runs from it. Add `--local-studio` to also install the
+   removed by a later install, once nothing runs from it. On a Mac it also copies the computer-use helper,
+   `tychicus-hands`, to `~/.local/bin` (`hands/mac/README.md` says what to allow in Accessibility). Add `--local-studio` to also install the
    Local Studio plugins and their Eukhe tool server; `--dry-run` lists what it would write and
    writes nothing.
 3. Load the extension: open `chrome://extensions`, turn on Developer mode, choose **Load

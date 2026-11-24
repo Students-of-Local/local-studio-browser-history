@@ -48,6 +48,17 @@ that could show another window (one stacked over it on X11, anything on a wlroot
 too. An app an agent starts gets a D-Bus session bus of its own, so the person's later launches never reach it. `lend` and `return`
 answer `needs_lend` as everywhere. Details, desktops and tests: `hands/linux/README.md`.
 
+### The Mac helper
+
+`hands/mac` is Polycarp's hands code in a process of its own, one arm64 file with the engine linked in. A release
+carries it in the darwin archive as `bin/tychicus-hands`, and `tychicus install --release` copies it to
+`~/.local/bin/tychicus-hands` (step 3 above). It is signed ad hoc with the hardened runtime and not notarized: no
+Developer ID yet. macOS matches a program signed ad hoc by its hash, so a person who allowed the helper itself in
+Accessibility allows it again after each update; a grant to the app it runs under (Terminal, say) is unaffected.
+Without the grant it answers `hands/grants` (below) and every window verb with the program macOS checks and where to
+allow it. Access is Default, or Read Only (`defaults write tychicus-hands agentAccessMode read_only`); there are no
+consent sheets yet, so nothing widens it. Details: `hands/mac/README.md`.
+
 ## Transport
 
 - stdio, JSON-RPC 2.0, one message per line (UTF-8, `\n`), both ways. Nothing but replies on stdout; logs go to stderr.
@@ -82,6 +93,26 @@ never answers with a connector name.
 ### `ping`
 
 Result `{}`.
+
+### `hands/grants` (optional)
+
+Result `{"missing": [Missing, ...]}`: the OS grants the helper lacks right now, asked of the OS on each call. Empty when
+it has them. Each entry:
+
+```json
+{
+  "grant": "accessibility",
+  "message": "macOS hasn't allowed Terminal to use Accessibility, so tychicus-hands can't read or act on windows",
+  "suggestion": "Ask the person to open System Settings > Privacy & Security > Accessibility and turn on Terminal (/System/Applications/Utilities/Terminal.app). ...",
+  "program": { "name": "Terminal", "path": "/System/Applications/Utilities/Terminal.app" }
+}
+```
+
+`computer_status` asks it once the tools are listed and, when something is missing, answers with each `message` and
+`suggestion` instead of "available", so the agent can tell the person exactly what to allow. `program` is the program
+the OS checks the grant against (on a Mac, the process responsible for the helper), and is optional. A helper without
+the method answers `-32601` (Polycarp's, the Linux helper), and Tychicus reads that as nothing missing. The Mac helper
+implements it.
 
 ### `tools/list`
 
@@ -266,3 +297,6 @@ managing verbs and lending refused).
 - The Linux helper runs it in CI against its own static binary in a headless desktop (Xvfb with openbox, and headless
   sway), at Full, Default and Read Only, beside `cli/test/hands-linux-live.test.mjs`, which drives every verb on a GTK
   fixture (`.github/workflows/hands-linux.yml`).
+- The Mac helper runs it in CI against the signed release build (`hands/mac/scripts/package.sh`) on a macOS runner, at
+  Default and Read Only (`.github/workflows/hands-mac.yml`). The runner gives it no Accessibility grant, so window verbs
+  answer `permission_denied`: that run proves the wire and the cap, not acting on windows.
