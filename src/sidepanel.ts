@@ -117,7 +117,6 @@ import { panelPageTools, registerPageToolRenderers } from "./tools/page-tools.js
 import { createReplTool } from "./tools/repl/repl.js";
 import { BrowserJsRuntimeProvider, NavigateRuntimeProvider } from "./tools/repl/runtime-providers.js";
 import { seedDefaultSkills, seedStamp } from "./tools/seed-skills.js";
-import { syncCustomProviderCorsRules } from "./utils/custom-provider-cors.js";
 import { chatToMarkdown } from "./utils/export-chat.js";
 import * as port from "./utils/port.js";
 import "./utils/i18n-extension.js";
@@ -1632,10 +1631,6 @@ async function initApp() {
 	const stored = await chrome.storage.local.get("showJsonMode");
 	const showJsonModeEnabled = (stored.showJsonMode as boolean) || false;
 	setShowJsonMode(showJsonModeEnabled);
-
-	// Reconcile CORS rules for any configured custom providers (dynamic DNR rules
-	// don't ship in the static manifest, so make sure they exist after a reload).
-	syncCustomProviderCorsRules().catch((err) => console.error("Failed to sync custom provider CORS rules:", err));
 
 	// Get current window ID for filtering tab events
 	const currentWindow = await chrome.windows.getCurrent();
