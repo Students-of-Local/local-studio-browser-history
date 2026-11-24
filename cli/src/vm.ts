@@ -45,7 +45,7 @@ import { releaseBase, repoRoot } from "./paths.ts";
 import { COMMAND_NAME } from "./self.ts";
 
 /** Must match `version` in vm/mac/Sources/tychicus-vm/main.swift; a different helper is rebuilt. */
-export const HELPER_VERSION = "0.1.1";
+export const HELPER_VERSION = "0.2.1";
 
 /**
  * Debian 13 generic for arm64, pinned by release and SHA-512 from Debian's SHA512SUMS. Not genericcloud: its kernel

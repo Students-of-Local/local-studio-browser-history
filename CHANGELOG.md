@@ -22,8 +22,9 @@
   with the virtualization entitlement. The guest is Debian 13 arm64, pinned by SHA-512, on an APFS clone, set up by
   cloud-init with no users and no SSH, and reached through a vsock agent. The first boot saves a ready point (machine
   state plus a disk clone); `reset` restores it, `down` saves the session and `up` resumes it. A gate checks power, RAM,
-  disk (5 GB at least) and load before `up`. `vm shot` saves the guest's console
-  framebuffer as PNG. Decision D66. Tests: `cli/test/vm.test.mjs`.
+  disk (5 GB at least) and load before `up`. `vm shot` saves the guest's console framebuffer as PNG.
+  `scripts/vm-bench.mjs` measures it against the #28 targets (a rerun of D66's numbers is owed).
+  Decision D66. Tests: `cli/test/vm.test.mjs`.
 - Agents can now filter a site's feed for you, by topic or account, on every visit. Ask "hide every post about crypto
   on x.com" and the new `site_filter` MCP tool saves words, phrases, `/regex/` terms and account handles for a site; posts that match are hidden
   with a class and a stylesheet (never removed), new ones too as you scroll, and a count on the page ("12 hidden by your

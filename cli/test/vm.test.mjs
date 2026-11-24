@@ -11,6 +11,7 @@ import { Readable } from "node:stream";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { existingHelper, gateProblems, lockGuest, MIN_FREE_DISK, parsePmset, parseVmArgs, parseVmStat, RAM_HEADROOM, request, startFlags, userData, writeSparse } from "../src/vm.ts";
+import { watchFocus } from "../../scripts/vm-bench-focus.mjs";
 
 const cli = join(dirname(fileURLToPath(import.meta.url)), "..", "dist", "index.js");
 const GiB = 1024 ** 3;
@@ -271,4 +272,29 @@ test("the CLI refuses a bad vm command with exit 2 and lists vm in help", () => 
 	const help = spawnSync(process.execPath, [cli, "--help"], { encoding: "utf8" });
 	assert.match(help.stdout, /\nGuests\n/);
 	assert.match(help.stdout, /vm reset <name>/);
+});
+
+test("the bench counts focus changes only from a watcher that stayed up", async (t) => {
+	const dir = mkdtempSync(join(tmpdir(), "vm-focus-"));
+	t.after(() => rmSync(dir, { recursive: true, force: true }));
+	const helper = (name, script) => {
+		const path = join(dir, name);
+		writeFileSync(path, `#!/usr/bin/env node\n${script}`, { mode: 0o755 });
+		return path;
+	};
+	const stays = (last) => `process.on("SIGTERM", () => { ${last} process.exit(0); }); setInterval(() => {}, 1e6); console.log("watching");`;
+	// An older helper has no focus-watch: it prints its usage and exits.
+	await assert.rejects(watchFocus(helper("old", "process.exit(2);")), /exited 2 before it was watching/);
+	await assert.rejects(watchFocus(join(dir, "missing")), /ENOENT/);
+	const quiet = await watchFocus(helper("quiet", stays("")));
+	assert.deepEqual(await quiet.stop(), []);
+	// What it printed while the bench was blocked in a command still counts.
+	const busy = await watchFocus(helper("busy", stays('console.log("activated com.example.app");')));
+	assert.deepEqual(await busy.stop(), ["com.example.app"]);
+	const gone = await watchFocus(helper("gone", 'console.log("watching");'));
+	await new Promise((done) => setTimeout(done, 1500));
+	assert.equal(await gone.stop(), undefined);
+	// One that crashed, or was killed, has no count even when the bench hears of it only at the stop.
+	const killed = await watchFocus(helper("killed", 'console.log("watching"); setInterval(() => {}, 1e6);'));
+	assert.equal(await killed.stop(), undefined);
 });
