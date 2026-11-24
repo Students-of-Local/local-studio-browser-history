@@ -1,3 +1,4 @@
+import { dropStalePolycarpTheme } from "./appearance/tokens.js";
 import { startBridge, trace } from "./bridge/native.js";
 import { startPanelPageTools } from "./bridge/panel-calls.js";
 import { installCdpListeners, persistCdpMemory } from "./browser/cdp.js";
@@ -29,6 +30,9 @@ startGroupGestures(trace);
 startVeil(trace);
 // A dialog on an agent's tab is cancelled only when it would freeze a tab of the person's on that site (D48).
 startDialogGuard(trace);
+
+// Older builds cached the Polycarp app's theme; Tychicus uses only its own now, so the cache goes.
+void dropStalePolycarpTheme();
 
 // Groups from before an extension reload have no owning session any more; give the tabs back.
 cleanupOrphanGroups().catch(() => undefined);

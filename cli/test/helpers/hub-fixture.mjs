@@ -35,7 +35,7 @@ export function machine(root, name) {
 	const sock = join(root, name, "sock");
 	mkdirSync(home, { recursive: true });
 	mkdirSync(sock, { recursive: true, mode: 0o700 });
-	// An empty Polycarp config folder, so a developer's own Polycarp theme never reaches these processes.
+	// An empty Polycarp config folder, so a developer's own Polycarp files never reach these processes.
 	const polycarp = join(root, name, "polycarp");
 	mkdirSync(polycarp, { recursive: true });
 	const env = { HOME: home, TABKYRA_CONFIG_DIR: config, TABKYRA_SOCKET_DIR: sock, POLYCARP_CONFIG_DIR: polycarp, POLYCARP_BROWSER_CONFIG_DIR: config, PATH: dirname(process.execPath), NO_COLOR: "1" };
