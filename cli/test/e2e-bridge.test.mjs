@@ -2162,7 +2162,7 @@ test("only the tab an agent uses is held up: when the user brings a same-site ta
 		// The repeat sent at once, while the box it repeats is still open, as a small model sends it: it fails at once with
 		// dialog_open and runs nothing, so no other client's answer to that box can be repeated (first-F1, sol-sol-F1 of
 		// round 2 of the review of PR 389). The grace Cancel still lands, and is told once.
-		assert.match(await on(agent, "click", { x: 320, y: 60 }), /Tychicus cancels this box in about/);
+		assert.match(await on(agent, "click", { x: 320, y: 60 }), /Local Studio cancels this box in about/);
 		const t2 = Date.now();
 		const redo = await agent.callTool({ name: "click", arguments: { tabId: agentTab, x: 320, y: 60, on_dialog: "ok" } });
 		assert.ok(redo.isError, `the redo ran over the open box: ${redo.content[0].text}`);

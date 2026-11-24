@@ -421,7 +421,7 @@ export async function detachTab(tabId: number, force = false): Promise<void> {
 	attachedTabs.delete(tabId);
 	viewportTabs.delete(tabId);
 	forgetDrawing(tabId);
-	noteCaptureStopped(tabId, "Tychicus released the debugger (the client disconnected or the session ended)");
+	noteCaptureStopped(tabId, "Local Studio released the debugger (the client disconnected or the session ended)");
 	try {
 		await chrome.debugger.detach({ tabId });
 	} catch {

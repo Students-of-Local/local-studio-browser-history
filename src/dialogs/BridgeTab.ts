@@ -155,7 +155,7 @@ export class BridgeTab extends SettingsTab {
 					${line("Page scripts are slower than they could be: one more switch is needed in the browser.")}
 					${details(
 						status.apiPresent
-							? 'The permission is granted, but "Allow user scripts" is off. Turn it on at chrome://extensions > Tychicus > Details.'
+							? 'The permission is granted, but "Allow user scripts" is off. Turn it on at chrome://extensions > Local Studio > Details.'
 							: userScriptsHiddenHelp(runningFromStore(), hostCommand()),
 					)}
 				`;
