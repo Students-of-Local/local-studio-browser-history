@@ -7,7 +7,7 @@ public struct HandsMCP {
     public static let serverName = "tychicus-hands"
     public static let defaultProtocol = "2025-06-18"
     public static let instructions = """
-    Polycarp's hands: read and act on apps on the user's Mac without touching their screen. \
+    Tychicus's hands: read and act on apps on the person's Mac without touching their screen. \
     `open` an app: it lands on the agent workspace and returns the window id. To click an element by the label the window \
     shows, `click` with window and text needs no snapshot first, and `run_steps` does several actions in one call (a click \
     by text in a step finds what the step before opened). Otherwise work in a loop: \
@@ -15,9 +15,9 @@ public struct HandsMCP {
     `scroll`, `select`, `toggle`) with ref "N" or the full ref, then read the evidence in the result and snapshot again \
     with since "latest" to see only what changed. On an error or an unverified result, make the call in `next_call`; null means nothing to call. \
     Refs go stale when the UI changes: on a stale_ref error take a new snapshot. Only windows on the agent \
-    workspace or of apps Donovan has lent are allowed; anything else returns outside_agent_workspace (you cannot lend). \
-    Never ask the user to switch away from what they are doing. \
-    Work in the background: `open` the app (it returns the window id), `arrange` the agent workspace, act; when an action's \
+    workspace or of apps the person has lent are allowed; anything else returns outside_agent_workspace (you cannot lend). \
+    Never ask the person to switch away from what they are doing. \
+    Work in the background: `open` the app (it returns the window id), act; when an action's \
     result says `opened`, a dialog or sheet came up: snapshot that window and answer it; then `close` what you opened.
     """
 
@@ -31,6 +31,9 @@ public struct HandsMCP {
     /// Refuses a tool by name before its arguments are read, listed or not: a connector's managing verbs
     /// (`WorkspaceVerbs.connectorRefusal`) answer permission_denied even where the helper doesn't offer them.
     public var refuse: (String) -> HandsError? = { _ in nil }
+    /// `hands/grants`: the OS grants the helper lacks, read live (`{"missing": [...]}`, docs/hands-protocol.md). Nil
+    /// answers the method as unknown, as a helper without it does.
+    public var grants: (() -> JSONValue)?
 
     public init(version: String, session: String, perform: @escaping (HandsRequest) -> HandsEnvelope, readImage: @escaping (String) -> Data? = { _ in nil }) {
         self.version = version; self.session = session; self.perform = perform; self.readImage = readImage
@@ -83,6 +86,8 @@ public struct HandsMCP {
             ]))
         case "ping":
             return reply(id: id, result: .object([:]))
+        case "hands/grants" where grants != nil:
+            return reply(id: id, result: grants?() ?? .object(["missing": .array([])]))
         case "tools/list":
             return reply(id: id, result: .object(["tools": Self.toolList()]))
         case "tools/call":

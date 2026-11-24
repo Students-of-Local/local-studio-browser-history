@@ -215,8 +215,7 @@ final class HandsEngine {
         if let err = json?["error"] { return .failed(Self.translate(err)) }
         let e = lastError()
         if code == Self.resultPermDenied || e.message.lowercased().contains("permission") {
-            return .failed(HandsError(.permissionDenied, "Accessibility isn't allowed for Tychicus",
-                                      suggestion: "Allow Tychicus in System Settings > Privacy & Security > Accessibility.", retry: .safe))
+            return .failed(AccessibilityGrant.missing())
         }
         return .failed(HandsError(.engineError, e.message.isEmpty ? "the engine failed (\(code))" : e.message,
                                   suggestion: e.suggestion.isEmpty ? "Take a new snapshot and try again." : EngineVerdict.suggestion(e.suggestion), retry: .never))
@@ -378,8 +377,6 @@ final class HandsEngine {
 
     /// Whether the engine can read windows at all (Accessibility granted).
     func permissionProblem() -> HandsError? {
-        AXIsProcessTrusted() ? nil
-            : HandsError(.permissionDenied, "Accessibility isn't allowed for tychicus-hands",
-                         suggestion: "Ask the person to allow the app that starts tychicus-hands (Tychicus, or the terminal it runs in) in System Settings > Privacy & Security > Accessibility.", retry: .safe)
+        AccessibilityGrant.problem()
     }
 }

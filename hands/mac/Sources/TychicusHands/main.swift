@@ -41,6 +41,7 @@ _ = AgentOwned.shared
 var server = HandsMCP(version: version, session: "\(connector ? "connector" : "mcp"):\(getpid())",
                       perform: { router.handleRequest($0) },
                       readImage: { FileManager.default.contents(atPath: $0) })
+server.grants = { AccessibilityGrant.report() }
 if connector {
     server.name = HandsCaller.connectorServerName
     server.refuse = { WorkspaceVerbs.connectorRefusal(verb: $0) }

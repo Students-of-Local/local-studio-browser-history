@@ -2,7 +2,7 @@
 import Foundation
 import PackageDescription
 
-// The hands engine (agent-desktop's C library, built by scripts/build-engine.sh into engine/lib).
+// The hands engine (agent-desktop's C library, built by scripts/build-engine.sh into engine/lib as a static library).
 // An absolute path, because the linker's working directory isn't always the package's.
 let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().path
 
@@ -17,18 +17,19 @@ let package = Package(
         .target(name: "HandsCore"),
         // agent-desktop's C header, for the hands engine.
         .systemLibrary(name: "CAgentDesktop", path: "Sources/CAgentDesktop"),
-        // `tychicus-hands mcp [--connector]`: the hands over stdio. The engine's library sits next to the binary
-        // in an install (or in ../Frameworks in an app bundle); `engine/lib` is where a `swift build` finds it.
+        // `tychicus-hands mcp [--connector]`: the hands over stdio. The engine is linked in statically
+        // (engine/lib/libagent_desktop_ffi.a, by path so a stray dylib there is never picked), so the helper is one
+        // file that signs with the hardened runtime ad hoc. The frameworks are the ones rustc lists for the crate
+        // (`--print native-static-libs`).
         .executableTarget(
             name: "TychicusHands",
             dependencies: ["HandsCore", "CAgentDesktop"],
             linkerSettings: [
                 .unsafeFlags([
-                    "-L\(root)/engine/lib", "-lagent_desktop_ffi",
+                    "\(root)/engine/lib/libagent_desktop_ffi.a",
                     "-framework", "ApplicationServices", "-framework", "CoreGraphics", "-framework", "CoreFoundation",
-                    "-Xlinker", "-rpath", "-Xlinker", "@executable_path",
-                    "-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks",
-                    "-Xlinker", "-rpath", "-Xlinker", "\(root)/engine/lib",
+                    "-framework", "AppKit", "-framework", "Carbon", "-framework", "ImageIO", "-framework", "QuartzCore",
+                    "-lz", "-liconv",
                 ]),
             ]),
     ]

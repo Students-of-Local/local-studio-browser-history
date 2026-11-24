@@ -1,7 +1,10 @@
 #!/bin/bash
 # Builds the hands engine: agent-desktop's C library (the agent-desktop-ffi crate only), from the
-# commit pinned in engine/PIN, into engine/lib/libagent_desktop_ffi.dylib (universal unless
+# commit pinned in engine/PIN, into engine/lib/libagent_desktop_ffi.a (universal unless
 # BANEYSPACES_ARM64_ONLY=1). Nothing else of agent-desktop is built, and npm is never run.
+# A static library, linked into tychicus-hands: the helper ships as one file, so it can be signed with
+# the hardened runtime ad hoc (an ad hoc dylib beside it would fail library validation: no Team ID)
+# and no library beside it can be swapped under the Accessibility grant.
 #
 #   scripts/build-engine.sh          build if engine/lib is missing or older than the pin and patches
 #   scripts/build-engine.sh --force  build again
@@ -18,7 +21,7 @@ ROOT=$PWD
 OUT=engine/lib
 STAMP="$ENGINE_COMMIT $ENGINE_SHA256 $(cat engine/patches/*.patch | shasum -a 256 | cut -c1-64) $(shasum -a 256 scripts/build-engine.sh | cut -c1-16) ${BANEYSPACES_ARM64_ONLY:-0}"
 
-if [ "${1:-}" != "--force" ] && [ -f "$OUT/libagent_desktop_ffi.dylib" ] && [ "$(cat "$OUT/STAMP" 2>/dev/null)" = "$STAMP" ]; then
+if [ "${1:-}" != "--force" ] && [ -f "$OUT/libagent_desktop_ffi.a" ] && [ "$(cat "$OUT/STAMP" 2>/dev/null)" = "$STAMP" ]; then
   echo "engine: up to date ($ENGINE_COMMIT)"
   exit 0
 fi
@@ -58,6 +61,8 @@ cd engine/.src
 # The toolchain the engine pins (rust-toolchain.toml); its macOS targets are added if missing.
 TOOLCHAIN=$(sed -n 's/^channel *= *"\(.*\)"/\1/p' rust-toolchain.toml)
 if command -v rustup >/dev/null; then
+  # A fresh machine (a CI runner) may not have the pinned toolchain; rustup 1.28 no longer installs it on first use.
+  grep -q "^$TOOLCHAIN-" <<<"$(rustup toolchain list)" || rustup toolchain install --profile minimal "$TOOLCHAIN"
   for t in "${TARGETS[@]}"; do
     rustup target list --toolchain "$TOOLCHAIN" --installed 2>/dev/null | grep -qx "$t" || rustup target add --toolchain "$TOOLCHAIN" "$t"
   done
@@ -69,27 +74,23 @@ LIBS=()
 for t in "${TARGETS[@]}"; do
   # release-ffi, not release: the crate refuses panic=abort, which would let a panic cross the C boundary.
   # Not cargo's own strip: its output has a LINKEDIT string pool that Xcode's linker rejects
-  # ("mis-aligned LINKEDIT string pool"). Apple's strip runs below instead.
-  CARGO_PROFILE_RELEASE_FFI_STRIP=none cargo build --locked --profile release-ffi -p agent-desktop-ffi --target "$t"
-  LIBS+=("target/$t/release-ffi/libagent_desktop_ffi.dylib")
+  # ("mis-aligned LINKEDIT string pool"). The crate declares cdylib and rlib; --crate-type asks for the
+  # static library without patching it.
+  CARGO_PROFILE_RELEASE_FFI_STRIP=none cargo rustc --locked --profile release-ffi -p agent-desktop-ffi --target "$t" --crate-type staticlib
+  LIBS+=("target/$t/release-ffi/libagent_desktop_ffi.a")
 done
 cd "$ROOT"
 
 mkdir -p "$OUT"
-lipo -create "${LIBS[@]/#/engine/.src/}" -output "$OUT/libagent_desktop_ffi.dylib"
-# The app finds its library through @rpath (Contents/Frameworks in the bundle, engine/lib for a dev build):
-# set the install name here and check every slice, so a library that only loads from where it was built can't ship.
-install_name_tool -id @rpath/libagent_desktop_ffi.dylib "$OUT/libagent_desktop_ffi.dylib" 2>/dev/null
-strip -x "$OUT/libagent_desktop_ffi.dylib"
-[ "$(otool -D "$OUT/libagent_desktop_ffi.dylib" | grep -c '^@rpath/libagent_desktop_ffi.dylib$')" = "${#TARGETS[@]}" ] \
-  || { echo "engine: the library's install name isn't @rpath/libagent_desktop_ffi.dylib in every slice" >&2; exit 1; }
-# install_name_tool and strip invalidate the signature; arm64 refuses to load an unsigned library (bundle.sh signs the real one).
-codesign --force --sign - "$OUT/libagent_desktop_ffi.dylib" 2>/dev/null
-# A symbol BaneySpaces calls but the library lacks would fail at launch, not at build.
+rm -f "$OUT/libagent_desktop_ffi.dylib"
+lipo -create "${LIBS[@]/#/engine/.src/}" -output "$OUT/libagent_desktop_ffi.a"
+# A symbol the helper calls but the library lacks should fail here, before the Swift build.
+# One nm run read whole: grep -q on a pipe would stop it early, and pipefail would count that as a failure.
+SYMS=$(nm -gU "$OUT/libagent_desktop_ffi.a" 2>/dev/null)
 for sym in ad_init ad_adapter_create ad_snapshot_window ad_execute_by_ref_timeout ad_free_string; do
-  nm -gU "$OUT/libagent_desktop_ffi.dylib" | grep -q " _$sym\$" || { echo "engine: the library has no $sym" >&2; exit 1; }
+  grep -q " _$sym\$" <<<"$SYMS" || { echo "engine: the library has no $sym" >&2; exit 1; }
 done
 cmp -s engine/.src/crates/ffi/include/agent_desktop.h Sources/CAgentDesktop/include/agent_desktop.h \
   || { echo "engine: Sources/CAgentDesktop/include/agent_desktop.h differs from the engine's header; copy engine/.src/crates/ffi/include/agent_desktop.h over it" >&2; exit 1; }
 echo "$STAMP" > "$OUT/STAMP"
-echo "engine: built $OUT/libagent_desktop_ffi.dylib ($(lipo -archs "$OUT/libagent_desktop_ffi.dylib"), agent-desktop ${ENGINE_COMMIT:0:7})"
+echo "engine: built $OUT/libagent_desktop_ffi.a ($(lipo -archs "$OUT/libagent_desktop_ffi.a"), agent-desktop ${ENGINE_COMMIT:0:7})"
