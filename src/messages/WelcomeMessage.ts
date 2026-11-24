@@ -58,8 +58,8 @@ export class WelcomeMessageElement extends LitElement {
 			<div class="welcome-container flex flex-col items-center justify-center">
 				<div class="flex flex-col items-center text-center mb-6 px-6">
 					${tychicusMark(64, "tile", "mb-4 rounded-[15px] shadow-[0_10px_30px_-12px_color-mix(in_srgb,var(--tk-brass)_55%,transparent)]")}
-					<h1 class="text-2xl font-semibold tracking-tight mb-1.5">Tychicus</h1>
-					<p class="text-sm text-muted-foreground max-w-xs">${i18n("You steer. Tychicus works the tabs.")}</p>
+					<h1 class="text-2xl font-semibold tracking-tight mb-1.5">Local Studio</h1>
+					<p class="text-sm text-muted-foreground max-w-xs">${i18n("You steer. Local Studio works the tabs.")}</p>
 				</div>
 
 				<!-- Starter chips: two columns while a pill fits in 10rem, one at a large theme size or a narrow panel (#13) -->

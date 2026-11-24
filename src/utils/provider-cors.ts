@@ -1,6 +1,6 @@
 /**
- * The panel reaches a model provider with the extension's own host permissions, which need no CORS header. Until 1.4.0 a
- * dynamic rule added permissive CORS headers for each custom provider's host; those rules outlive an update, so each
+ * The panel reaches a model provider with the extension's own host permissions, which need no CORS header. 1.4.0 and earlier
+ * added a dynamic rule with permissive CORS headers for each custom provider's host; those rules outlive an update, so each
  * worker start takes away any that are left.
  */
 
