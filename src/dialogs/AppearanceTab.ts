@@ -8,7 +8,7 @@ import { accentToSave, effectiveAccent } from "../appearance/tokens.js";
 import { connectSetTheme } from "../connect/client.js";
 
 const PRESET_LABELS: Record<string, string> = {
-	tabkyra: "Tychicus",
+	tabkyra: "Local Studio",
 	slate: "Slate",
 	forest: "Forest",
 	rose: "Rose",
@@ -132,7 +132,7 @@ export class AppearanceTab extends SettingsTab {
 			<div class="flex flex-col gap-6">
 				<div class="space-y-1">
 					<h3 class="text-lg font-semibold text-foreground">Appearance</h3>
-					<p class="text-sm text-muted-foreground">Colors for this panel and for the approval and hub pages Tychicus serves from your computer.</p>
+					<p class="text-sm text-muted-foreground">Colors for this panel and for the approval and hub pages Local Studio serves from your computer.</p>
 				</div>
 
 				<div class="space-y-2" role="group" aria-label="Color preset">
@@ -224,7 +224,7 @@ export class AppearanceTab extends SettingsTab {
 					)}
 				</div>
 
-				${this.shared ? "" : html`<p class="text-xs text-muted-foreground">Saved for this panel. Tychicus's helper isn't connected, so the approval and hub pages keep their colors.</p>`}
+				${this.shared ? "" : html`<p class="text-xs text-muted-foreground">Saved for this panel. Local Studio's helper isn't connected, so the approval and hub pages keep their colors.</p>`}
 			</div>
 		`;
 	}

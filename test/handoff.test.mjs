@@ -29,7 +29,7 @@ test("the menu lists the panel first, then the agents used most recently, and ne
 		items.map((i) => i.id),
 		[PANEL_ITEM_ID, "tychicus-give-agent:bridge-b", "tychicus-give-agent:bridge-a"],
 	);
-	assert.equal(items[0].title, "Give this tab to Tychicus");
+	assert.equal(items[0].title, "Give this tab to Local Studio");
 	assert.equal(items[1].title, "Give this tab to Claude · bridge-b");
 	const many = menuItems(Array.from({ length: 9 }, (_, i) => agent(`bridge-${i}`, now - i)), now);
 	assert.equal(many.length, 1 + MAX_AGENT_ITEMS);
