@@ -211,15 +211,15 @@ export function checkUploadPath(given: string, env: RuleEnv): PathVerdict {
 	}
 	const name = l.basename(given);
 	const lexical = credentialLike(given, env.platform);
-	if (lexical) return refuse("credential", `${name} looks like a credential (${lexical}). Tychicus never uploads those.`);
+	if (lexical) return refuse("credential", `${name} looks like a credential (${lexical}). Local Studio never uploads those.`);
 	const facts = env.inspect(given);
 	if ("error" in facts) return refuse("unreadable", `${name} can't be read: ${facts.error}`);
 	const real = facts.realPath;
 	const resolved = credentialLike(real, env.platform);
-	if (resolved) return refuse("credential", `${name} leads to a credential (${resolved}). Tychicus never uploads those.`);
+	if (resolved) return refuse("credential", `${name} leads to a credential (${resolved}). Local Studio never uploads those.`);
 	const inFiles = isInside(real, env.filesRoot, env.platform);
 	if (!inFiles && [given, real].some((p) => env.privateDirs.some((d) => isInside(p, d, env.platform))))
-		return refuse("private_dir", `${name} is in a folder Tychicus never uploads from (its own settings, a browser profile or a key store).`);
+		return refuse("private_dir", `${name} is in a folder Local Studio never uploads from (its own settings, a browser profile or a key store).`);
 	if (!facts.isFile) return refuse("not_file", `${name} is not a regular file.`);
 	if (facts.nlink > 1) return refuse("hard_link", `${name} has more than one hard link, so another name reaches the same file. Copy it first.`);
 	if (facts.bytes > MAX_UPLOAD_BYTES) return refuse("too_big", `${name} is ${facts.bytes} bytes; one upload takes at most ${MAX_UPLOAD_BYTES} bytes in all.`);

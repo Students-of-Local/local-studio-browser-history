@@ -23,6 +23,7 @@ import { join } from "node:path";
 import type { LastUpdate, UpdatePhase } from "../../src/bridge/protocol.ts";
 import { describeBuild } from "../../src/update/build.ts";
 import { activateCheckout, detectMode, readBuildInfo, recoverCheckoutQuietly, rollbackCheckout, updateCheckout } from "./checkout.ts";
+import { writeJsonPrivate } from "./files.ts";
 import { noteUneditedSkills } from "./skill.ts";
 import { type HostRunAction, type ProgressEvent, type ProgressRecord, progressFile } from "./update-progress.ts";
 import {
@@ -109,7 +110,7 @@ function skillsLine(skills: LastUpdate["skills"]): string {
 /** Swallow the log lines of the terminal flow; the steps are reported as phases instead. */
 const quiet = (_line: string) => {};
 
-const WHEN_IDLE = "It installs when no agent is running, then Tychicus reloads.";
+const WHEN_IDLE = "It installs when no agent is running, then the extension reloads.";
 
 // ---- release mode -------------------------------------------------------------------------
 
@@ -145,7 +146,7 @@ async function releaseUpdate(): Promise<void> {
 		rmSync(stagedDir(), { recursive: true, force: true });
 		renameSync(stage(zip, release.version), stagedDir());
 		const pending: ReleasePending = { from: status.current, to: release.version, notes: release.notes, url: release.url };
-		writeFileSync(pendingFile(), `${JSON.stringify(pending, null, 2)}\n`);
+		writeJsonPrivate(pendingFile(), pending);
 	});
 	emit({ phase: "done", message: `Downloaded and verified ${release.version}. ${WHEN_IDLE}`, staged: true });
 }
@@ -279,7 +280,7 @@ export async function runHostAction(action: HostRunAction): Promise<number> {
 	try {
 		if (mode === "unmanaged") {
 			throw new UpdateError(
-				`This Tychicus runs from ${root}, which is neither a release install nor a git checkout, so it can't update itself from the side panel. Run ${COMMAND_NAME} update in a terminal.`,
+				`This helper runs from ${root}, which is neither a release install nor a git checkout, so it can't update itself from the side panel. Run ${COMMAND_NAME} update in a terminal.`,
 			);
 		}
 		if (mode === "release") {
@@ -303,7 +304,7 @@ export async function runHostAction(action: HostRunAction): Promise<number> {
 				/* the next updater or host start repairs it; the mismatch banner shows meanwhile */
 			}
 			const extensionBuild = readBuildInfo(join(mode === "release" ? appDir() : root, "dist-chrome"))?.id;
-			emit({ phase: "failed", message: `${message} Reloading Tychicus to run what is installed.`, reload: true, extensionBuild });
+			emit({ phase: "failed", message: `${message} Reloading the extension to run what is installed.`, reload: true, extensionBuild });
 		} else emit({ phase: "failed", message });
 		return 1;
 	}

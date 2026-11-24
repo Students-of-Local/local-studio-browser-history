@@ -46,7 +46,7 @@ export function communityLibrary(
  */
 export function communityHeader(provenance: string, sites: readonly string[]): string {
 	const reviewed = provenance.startsWith("community")
-		? "; written by the Tychicus community and reviewed by a maintainer"
+		? "; written by the Local Studio community and reviewed by a maintainer"
 		: "";
 	return `[${provenance}${reviewed}; scoped to ${sites.join(", ")}: use it only on those sites]`;
 }

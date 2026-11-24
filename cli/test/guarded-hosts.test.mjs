@@ -9,7 +9,10 @@ import { loadTs } from "./helpers/bundle-ts.mjs";
 
 const root = tempRoot("tabkyra-guarded-");
 after(() => rmSync(root, { recursive: true, force: true }));
-const { guardedHosts } = await loadTs(`export { guardedHosts } from "@src/guarded-hosts.ts";`);
+const { guardedHosts, isGuardedUrl } = await loadTs(`
+	export { guardedHosts } from "@src/guarded-hosts.ts";
+	export { isGuardedUrl } from "@src/../../src/bridge/permissions.ts";
+`);
 
 const loopbackOf = (...ports) => ports.flatMap((p) => ["127.0.0.1", "localhost", "[::1]"].map((h) => `${h}:${p}`));
 const publicOnly = (hosts) => hosts.filter((h) => !/^(?:127\.0\.0\.1|localhost|\[::1\]):\d+$/.test(h));
@@ -46,6 +49,26 @@ test("the public URL of remote.json and hub.json, and the hub a device linked to
 
 test("a broken config file adds nothing and does not stop the others", () => {
 	assert.deepEqual(publicOnly(inConfig("broken", { "remote.json": "{not json", "hub.json": { publicUrl: "https://hub.example.com", port: 8788 } })), ["hub.example.com"]);
+});
+
+test("the aliases of remote.json are guarded beside its public URL, by the same rule", () => {
+	const remote = { publicUrl: "https://new.example.com", port: 8787, route: "custom", aliases: ["old.example.com", "older.example.com"] };
+	const hosts = inConfig("aliases", { "remote.json": remote });
+	assert.deepEqual(publicOnly(hosts), ["new.example.com", "old.example.com", "older.example.com"]);
+	for (const name of ["new.example.com", "old.example.com"]) {
+		assert.equal(isGuardedUrl(`https://${name}/authorize`, hosts), true, name);
+		assert.equal(isGuardedUrl(`https://sub.${name}/authorize`, hosts), false, `a subdomain of ${name} is another host`);
+	}
+	assert.deepEqual(publicOnly(inConfig("no-aliases", { "remote.json": { ...remote, aliases: undefined } })), ["new.example.com"]);
+});
+
+test("a bad alias entry or a bad aliases field leaves the rest guarded", () => {
+	const remote = { publicUrl: "https://new.example.com", port: 9001, route: "custom" };
+	for (const [i, aliases] of [[7, null, "", "a b", "old.example.com"], "old.example.com", { 0: "old.example.com" }, null].entries()) {
+		const hosts = inConfig(`bad-alias-${i}`, { "remote.json": { ...remote, aliases } });
+		assert.deepEqual(publicOnly(hosts), i === 0 ? ["new.example.com", "old.example.com"] : ["new.example.com"]);
+		assert.ok(hosts.includes("localhost:9001"));
+	}
 });
 
 test("loopback aliases of the serve and hub ports are guarded as host:port, and nothing else local", () => {

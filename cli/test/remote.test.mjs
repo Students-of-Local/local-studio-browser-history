@@ -86,6 +86,7 @@ test("a request without a valid token is refused", async () => {
 	await assert.rejects(connect("tkr_notarealtokennotarealtoken"), /401|bearer|token/i);
 	const raw = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
 	assert.equal(raw.status, 401);
+	assert.equal(raw.headers.get("keep-alive"), "timeout=120", "an idle connection outlives a tunnel's reuse of it");
 });
 
 test("a session lists and calls only the tools its scopes grant", async () => {
@@ -899,7 +900,7 @@ test("remote setup (funnel) runs the exact funnel command, writes remote.json an
 		assert.match(r.out, new RegExp(`Connector URL: https://${DNS}:8443/mcp`));
 		assert.match(r.out, /Settings > Connectors > Add custom connector/);
 		assert.match(r.out, /grok\.com\/connectors > New Connector > Custom/);
-		assert.match(r.out, /Connect code: TK-[0-9A-Z]{4}-[0-9A-Z]{4}\n  Type it on the approval page when you add Tychicus to an assistant for the first time\./);
+		assert.match(r.out, /Connect code: TK-[0-9A-Z]{4}-[0-9A-Z]{4}\n  Type it on the approval page when you add Local Studio to an assistant for the first time\./);
 		assert.match(r.out, /Passcode: ([a-zA-Z0-9]{5}-){3}[a-zA-Z0-9]{5}\n  For re-approving an assistant you already approved\./);
 		assert.doesNotMatch(r.out, /Approve with your Polycarp pass[c]ode/);
 		assert.match(r.out, /Check it with: tychicus remote status/);
@@ -1027,7 +1028,7 @@ test("remote setup with a service requested and no working launcher exits 3 and 
 	const s = remoteScenario("no-launcher");
 	const r = s.run(["remote", "setup"]);
 	assert.equal(r.code, 3, r.out);
-	assert.match(r.out, /Run tychicus install --browser <name> for the browser you use Tychicus in \(.*plain install registers every browser on this computer\) first, then tychicus remote setup again\./);
+	assert.match(r.out, /Run tychicus install --browser <name> for the browser you use Local Studio in \(.*plain install registers every browser on this computer\) first, then tychicus remote setup again\./);
 	assert.equal(existsSync(s.serviceFile()), false);
 	assert.equal(s.hasRemoteJson(), false);
 	assert.ok(!s.calls().some((x) => x.startsWith("tailscale funnel")), s.calls().join("\n"));
@@ -1040,7 +1041,7 @@ test("remote setup refuses when a foreign process answers on the port: nothing i
 	try {
 		const r = await runAsync(s, ["remote", "setup", "--no-service", "--port", String(foreign.port)]);
 		assert.equal(r.code, 1, r.out);
-		assert.match(r.out, new RegExp(`Something already listens on 127\\.0\\.0\\.1:${foreign.port} and isn't Tychicus serve for ${FUNNEL_URL}`));
+		assert.match(r.out, new RegExp(`Something already listens on 127\\.0\\.0\\.1:${foreign.port} and isn't tychicus serve for ${FUNNEL_URL}`));
 		assert.match(r.out, /Nothing was changed\. Stop it/);
 		assert.ok(!s.calls().some((x) => x.startsWith("tailscale funnel")), s.calls().join("\n"));
 		assert.equal(s.hasRemoteJson(), false);
@@ -1363,7 +1364,7 @@ test("remote off leaves a Funnel on 8443 alone when what it proxies to doesn't a
 		writeFileSync(join(bad.config, "remote.json"), "{ not json");
 		const a = await runAsync(bad, ["remote", "off"]);
 		assert.equal(a.code, 1, a.out);
-		assert.match(a.out, /not everything there answers like Tychicus serve, so it was left on/);
+		assert.match(a.out, /not everything there answers like tychicus serve, so it was left on/);
 		assert.ok(!bad.calls().includes("tailscale funnel --https=8443 off"));
 		const none = remoteScenario("off-no-file-foreign", { serveStatus: proxyStatus(port) });
 		const b = await runAsync(none, ["remote", "off"]);

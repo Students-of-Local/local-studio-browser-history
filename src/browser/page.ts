@@ -735,7 +735,7 @@ export function pageSnapshot(
 	print: (el: Element) => string,
 	keepStale = false,
 	frameShown: (el: Element) => "shown" | "hidden" | "away",
-	frameNotes: Record<"shown" | "hidden" | "away", string>,
+	frameNotes: Record<"shown" | "hidden" | "away" | "loading", string>,
 	rank?: {
 		offset: number;
 		/** The ranked read this offset continues (its `ranked.snapshot`); omitted, the page's last one. */
@@ -758,6 +758,7 @@ export function pageSnapshot(
 		__tabkyraTwins?: unknown;
 		__tabkyraRefMeta?: unknown;
 		__tabkyraFindLike?: unknown;
+		__tabkyraFramesSeen?: unknown;
 	};
 	// Adopt earlier state only when it is what this function wrote.
 	const refs = w.__tabkyraRefs instanceof Map ? (w.__tabkyraRefs as Map<string, Element>) : new Map<string, Element>();
@@ -994,6 +995,8 @@ export function pageSnapshot(
 	type Root = { root: Document | ShadowRoot; dx: number; dy: number; sx: number; sy: number; frame?: string };
 	const roots: Root[] = [];
 	const crossFrames: Array<{ el: Element; at: Root }> = [];
+	// A frame on its first empty page: what its src names has not arrived.
+	const blank = new Set<Element>();
 	const isShadow = (root: Node) => root.nodeType === 11;
 	// A frame's address without its query or fragment, which can carry a token (?secret=...).
 	const frameUrl = (el: Element) =>
@@ -1030,7 +1033,18 @@ export function pageSnapshot(
 			} catch {
 				doc = null;
 			}
-			if (doc?.documentElement) {
+			const src = el.getAttribute("src")?.trim() && String((el as HTMLIFrameElement).src);
+			// A page may fill an about:blank frame itself: only an empty one is a page that has not arrived.
+			if (
+				src &&
+				/^https?:/.test(src) &&
+				doc?.URL === "about:blank" &&
+				!doc.body?.firstElementChild &&
+				!doc.body?.textContent?.trim()
+			) {
+				blank.add(el);
+				crossFrames.push({ el, at });
+			} else if (doc?.documentElement) {
 				if (isVisible(el))
 					visit({ root: doc, ...inner(el, at), frame: frameUrl(el) || "(inline frame)" }, depth + 1);
 			} else crossFrames.push({ el, at });
@@ -1208,7 +1222,8 @@ export function pageSnapshot(
 		if (tag === "a" && f.href) node.href = String(f.href).slice(0, 200);
 		if (cross.has(el)) {
 			node.href = frameUrl(el).slice(0, 200);
-			node.states = [frameNotes[frameShown(el)]];
+			const shown = frameShown(el);
+			node.states = [frameNotes[blank.has(el) && shown === "shown" ? "loading" : shown]];
 		}
 		if (tag === "input") {
 			if (f.type === "checkbox" || f.type === "radio") node.value = f.checked ? "checked" : "unchecked";
@@ -1333,6 +1348,18 @@ export function pageSnapshot(
 			)
 			.filter(Boolean)
 			.join("\n");
+	// Shown frames first seen a moment ago: the caller may wait for what one holds, once per frame.
+	const framesSeen =
+		w.__tabkyraFramesSeen instanceof WeakMap
+			? (w.__tabkyraFramesSeen as WeakMap<Element, number>)
+			: new WeakMap<Element, number>();
+	w.__tabkyraFramesSeen = framesSeen;
+	const settling = crossFrames.filter(({ el }) => {
+		if (keepStale || frameShown(el) !== "shown") return false;
+		const first = framesSeen.get(el) ?? Date.now();
+		framesSeen.set(el, first);
+		return Date.now() - first < 1000;
+	}).length;
 	const parts = [document.body?.innerText ?? ""];
 	for (const at of roots.slice(1)) {
 		const own = isShadow(at.root) ? shadowText(at.root) : ((at.root as Document).body?.innerText ?? "");
@@ -1356,6 +1383,9 @@ export function pageSnapshot(
 		text,
 		...(ranked ? { ranked } : {}),
 		...(crossFrames.length ? { crossFrames: crossFrames.length } : {}),
+		...(settling ? { settling } : {}),
+		born: typeof performance === "object" ? performance.timeOrigin : 0,
+		...(document.readyState === "loading" ? { parsing: true } : {}),
 	};
 }
 
@@ -1535,13 +1565,43 @@ export async function snapshot(
 		: "";
 	const code = (n: number, t: number, r = "") =>
 		`(${pageSnapshot.toString()})(${n}, ${t}, ${JSON.stringify(filter)}, ${refLive.toString()}, ${refPrint.toString()}, false, ${frameShown.toString()}, ${JSON.stringify(FRAME_STATES)}${r})`;
-	const snap = await runInPage<Snapshot & { crossFrames?: number }>(tabId, code(maxNodes, maxTextChars, rank));
-	if (typeof snap?.url === "string") snap.url = maskUrl(snap.url);
-	if (snap?.crossFrames) {
-		delete snap.crossFrames;
-		await readFrames(tabId, snap, { maxNodes, maxTextChars, floor }, code, options.skip ?? FRAMES_CLOSED);
+	const until = Date.now() + FRAME_ARRIVE_MS;
+	let last: { snap: Snapshot; born?: number } | undefined;
+	for (;;) {
+		let snap: Snapshot & FramesAt;
+		try {
+			snap = await runInPage<Snapshot & FramesAt>(tabId, code(maxNodes, maxTextChars, rank));
+		} catch (err) {
+			// The page went away during the wait: what it showed before is the read.
+			if (last) return last.snap;
+			throw err;
+		}
+		if (last && snap?.born !== last.born) return last.snap;
+		if (typeof snap?.url === "string") snap.url = maskUrl(snap.url);
+		const { crossFrames, settling, born } = snap ?? {};
+		for (const key of ["crossFrames", "settling", "born", "parsing"] as const) delete snap?.[key];
+		if (!crossFrames) return snap;
+		const got = await readFrames(tabId, snap, { maxNodes, maxTextChars, floor }, code, options.skip ?? FRAMES_CLOSED);
+		// A payment frame arrives just after the page around it: a first read that came in between would leave it out.
+		if (got.whole || !(settling || got.settling) || Date.now() >= until) return snap;
+		last = { snap, born };
+		await new Promise((r) => setTimeout(r, 50));
 	}
-	return snap;
+}
+
+/** How long a read waits for a frame the page has just put up to hold its document. */
+const FRAME_ARRIVE_MS = 1000;
+
+/** What a page's own snapshot says of its frames, for the caller alone. */
+interface FramesAt {
+	/** Cross-origin frames and those whose page has not arrived. */
+	crossFrames?: number;
+	/** Of those, the shown ones first seen under a second ago. */
+	settling?: number;
+	/** When the document began: a new one is another page. */
+	born?: number;
+	/** The document is still being parsed. */
+	parsing?: boolean;
 }
 
 /** What the change report compares, one side of an action (src/browser/changes.ts). */
@@ -1739,6 +1799,7 @@ export const FRAME_STATES = {
 	shown: "cross-origin: read it with navigate to its URL",
 	hidden: "cross-origin frame, not shown, so not read",
 	away: "cross-origin frame out of view: scroll to it, then read_page",
+	loading: "frame not loaded yet",
 } as const;
 const CROSS_NOTE = FRAME_STATES.shown;
 const NOT_SHOWN_NOTE = FRAME_STATES.hidden;
@@ -1817,7 +1878,7 @@ async function readFrames(
 	budget: { maxNodes: number; maxTextChars: number; floor: boolean },
 	code: (n: number, t: number) => string,
 	rule: FrameRule,
-): Promise<void> {
+): Promise<{ whole: boolean; settling: boolean }> {
 	const frames = await crossOriginFrames(tabId, rule).catch(() => [] as PageFrame[]);
 	const end = Date.now() + FRAMES_READ_MS;
 	const { maxNodes, maxTextChars, floor } = budget;
@@ -1826,6 +1887,8 @@ async function readFrames(
 	const { width, height } = snap.viewport;
 	const taken = new Set<SnapshotNode>();
 	let read = 0;
+	let whole = true;
+	let settling = false;
 	// Outermost first: a frame's line is in the snapshot only once the frame around it is read.
 	for (let depth = 1; depth <= MAX_DEPTH; depth++) {
 		const level = frames.filter((f) => f.chain.length === depth);
@@ -1864,13 +1927,16 @@ async function readFrames(
 		const got = await Promise.all(
 			wanted.map(({ f }) =>
 				bounded(
-					runInFrame<Snapshot>(tabId, f, code(room, textRoom)),
+					runInFrame<Snapshot & FramesAt>(tabId, f, code(room, textRoom)),
 					Math.max(0, Math.min(FRAME_READ_MS, end - Date.now())),
 				),
 			),
 		);
 		wanted.forEach(({ f, own }, i) => {
 			const s = got[i];
+			// No answer (its document is being replaced), or one still being parsed.
+			if (!s?.nodes || s.parsing) whole = false;
+			if (s?.settling) settling = true;
 			if (!s?.nodes || room <= 0) return;
 			read++;
 			const label = frameHost(f.url);
@@ -1900,6 +1966,19 @@ async function readFrames(
 			}
 		});
 	}
+	// A line no frame claimed is one the browser hasn't told of yet, unless it names no web page, a frame found but not
+	// matched, or one that failed to load (a site refusing to be framed).
+	const bare = (u: string) => u.split(/[?#]/)[0].slice(0, 200);
+	const known = new Set(frames.map((f) => bare(f.url)));
+	const all = await chrome.webNavigation.getAllFrames({ tabId }).catch(() => null);
+	for (const f of all ?? []) if (f.errorOccurred) known.add(bare(f.url));
+	for (const n of snap.nodes as Line[]) {
+		const state = n.states?.[0];
+		if (state === FRAME_STATES.loading) whole = false;
+		else if (state === CROSS_NOTE && !taken.has(n) && /^https?:/.test(n.href ?? "") && !known.has(bare(n.href ?? "")))
+			whole = false;
+	}
+	return { whole, settling };
 }
 
 /**
@@ -2209,7 +2288,7 @@ const FILL_LIB: PageLib = {
 			catch (e) {
 				// Only a ref that no longer resolves left the page; any other error (the node now shows something else) is its own.
 				if (!/ not found: /.test(String(e && e.message))) throw e;
-				throw new Error("Ref " + ref + " not found: the element it named left the page as Tychicus scrolled to it (the page rebuilt it). Nothing was entered. Call read_page for fresh refs.");
+				throw new Error("Ref " + ref + " not found: the element it named left the page as Local Studio scrolled to it (the page rebuilt it). Nothing was entered. Call read_page for fresh refs.");
 			}
 			if (again !== el) throw new Error("Ref " + ref + " now shows something else: the page reused it. Call read_page for fresh refs.");
 			// A field in a dialog that closed keeps its ref; writing into it would put a value

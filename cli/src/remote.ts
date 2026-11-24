@@ -21,7 +21,7 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { COMPUTER_ACT_TOOLS, COMPUTER_READ_TOOLS, computerHelper, openComputer } from "./computer.ts";
 import { argumentNeeds, type CallCheck, createMcpServer } from "./mcp.ts";
 import { MAX_LINK_SESSIONS, type RosterDevice } from "./link-protocol.ts";
-import { handleOAuth, readBody } from "./oauth-http.ts";
+import { handleOAuth, KEEP_ALIVE_MS, readBody } from "./oauth-http.ts";
 import { liveGrantIds, type OAuthConfig, oauthForHost, oauthStateFile, resourceMetadataUrl, verifyAccessToken } from "./oauth.ts";
 import { envVar } from "./env.ts";
 import { configDir } from "./files.ts";
@@ -501,6 +501,8 @@ export async function serve(options: ServeOptions): Promise<{ close: () => Promi
 		});
 	});
 
+	http.keepAliveTimeout = KEEP_ALIVE_MS;
+
 	async function readJson(req: IncomingMessage): Promise<unknown> {
 		return JSON.parse(await readBody(req));
 	}
@@ -527,6 +529,13 @@ export async function serve(options: ServeOptions): Promise<{ close: () => Promi
 			]);
 			if (!allowed.has(host)) return deny(res, 421, "Misdirected request.");
 			if (await handleOAuth(view, req, res, path)) return;
+		}
+		// The relay route's end-to-end check (relay.ts): a request that gets this answer went through the relay to serve and back.
+		// It says only that serve is up; no token, no session count.
+		if (path === "/v1/health" && req.method === "GET") {
+			res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+			res.end('{"ok":true}');
+			return;
 		}
 		if (path !== "/mcp") return deny(res, 404, "Not found. The MCP endpoint is /mcp.", view);
 		const token = caller(req.headers.authorization, view);
@@ -642,7 +651,12 @@ export async function serve(options: ServeOptions): Promise<{ close: () => Promi
 				clearInterval(sweep);
 				for (const file of watched) unwatchFile(file, sweepSessions);
 				for (const { transport } of sessions.values()) void transport.close();
-				http.close(() => resolve());
+				// close() drops the connections idle now; one still being answered goes idle after it and would wait out KEEP_ALIVE_MS.
+				const idle = setInterval(() => http.closeIdleConnections(), 100);
+				http.close(() => {
+					clearInterval(idle);
+					resolve();
+				});
 			}),
 	};
 }

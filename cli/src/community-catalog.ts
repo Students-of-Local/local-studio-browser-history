@@ -180,7 +180,7 @@ export function verifyCatalog(data: Buffer, signature: string, keyText = release
 	} catch {
 		throw new CatalogError("Refused the community catalog: it is not JSON.");
 	}
-	if (catalog.schema !== 1) throw new CatalogError(`Refused the community catalog: schema ${String(catalog.schema)} is not one this version reads. Update Tychicus.`);
+	if (catalog.schema !== 1) throw new CatalogError(`Refused the community catalog: schema ${String(catalog.schema)} is not one this version reads. Update the helper.`);
 	if (catalog.serial !== Number(m[1])) throw new CatalogError("Refused the community catalog: the file's serial doesn't match its signature.");
 	if (!Array.isArray(catalog.skills) || !Array.isArray(catalog.revoked)) throw new CatalogError("Refused the community catalog: it has no skills or revoked list.");
 	const names = new Set<string>();
@@ -239,7 +239,7 @@ export function readState(): CommunityState {
 
 function atomicWrite(file: string, data: string | Buffer): void {
 	const dir = communityDir();
-	if (existsSync(dir) && lstatSync(dir).isSymbolicLink()) throw new CatalogError(`${dir} is a symbolic link; Tychicus won't write through it.`);
+	if (existsSync(dir) && lstatSync(dir).isSymbolicLink()) throw new CatalogError(`${dir} is a symbolic link; Local Studio won't write through it.`);
 	mkdirSync(dir, { recursive: true });
 	const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
 	writeFileSync(tmp, data, { flag: "wx", mode: 0o600 });
@@ -474,7 +474,7 @@ const STALE_LOCK_MS = 60_000;
 /** One commit at a time across processes (the native host, MCP servers, the CLI). */
 function withSyncLock<T>(fn: () => T): T {
 	const dir = communityDir();
-	if (existsSync(dir) && lstatSync(dir).isSymbolicLink()) throw new CatalogError(`${dir} is a symbolic link; Tychicus won't write through it.`);
+	if (existsSync(dir) && lstatSync(dir).isSymbolicLink()) throw new CatalogError(`${dir} is a symbolic link; Local Studio won't write through it.`);
 	mkdirSync(dir, { recursive: true });
 	const lock = join(dir, "sync.lock");
 	const deadline = Date.now() + 15_000;
@@ -489,7 +489,7 @@ function withSyncLock<T>(fn: () => T): T {
 			} catch {
 				/* gone meanwhile */
 			}
-			if (Date.now() > deadline) throw new CatalogError("Another Tychicus process is saving the community catalog; try again in a moment.");
+			if (Date.now() > deadline) throw new CatalogError("Another Local Studio helper is saving the community catalog; try again in a moment.");
 			Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
 		}
 	}

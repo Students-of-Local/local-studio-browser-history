@@ -9,12 +9,13 @@ import { basename, dirname, join, resolve } from "node:path";
 import { CLOUDFLARE_SERVICE } from "./cloudflare.ts";
 import { envVar } from "./env.ts";
 import { configDir } from "./files.ts";
+import { RELAY_SERVICE } from "./relay.ts";
 import { loadRemoteConfig, waitForServe } from "./remote-setup.ts";
 import { HUB_SERVICE, LINK_SERVICE, processProgram, restartService, SERVE_SERVICE, type ServiceSpec, savedFolders, serviceFile, servicePid, servicePlatform, sleep } from "./service.ts";
 import { c, sym } from "./ui.ts";
 
-/** Every service Tychicus installs, in the order they restart: serve before the tunnel in front of it, then hub and link. */
-export const OWNED_SERVICES: ServiceSpec[] = [SERVE_SERVICE, CLOUDFLARE_SERVICE, HUB_SERVICE, LINK_SERVICE];
+/** Every service Tychicus installs, in the order they restart: serve before the tunnel or relay in front of it, then hub and link. */
+export const OWNED_SERVICES: ServiceSpec[] = [SERVE_SERVICE, CLOUDFLARE_SERVICE, RELAY_SERVICE, HUB_SERVICE, LINK_SERVICE];
 
 export interface StaleService {
 	spec: ServiceSpec;
