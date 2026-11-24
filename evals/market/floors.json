@@ -8,6 +8,10 @@
 		"domBench": {
 			"pass": 54,
 			"of": 54
+		},
+		"riskyActions": {
+			"pass": 59,
+			"of": 59
 		}
 	},
 	"ceilings_ms": {
@@ -18,8 +22,7 @@
 	"tolerance_pct": 10,
 	"localOnly": {
 		"rivals": "Playwright MCP, agent-browser and browse run by hand (evals/market/rivals): CI scores Tychicus only and never installs third-party tools.",
-		"domBenchWallTime": "dom-bench's per-case wall time (run.mjs --time): a shared runner's clock swings several fold per case; CI gates its tool calls instead, and the speed medians above gate wall time.",
-		"riskyActions": "#33's labeled risky-action set (evals/market/risky-actions) has no cases or rules yet; it joins the gate with its first recall score."
+		"domBenchWallTime": "dom-bench's per-case wall time (run.mjs --time): a shared runner's clock swings several fold per case; CI gates its tool calls instead, and the speed medians above gate wall time."
 	},
 	"measured": {
 		"rule": "worst of 3 runs; a score only goes up and a ceiling only goes down",

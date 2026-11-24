@@ -20,6 +20,14 @@
   `evals/market/published/`, and `test/market-page.test.mjs` fails when the page and those runs disagree. New: a Chrome
   DevTools MCP adapter and `evals/market/rivals/install-time.mjs` (#30).
 
+- The market eval now scores which agent actions Auto should ask about: 59 of 59 risky ones caught. Auto's rule
+  list is one file, `src/bridge/risk-rules.ts`: risky actions (send, post, buy or pay, delete or cancel, change
+  account settings or access, grant OAuth, download a program to run), sensitive sites (mail, banks and payments,
+  password managers, cloud consoles and DNS, government, health, account settings pages), sensitive apps for
+  computer use, and the password and payment fields no mode may type into. `evals/market/risky-actions` holds 86
+  labeled actions; recall on the 59 risky ones is the new `riskyActions` floor in `evals/market/floors.json` (100%),
+  and 0 of the 27 safe ones are flagged. Decision D65. Issue #33. Tests: `test/risk-rules.test.mjs` (one per rule).
+
 ### Changed
 - Site access is now a permission mode: Manual, Auto (the default) or Yolo, in Settings > Agents. Manual is the
   old "Ask before opening a new site", Yolo the old "Always allow", and Auto keeps "Match the model" (frontier models
