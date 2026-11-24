@@ -70,7 +70,15 @@ import {
 	waitFor,
 } from "../browser/page.js";
 import { type BrowserSession, TabLimitError, takeNotices } from "../browser/session.js";
-import { IDLE_MS, LOADED_QUIET_MS, settle, settleStart, unsettledNote, WAIT_SETTLE } from "../browser/settle.js";
+import {
+	IDLE_MS,
+	LOADED_QUIET_MS,
+	newTabJoins,
+	settle,
+	settleStart,
+	unsettledNote,
+	WAIT_SETTLE,
+} from "../browser/settle.js";
 import { isPdfTab, pdfText } from "../offscreen/pdf-client.js";
 import { parseFilterValue } from "../site-edits/feed-match.js";
 import {
@@ -225,6 +233,8 @@ async function settleAfter(
 			...(options.idle && !inFrame ? { idleMs: IDLE_MS } : {}),
 			...(options.loaded ? { loadedQuietMs: LOADED_QUIET_MS } : {}),
 		}).catch(() => undefined);
+		const had = options.before?.tabs;
+		if (had) await newTabJoins(tabId, since, () => ctx.session.tabIds.some((t) => !had.includes(t)), ctx.aborted);
 		ctx.mark?.("settle");
 		const out: Record<string, unknown> = settled ? unsettledNote(settled) : {};
 		const kinds = new Set<EffectKind>();
