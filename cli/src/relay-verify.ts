@@ -5,7 +5,6 @@ import { USER_AGENT } from "./version.ts";
 
 export interface VerifySeam {
 	fetch?: typeof fetch;
-	sleep?: (ms: number) => Promise<void>;
 }
 
 /**
@@ -14,7 +13,6 @@ export interface VerifySeam {
  */
 export async function verify(url: string, deadline: number, every: number, seam: VerifySeam = {}): Promise<{ ok: true } | { ok: false; code: "relay_connector" | "relay_health"; message: string }> {
 	const get = seam.fetch ?? fetch;
-	const wait = seam.sleep ?? sleep;
 	const headers = { "user-agent": USER_AGENT };
 	let last = "";
 	let connected = false;
@@ -30,13 +28,15 @@ export async function verify(url: string, deadline: number, every: number, seam:
 				const res = await get(`${url}${HEALTH_PATH}`, { headers, signal: AbortSignal.timeout(10_000) });
 				const body = (await res.json().catch(() => undefined)) as { ok?: unknown } | undefined;
 				if (res.status === 200 && body?.ok === true) return { ok: true };
-				last = `${HEALTH_PATH} through the relay answered ${res.status}`;
+				last = `${HEALTH_PATH} through the relay answered ${res.status}${res.status === 200 ? ' without {"ok":true}' : ""}`;
 			}
 		} catch (err) {
-			last = err instanceof Error ? err.message : String(err);
+			// fetch says only "fetch failed"; a name that doesn't resolve yet or a refused connection is in its cause.
+			const { code, message } = (err instanceof Error ? (err.cause ?? err) : { message: String(err) }) as { code?: unknown; message?: unknown };
+			last = String(code || message);
 		}
 		if (Date.now() + every > deadline) break;
-		await wait(every);
+		await sleep(every);
 	}
 	return connected
 		? { ok: false, code: "relay_health", message: `The relay reaches this computer, but serve didn't answer ${HEALTH_PATH} through it (${last}).` }
