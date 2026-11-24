@@ -1,5 +1,5 @@
 ---
-name: polycarp-browser
+name: tychicus-browser
 description: Drive the user's real browser through the Tychicus MCP tools (navigate, read_page, click, type, fill). Use when a task needs a live web page or the user's own browser - opening and reading a site, clicking through it, scrolling, filling a form, taking a screenshot, testing a web app or local dev server you built, or anything in a tab behind the user's sign-in (mail, dashboards, feeds, a logged-in account). Not for plain web search or fetching a public URL's text when a fetch tool works.
 ---
 

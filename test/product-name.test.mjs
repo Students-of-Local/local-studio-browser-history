@@ -22,7 +22,7 @@ const ALLOW = new Map([
 	// The skill gate: its rules and tests match on these words (the install marker, the old skill name tabkyra), and the lint, its
 	// router and the catalog are maintainer-reviewed. They change only in a change that is about them.
 	["cli/src/skill-lint.ts", "skill lint matches the install marker"],
-	["cli/src/skill-router.ts", "router reads tabkyra as the polycarp-browser skill's old name"],
+	["cli/src/skill-router.ts", "router reads tabkyra and polycarp-browser as the tychicus-browser skill's old names"],
 	["cli/src/skills-catalog.ts", "generated from skills/, which keep their names"],
 ]);
 /**

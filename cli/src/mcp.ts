@@ -145,8 +145,8 @@ function harnessName(): string {
 	return "mcp";
 }
 
-/** The skill that teaches what these instructions do, for agents without them (skills/polycarp-browser). */
-const BROWSER_SKILL = "polycarp-browser";
+/** The skill that teaches what these instructions do, for agents without them (skills/tychicus-browser). */
+const BROWSER_SKILL = "tychicus-browser";
 
 /** Browser work only: coding agents read these instructions too, and a coding task on many items is not this skill. */
 const BULK_ACTIONS_INSTRUCTION = 'For one action on many items on a website (delete all), skill_read {"name":"bulk-actions"}.';
@@ -1305,7 +1305,7 @@ export function createMcpServer(options: McpServerOptions = {}): { server: McpSe
 		},
 		(args) =>
 			library(() => {
-				// polycarp-browser is this server's own instructions, written out for agents that don't have them: reading it
+				// tychicus-browser is this server's own instructions, written out for agents that don't have them: reading it
 				// here costs 8,000 characters and teaches nothing new (weak models read it on every plain page task). It is left
 				// out of the list, and a real skill below it still comes back.
 				const top = args.top ?? 3;

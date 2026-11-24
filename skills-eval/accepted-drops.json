@@ -60,6 +60,10 @@
 		{
 			"skill": "tabkyra",
 			"reason": "Renamed to polycarp-browser when the product became Polycarp. Its cases moved to the new name, and the router reads tabkyra, Polycarp and polycarp browser as that skill."
+		},
+		{
+			"skill": "polycarp-browser",
+			"reason": "Renamed to tychicus-browser when Tychicus became its own product apart from Polycarp. Its cases moved to the new name, and the router reads polycarp-browser, tabkyra, Polycarp and Tychicus as that skill."
 		}
 	]
 }

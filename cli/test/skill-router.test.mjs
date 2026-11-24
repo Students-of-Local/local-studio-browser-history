@@ -389,12 +389,14 @@ test("naming a skill to use routes to it; naming it to change it doesn't", () =>
 	const name = (task) => JSON.parse(run(["skill", "match", "--json", task]).stdout)[0].name;
 	assert.equal(name("Use the osint skill on the landlord at 12 Elm St"), "osint");
 	assert.equal(name("run the dorks skill to find PDFs"), "dorks");
-	assert.equal(name("use the tabkyra skill to fill the form"), "polycarp-browser");
-	assert.equal(name("use the polycarp-browser skill to fill the form"), "polycarp-browser");
-	assert.equal(name("use the `polycarp-browser` skill to fill the form"), "polycarp-browser");
-	assert.equal(name("/polycarp-browser fill the RSVP form"), "polycarp-browser");
-	assert.equal(name("/tabkyra fill the RSVP form"), "polycarp-browser");
-	assert.equal(name("/polycarp-browser"), "polycarp-browser", "the installed skill's own slash command");
+	assert.equal(name("use the tabkyra skill to fill the form"), "tychicus-browser");
+	assert.equal(name("use the polycarp-browser skill to fill the form"), "tychicus-browser");
+	assert.equal(name("use the `polycarp-browser` skill to fill the form"), "tychicus-browser");
+	assert.equal(name("/polycarp-browser fill the RSVP form"), "tychicus-browser");
+	assert.equal(name("/tabkyra fill the RSVP form"), "tychicus-browser");
+	assert.equal(name("/tychicus-browser"), "tychicus-browser", "the installed skill's own slash command");
+	assert.equal(name("/polycarp-browser"), "tychicus-browser", "the old name's slash command, from a copy installed before the rename");
+	assert.equal(name("use the tychicus-browser skill to fill the form"), "tychicus-browser");
 	// Backticks around the name point at the skill, so "skill" here isn't a request to make one.
 	assert.equal(name("Don't use the `polycarp-browser` skill; fetch the URL directly"), "none");
 	assert.equal(name("the proton-pass skill, please, for the deploy token"), "proton-pass");
@@ -586,7 +588,7 @@ test("an explicit request survives edit-like words elsewhere; a governing edit v
 	assert.equal(name("Use the news-research skill for the latest updates on the rail strike"), "news-research");
 	assert.equal(name("Use the osint skill on the port authority's new contractor"), "osint");
 	assert.equal(name("Run the osint skill and review what you find on the landlord"), "osint");
-	assert.equal(name("Use the polycarp-browser skill to fill in my fixed address"), "polycarp-browser");
+	assert.equal(name("Use the polycarp-browser skill to fill in my fixed address"), "tychicus-browser");
 	assert.equal(name("Rewrite the dorks skill to Polycarp's skill standard"), "kyraskillmaker");
 	// A "no" or "not" that doesn't govern the mention is no exclusion.
 	assert.equal(name("I have no idea who runs this website so use the osint skill"), "osint");
@@ -597,25 +599,25 @@ test("an explicit request survives edit-like words elsewhere; a governing edit v
 	for (const [task, banned] of [
 		["Don't use the osint skill, just search the news for the landlord", "osint"],
 		["Instead of the dorks skill, write me a plain search query", "dorks"],
-		["Skip the polycarp-browser skill and fetch the URL directly", "polycarp-browser"],
-		["Skip the tabkyra skill and fetch the URL directly", "polycarp-browser"],
+		["Skip the polycarp-browser skill and fetch the URL directly", "tychicus-browser"],
+		["Skip the tabkyra skill and fetch the URL directly", "tychicus-browser"],
 		["Without the osint skill, do a background check on this landlord", "osint"],
 	]) {
 		assert.ok(!all(task).includes(banned), `${task} -> ${all(task)}`);
 	}
 });
 
-test("polycarp browser skill <subcommand> is the CLI, not a request for the polycarp-browser skill", () => {
+test("polycarp browser skill <subcommand> is the CLI, not a request for the tychicus-browser skill", () => {
 	const name = (task) => JSON.parse(run(["skill", "match", "--json", task]).stdout)[0].name;
 	// The command inside the app, the command from a checkout, and the old command all read as the CLI.
-	for (const cmd of ["polycarp browser", "polycarp-browser", "tabkyra"]) {
+	for (const cmd of ["tychicus", "polycarp browser", "polycarp-browser", "tabkyra"]) {
 		assert.equal(name(`${cmd} skill install wrote to the wrong folder, report it`), "bug", cmd);
 		assert.equal(name(`${cmd} skill versions shows nothing for my local skill`), "bug", cmd);
 		assert.equal(name(`how do I use ${cmd} skill rollback`), "none", cmd);
 	}
 	// The skill by its name, by the product's name, and by its old name.
-	for (const task of ["Use the polycarp-browser skill to read this page", "Use the polycarp skill to read this page", "Use the tabkyra skill to read this page"]) {
-		assert.equal(name(task), "polycarp-browser", task);
+	for (const task of ["Use the tychicus-browser skill to read this page", "Use the polycarp-browser skill to read this page", "Use the polycarp skill to read this page", "Use the tabkyra skill to read this page"]) {
+		assert.equal(name(task), "tychicus-browser", task);
 	}
 });
 
@@ -734,7 +736,7 @@ test("curly apostrophes read as straight ones, so a typed-on-a-phone negation st
 	for (const [task, banned] of [
 		["Don’t use the osint skill, just search the news for the landlord", "osint"],
 		["Don’t run the dorks skill, write me a plain search query", "dorks"],
-		["Don’t use the polycarp-browser skill; fetch the URL directly", "polycarp-browser"],
+		["Don’t use the polycarp-browser skill; fetch the URL directly", "tychicus-browser"],
 		["Don’t apply the osint skill, just tell me what you know about the landlord", "osint"],
 	]) {
 		assert.ok(!all(task).includes(banned), `${task} -> ${all(task)}`);
@@ -743,7 +745,7 @@ test("curly apostrophes read as straight ones, so a typed-on-a-phone negation st
 
 test("'..., debug it' after a use-verb is about the work, not the skill", () => {
 	const name = (task) => JSON.parse(run(["skill", "match", "--json", task]).stdout)[0].name;
-	assert.equal(name("Use the polycarp-browser skill to open localhost:3000 and debug it"), "polycarp-browser");
+	assert.equal(name("Use the polycarp-browser skill to open localhost:3000 and debug it"), "tychicus-browser");
 	assert.equal(name("Run the osint skill on the landlord and review it"), "osint");
 	// Without a use-verb, "fix it" still points back at the skill.
 	assert.equal(name("The proton-pass skill gave my small model a bad result, fix it"), "fix");
@@ -892,9 +894,9 @@ test("'<name> skill(s)' about a person's abilities names no skill; lists, negati
 	assert.equal(top("use the video-editing skill to trim talk.mp4")[0], "video-editing");
 	assert.equal(top("Improve the osint skill so a small model follows it")[0], "kyraskillmaker");
 	assert.equal(top("The autoresearch skill gave a weak report on my 8B model. Fix it")[0], "fix");
-	// "a Polycarp skill" is a kind of skill to make, not a request for the polycarp-browser skill.
-	assert.ok(!top("Port my Cursor rule into a Polycarp skill that passes lint").includes("polycarp-browser"));
-	assert.ok(!top("Port my Cursor rule into a Tabkyra skill that passes lint").includes("polycarp-browser"));
+	// "a Polycarp skill" is a kind of skill to make, not a request for the tychicus-browser skill.
+	assert.ok(!top("Port my Cursor rule into a Polycarp skill that passes lint").includes("tychicus-browser"));
+	assert.ok(!top("Port my Cursor rule into a Tabkyra skill that passes lint").includes("tychicus-browser"));
 });
 
 test("past 32 skills the single-evidence bar grows with a two-skill word's weight", async () => {
