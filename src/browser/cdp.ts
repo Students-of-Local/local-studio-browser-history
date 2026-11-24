@@ -845,11 +845,16 @@ export async function typeText(
 	aborted: () => boolean = () => false,
 	/** Called once, just before the first key event is sent: from then on the page may have the text. */
 	beforeFirstKey: () => void = () => undefined,
+	/** Awaited before the first key, and again after each Enter or Tab: those move the focus. Throws to stop. */
+	check: () => Promise<void> = async () => undefined,
 ): Promise<void> {
 	await ensureAttached(tabId);
 	cuePointer(tabId, "type");
 	let started = false;
+	let look = true;
 	for (const char of text) {
+		if (look) await check();
+		look = /[\n\r\t]/.test(char);
 		if (aborted()) throw new InputAbortedError("Stopped typing: a dialog interrupted this call");
 		if (!started) {
 			started = true;

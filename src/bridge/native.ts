@@ -98,7 +98,6 @@ import {
 	UPDATE_PROGRESS_KEY,
 	UPDATE_STATUS_KEY,
 } from "./protocol.js";
-import { type ActionFacts, hardLimit } from "./risk-rules.js";
 import { handleSessionsAdmin } from "./sessions-admin.js";
 import { type DeliveredStep, extensionStatus, type HandlerContext, handlers, normalizeStep } from "./tools.js";
 
@@ -381,16 +380,6 @@ async function askUpload(
 	return result === "allow_once";
 }
 
-/** A password or payment field takes no text from an agent, in any permission mode (D67). */
-function refuseHardLimit(f: ActionFacts): void {
-	const limit = hardLimit(f);
-	if (limit)
-		throw new BridgeError(
-			ERR.PERMISSION_DENIED,
-			`Nothing was entered: this field ${limit.why}. Tychicus never lets an agent enter passwords or payment details, in any permission mode. Leave it empty and do not submit the form: fill in the rest, call tabs_show, and ask the user to enter it themselves.`,
-		);
-}
-
 function guardedError(url: string): BridgeError {
 	return new BridgeError(
 		ERR.PERMISSION_DENIED,
@@ -587,7 +576,7 @@ async function runRequest(state: ClientState, req: HostForwardedRequest, answer?
 				(!!topUrl && hostOf(url) === hostOf(topUrl) && !isOwnExtensionUrl(url)) ||
 				(await isUrlAllowed(url, state.tier, state.remote)),
 			askUpload: (url, files, askId) => askUpload(state, url, files, askId),
-			guard: refuseHardLimit,
+			hardLimits: true,
 			checkUrl: async (url: string) => {
 				if (isGuardedUrl(url, req.guardedHosts)) throw guardedError(url);
 				if (!(await askPermission(state, url))) {

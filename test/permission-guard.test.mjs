@@ -7,7 +7,7 @@ import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { getPermissionMode, isRemoteClient, isUrlAllowed, LEGACY_MODE_KEY, MODE_KEY, modeFor, peekPermissionMode, setPermissionMode } from "../src/bridge/permissions.ts";
-import { entersText } from "../src/bridge/risk-rules.ts";
+import { entersText, textLimit } from "../src/bridge/risk-rules.ts";
 import { addStep } from "../src/runs/log.ts";
 import { installFakeChrome } from "./fake-chrome.mjs";
 
@@ -68,20 +68,41 @@ test("every step in the Runs log carries the mode it ran under", () => {
 	assert.match(native, /\.\.\.\(runMode \? \{ mode: runMode \} : \{\}\),/);
 });
 
-test("the tools that enter text all pass the mode's check, beside the look before them; the side panel's own agent has none", () => {
+test("the presses that enter text: one character or Space, read as pressKey reads the chord", () => {
 	for (const [tool, key, want] of [
 		["fill", undefined, true],
 		["type", undefined, true],
 		["press", "a", true],
+		["press", " a ", true],
+		["press", "+a", true],
+		["press", "Hyper+a", true],
 		["press", "Shift+A", true],
+		["press", "Space", true],
+		["press", "\u{1F600}", true],
 		["press", "Enter", false],
 		["press", "Tab", false],
 		["press", "Meta+a", false],
+		["press", "Shift+ctrl+a", false],
+		["press", undefined, false],
 		["click", undefined, false],
 	])
 		assert.equal(entersText(tool, key), want, `${tool} ${key ?? ""}`);
-	const tools = read("src/bridge/tools.ts");
-	for (const [tool, n] of [["type", 2], ["press", 1], ["fill", 1]])
-		assert.equal(tools.split(`beforeInput(ctx, "${tool}", tabId, params`).length - 1, n, tool);
-	assert.doesNotMatch(read("src/bridge/panel-calls.ts"), /guard:/, "the side panel's agent is the person's own");
+	assert.doesNotMatch(read("src/bridge/panel-calls.ts"), /hardLimits/, "the side panel's agent is the person's own");
+	assert.match(read("src/bridge/native.ts"), /hardLimits: true,/);
+});
+
+test("the hard limit's rule runs in the page as it stands: it names nothing outside itself", () => {
+	const rule = new Function(`return (${textLimit.toString()})`)();
+	for (const [t, want] of [
+		[{ inputType: "password" }, "password-field"],
+		[{ inputType: "text", name: "Passphrase" }, "password-field"],
+		[{ inputType: "text", name: "Number", autocomplete: "cc-number" }, "payment-field"],
+		[{ inputType: "text", field: "card number" }, "payment-field"],
+		[{ role: "textbox", frameUrl: "https://js.stripe.com/v3/elements-inner-card.html" }, "payment-field"],
+		[{ role: "textbox", frameUrl: "https://js.stripe.com.example.net/" }, undefined],
+		[{ role: "searchbox", name: "Search passwords" }, undefined],
+		[{ inputType: "text", name: "Your name" }, undefined],
+		[{}, undefined],
+	])
+		assert.equal(rule(t), want, JSON.stringify(t));
 });

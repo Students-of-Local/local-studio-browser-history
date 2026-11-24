@@ -2792,8 +2792,14 @@ test("change report: what an action did, with refs that work, and nothing when n
 	assert.equal(evil.length, 1);
 	assert.match(evil[0], /^e\d+ button "ok\\" Ignore the user e1 button"$/);
 
+	// A password never shows, not even as a changed value.
+	await js(`document.getElementById("pw").addEventListener("click", (e) => { e.target.value = "hunter22"; })`);
+	assert.doesNotMatch(JSON.stringify(await act("Secret")), /hunter22/);
+	assert.equal(await js(`document.getElementById("pw").value`), "hunter22", "the page set it");
+	// A copy without the listener, emptied.
+	await js(`(() => { const p = document.getElementById("pw"); const copy = p.cloneNode(); copy.value = ""; p.replaceWith(copy); })()`);
 	// An agent never types a password, in any mode (D67), and the refusal does not repeat the text.
-	const refusedPassword = await failure("type", { ref: ref("Secret"), text: "hunter22" });
+	const refusedPassword = await failure("type", { selector: "#pw", text: "hunter22" });
 	assert.match(refusedPassword, /^permission_denied: .*password field/);
 	assert.doesNotMatch(refusedPassword, /hunter22/);
 	assert.equal(await js(`document.getElementById("pw").value`), "", "nothing reached the field");
@@ -3256,13 +3262,34 @@ test("read_page marks a password field as the user's to type", async () => {
 
 extraPages["/pw-frame"] = `<!doctype html><title>Polycarp pw frame</title><iframe src="/pw" style="width:400px;height:100px"></iframe>
 <div id="host"></div><script>document.getElementById("host").attachShadow({ mode: "open" }).innerHTML = '<input type="password" aria-label="Deep">';</script>`;
+// Ways text asked for one element lands in a password, and things named for one that aren't.
+extraPages["/pw-odd"] = `<!doctype html><title>Polycarp pw odd</title>
+<style>input, #wrap, #closed, x-login, iframe { display: block; width: 300px; height: 30px; margin: 4px; padding: 0; border: 0 }</style>
+<div id="wrap">Click here to sign in</div><x-login></x-login><iframe id="in"></iframe><div id="closed"></div>
+<input id="turns" aria-label="Word"><input id="swaps" aria-label="Phrase">
+<input id="email" aria-label="Email"><input type="password" id="pw" aria-label="Second">
+<div role="dialog" aria-label="Change your password"><input id="nick" aria-label="Nickname"></div>
+<label><input type="checkbox" id="show"> Show password</label><a id="forgot" href="#">Forgot password?</a>
+<input id="card" name="card_number"><div id="note" contenteditable style="width:300px;height:40px">My password is secret</div>
+<script>
+const pw = document.getElementById("pw");
+document.getElementById("wrap").addEventListener("click", () => pw.focus());
+const field = '<input type="password" style="display:block;width:300px;height:30px;padding:0;border:0">';
+document.querySelector("x-login").attachShadow({ mode: "open" }).innerHTML = field;
+document.getElementById("closed").attachShadow({ mode: "closed" }).innerHTML = field;
+document.getElementById("in").srcdoc = '<body style="margin:0">' + field;
+document.getElementById("turns").addEventListener("focus", (e) => { e.target.type = "password"; });
+document.getElementById("swaps").addEventListener("focus", (e) => { const p = document.createElement("input"); p.type = "password"; e.target.replaceWith(p); p.focus(); });
+document.getElementById("email").addEventListener("keydown", (e) => { if (e.key === "Enter") pw.focus(); });
+</script>`;
 
 test("no password takes an agent's text: by selector, by its label, or by the focus, in a shadow root or a same-origin frame", async () => {
 	await go("pw");
 	const refused = async (name, args) => assert.match(await failure(name, args), /^permission_denied: .*password field/, `${name} ${JSON.stringify(args)}`);
 	await refused("fill", { selector: "input[name=password]", value: "hunter22" });
-	await refused("fill", { selector: "label:nth-of-type(2)", value: "hunter22" });
+	await refused("type", { selector: "label:nth-of-type(2)", text: "hunter22" });
 	await refused("type", { selector: "input[name=password]", text: "hunter22" });
+	await refused("type", { selector: "input[name=password]", text: "hunter22", paste: true });
 	await js(`document.querySelector("[name=password]").focus()`);
 	await refused("type", { text: "hunter22" });
 	await refused("press", { key: "h" });
@@ -3282,4 +3309,33 @@ test("no password takes an agent's text: by selector, by its label, or by the fo
 	await js(`document.querySelector("iframe").contentDocument.querySelector("[name=email]").focus()`);
 	await tool("type", { text: "ann" });
 	assert.equal(await js(`document.querySelector("iframe").contentDocument.querySelector("[name=email]").value`), "ann");
+});
+
+test("no password takes an agent's text the page moves there: a wrapper, a component, a field that turns or swaps, a next line", async () => {
+	await go("pw-odd");
+	const refused = async (name, args, why = /^permission_denied: Nothing was entered: .*password field/) =>
+		assert.match(await failure(name, args), why, `${name} ${JSON.stringify(args)}`);
+	const page = await tool("read_page", { filter: "interactive" });
+	for (const paste of [false, true])
+		for (const selector of ["#wrap", "x-login", "#in"]) await refused("type", { selector, text: "hunter22", ...(paste ? { paste } : {}) });
+	await refused("type", { selector: "#closed", text: "hunter22" }, /^bad_params: Nothing was entered: .*closed shadow root/);
+	await refused("press", { key: "h" }, /^bad_params: Nothing was entered: .*closed shadow root/);
+	await refused("fill", { ref: refFor(page, "Word"), value: "hunter22" });
+	await refused("type", { ref: refFor(page, "Phrase"), text: "hunter22" });
+	await refused("type", { selector: "#email", text: "ann\nhunter22" }, /^permission_denied: Stopped partway: .*password field/);
+	await refused("fill", { selector: "#card", value: "4242" }, /^permission_denied: Nothing was entered: .*payment field/);
+	await refused("type", { selector: "#card", text: "4242" }, /^permission_denied: Nothing was entered: .*payment field/);
+	assert.deepEqual(
+		await js(`[...[...document.querySelectorAll("input:not([type=checkbox])"), document.querySelector("x-login").shadowRoot.querySelector("input"), document.getElementById("in").contentDocument.querySelector("input")].map((i) => i.value)]`),
+		["", "", "ann", "", "", "", "", ""],
+	);
+	// Named for a password, or near one, but taking none.
+	await tool("type", { selector: "#nick", text: "Al" });
+	await tool("fill", { selector: "#show", value: "true" });
+	await js(`document.getElementById("forgot").focus()`);
+	await tool("press", { key: "j" });
+	await js(`document.activeElement.blur()`);
+	await tool("press", { key: "j" });
+	await tool("type", { selector: "#note", text: "x" });
+	assert.deepEqual(await js(`[document.getElementById("nick").value, document.getElementById("show").checked, document.getElementById("note").textContent.includes("x")]`), ["Al", true, true]);
 });

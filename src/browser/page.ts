@@ -6,7 +6,8 @@
  */
 
 import { isGuardedUrl } from "../bridge/permissions.js";
-import { cdpSend, isRestrictedUrl } from "./cdp.js";
+import { type HardLimit, textLimit } from "../bridge/risk-rules.js";
+import { cdpSend, cdpSendSession, isRestrictedUrl } from "./cdp.js";
 import {
 	bounded,
 	crossOriginFrames,
@@ -21,6 +22,7 @@ import {
 	frameShownNow,
 	frameState,
 	frameTakesPoint,
+	frameWorld,
 	MAX_DEPTH,
 	MAX_FRAMES,
 	type PageFrame,
@@ -2184,7 +2186,7 @@ export async function pressLanded(tabId: number, aim: Aim): Promise<string | und
 /** fillElement in the page: find the field by ref or selector, check it is shown and editable, set its value. */
 const FILL_LIB: PageLib = {
 	name: "fill",
-	source: () => `async (ref, sel, value) => {
+	source: () => `async (ref, sel, value, limited) => {
 		delete window.__tabkyraRefound;
 		let el = null;
 		let byRef = false;
@@ -2232,6 +2234,9 @@ const FILL_LIB: PageLib = {
 		// window's HTMLInputElement and its value setter don't apply.
 		const W = el.ownerDocument.defaultView || window;
 		el.focus();
+		// On the element the value goes into, after its focus handlers ran: nothing can change between this and the write.
+		const limit = limited ? (${textLimit.toString()})((${FIELD_FACTS})(el)) : undefined;
+		if (limit) return { limit };
 		if (el instanceof W.HTMLSelectElement) {
 			const opt = Array.from(el.options).find(o => o.value === value || o.text.trim() === value);
 			if (!opt) throw new Error("No option matches " + value + ". read_page lists the options (value=...).");
@@ -2262,17 +2267,21 @@ const FILL_LIB: PageLib = {
 	}`,
 };
 
-/** Set a form control's value the way frameworks expect (native setter + input/change). */
+/**
+ * Set a form control's value the way frameworks expect (native setter + input/change). With `limited`, a password or
+ * payment field is left as it is and its hard limit comes back.
+ */
 export async function fillElement(
 	tabId: number,
 	target: { ref?: string; selector?: string },
 	value: string,
 	rule: FrameRule = FRAMES_CLOSED,
 	found?: { frame: PageFrame; inner: string },
-): Promise<void> {
+	limited = false,
+): Promise<HardLimit | undefined> {
 	const code = (r: string | undefined, inFrame: boolean): LibCall => ({
 		lib: FILL_LIB,
-		args: [r ?? "", inFrame ? "" : (target.selector ?? ""), value],
+		args: [r ?? "", inFrame ? "" : (target.selector ?? ""), value, limited],
 	});
 	// A field in a frame: the frame's own document can't see a banner over the frame, so the page
 	// around it is checked as a click would be, before anything is written.
@@ -2281,107 +2290,102 @@ export async function fillElement(
 	if (framed) await locate(tabId, { ref: target.ref }, rule, "fill", framed);
 	const { value: done } = await runForRef<unknown>(tabId, target.ref, code, rule, framed);
 	if (typeof done === "string") refoundNotes.set(tabId, done);
+	return (done as { limit?: HardLimit } | undefined)?.limit;
 }
 
 /**
- * What an action is about to reach, for Auto's rules (src/bridge/risk-rules.ts TargetFacts): the control's role and
- * name (as read_page showed them, when it has the ref), an input's type and autocomplete, the link, dialog and form
- * around it, and the frame it is in. Finds the element by ref, else selector, else the CSS point, else the focus.
- * Reads only; never heals a ref (the action's own lookup does that, and refuses what this can't find).
+ * What the hard limits read about the element text is about to reach (risk-rules.ts TargetFacts): an input's type and
+ * autocomplete, and for one that takes text (or a select) its accessible name, its name attribute and its frame. Never
+ * its content.
+ * Page code, without backquotes.
  */
-const DESCRIBE_LIB: PageLib = {
-	name: "describe",
-	source: () => String.raw`(ref, sel, x, y) => {
-		const W = window;
-		const squash = (t) => String(t || "").replace(/\s+/g, " ").trim();
-		const out = {};
-		let el = null;
-		let meta;
-		if (ref) {
-			if (W.__tabkyraRefs instanceof Map) el = W.__tabkyraRefs.get(ref) || null;
-			if (W.__tabkyraRefMeta instanceof Map) meta = W.__tabkyraRefMeta.get(ref);
-			if (el && !el.isConnected) el = null;
-		}
-		if (!el && sel) { try { el = document.querySelector(sel); } catch {} }
-		if (!el && typeof x === "number" && typeof y === "number") el = document.elementFromPoint(x, y);
-		if (!el && !ref && !sel && typeof x !== "number") {
-			el = document.activeElement;
-			// Through open shadow roots and same-origin frames, as pasteInto: a cross-origin frame can't be read from here.
-			for (let d = 0; el && d < 12; d++) {
-				if (el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement;
-				else if (/^(IFRAME|FRAME)$/.test(el.tagName)) {
-					let doc = null;
-					try { doc = el.contentDocument; } catch {}
-					if (!doc) { out.otherSite = true; break; }
-					if (!doc.activeElement) break;
-					out.frameUrl = doc.location.href;
-					el = doc.activeElement;
-				} else break;
-			}
-		}
-		try { if (W.top !== W) out.frameUrl = location.href; } catch { out.frameUrl = location.href; }
-		if (meta) { out.role = meta.role; out.name = meta.name; }
-		if (!el) return out;
-		if (/^(IFRAME|FRAME)$/.test(el.tagName) && el.src) out.frameUrl = el.src;
-		const ctl = el.closest("button,a[href],input,select,textarea,summary,[role],[contenteditable=''],[contenteditable=true]") || (el.closest("label") || {}).control || el;
-		const tag = ctl.tagName.toLowerCase();
-		const type = tag === "input" ? String(ctl.type || "text").toLowerCase() : "";
-		if (!out.role) {
-			const own = ctl.getAttribute("role");
-			out.role = own ? own.split(" ")[0]
-				: tag === "button" || tag === "summary" || /^(submit|button|image|reset)$/.test(type) ? "button"
-				: tag === "a" ? "link"
-				: type === "checkbox" ? "checkbox"
-				: type === "radio" ? "radio"
-				: type === "search" ? "searchbox"
-				: tag === "select" ? "combobox"
-				: tag === "input" || tag === "textarea" || ctl.isContentEditable ? "textbox"
-				: tag;
-		}
-		if (!out.name) {
-			const by = ctl.getAttribute("aria-labelledby");
-			const labelled = by ? by.split(/\s+/).map((id) => { const n = document.getElementById(id); return n ? n.textContent : ""; }).join(" ") : "";
-			const label = ctl.labels && ctl.labels[0] ? ctl.labels[0].textContent : "";
-			const field = tag === "input" || tag === "textarea" || tag === "select";
-			out.name = squash(
-				ctl.getAttribute("aria-label") || labelled || label ||
-				(field ? (/^(submit|button|reset)$/.test(type) ? ctl.value : "") || ctl.getAttribute("placeholder") || ctl.getAttribute("title") || ctl.getAttribute("name") || ""
-					: ctl.innerText || ctl.textContent || ctl.getAttribute("title") || ctl.getAttribute("alt") || ""),
-			).slice(0, 200);
-		}
-		if (type) out.inputType = type;
-		const auto = ctl.getAttribute("autocomplete");
-		if (auto) out.autocomplete = auto;
-		const link = el.closest("a[href]");
-		if (link) out.href = link.href;
-		const dialog = el.closest("dialog,[role=dialog],[role=alertdialog]");
-		if (dialog) out.dialog = squash(dialog.innerText || dialog.textContent).slice(0, 300);
-		const form = ctl.form || el.closest("form");
-		if (form) {
-			const b = form.querySelector("button[type=submit],button:not([type]),input[type=submit],input[type=image]");
-			out.form = {};
-			if (b) out.form.submit = squash(b.getAttribute("aria-label") || b.innerText || b.value || b.textContent).slice(0, 100);
-			if (form.getAttribute("action")) out.form.action = form.action;
-		}
-		return out;
+const FIELD_FACTS = String.raw`(el) => {
+	const W = el.ownerDocument.defaultView || window;
+	const tag = el.tagName.toLowerCase();
+	const type = tag === "input" ? String(el.type || "text").toLowerCase() : "";
+	const role = (el.getAttribute("role") || "").trim().split(/\s+/)[0].toLowerCase();
+	const out = { role: role || (type === "search" ? "searchbox" : tag), inputType: type, autocomplete: el.getAttribute("autocomplete") || "" };
+	if (el.isContentEditable) while (el.parentElement && el.parentElement.isContentEditable) el = el.parentElement;
+	out.takesText = tag === "textarea" || el.isContentEditable || /^(textbox|searchbox|combobox|spinbutton)$/.test(role) ||
+		(!!type && !/^(button|submit|reset|image|checkbox|radio|range|color|file|hidden)$/.test(type));
+	if (!out.takesText && tag !== "select") return out;
+	if (W !== W.top) out.frameUrl = W.location.href;
+	const root = el.getRootNode();
+	const labelled = (el.getAttribute("aria-labelledby") || "").split(/\s+/).map((id) => { const n = id && root.getElementById ? root.getElementById(id) : null; return n ? n.textContent : ""; }).join(" ").trim();
+	const label = el.labels && el.labels[0] ? el.labels[0].textContent : "";
+	out.name = String(el.getAttribute("aria-label") || labelled || label || el.getAttribute("placeholder") || el.getAttribute("title") || "").slice(0, 200);
+	out.field = String(el.getAttribute("name") || "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[^A-Za-z0-9]+/g, " ").slice(0, 100);
+	return out;
+}`;
+
+/** The element with the focus, through open shadow roots and same-origin frames. An IFRAME means a frame from another site holds it. Page code. */
+const DEEP_FOCUS = `() => {
+	let el = document.activeElement;
+	for (let d = 0; el && d < 12; d++) {
+		if (el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement;
+		else if (/^(IFRAME|FRAME)$/.test(el.tagName)) {
+			let doc = null;
+			try { doc = el.contentDocument; } catch {}
+			if (!doc) break;
+			el = doc.activeElement;
+		} else break;
+	}
+	return el;
+}`;
+
+/** "" when an agent's next key may go out; else the hard limit, "other-site", or "host" for an element that may hide a closed shadow root. */
+const FOCUS_LIB: PageLib = {
+	name: "focus",
+	source: () => `() => {
+		const tychicusFocus = (${DEEP_FOCUS})();
+		const el = tychicusFocus;
+		if (!el) return "";
+		if (/^(IFRAME|FRAME)$/.test(el.tagName)) return "other-site";
+		const facts = (${FIELD_FACTS})(el);
+		const limit = (${textLimit.toString()})(facts);
+		if (limit || facts.takesText) return limit || "";
+		return !el.shadowRoot && (/-/.test(el.tagName) || /^(ARTICLE|ASIDE|BLOCKQUOTE|DIV|FOOTER|H[1-6]|HEADER|MAIN|NAV|P|SECTION|SPAN)$/.test(el.tagName)) ? "host" : "";
 	}`,
 };
 
-/**
- * The facts Auto's rules read about the element an action is about to reach (DESCRIBE_LIB). `point` is in CSS
- * pixels. Runs where the ref lives (a cross-origin frame's isolated world for a frame ref).
- */
-export async function describeTarget(
-	tabId: number,
-	target: { ref?: string; selector?: string; point?: { x: number; y: number } },
-	rule: FrameRule = FRAMES_CLOSED,
-): Promise<Record<string, unknown>> {
-	const code = (r: string | undefined, inFrame: boolean): LibCall => ({
-		lib: DESCRIBE_LIB,
-		args: [r ?? "", inFrame ? "" : (target.selector ?? ""), target.point?.x, target.point?.y],
+/** Whether the element with the focus has a closed shadow root: the page can't say which field inside it has the focus, the debugger sees the root. */
+async function focusInClosedRoot(tabId: number, frame: PageFrame | undefined): Promise<boolean> {
+	const world = frame ? await frameWorld(tabId, frame) : undefined;
+	const call = <T>(method: string, params: Record<string, unknown>) =>
+		cdpSendSession<T>(tabId, frame?.sessionId, method, params);
+	const { result } = await call<{ result: { objectId?: string } }>("Runtime.evaluate", {
+		expression: `(${DEEP_FOCUS})()`,
+		...(world !== undefined ? { contextId: world } : {}),
 	});
-	const { value } = await runForRef<Record<string, unknown>>(tabId, target.ref, code, rule);
-	return value && typeof value === "object" ? value : {};
+	const { objectId } = result;
+	if (!objectId) return false;
+	const { node } = await call<{ node: { shadowRoots?: Array<{ shadowRootType?: string }> } }>("DOM.describeNode", {
+		objectId,
+	});
+	call("Runtime.releaseObject", { objectId }).catch(() => undefined);
+	return !!node.shadowRoots?.some((r) => r.shadowRootType === "closed");
+}
+
+/**
+ * Why an agent's next key may not go out, if it may not: the focus is a password or payment field, or somewhere that
+ * can't be told ("other-site", "closed-root"). Looks at the live focus, whatever the call named. With a ref in a
+ * cross-origin frame the focus is looked at in the page and then in that frame.
+ */
+export async function focusLimit(
+	tabId: number,
+	ref: string | undefined,
+	rule: FrameRule = FRAMES_CLOSED,
+): Promise<HardLimit | "other-site" | "closed-root" | undefined> {
+	const code = (): LibCall => ({ lib: FOCUS_LIB, args: [] });
+	const framed = !!ref && !!splitFrameRef(ref);
+	for (const at of framed ? [undefined, ref] : [undefined]) {
+		const { value, frame } = await runForRef<HardLimit | "other-site" | "host" | "">(tabId, at, code, rule);
+		if (framed && !at && value === "other-site") continue;
+		if (value === "host") {
+			if (await focusInClosedRoot(tabId, frame)) return "closed-root";
+		} else if (value) return value;
+	}
+	return undefined;
 }
 
 /**

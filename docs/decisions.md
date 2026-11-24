@@ -2255,12 +2255,17 @@ one). The bridge runs it in Auto when the mode is Yolo, and refuses `permission.
 always named its sessions `remote-<caller>`, so the bridge goes by that name too. The MCP server puts no site question
 to a remote or scoped session's caller: it waits in the side panel.
 
-The bridge checks the hard limits before `type`, `fill`, a paste and a press of a character: it looks at the element the
-text would reach (`describeTarget`: by ref, selector or the focus, through open shadow roots and same-origin frames) and
-refuses with nothing sent. The look runs beside the change report's, so it costs no time of its own. Text is refused
-when the look fails, and when the focus is in a frame from another site, where the page can't say which field has it:
-the agent names the field by its ref instead. A script (`run_js`) is not checked, and the side panel's own agent has no
-such check; it is the person's own.
+The bridge checks the hard limits where the text goes in, not on the element the call named: a wrapper, a component, a
+field that swaps itself on focus or a next line can put it elsewhere. `fill` checks inside the page code that writes, on
+the element it writes to, after that element's focus handlers ran (`FILL_LIB`). `type`, a paste and a press of a
+character look at the live focus after the focusing click and right before the keys (`focusLimit`), through open shadow
+roots and same-origin frames, again after each Enter or Tab in the text, before every repeat of a press, and after a
+page's paste handler that took nothing. One rule, `textLimit` in `risk-rules.ts`, runs in the page for both. It reads an
+input's type and autocomplete, and for a field that takes text its label and `name` attribute, never its content. Text is
+refused when the look fails, when the focus is in a frame from another site (the agent names the field by its ref
+instead), and when it is inside a closed shadow root, which only the debugger can see. Not checked: a script (`run_js`),
+and a page that moves the focus itself between two characters. The side panel's own agent has no such check; it is the
+person's own.
 
 Migration: a stored `ask` is Manual, `allow_all` is Yolo. Nothing stored on an existing install is Auto with a
 one-time side panel notice naming the change and a one-click way back to Manual, since that person never chose
