@@ -16,6 +16,8 @@ import { canDiscover, type DiscoveredModel, discoverProviderModels } from "./dis
 const STALE_MS = 60 * 60 * 1000;
 const METADATA_STALE_MS = 24 * 60 * 60 * 1000;
 const MODELS_DEV_URL = "https://models.dev/api.json";
+/** Settings > Privacy, "Look up model details on models.dev": anything but false means on. */
+export const MODELS_DEV_KEY = "privacy.modelsDev";
 
 interface ModelsDevModel {
 	name?: string;
@@ -43,6 +45,8 @@ async function loadMetadata(storage: TabkyraAppStorage): Promise<ModelsDevData |
 		metadataCache = cached.data;
 		return metadataCache;
 	}
+	// Switched off: never ask models.dev. A copy fetched earlier stays usable; it holds no user data.
+	if ((await storage.settings.get<boolean>(MODELS_DEV_KEY)) === false) return cached?.data;
 	try {
 		const controller = new AbortController();
 		const timer = setTimeout(() => controller.abort(), 8000);
