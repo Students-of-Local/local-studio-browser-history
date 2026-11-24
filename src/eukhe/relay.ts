@@ -24,7 +24,7 @@ export function startEukheRelay(): void {
 				w.port.postMessage({
 					id: w.id,
 					conversation: "",
-					error: { code: "no_host", message: "Tychicus's native host disconnected. Try again." },
+					error: { code: "no_host", message: "Local Studio's native host disconnected. Try again." },
 				} satisfies EukheReply);
 			waiting.clear();
 			for (const c of conversations.values())
@@ -79,7 +79,7 @@ export function startEukheRelay(): void {
 					conversation: req.conversation,
 					error: {
 						code: "no_host",
-						message: `Tychicus's native host isn't connected. Run ${hostCommandText("setup")}, then try again.`,
+						message: `Local Studio's native host isn't connected. Run ${hostCommandText("setup")}, then try again.`,
 					},
 				} satisfies EukheReply);
 			}

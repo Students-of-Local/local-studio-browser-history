@@ -18,7 +18,7 @@ export function agentSetupPrompt(version: string, command = "tychicus"): string 
 	// Without the version the install can't be pinned, so refuse rather than copy a broken prompt.
 	if (!/^\d+\.\d+\.\d+/.test(version))
 		throw new Error(`No extension version to pin the helper to (got "${version}").`);
-	return `Set up Tychicus (https://github.com/baney75/tychicus) so you can use my browser. The Tychicus extension ${version} is already loaded in my browser. Run each step yourself and show me any output you can't fix.
+	return `Set up Local Studio's browser use (https://github.com/baney75/tychicus) so you can use my browser. Its browser extension ${version} is already loaded in my browser. Run each step yourself and show me any output you can't fix.
 
 1. Note the directory you started in, then check that git is installed: pwd && git --version
    Remember the directory pwd printed: it is my project.
@@ -39,18 +39,18 @@ export function agentSetupPrompt(version: string, command = "tychicus"): string 
      The npm link gives the command the name tychicus: use tychicus in place of "${command}" in every command below. If npm link fails with a permissions error, run "node ~/tychicus-src/cli/dist/index.js" in place of "${command}" in every command below.
 3. Run: ${command} setup --yes
    It registers the browser connection and adds the MCP server to Claude Code and Codex.
-4. Connect this harness, even if Tychicus already works in another one:
+4. Connect this harness, even if Local Studio's browser use already works in another one:
    - Any MCP client: a stdio server named "tychicus" that runs the full path of the command you use (for a release install, ${RELEASE_PROGRAM}) with the argument "mcp". JSON configs need the full path, not ~.
    - pi has no MCP client: run ${command} pi-extension instead.
 5. Install the skills: ${command} skill install
-   If this harness reads AGENTS.md instead of skill folders: cd back to the directory step 1 printed (my project, not a Tychicus folder); if you aren't sure it's my project's root, ask me. If its AGENTS.md already has a "## Browser: Tychicus" section, leave it as it is. Otherwise run ${command} skill print >> AGENTS.md
+   If this harness reads AGENTS.md instead of skill folders: cd back to the directory step 1 printed (my project, not ~/tychicus-src or ~/tychicus-release); if you aren't sure it's my project's root, ask me. If its AGENTS.md already has a "## Browser: Tychicus" section, leave it as it is. Otherwise run ${command} skill print >> AGENTS.md
 6. Run ${command} doctor and fix anything it reports with the command it prints.
 7. Restart or reload MCP servers if this harness needs it, then call the status tool of the MCP server named tychicus. Tell me whether it says connected.
 
 ${CLOSING}`;
 }
 
-const CLOSING = "Don't ask me for API keys or passwords. Tychicus doesn't need them for this.";
+const CLOSING = "Don't ask me for API keys or passwords. Local Studio doesn't need them for this.";
 
 /**
  * A prompt for an agent on the computer that should be reachable from claude.ai, ChatGPT or
@@ -62,10 +62,10 @@ export function remoteSetupPrompt(version: string, command = "tychicus"): string
 	if (!COMMANDS.includes(command)) throw new Error(`Unknown command name "${command}".`);
 	if (!/^\d+\.\d+\.\d+/.test(version))
 		throw new Error(`No extension version to pin the helper to (got "${version}").`);
-	return `Set up Tychicus (https://github.com/baney75/tychicus) so claude.ai, ChatGPT or grok.com can use my browser through my own computer. The Tychicus extension ${version} is already loaded in my browser. Run each step yourself and show me any output you can't fix. Nothing here costs money or goes through anyone else's server.
+	return `Set up Local Studio's browser use (https://github.com/baney75/tychicus) so claude.ai, ChatGPT or grok.com can use my browser through my own computer. Its browser extension ${version} is already loaded in my browser. Run each step yourself and show me any output you can't fix. Nothing here costs money or goes through anyone else's server.
 
 1. Run: ${command} doctor
-   If ${command} isn't found, try ${RELEASE_PROGRAM} doctor, and use that full path in place of "${command}" in every command below. If neither runs, stop and tell me to copy the setup prompt from Tychicus's Settings > Agents tab and run that first.
+   If ${command} isn't found, try ${RELEASE_PROGRAM} doctor, and use that full path in place of "${command}" in every command below. If neither runs, stop and tell me to copy the setup prompt from the Settings > Agents tab in Local Studio's side panel and run that first.
 2. Pick the route. If it isn't clear from what I told you, ask me which one:
    - One computer with Tailscale installed and signed in: ${command} remote setup --no-passcode
    - Several computers behind one address, on an always-on machine with an HTTPS address I already own: ${command} hub setup --public-url https://ADDRESS --no-passcode (with my address in place of ADDRESS)
@@ -74,7 +74,7 @@ export function remoteSetupPrompt(version: string, command = "tychicus"): string
 4. Run: ${command} token approval-code
    Show me the code and the connector URL it prints (the URL ends in /mcp). The code works once, for 10 minutes.
 5. Run ${command} remote status (${command} hub status on a hub) and tell me what each line says.
-6. Tell me to add the connector URL as a custom connector in claude.ai (Settings > Connectors), ChatGPT (Settings > Apps & Connectors) or grok.com (grok.com/connectors), and to type the code on Tychicus's approval page when it asks.
+6. Tell me to add the connector URL as a custom connector in claude.ai (Settings > Connectors), ChatGPT (Settings > Apps & Connectors) or grok.com (grok.com/connectors), and to type the code on the approval page when it asks.
 
 ${CLOSING}`;
 }
@@ -93,11 +93,11 @@ export function deviceSetupPrompt(version: string, hubUrl: string, code: string)
 		throw new Error(`No extension version to pin the helper to (got "${version}").`);
 	if (!HUB_ORIGIN.test(hubUrl)) throw new Error("The hub address must be an origin like https://hub.example.com.");
 	if (!CONNECT_CODE.test(code)) throw new Error("The connect code must look like TK-XXXX-XXXX.");
-	return `Connect this computer's browser to my Tychicus hub at ${hubUrl}, so claude.ai, ChatGPT or grok.com can use it through my one connector. The Tychicus extension ${version} should already be loaded in my browser on this computer. Run each step yourself and show me any output you can't fix.
+	return `Connect this computer's browser to my Local Studio hub at ${hubUrl}, so claude.ai, ChatGPT or grok.com can use it through my one connector. Local Studio's browser extension ${version} should already be loaded in my browser on this computer. Run each step yourself and show me any output you can't fix.
 
-1. Find the command that runs Tychicus's helper on this computer. Run: tychicus doctor
+1. Find the command that runs the Local Studio helper on this computer. Run: tychicus doctor
    If that says the command isn't found, run: ${RELEASE_PROGRAM} doctor
-   Use the first one that runs, and write it as HELPER in every step below: HELPER is exactly "tychicus" or "${RELEASE_PROGRAM}". If neither runs, stop and tell me to copy the setup prompt from Tychicus's Settings > Agents tab and run that first.
+   Use the first one that runs, and write it as HELPER in every step below: HELPER is exactly "tychicus" or "${RELEASE_PROGRAM}". If neither runs, stop and tell me to copy the setup prompt from the Settings > Agents tab in Local Studio's side panel and run that first.
 2. Run: HELPER link ${hubUrl} --code ${code}
    The code works once and expires 10 minutes after I copied this prompt. If the hub refuses it, tell me to get a new one in Settings > Agents > Add a device.
 3. Run: HELPER link status
