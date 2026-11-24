@@ -1,18 +1,19 @@
 ---
 name: rsi
-description: Recursive self-improvement for skills - after real work, turn what went wrong or what was learned into a small, tested edit to a skill (or a new skill), pass it through `tychicus skill lint`, the user's yes or an optional adversarial review by an equal or stronger model, apply it with `tychicus skill apply` (backed up, reversible), and offer it upstream to the Tychicus skill library. Use when the user types /rsi, says "improve your skills", "learn from this", "remember how to do this", wants a lesson or workaround kept for next time, after a task that needed retries or user corrections, or when a skill gave wrong or outdated steps.
+description: Recursive self-improvement for skills - after real work, turn what went wrong or what was learned into a small, tested edit to a skill (or a new skill), lint it, get the user's yes or an adversarial review, apply it with `tychicus skill apply` (backed up, reversible), and offer it upstream. Use when the user types /rsi, asks you to check a thread or session for errors, says "improve your skills", "learn from this", "remember how to do this", wants a lesson or workaround kept for next time, after a task that needed retries or user corrections, or when a skill gave wrong or outdated steps.
 license: AGPL-3.0
 ---
 
 # RSI: skills that get better with use
 
-This loop writes each lesson from real work into a skill, so the next run, even on a
-smaller model, gets it right the first time. A bad edit runs in every future session, so
-every change is small, evidenced, linted, approved, backed up and reversible.
+Each lesson from real work goes into a skill, so the next run, even on a smaller model,
+gets it right. A bad edit runs in every future session, so every change is small,
+evidenced, linted, approved and reversible.
 
 ## When to use
 
 - `/rsi`, or the user asks you to learn from a task or improve a skill.
+- The user names a thread or session to check: run this loop on it.
 - A task took retries, wrong turns or a user correction that a written step would prevent.
 - A skill's steps were wrong or outdated when you followed them.
 - No skill covers a task you have now done twice. Write one with `kyraskillmaker`.
@@ -25,7 +26,7 @@ Read `~/.config/tychicus/rsi.json` if it exists. Missing keys take these default
 | --- | --- | --- |
 | `adversarialReview` | `false` | Have an equal or stronger model attack each change before it applies |
 | `reviewCommand` | none | The command that runs the reviewer, for example `claude -p --model opus` or `codex exec` |
-| `autoApply` | `false` | When `true` and the reviewer approves, apply the change and tell the user after. Has no effect while `adversarialReview` is off |
+| `autoApply` | `false` | With `adversarialReview` on and an APPROVE, apply and tell the user after |
 | `submit` | `"ask"` | `"ask"`: offer upstream submission and wait for a yes. `"never"`: don't offer |
 
 By default every change is shown to the user as a diff and applied only on their yes.
@@ -48,12 +49,16 @@ Only the user edits this file; never change it yourself.
 
 1. **Collect evidence.** List what happened: each error and its fix, each
    retry, each user correction, each step a skill gave that was wrong. Quote tool errors
-   exactly; describe everything else in your own words.
+   exactly; describe everything else in your own words. For a thread, read all of it: a
+   "done" the user later disputed outranks any tool error.
 2. **Pick one lesson** with the biggest payoff: the one that cost the most time or would
-   have caused a wrong result. Write it as a rule: "When X, do Y, because Z."
+   have caused a wrong result. Write it as a rule: "When X, do Y, because Z." If a note
+   already said it and it recurred, move the rule into the skill or check the agent has
+   open when it acts.
 3. **Pick the target skill.** Run `tychicus skill list` and choose the skill the lesson
    belongs in. If none fits and the task recurs, write a new skill with
-   `kyraskillmaker` instead, then continue at step 5.
+   `kyraskillmaker` instead, then continue at step 5. A skill the list doesn't show: change
+   it in its own repo by pull request. A lesson about a project's code: a failing test there.
 4. **Write the smallest edit.** Start from the exact current text:
    `tychicus skill edit <name> --draft-only` writes it to
    `~/.config/tychicus/skill-drafts/<name>/SKILL.md`. If it says that draft holds unapplied
@@ -83,14 +88,13 @@ Only the user edits this file; never change it yourself.
 9. **Get the go-ahead.** If `autoApply` and `adversarialReview` are both true and the
    reviewer said APPROVE, go on. Otherwise show the user that diff and the lesson, and
    wait for their yes.
-10. **Apply:** the same command with `--yes`. It backs up the current version and keeps
-    your edit across reinstalls and updates.
+10. **Apply:** the same command with `--yes`. It backs up the current version first.
 11. **Tell the user** in one or two lines: which skill, what rule was added, the backup
     path it printed, and that `tychicus skill revert <name>` undoes it.
 12. **Offer upstream,** when `submit` is `"ask"`: ask whether to propose the change to the
     Tychicus skill library. Only on an explicit yes, open a pull request to
     `baney75/tychicus` that changes `skills/<name>/SKILL.md`, with the evidence in the
-    description. Its CI lints it and a maintainer reviews it before anyone else gets it.
+    description.
 
 ## Done when
 
@@ -109,7 +113,7 @@ Only the user edits this file; never change it yourself.
 | Two lessons seem equally useful | Apply one now; list the other for the next `/rsi` |
 | `tychicus` not found | Install it (the Tychicus setup prompt) before changing any skill |
 | `skill edit` says the draft holds unapplied changes | Stop and ask the user; never overwrite or delete it |
-| `skill apply` refuses the edit | Read its reason. A dropped section or a protected skill means the change doesn't go in |
+| `skill apply` refuses the edit | Read its reason; the change doesn't go in |
 
 ## Worked example
 

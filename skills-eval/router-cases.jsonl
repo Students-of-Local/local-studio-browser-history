@@ -671,3 +671,6 @@
 {"task": "Move each component into its own module", "skill": "none"}
 {"task": "Delete all the stale git branches", "skill": "none"}
 {"task": "Mark every flaky test as skipped", "skill": "none"}
+{"task": "Check this thread for errors and fix what caused them", "skill": "rsi"}
+{"task": "Review that thread, it kept making weird mistakes", "skill": "rsi"}
+{"task": "Look over that session and find what went wrong so it doesn't happen again", "skill": "rsi"}

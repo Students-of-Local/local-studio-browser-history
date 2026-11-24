@@ -164,3 +164,5 @@
 {"task": "Retire every outdated product listing in my Etsy shop", "skill": "bulk-actions"}
 {"task": "Close all the stale pull requests older than six months in this repo", "skill": "bulk-actions"}
 {"task": "Revoke access for every app connected to my account settings page", "skill": "bulk-actions"}
+{"task": "Go through yesterday's agent session and learn from its mistakes", "skill": "rsi"}
+{"task": "That thread had recent errors; check it", "skill": "rsi"}
