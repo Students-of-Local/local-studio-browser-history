@@ -270,7 +270,7 @@ async function runAgentPlans(kind: "move" | "finish", options: Pick<SetupOptions
 		return { ok: false, shown: true, unasked: false };
 	}
 	const files = changes.length === 1 ? "this file" : `these ${changes.length} files`;
-	const question = kind === "move" ? `Move ${files} to ${MCP_NAME}?` : `Rename the old names in ${files} to ${MCP_NAME}?`;
+	const question = kind === "move" ? `Move ${files} to Local Studio's helper?` : `Rename the old names in ${files} to ${MCP_NAME}?`;
 	if (!(await confirm(`  ${sym.dot} ${question} A backup of each is made first.`, { assumeYes: options.yes }))) {
 		if (!process.stdin.isTTY) {
 			// Nobody could answer: say so plainly, with the command that makes the changes.
@@ -382,7 +382,7 @@ async function connectHarnesses(options: SetupOptions): Promise<boolean> {
 			continue;
 		}
 		if (h.snippet?.startsWith("{")) {
-			console.log(`  ${sym.dot} ${c.bold(h.name)}: ${replacing ? "replace the ${MCP_NAME} entry in" : "add this to"} ${c.cyan(h.configFile ?? "its MCP config")}`);
+			console.log(`  ${sym.dot} ${c.bold(h.name)}: ${replacing ? `replace the ${MCP_NAME} entry in` : "add this to"} ${c.cyan(h.configFile ?? "its MCP config")}`);
 			for (const line of h.snippet.split("\n")) console.log(`    ${line}`);
 		} else if (h.snippet) {
 			console.log(`  ${sym.dot} ${c.bold(h.name)}: run ${c.bold(h.snippet)}`);
@@ -493,7 +493,7 @@ async function loadExtension(options: SetupOptions): Promise<Loaded> {
 		if (p.mismatch) {
 			if (live) process.stdout.write("\r\x1b[2K");
 			console.log(`  ${sym.fail} The browser still runs the extension ${p.version} after a reload; the build is ${builtVersion()}.`);
-			console.log(`  It is probably loaded from another folder. On chrome://extensions, remove Local Studio and load unpacked:`);
+			console.log(`  It is probably loaded from another folder. On chrome://extensions, remove that copy and load unpacked:`);
 			console.log(`  ${c.cyan(dir)}`);
 			return "failed";
 		}
