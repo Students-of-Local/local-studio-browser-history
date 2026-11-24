@@ -3,10 +3,10 @@ import {
 	MAX_HANDLES,
 	MAX_TERM,
 	MAX_TERMS,
-	nestedQuantifier,
 	normalizeHandle,
 	parseFilterValue,
 	regexTerm,
+	riskyPattern,
 } from "./feed-match.js";
 import { PUBLIC_SUFFIX_RULES } from "./public-suffixes.js";
 
@@ -233,10 +233,8 @@ export function checkFilter(raw: string): string {
 			} catch {
 				throw new SiteEditError(`${term} isn't a pattern the browser can read.`);
 			}
-			if (nestedQuantifier(re.source))
-				throw new SiteEditError(
-					`${term} nests one repeat inside another, which can freeze the page. Write it without.`,
-				);
+			const risky = riskyPattern(re.source);
+			if (risky) throw new SiteEditError(`${term} ${risky}, which could freeze the page. Write it more simply.`);
 		}
 		seen.add(term.toLowerCase());
 		words.push(term);
