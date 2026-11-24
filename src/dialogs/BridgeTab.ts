@@ -23,6 +23,7 @@ import type { UserScriptsStatus } from "../bridge/protocol.js";
 import { listSessions } from "../browser/session.js";
 import { probeUserScripts, userScriptsHiddenHelp } from "../browser/userscripts-status.js";
 import { isPointerEnabled, isVeilEnabled, setPointerEnabled, setVeilEnabled } from "../browser/veil-shared.js";
+import { askCards } from "../components/AgentAsks.js";
 import { agentSetupPromptButton } from "../components/AgentSetupPrompt.js";
 import { Toast } from "../components/Toast.js";
 import { runningFromStore } from "../update/store-install.js";
@@ -48,9 +49,6 @@ export const MODE_CHOICES: ReadonlyArray<{ mode: PermissionMode; title: string; 
 	},
 ];
 
-const fileSize = (n: number) =>
-	n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : n >= 1024 ? `${Math.round(n / 1024)} KB` : `${n} bytes`;
-
 @customElement("bridge-tab")
 export class BridgeTab extends SettingsTab {
 	@state() private enabled = true;
@@ -59,6 +57,7 @@ export class BridgeTab extends SettingsTab {
 	@state() private mode: PermissionMode = "auto";
 	@state() private hosts: string[] = [];
 	@state() private pending: PendingRequest[] = [];
+	private askCards = askCards();
 	@state() private sessions: Array<{ id: string; label: string; tabs: number }> = [];
 	@state() private newHost = "";
 	@state() private newHostError = "";
@@ -263,33 +262,7 @@ export class BridgeTab extends SettingsTab {
 						? html`
 							<div class="space-y-2">
 								<div class="text-sm font-medium text-foreground">Waiting for your answer</div>
-								${this.pending.map(
-									(p) => html`
-										<div class="p-3 rounded-lg border border-orange-500/40 bg-orange-500/10 space-y-2">
-											${
-												p.upload
-													? html`
-														<div class="text-sm text-foreground"><span class="font-medium">${p.clientName}</span> wants to upload ${p.upload.files.length === 1 ? "a file from this computer" : `${p.upload.files.length} files from this computer`} to <span class="font-mono">${p.host}</span></div>
-														<div class="text-xs text-muted-foreground break-all">${p.upload.files.map((f) => `${f.name} (${fileSize(f.bytes)})`).join(", ")}</div>
-														<div class="text-xs text-muted-foreground">Only the name is shown here. The agent may be acting on what a page told it, so don't take its word for where the file is: say yes only if you asked for this file.</div>
-														<div class="flex gap-2 flex-wrap">
-															${Button({ size: "sm", variant: "default", children: "Upload this once", onClick: () => this.decide(p, "allow_once") })}
-															${Button({ size: "sm", variant: "outline", children: "Deny", onClick: () => this.decide(p, "deny") })}
-														</div>
-													`
-													: html`
-														<div class="text-sm text-foreground"><span class="font-medium">${p.clientName}</span> wants to open <span class="font-mono">${p.host}</span></div>
-														<div class="text-xs text-muted-foreground break-all">${p.url}</div>
-														<div class="flex gap-2 flex-wrap">
-															${Button({ size: "sm", variant: "default", children: "Allow site", onClick: () => this.decide(p, "allow_host") })}
-															${Button({ size: "sm", variant: "secondary", children: "Allow once", onClick: () => this.decide(p, "allow_once") })}
-															${Button({ size: "sm", variant: "outline", children: "Deny", onClick: () => this.decide(p, "deny") })}
-														</div>
-													`
-											}
-										</div>
-									`,
-								)}
+								${this.askCards(this.pending, (p, d) => this.decide(p, d))}
 							</div>
 						`
 						: ""

@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### Added
+- The side panel shows what an agent is waiting on (a site to open, files to upload) as a card above the chat, with the
+  same buttons as Settings > Agents, which draws the same card. A remote session's questions come up in those two places only. Two agents
+  asking at once both get a card, a card takes no click for half a second after it comes up or another card goes, and a question left by an earlier worker, which nothing could answer, is cleared. Test:
+  `test/agent-asks.test.mjs`.
 - A remote session (through `tychicus serve`: a web connector, a token, a hub) is never in Yolo: under Yolo it gets
   Auto's rule, and it can't answer its own question, allow a site or change the mode. Every bridge step in the
   Runs log records the mode it started under. A session from an older CLI counts as remote when `serve` named it. Decision D67. Tests: `test/permission-guard.test.mjs`, `test/dialog-preset.test.mjs`,
