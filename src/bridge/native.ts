@@ -76,6 +76,7 @@ import {
 	peekPermissionMode,
 	removePendingRequest,
 	setPermissionMode,
+	turnOnYolo,
 } from "./permissions.js";
 import {
 	BRIDGE_METHODS,
@@ -1056,7 +1057,7 @@ function onHostMessage(message: HostToExt): void {
 					});
 					return;
 				}
-				setPermissionMode(mode).then(() =>
+				(mode === "yolo" ? turnOnYolo() : setPermissionMode(mode)).then(() =>
 					send({ type: "response", clientId: message.clientId, id: message.id, result: { mode } }),
 				);
 				return;
@@ -1120,8 +1121,9 @@ function onHostMessage(message: HostToExt): void {
 						return { tabId: tab.id, url: tab.url, groupId: tab.groupId, options };
 					}),
 					probeUserScripts(),
+					getPermissionMode(),
 				])
-					.then(([sessions, perms, panelState, groups, windows, activeTab, userScripts]) =>
+					.then(([sessions, perms, panelState, groups, windows, activeTab, userScripts, mode]) =>
 						send({
 							type: "response",
 							clientId: message.clientId,
@@ -1131,6 +1133,7 @@ function onHostMessage(message: HostToExt): void {
 								// Old CLIs read only this boolean; newer ones read `userScripts` for the cause.
 								userScriptsApi: userScripts.state === "ready",
 								userScripts,
+								mode,
 								sidePanel: { ...panelState, activeTab, groups },
 								windows,
 								grantedPermissions: perms.permissions ?? [],

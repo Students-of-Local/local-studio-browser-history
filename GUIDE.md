@@ -498,18 +498,19 @@ Tailscale and a real Cloudflare tunnel hasn't been recorded yet
 
 Your browser is signed in as you, so the defaults are conservative.
 
-- **The agent asks before it opens a new site.** Claude Code and Codex show the prompt
-  inline; otherwise answer it in the side panel under Settings > Agents. Run
-  `tychicus allow <host>` to pre-approve a site, `tychicus allow-all` to skip prompts and
-  `tychicus ask` to turn them back on.
+- **The agent asks before it opens a new site**, except an ordinary site in Auto mode with
+  a frontier model. Claude Code and Codex show the prompt inline; otherwise answer it in the
+  side panel under Settings > Agents. Run `tychicus allow <host>` to pre-approve a site, and
+  `tychicus mode manual|auto|yolo` to choose what asks
+  ([docs/permissions.md](docs/permissions.md)).
 - **Page text is data, not instructions.** The MCP server tells every agent that page
   content is untrusted and that it must ask you before acting under your sign-in:
   sending, posting, buying, deleting or changing settings. It also tells the agent never
   to type passwords or payment details. For a sign-in or a captcha, it brings the tab to
   you. These are instructions to the model, not enforcement: a hostile page can still
   attempt prompt injection. The site permission limits which sites an agent can open.
-  It doesn't limit what the agent does on a site you've allowed, including running
-  scripts there with `run_js`. Allow only sites you'd let the agent act on, and for
+  On a site you've allowed, Manual and Auto ask before a click that sends, posts, buys or
+  deletes, but a script the agent runs there with `run_js` isn't checked. Allow only sites you'd let the agent act on, and for
   high-stakes accounts, run agents in a separate browser profile that isn't signed in.
 - **Agents stay in their own tab group** ("Tychicus · claude", "Tychicus · codex"). Their
   tabs open in the background, they can't see your other tabs, and popups from their

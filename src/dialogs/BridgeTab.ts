@@ -20,6 +20,8 @@ import {
 	revokeHost,
 	setBridgeEnabled,
 	setPermissionMode,
+	turnOnYolo,
+	yoloWarned,
 } from "../bridge/permissions.js";
 import type { UserScriptsStatus } from "../bridge/protocol.js";
 import { listSessions } from "../browser/session.js";
@@ -55,6 +57,10 @@ export const MODE_CHOICES: ReadonlyArray<{ mode: PermissionMode; title: string; 
 	},
 ];
 
+/** Shown before Yolo is first turned on; `tychicus mode yolo` says the same (cli/src/permission-mode.ts). */
+export const YOLO_WARNING =
+	"Yolo turns off these asks: agents open any site and send, post, buy, delete and change settings as you without asking. Uploads from this computer still ask, and password and payment fields, Tychicus's own pages and remote sessions stay limited.";
+
 @customElement("bridge-tab")
 export class BridgeTab extends SettingsTab {
 	@state() private enabled = true;
@@ -63,6 +69,8 @@ export class BridgeTab extends SettingsTab {
 	@state() private mode: PermissionMode = "auto";
 	@state() private hosts: string[] = [];
 	@state() private actionHosts: string[] = [];
+	/** Yolo was picked and its warning is up, waiting for Turn on Yolo or Cancel. */
+	@state() private yoloAsk = false;
 	@state() private pending: PendingRequest[] = [];
 	private askCards = askCards();
 	@state() private sessions: Array<{ id: string; label: string; tabs: number }> = [];
@@ -177,6 +185,19 @@ export class BridgeTab extends SettingsTab {
 		`;
 	}
 
+	/** Picking a mode saves it, except Yolo the first time: its warning comes first (D67). */
+	private async pickMode(mode: PermissionMode) {
+		this.yoloAsk = mode === "yolo" && !(await yoloWarned());
+		if (!this.yoloAsk) await setPermissionMode(mode);
+		await this.load();
+	}
+
+	private async confirmYolo() {
+		this.yoloAsk = false;
+		await turnOnYolo();
+		await this.load();
+	}
+
 	private async decide(request: PendingRequest, decision: "allow_once" | "allow_host" | "deny") {
 		await recordDecision(request.requestId, decision);
 		await this.load();
@@ -256,13 +277,28 @@ export class BridgeTab extends SettingsTab {
 					<div class="text-sm font-medium text-foreground">Permission mode</div>
 					${MODE_CHOICES.map(
 						(m) => html`<label class="flex items-start gap-2 text-sm text-foreground cursor-pointer">
-							<input type="radio" name="bridge-mode" value=${m.mode} .checked=${this.mode === m.mode} @change=${async () => {
-								await setPermissionMode(m.mode);
-								await this.load();
-							}} />
+							<input type="radio" name="bridge-mode" value=${m.mode} .checked=${live(this.mode === m.mode)} @change=${() => this.pickMode(m.mode)} />
 							<span><span class="font-medium">${m.title}</span>: ${m.help}</span>
 						</label>`,
 					)}
+					${
+						this.yoloAsk
+							? html`<div class="p-3 rounded-lg border border-destructive/50 bg-destructive/10 space-y-2" role="alert" data-testid="yolo-warning">
+								<div class="text-sm text-foreground">${YOLO_WARNING}</div>
+								<div class="flex gap-2 flex-wrap">
+									${Button({ size: "sm", variant: "destructive", children: "Turn on Yolo", onClick: () => this.confirmYolo() })}
+									${Button({
+										size: "sm",
+										variant: "outline",
+										children: "Cancel",
+										onClick: () => {
+											this.yoloAsk = false;
+										},
+									})}
+								</div>
+							</div>`
+							: ""
+					}
 				</div>
 
 				${

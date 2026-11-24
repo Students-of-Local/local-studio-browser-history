@@ -18,7 +18,7 @@ import { sdkInstalled } from "./subscriptions/copilot.ts";
 import { installCopilotSdk } from "./subscriptions/install-sdk.ts";
 import { LIBRARY_USAGE, runLibrary } from "./library.ts";
 import { cloudflareLogin, runCloudflareTunnel } from "./cloudflare.ts";
-import { asPermissionMode, MODE_TITLE, modeSummary, type PermissionMode } from "./permission-mode.ts";
+import { asPermissionMode, MODE_TITLE, modeFromCommand, modeSummary, type PermissionMode, YOLO_WARNING } from "./permission-mode.ts";
 import { printReport } from "./remote-state.ts";
 import { createToken, loadTokens, loadUsage, offeredScopes, revokeToken, SCOPES, serve, tokenLive } from "./remote.ts";
 import { listClients, mintApprovalCode, normalizePublicUrl, type OAuthConfig, passcodeSet, revokeClient, revokeGrantById, setPasscode } from "./oauth.ts";
@@ -236,7 +236,7 @@ async function status(json: boolean): Promise<number> {
 		const mode = report.mode ?? "auto";
 		console.log(
 			mode === "yolo"
-				? `${sym.warn} Mode: ${MODE_TITLE[mode]}: ${modeSummary(mode)} ${c.dim(`(${COMMAND_NAME} ask turns prompts back on)`)}`
+				? `${sym.warn} Mode: ${MODE_TITLE[mode]}: ${modeSummary(mode)} ${c.dim(`(${COMMAND_NAME} mode auto turns asks back on)`)}`
 				: `${sym.ok} Mode: ${MODE_TITLE[mode]}: ${modeSummary(mode)}. Allowed: ${allowed}`,
 		);
 	} else {
@@ -490,15 +490,38 @@ async function main(): Promise<void> {
 			console.log(want === "on" ? `${sym.warn} Claude Code now uses Tychicus's tools without asking.` : `${sym.ok} Claude Code asks before using Tychicus's tools.`);
 			return;
 		}
+		case "mode":
 		case "allow-all":
 		case "yolo": // old name, kept as a hidden alias
 		case "ask": {
-			const mode = command === "ask" ? "ask" : "allow_all";
+			// The one permission mode (D67). `ask` and `allow-all` are the older names for Manual and Yolo.
+			if (command === "mode" && argv[1] === undefined) {
+				const info = (await withBridge("mode", (client) => client.call("status", {}, 5000))) as Record<string, unknown>;
+				const now = asPermissionMode(info.mode) ?? asPermissionMode(info.permissionMode) ?? "auto";
+				console.log(`${now === "yolo" ? sym.warn : sym.ok} Mode: ${MODE_TITLE[now]}: ${modeSummary(now)}`);
+				return;
+			}
+			const mode = modeFromCommand(command, argv[1]);
+			if (!mode) {
+				console.error("Usage: mode [manual|auto|yolo]");
+				process.exitCode = 2;
+				return;
+			}
+			if (mode === "yolo") {
+				// A person's decision: an agent with a shell mustn't be able to turn its own asks off.
+				if (!process.stdin.isTTY || !process.stdout.isTTY) {
+					console.error(`Turning on Yolo takes a person: run ${COMMAND_NAME} mode yolo in a terminal, or pick Yolo in the side panel's Settings > Agents.`);
+					process.exitCode = 1;
+					return;
+				}
+				console.log(`${sym.warn} ${YOLO_WARNING}`);
+				if (!(await confirm("Turn on Yolo?", { assumeYes: false, defaultYes: false }))) return;
+			}
 			await withBridge(command, (client) => client.call("permission.setMode", { mode }, 5000));
 			console.log(
-				mode === "ask"
-					? `${sym.ok} Agents will ask before opening a site you haven't allowed.`
-					: `${sym.warn} Agents may now open any site without asking. ${c.dim(`Undo with: ${COMMAND_NAME} ask`)}`,
+				mode === "yolo"
+					? `${sym.warn} Mode: Yolo: ${modeSummary(mode)}. ${c.dim(`Undo with: ${COMMAND_NAME} mode auto`)}`
+					: `${sym.ok} Mode: ${MODE_TITLE[mode]}: ${modeSummary(mode)}.`,
 			);
 			return;
 		}

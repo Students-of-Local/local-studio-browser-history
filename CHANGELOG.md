@@ -3,6 +3,11 @@
 ## [Unreleased]
 
 ### Added
+- `tychicus mode manual|auto|yolo` sets the permission mode and `tychicus mode` shows it; `ask` and `allow-all` still work
+  and mean Manual and Yolo. Turning on Yolo shows a warning first: once in Settings > Agents, and in a terminal with a yes. Without a terminal
+  the CLI refuses, so an agent's shell can't turn it on that way. `tychicus status` and `tychicus doctor` name the mode, and the
+  skill lint flags `tychicus mode yolo`. [docs/permissions.md](docs/permissions.md) says what asks in each mode. Decision D67. Tests: `cli/test/mode.test.mjs`,
+  `test/permission-modes.test.mjs`.
 - PRIVACY.md names every host the code contacts by itself or on request, when, and how to turn it off where there is a switch. It also says the
   chat copy for coding agents is on by default, and which other agents' settings files the helper opens. `test/privacy-hosts.test.mjs` fails when code
   names a host the policy doesn't, and when the policy names one nothing here contacts. Settings > Privacy says the copy is on by default and is not uploaded.

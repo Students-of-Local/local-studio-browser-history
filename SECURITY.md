@@ -56,7 +56,8 @@ Out of scope, or known and documented:
   user's shell.
 - Lint gaps already listed under "Limits" in
   [docs/skill-security.md](docs/skill-security.md). A new way around them is in scope.
-- `tychicus allow-all` and `tychicus tunnel tailscale --public` behaving as documented.
+- `tychicus mode yolo` (or `allow-all`) and `tychicus tunnel tailscale --public` behaving as documented. A way
+  around a limit that holds in every mode (docs/permissions.md, "What no mode allows") is in scope.
 - Bugs in the sibling projects themselves. Report those upstream:
   [badlogic/pi-mono](https://github.com/badlogic/pi-mono),
   [badlogic/mini-lit](https://github.com/badlogic/mini-lit),

@@ -17,6 +17,8 @@ import {
 	migrateLegacyMode,
 	setPermissionMode,
 	startFreshInstall,
+	turnOnYolo,
+	yoloWarned,
 } from "../src/bridge/permissions.ts";
 import { installFakeChrome } from "./fake-chrome.mjs";
 
@@ -255,4 +257,22 @@ test("the side panel shows the notice once, and its button switches to Manual", 
 	const [, restored, fresh] = panel.split("thinkingLevel: sessionData.thinkingLevel,").flatMap((part, i) => (i ? part.split("// No session - create new agent") : [part]));
 	assert.match(restored, /watchModeNotice\(renderApp\)/, "a restored chat shows it too");
 	assert.match(fresh, /watchModeNotice\(renderApp\)/);
+});
+
+test("Yolo warns first, once: Settings and the terminal say the same thing, and a yes in either is remembered", async () => {
+	installFakeChrome();
+	assert.equal(await yoloWarned(), false);
+	await setPermissionMode("manual");
+	assert.equal(await yoloWarned(), false, "another mode says nothing about Yolo");
+	await turnOnYolo();
+	assert.equal(await getPermissionMode(), "yolo");
+	assert.equal(await yoloWarned(), true);
+	await setPermissionMode("auto");
+	assert.equal(await yoloWarned(), true, "the warning doesn't come back");
+	const tab = read("src/dialogs/BridgeTab.ts");
+	const { YOLO_WARNING } = await import("../cli/src/permission-mode.ts");
+	assert.ok(tab.includes(JSON.stringify(YOLO_WARNING)), "Settings shows the CLI's warning, word for word");
+	assert.match(tab, /this\.yoloAsk = mode === "yolo" && !\(await yoloWarned\(\)\);\s*if \(!this\.yoloAsk\) await setPermissionMode\(mode\);/, "an unwarned pick sets nothing");
+	assert.match(tab, /@change=\$\{\(\) => this\.pickMode\(m\.mode\)\}/);
+	assert.match(read("src/bridge/native.ts"), /mode === "yolo" \? turnOnYolo\(\) : setPermissionMode\(mode\)/);
 });

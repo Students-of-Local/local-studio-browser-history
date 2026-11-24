@@ -7,6 +7,7 @@ import { COMMAND_NAME } from "./self.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { NATIVE_HOST_NAME, type UserScriptsStatus } from "../../src/bridge/protocol.ts";
+import { asPermissionMode, MODE_TITLE, modeSummary } from "./permission-mode.ts";
 import { BridgeClient, listSockets } from "./client.ts";
 import { aliasFile, knownAliases, liveAlias, planMigration } from "./agent-migration.ts";
 import { ComputerClient, findHelper, HANDS_COMMAND, handsHowTo, helperName } from "./computer.ts";
@@ -178,6 +179,20 @@ export interface DebugInfo {
 	/** Newer extensions only: why they do not work. */
 	userScripts?: UserScriptsStatus;
 	workerUptimeS?: number;
+	/** Newer extensions only: the permission mode (D67). */
+	mode?: string;
+}
+
+/** The permission mode's row of `tychicus doctor`: Yolo warns, since nothing asks. Undefined from an older extension. */
+export function modeCheck(info: DebugInfo): Check | undefined {
+	const mode = asPermissionMode(info.mode);
+	if (!mode) return undefined;
+	return {
+		id: "mode",
+		status: mode === "yolo" ? "warn" : "ok",
+		label: `Mode: ${MODE_TITLE[mode]}: ${modeSummary(mode)}`,
+		...(mode === "yolo" ? { fix: `${COMMAND_NAME} mode auto` } : {}),
+	};
 }
 
 const GRANT_STEPS =
@@ -288,6 +303,8 @@ export async function connectionChecks(): Promise<{ checks: Check[]; holders: st
 			}
 			const userScripts = userScriptsCheck(held.info);
 			if (userScripts) checks.push(userScripts);
+			const mode = modeCheck(held.info);
+			if (mode) checks.push(mode);
 			continue;
 		}
 		// Connected, but bridge.debug failed or timed out: the browser is live, so it still gets its own line.

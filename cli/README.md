@@ -40,8 +40,9 @@ it needs no extra step. Reload the extension once after the first install.
 | `tychicus sessions [list\|show\|rename\|end\|release\|focus\|collapse\|expand] [--json]` | agent sessions and their tab groups (see the main README, "Sessions and tab groups") |
 | `tychicus tabs [session] [--json]` | every agent tab, by session |
 | `tychicus allow <host>` | let agents open a site without a prompt (subdomains included) |
-| `tychicus ask` | agents ask before opening a site not yet allowed (the default) |
-| `tychicus allow-all` | agents may open any site without asking (`yolo` still works) |
+| `tychicus mode [manual\|auto\|yolo]` | show or set the permission mode; Auto is the default, and Yolo needs a person at a terminal ([docs/permissions.md](../docs/permissions.md)) |
+| `tychicus ask` | same as `mode manual` |
+| `tychicus allow-all` | same as `mode yolo` (`yolo` still works) |
 | `tychicus install [--force]` | write the native host manifest (Helium, Chrome, Chromium, Brave, Edge, Arc, Vivaldi, Opera; Linux and Windows too) and the launchers in `~/.config/tychicus/` |
 | `tychicus reload` | reload the extension (after rebuilding `dist-chrome`) |
 | `tychicus debug` | bridge state, recent request timings, Chrome API benchmark |

@@ -175,6 +175,17 @@ export function setPermissionMode(mode: PermissionMode): Promise<void> {
 	});
 }
 
+/** Whether the person has said yes to the Yolo warning: Settings > Agents shows it once, before Yolo is first turned on. */
+export async function yoloWarned(): Promise<boolean> {
+	return Boolean((await chrome.storage.local.get(YOLO_WARNED_KEY))[YOLO_WARNED_KEY]);
+}
+
+/** Yolo, after the person said yes to its warning (in Settings, or in a terminal for `tychicus mode yolo`). */
+export async function turnOnYolo(): Promise<void> {
+	await chrome.storage.local.set({ [YOLO_WARNED_KEY]: Date.now() });
+	await setPermissionMode("yolo");
+}
+
 /** Whether an agent in this mode, on a model of this tier, opens a site no one allowed without asking. */
 export function opensAnySite(mode: PermissionMode, tier: ModelTier | undefined): boolean {
 	if (mode === "yolo") return true;
