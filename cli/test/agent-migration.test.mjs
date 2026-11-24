@@ -187,7 +187,7 @@ test("five harnesses: dry run, then the old entries run Tychicus under their old
 		assert.equal(by.codex.status, "unchanged", "an unrelated MCP and the Polycarp app's own server are left alone");
 		assert.equal(by.cursor.status, "change");
 		assert.deepEqual(by.cursor.repointed, [{ name: "tabkyra", from: "tabkyra mcp" }]);
-		assert.match(by.cursor.notes.join("\n"), /two Tychicus servers until .* setup --agents --finish/);
+		assert.match(by.cursor.notes.join("\n"), /two Tychicus servers until the rename removes the old name/);
 		assert.equal(by.omp.status, "refused");
 		assert.equal(by.omp.blocking, true, "a file naming polycarp that doesn't parse is a failure");
 		assert.match(by.omp.reason, /isn't valid JSON/);
@@ -632,5 +632,71 @@ test("sol-F2 (round 2): setup --agents --finish --dry-run writes nothing, even f
 		const real = run("--yes");
 		assert.equal(real.status, 0, real.stdout + real.stderr);
 		assert.equal(existsSync(record), false);
+	});
+});
+
+test("setup --agents renames an old name that runs Tychicus to tychicus, and doctor gives that one command", () => {
+	inHome("rename-in-setup", (home) => {
+		const config = process.env.TYCHICUS_CONFIG_DIR;
+		const bin = join(config, "tychicus");
+		// A working agent launcher, as `tychicus install` writes it.
+		put(bin, `#!/bin/sh\nexec "${process.execPath}" "${cli}" "$@"\n`, 0o755);
+		const claude = join(home, ".claude.json");
+		put(claude, `{\n  "numStartups": 3,\n  "mcpServers": {\n    "polycarp": { "type": "stdio", "command": "${bin}", "args": ["mcp"], "env": { "A": "1" } },\n    "github": { "command": "npx" }\n  }\n}\n`);
+		const codex = join(home, ".codex", "config.toml");
+		put(codex, `model = "gpt-6.1-sol"\n\n[mcp_servers.polycarp]\ncommand = "${bin}"\nargs = ["mcp"]\n`);
+		// OMP keeps a tychicus entry that differs from the alias: the rename's rules leave both for a manual fix.
+		const omp = join(home, ".omp", "agent", "mcp.json");
+		const ompText = `{\n  "mcpServers": {\n    "tychicus": { "command": "${bin}", "args": ["mcp"], "enabled": false },\n    "polycarp": { "command": "${bin}", "args": ["mcp"], "enabled": true }\n  }\n}\n`;
+		put(omp, ompText);
+		const env = {
+			HOME: home,
+			PATH: join(home, "no-bin"),
+			TYCHICUS_CONFIG_DIR: config,
+			TYCHICUS_SOCKET_DIR: join(home, "sock"),
+			TYCHICUS_APPLICATIONS_DIRS: join(home, "apps"),
+			TABKYRA_NO_UPDATE_CHECK: "1",
+			NO_COLOR: "1",
+		};
+		const cmd = (...args) => spawnSync(process.execPath, [cli, ...args], { encoding: "utf8", env, input: "", timeout: 60000 });
+		const aliasCheck = () => JSON.parse(cmd("doctor", "--json").stdout).checks.find((c) => c.id === "agents:aliases");
+
+		const before = aliasCheck();
+		assert.equal(before?.status, "warn", "doctor flags an agent that reaches Tychicus under an old name");
+		assert.equal(before.fix, "tychicus setup --agents", "with one command, no condition attached");
+
+		const dry = cmd("setup", "--agents", "--dry-run");
+		assert.match(dry.stdout, /polycarp: renamed to tychicus/, dry.stdout);
+		assert.match(readFileSync(claude, "utf8"), /"polycarp"/, "a dry run writes nothing");
+
+		// No terminal and no --yes: nothing can be asked, so nothing changes, the run says so with the command, and fails.
+		const claudeBefore = readFileSync(claude, "utf8");
+		for (const args of [["setup", "--agents"], ["setup", "--agents", "--finish"]]) {
+			const unasked = cmd(...args);
+			assert.equal(unasked.status, 1, `${args.join(" ")}:\n${unasked.stdout}`);
+			assert.match(unasked.stdout, new RegExp(`Nothing was changed: there is no terminal to ask in\\. To make these changes: tychicus ${args.join(" ")} --yes`));
+			assert.equal(readFileSync(claude, "utf8"), claudeBefore);
+		}
+
+		const r = cmd("setup", "--agents", "--yes");
+		const out = r.stdout + r.stderr;
+		// Each renamed entry is named, by agent.
+		assert.match(out, /Claude Code: "polycarp" renamed to tychicus/);
+		assert.match(out, /Codex: "polycarp" renamed to tychicus/);
+		assert.deepEqual(Object.keys(JSON.parse(readFileSync(claude, "utf8")).mcpServers), ["tychicus", "github"], out);
+		assert.deepEqual(JSON.parse(readFileSync(claude, "utf8")).mcpServers.tychicus.env, { A: "1" }, "the entry keeps its env");
+		assert.deepEqual(Object.keys(parseToml(readFileSync(codex, "utf8")).mcp_servers), ["tychicus"]);
+		assert.equal(backups(claude).length, 1, "a backup is made first");
+		assert.equal(readFileSync(omp, "utf8"), ompText, "an alias beside a different tychicus entry is left alone");
+		assert.match(out, /OMP: "polycarp" runs the same command as the tychicus entry but differs in "enabled"/);
+		assert.equal(r.status, 1, "and the step says a manual fix is left");
+		assert.match(out, /mcp__polycarp, need the new one/, "rules that named the old server are pointed out");
+
+		// Once OMP is settled by hand, a second run renames nothing more and doctor has nothing to say about names.
+		writeFileSync(omp, `{\n  "mcpServers": {\n    "tychicus": { "command": "${bin}", "args": ["mcp"], "enabled": true }\n  }\n}\n`);
+		const again = cmd("setup", "--agents", "--yes");
+		assert.equal(again.status, 0, again.stdout + again.stderr);
+		assert.match(again.stdout, /nothing to change/);
+		assert.equal(aliasCheck(), undefined);
 	});
 });

@@ -25,7 +25,7 @@ export type Configured = boolean | "stale" | "other" | undefined;
 /**
  * What agents call the MCP server: Tychicus's own entry. This file never edits another entry. An entry that runs
  * Polycarp's browser server is moved by agent-migration.ts (`tychicus setup --agents`), which keeps its old name as a
- * temporary alias for Tychicus; `tychicus setup --agents --finish` renames it to this.
+ * temporary alias for Tychicus, and the same command then renames it to this where that is safe.
  */
 export const MCP_NAME = "tychicus";
 

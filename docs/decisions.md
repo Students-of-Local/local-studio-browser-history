@@ -2188,3 +2188,23 @@ changes.
 took 16.1 ms, a 2,000-post scroll batch 14.7 ms, and a recheck of 4,000 posts after the filters changed 16.4 ms. The
 test fails over 50 ms per batch.
 >>>>>>> 1743b19 (Add site_filter: hide a site's feed posts by words or accounts)
+
+## D65. `setup --agents` renames an old name for Tychicus to `tychicus` in the same run (Claude, 2026-11-24)
+
+**Context.** The move from Polycarp (`cli/src/agent-migration.ts`) kept each moved entry's old name, `polycarp` or
+`tabkyra`, as a temporary alias, so fleet rules naming "the polycarp MCP server" kept working, and left the rename to a
+separate `setup --agents --finish` to run "once nothing names them". Nothing ever prompted it: on the owner's Mac every
+agent (Claude Code, Codex, OpenCode, Cursor, OMP) still reached Tychicus as `polycarp`, `tychicus doctor` marked that
+"ok", and `setup --agents` said each agent was fine. Tychicus no longer depends on Polycarp and should be reached under
+its own name.
+
+**Decision.** `setup --agents`, and the agent step of `setup`, run the move and then the finish, each with its own
+plan, diff and question (`--yes` answers both). The finish's rules are unchanged: an alias is renamed when no `tychicus`
+entry is there; removed when a `tychicus` entry matches it in every field; otherwise both are left, the fields named,
+and the step exits 1. `--agents --finish` still runs the rename alone. `tychicus doctor` warns about any alias with the
+one fix `tychicus setup --agents`. After a rename, setup says that rules, hooks and prompts naming the old server (a
+Claude Code permission rule for `mcp__polycarp`) need the new name. Tychicus does not read or edit those rules: per the
+names section of AGENTS.md they are not its files.
+
+**Why.** A rename that waits for the user to decide when "nothing names" an alias never happens. A permission rule
+that names the old server stops matching after the rename; setup names that cost at the moment it happens.
