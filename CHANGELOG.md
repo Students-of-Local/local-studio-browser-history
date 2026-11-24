@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### Added
+- A remote session (through `tychicus serve`: a web connector, a token, a hub) is never in Yolo: under Yolo it gets
+  Auto's rule, and it can't answer its own question, allow a site or change the mode. Every bridge step in the
+  Runs log records the mode it started under. A session from an older CLI counts as remote when `serve` named it. Decision D67. Tests: `test/permission-guard.test.mjs`, `test/dialog-preset.test.mjs`,
+  `cli/test/model-tier.test.mjs`.
 - Settings > Privacy has a switch that stops the model detail lookup on models.dev. The lookup (the public
   table at `https://models.dev/api.json`, when the copy is a day old, only while a key is saved for a provider that lists
   its models) had no off switch. Off, `loadMetadata` in `src/models/registry.ts` never fetches it. Test: `test/models-dev-switch.test.mjs`.
