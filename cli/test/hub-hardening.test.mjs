@@ -65,7 +65,9 @@ function rawExchange(port, bytes) {
 }
 const alive = async (hub) => {
 	assert.equal(hub.proc.exitCode, null, "the hub is still running");
-	assert.equal((await fetch(`${hub.url}/`)).status, 200, "and answering");
+	const front = await fetch(`${hub.url}/`);
+	assert.equal(front.status, 200, "and answering");
+	assert.equal(front.headers.get("keep-alive"), "timeout=120", "an idle connection outlives a tunnel's reuse of it");
 };
 
 // ---------- sol-F1, sonnet-F1: hostile upgrades ----------
