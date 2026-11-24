@@ -55,7 +55,7 @@ export class HelperSetup extends LitElement {
 		const label = `Install command for ${command.shell}`;
 		return html`
 			<p class="text-xs text-muted-foreground">
-				Coding agents reach this browser through Tychicus's helper on this computer. To install it, paste this into
+				Coding agents reach this browser through Local Studio's helper on this computer. To install it, paste this into
 				${command.shell === "PowerShell" ? "PowerShell" : "a terminal"}:
 			</p>
 			<div class="flex flex-col gap-1">
@@ -91,7 +91,7 @@ export class HelperSetup extends LitElement {
 						: this.command
 							? this.install(this.command)
 							: html`<p class="text-xs text-muted-foreground">
-									Tychicus's helper runs on macOS, Windows and Linux, not on this system. Chat here works without it.
+									Local Studio's helper runs on macOS, Windows and Linux, not on this system. Chat here works without it.
 								</p>`
 				}
 			</div>

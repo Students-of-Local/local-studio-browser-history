@@ -21,7 +21,7 @@ const fmt = (n: number) => n.toLocaleString("en-US");
 /** Head and tail of `text` within `max`, and a line in the middle that says what was left out and how to get it. */
 export function capOutput(text: string, max = OUTPUT_CAP, hint = "Ask for a smaller part: a selector, a range, an offset or a filter."): string {
 	if (text.length <= max) return text;
-	const notice = (dropped: number) => `\n\n[Tychicus left out ${fmt(dropped)} of ${fmt(text.length)} characters here. ${hint}]\n\n`;
+	const notice = (dropped: number) => `\n\n[Local Studio left out ${fmt(dropped)} of ${fmt(text.length)} characters here. ${hint}]\n\n`;
 	const room = Math.max(0, max - notice(text.length).length);
 	const head = Math.ceil(room * 0.7);
 	const tail = room - head;
