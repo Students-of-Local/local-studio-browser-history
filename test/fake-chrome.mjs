@@ -262,7 +262,10 @@ export function installFakeChrome() {
 			async getTargets() {
 				return [];
 			},
-			async sendCommand() {
+			async sendCommand(_target, method, params) {
+				// What an action's target is (page.ts DESCRIBE_LIB), looked up before every key: nothing in particular.
+				if (method === "Runtime.evaluate" && params?.expression?.includes("(ref, sel, x, y) =>"))
+					return { result: { value: { ok: true, value: {} } } };
 				return {};
 			},
 			onEvent: event(),
