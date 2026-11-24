@@ -22,8 +22,9 @@
   with the virtualization entitlement. The guest is Debian 13 arm64, pinned by SHA-512, on an APFS clone, set up by
   cloud-init with no users and no SSH, and reached through a vsock agent. The first boot saves a ready point (machine
   state plus a disk clone); `reset` restores it, `down` saves the session and `up` resumes it. A gate checks power, RAM,
-  disk (5 GB at least) and load before `up`. `vm shot` saves the guest's console
-  framebuffer as PNG. Decision D66. Tests: `cli/test/vm.test.mjs`.
+  disk (5 GB at least) and load before `up`. `vm shot` saves the guest's console framebuffer as PNG.
+  `scripts/vm-bench.mjs` measures it against the #28 targets (a rerun of D66's numbers is owed).
+  Decision D66. Tests: `cli/test/vm.test.mjs`.
 - Agents can now filter a site's feed for you, by topic or account, on every visit. Ask "hide every post about crypto
   on x.com" and the new `site_filter` MCP tool saves words, phrases, `/regex/` terms and account handles for a site; posts that match are hidden
   with a class and a stylesheet (never removed), new ones too as you scroll, and a count on the page ("12 hidden by your
@@ -62,6 +63,9 @@
 - Agents' tab groups say "Local Studio · ...", and groups an earlier version named "Tychicus · ..." are still found and
   tidied; a resumed session's own group takes the new name. The assistant's own prompt, the notes and errors agents read from the extension, and the name the ChatGPT
   sign-in shows say Local Studio too. Test: `test/browser-session.test.mjs`.
+- The helper's own text (browser connections, host, hub, install, Cloudflare, links, pairing, remote setup, the community
+  catalog and their errors) says
+  Local Studio. The `tychicus` command, the MCP name, environment variables and folders don't change here. Issue #104.
 - `tychicus setup --agents` renames an agent's old `polycarp` or `tabkyra` entry that runs Tychicus to `tychicus`. Before, the entry kept the old name until a separate `setup --agents --finish`, and `tychicus doctor` called it fine. Now the agent step moves entries that run Polycarp's browser server, then renames every entry that runs Tychicus under an old name, after a backup and a question (`--yes` skips it). The finish's rules stay: an old entry beside a `tychicus` entry is removed only when the two match in every field, and otherwise both are named for a manual fix. `tychicus doctor` warns about an old name with one fix, `tychicus setup --agents`. `--agents --finish` still runs the rename alone. Rules that named the old server, such as a Claude Code permission rule for `mcp__polycarp`, need the new name; setup says so after a rename. Decision D65. Tests: `cli/test/agent-migration.test.mjs`.
 - Messages about missing computer use name Tychicus's own helper, `tychicus-hands`, and how to get it on that OS. `computer_status`, `tychicus doctor`, `link --scope computer.*` and a hub's refusal said computer use needed Polycarp's Mac app, which no longer has it (baney75/polycarp #568). `handsHowTo` in `cli/src/computer.ts` writes the line. `test/product-name.test.mjs` now also fails when a `KEPT` rule or `POLYCARP_ALLOW` file excuses no line.
 - Tychicus opens in its dark look until you pick Light or Match system in Settings > Appearance. The side panel, its first frame and the in-use veil on agents' pages all follow it. Before, nothing saved meant Match system, so a Mac in light mode got a white panel; that choice is now stored by name, and anyone who never picked one gets dark. Tests: `test/appearance.test.mjs`.
@@ -81,6 +85,9 @@
 - The `skill-judge` CI job lets a pull request rename a skill: a base router case may carry the new name when `skills-eval/accepted-drops.json` records the rename under `renamed` (`from`, `to`, `reason`), the old skill is gone and the new one is new. The new name keeps the old accuracy floor. Any other removed or relabeled case still fails.
 
 ### Fixed
+- `read_page` right after a page opens now holds a cross-site frame (a payment form) that arrives a moment later. It waits for a frame it
+  first saw under a second ago, and starts no new look after a second; a frame that still hasn't arrived is listed as "not loaded yet". The market
+  task `t05-iframe` missed the form in 2 of 3 runs on a Mac (#75). Tests: `test/frames.test.mjs`, `cli/test/e2e-bridge.test.mjs`.
 - Tychicus no longer adds CORS headers to the responses of api.anthropic.com, api.z.ai or a custom provider's host
   (`static/cors-rules.json` and the dynamic rules are gone, and each worker start takes away the saved ones). The side
   panel's own requests go out under the extension's host permissions and never needed them. Test: `test/provider-cors.test.mjs`.

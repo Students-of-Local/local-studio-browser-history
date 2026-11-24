@@ -84,7 +84,7 @@ async function fetchTo(url: string, file: string, timeoutMs: number): Promise<st
 export async function downloadCloudflared(options: DownloadOptions = {}): Promise<DownloadResult> {
 	const platform = options.platform ?? process.platform;
 	const asset = options.asset ?? cloudflaredAsset(platform);
-	if (!asset) return { ok: false, message: `Tychicus has no cloudflared download for ${platform} ${process.arch}. Install cloudflared yourself (developers.cloudflare.com/tunnel/downloads) and try again.` };
+	if (!asset) return { ok: false, message: `Local Studio has no cloudflared download for ${platform} ${process.arch}. Install cloudflared yourself (developers.cloudflare.com/tunnel/downloads) and try again.` };
 	const binDir = join(configDir(), "bin");
 	const target = downloadedCloudflared(platform);
 	mkdirSync(binDir, { recursive: true, mode: 0o700 });
