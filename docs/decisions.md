@@ -2206,3 +2206,29 @@ names section of AGENTS.md they are not its files.
 
 **Why.** A rename that waits for the user to decide when "nothing names" an alias never happens. A permission rule
 that names the old server stops matching after the rename; setup names that cost at the moment it happens.
+
+## D68. The Mac helper ships in the darwin archive, signed ad hoc, with its engine linked in (Claude, 2026-11-24)
+
+**Context.** On a Mac, computer use needs Tychicus's own `tychicus-hands` (issue #27) installed. The owner chose ad
+hoc signing for now: no Developer ID. The release workflow builds on Linux, and the helper needs a Mac to build and
+sign. The helper linked agent-desktop's engine as a dylib beside it.
+
+**Decision.**
+- A `hands-mac` job in `release.yml` builds the helper from the tag on a macOS runner with `hands/mac/scripts/package.sh`
+  and hands it to the release job, which puts it in the darwin archive as `bin/tychicus-hands`, so `SHA256SUMS` and the
+  attestation cover it.
+- It is signed `codesign --force --sign - --options runtime --identifier com.tychicus.hands`. With the hardened runtime,
+  library validation refused the ad hoc engine dylib ("different Team IDs"), so the engine is now built as a static
+  library (`cargo rustc --crate-type staticlib`, no patch to the crate) and linked in. The alternatives were dropping
+  the hardened runtime or adding `com.apple.security.cs.disable-library-validation`; both would let code be loaded into a
+  program that holds the Accessibility grant (`DYLD_INSERT_LIBRARIES`, or a swapped dylib beside it).
+- `tychicus install --release` copies it to `~/.local/bin/tychicus-hands` on macOS only: one fixed path, so the
+  Accessibility list keeps one entry, and a reinstall of the same bytes leaves the file alone. A changed helper goes in
+  with a rename, so a running copy keeps its file.
+- The helper names the program macOS checks the grant against (the responsible process, from libsystem's
+  `responsibility_get_pid_responsible_for_pid`, looked up at run time; the topmost ancestor below launchd otherwise), in
+  every `permission_denied` and in a new optional method, `hands/grants`, which `computer_status` asks.
+
+**Why.** Ad hoc signing means a grant to the helper itself is lost on every update; the docs and the installer say so,
+and a grant to the app it runs under (Terminal) is unaffected. Keeping the hardened runtime intact matters more than a
+second file's convenience, for a program that can read and act on every window.
