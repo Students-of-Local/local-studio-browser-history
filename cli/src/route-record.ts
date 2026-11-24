@@ -83,7 +83,7 @@ export function routePortProblem(port: unknown): string | undefined {
 /** The record in `raw`, checked field by field. Throws a RouteRecordError naming `file` and the first thing wrong. */
 export function validateRouteRecord(raw: unknown, file: string = routeRecordFile()): RouteRecord {
 	const bad = (why: string): never => {
-		throw new RouteRecordError(`${file} isn't a route record Tychicus can use: ${why}. Nothing was changed.`);
+		throw new RouteRecordError(`${file} isn't a route record the helper can use: ${why}. Nothing was changed.`);
 	};
 	if (!raw || typeof raw !== "object" || Array.isArray(raw)) return bad("it isn't a JSON object");
 	const r = raw as Record<string, unknown>;
@@ -135,7 +135,7 @@ export function readRouteRecord(file: string = routeRecordFile()): RouteRecord |
 	try {
 		raw = JSON.parse(text);
 	} catch {
-		throw new RouteRecordError(`${file} isn't valid JSON, so it isn't a route record Tychicus can use. Nothing was changed.`);
+		throw new RouteRecordError(`${file} isn't valid JSON, so it isn't a route record the helper can use. Nothing was changed.`);
 	}
 	return validateRouteRecord(raw, file);
 }
