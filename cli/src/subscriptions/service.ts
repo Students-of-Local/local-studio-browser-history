@@ -15,7 +15,7 @@ import type { CopilotTurnEvent, CopilotTurnRequest } from "../../../src/subscrip
 import { SIWC, siwcRequestBody } from "../../../src/subscriptions/constants.ts";
 import { CopilotAuth } from "./copilot.ts";
 import { CopilotTurns } from "./copilot-turns.ts";
-import { type Fetch, Siwc, SubscriptionError } from "./siwc.ts";
+import { type Fetch, FETCH_TIMEOUT_MS, Siwc, SubscriptionError } from "./siwc.ts";
 
 const MAX_BODY = 60 * 1024 * 1024;
 
@@ -121,7 +121,12 @@ export class SubscriptionService {
 
 		if (req.method === "GET" && path === "/chatgpt/v1/models") {
 			const token = await this.siwc.accessToken();
-			const upstream = await this.fetch(`${SIWC.apiBase}/models`, { headers: { Authorization: `Bearer ${token}` } });
+			const abort = new AbortController();
+			res.on("close", () => abort.abort());
+			const upstream = await this.fetch(`${SIWC.apiBase}/models`, {
+				headers: { Authorization: `Bearer ${token}` },
+				signal: AbortSignal.any([abort.signal, AbortSignal.timeout(FETCH_TIMEOUT_MS)]),
+			});
 			return pipe(upstream, res);
 		}
 		if (req.method === "POST" && path === "/chatgpt/v1/responses") {

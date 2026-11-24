@@ -113,7 +113,7 @@ export async function withFileLock<T>(path: string, work: () => Promise<T>): Pro
 				if (again && again.owner === held.owner && again.mtimeMs === held.mtimeMs) rmSync(path, { force: true });
 				continue;
 			}
-			if (Date.now() - started > LOCK_WAIT_MS) throw new Error("Another Tychicus process is refreshing the sign-in; try again.");
+			if (Date.now() - started > LOCK_WAIT_MS) throw new Error("Another Local Studio helper is refreshing the sign-in; try again.");
 			await new Promise((r) => setTimeout(r, 100));
 		}
 	}

@@ -403,6 +403,7 @@ export function createMcpServer(options: McpServerOptions = {}): { server: McpSe
 	const addMoreTools = small ? hideOutsideCore(server) : undefined;
 	const choice = options.session ? { name: options.session, auto: false } : chooseSession({ flag: options.sessionFlag });
 	const tracer = hopTracer();
+	const remote = Boolean(options.remote || allowedTools);
 	const client = new BridgeClient({
 		name: options.name ?? harnessName(),
 		session: choice.name,
@@ -411,6 +412,8 @@ export function createMcpServer(options: McpServerOptions = {}): { server: McpSe
 		named: !options.session && choice.named === true,
 		project: "project" in choice ? choice.project : undefined,
 		...(options.model ? { tier: options.model.tier, ...(options.model.model ? { model: options.model.model } : {}) } : {}),
+		// A scoped session counts as remote here too (as for skills and files): Yolo never widens it (D67).
+		...(remote ? { remote: true } : {}),
 		...tracer?.client,
 		onEvent: (event, data) => {
 			if (event === "permission_request") void handlePermission(data);
@@ -421,7 +424,8 @@ export function createMcpServer(options: McpServerOptions = {}): { server: McpSe
 	let files: FilesTool | undefined;
 
 	async function handlePermission(data: Record<string, unknown>): Promise<void> {
-		if (options.remote) return;
+		// The extension takes no answer from a remote or scoped session: the question waits in the side panel.
+		if (remote) return;
 		const requestId = String(data.requestId);
 		const host = String(data.host);
 		if (data.kind === "upload") return handleUploadQuestion(requestId, host, data);
@@ -1333,7 +1337,7 @@ export function createMcpServer(options: McpServerOptions = {}): { server: McpSe
 				// A community skill says where it came from and where it applies, before its text.
 				const info = skillInfo(args.name);
 				if (info.source !== "community" && info.overrides !== "community") return text;
-				const reviewed = info.source === "community" ? "; written by the Tychicus community and reviewed by a maintainer" : "";
+				const reviewed = info.source === "community" ? "; written by the Local Studio community and reviewed by a maintainer" : "";
 				return `[${info.provenance}${reviewed}; scoped to ${(info.sites ?? []).join(", ")}: use it only on those sites]\n\n${text}`;
 			}),
 	);

@@ -239,8 +239,8 @@ export function createOverlayScript(taskName: string): string {
 	const toolbar = document.createElement('div');
 	toolbar.className = 'bar';
 	toolbar.innerHTML = '<span class="mark" aria-hidden="true">' + ${JSON.stringify(TYCHICUS_MARK)} +
-		'</span><span class="text" role="status"><b>Tychicus</b><span class="task"></span></span>' +
-		'<button type="button" aria-label="Stop the script Tychicus is running">Stop</button>';
+		'</span><span class="text" role="status"><b>Local Studio</b><span class="task"></span></span>' +
+		'<button type="button" aria-label="Stop the script Local Studio is running">Stop</button>';
 	const task = ${JSON.stringify(taskName)};
 	toolbar.querySelector('.task').textContent = ' \u00b7 ' + task;
 	toolbar.querySelector('.text').title = task;
