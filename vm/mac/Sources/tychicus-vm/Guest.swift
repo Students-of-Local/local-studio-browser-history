@@ -144,8 +144,23 @@ final class Guest: NSObject, VZVirtualMachineDelegate {
 
 	func exists(_ url: URL) -> Bool { FileManager.default.fileExists(atPath: url.path) }
 
-	/// Start the guest: from the session `down` saved, else from the reset point, else a cold boot.
-	func boot(cold: Bool) async {
+	/// `--from-ready`: make disk.raw from the reset point. clonefile never overwrites, so a disk that exists is
+	/// refused: only `reset` replaces disk.raw.
+	nonisolated func createDiskFromReady() throws {
+		guard clonefile(readyDisk.path, disk.path, 0) == 0 else {
+			switch errno {
+			case EEXIST: throw VMError("disk.raw exists, and --from-ready never overwrites it; reset the guest first")
+			case ENOENT: throw VMError("no reset point yet: the guest has not reached ready once")
+			default: throw VMError("clonefile ready.raw: \(String(cString: strerror(errno)))")
+			}
+		}
+		// A saved session belongs to the disk that is gone.
+		unlink(sessionState.path)
+	}
+
+	/// Start the guest from the session `down` saved, else cold boot disk.raw as it stands, however the last run
+	/// ended. With fromReady, disk.raw was just made from the reset point, so its saved memory fits.
+	func boot(cold: Bool, fromReady: Bool) async {
 		do {
 			if cold { unlink(sessionState.path) }
 			if !cold, exists(sessionState) {
@@ -153,13 +168,12 @@ final class Guest: NSObject, VZVirtualMachineDelegate {
 				try await restore(machine, from: sessionState)
 				unlink(sessionState.path)
 				bootKind = "session"
-			} else if !cold, exists(readyState), exists(readyDisk) {
-				try cloneReplace(readyDisk, disk)
+			} else if fromReady, exists(readyState) {
 				let machine = try makeVM()
 				try await restore(machine, from: readyState)
 				bootKind = "ready"
 			} else {
-				guard exists(disk) else { throw VMError("no disk.raw in \(dir.path)") }
+				guard exists(disk) else { throw VMError("no disk.raw in \(dir.path); --from-ready makes one from the reset point") }
 				let machine = try makeVM()
 				try await machine.start()
 				bootKind = "cold"
@@ -279,6 +293,10 @@ final class Guest: NSObject, VZVirtualMachineDelegate {
 	func down() async throws {
 		guard let machine = vm else { return }
 		state = "stopping"
+		// A start, restore or capture under way finishes first: stopped halfway, its session would be lost.
+		for _ in 0..<100 where bootKind.isEmpty || ![.running, .stopped, .error].contains(machine.state) {
+			try await Task.sleep(nanoseconds: 100_000_000)
+		}
 		if saveSupported, machine.state == .running {
 			try await machine.pause()
 			let tmp = dir.appendingPathComponent("session.vzvmsave.tmp")

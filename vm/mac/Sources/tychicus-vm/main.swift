@@ -1,13 +1,15 @@
 // tychicus-vm: runs one Linux guest on Virtualization.framework, with no window and no Dock icon.
 //
-//   tychicus-vm serve <guest-dir> [--cold]   boot or restore the guest, then answer on <guest-dir>/control.sock
+//   tychicus-vm serve <guest-dir> [--cold | --from-ready]
+//       start the guest, then answer on <guest-dir>/control.sock: resume the saved session, else cold boot disk.raw.
+//       --cold drops the session; --from-ready makes a missing disk.raw from the reset point and starts there.
 //   tychicus-vm version
 //
 // The tychicus CLI (cli/src/vm.ts) prepares the guest folder and talks to the control socket.
 
 import Foundation
 
-let version = "0.1.0"
+let version = "0.1.1"
 
 func fail(_ message: String, code: Int32 = 1) -> Never {
 	FileHandle.standardError.write("tychicus-vm: \(message)\n".data(using: .utf8)!)
@@ -20,12 +22,15 @@ signal(SIGPIPE, SIG_IGN)
 let args = Array(CommandLine.arguments.dropFirst())
 switch args.first {
 case "serve":
-	guard args.count >= 2 else { fail("usage: tychicus-vm serve <guest-dir> [--cold]", code: 2) }
+	guard args.count >= 2 else { fail("usage: tychicus-vm serve <guest-dir> [--cold | --from-ready]", code: 2) }
 	let dir = URL(fileURLWithPath: args[1], isDirectory: true)
 	let cold = args.dropFirst(2).contains("--cold")
+	let fromReady = args.dropFirst(2).contains("--from-ready")
+	guard !(cold && fromReady) else { fail("--cold and --from-ready exclude each other", code: 2) }
 	let guest: Guest
 	do {
 		guest = try Guest(dir: dir)
+		if fromReady { try guest.createDiskFromReady() }
 	} catch {
 		fail("\(error)")
 	}
@@ -35,11 +40,12 @@ case "serve":
 	} catch {
 		fail("\(error)")
 	}
+	let signals = server.downOnSignals()
 	server.run()
-	Task { @MainActor in await guest.boot(cold: cold) }
-	dispatchMain()
+	Task { @MainActor in await guest.boot(cold: cold, fromReady: fromReady) }
+	withExtendedLifetime(signals) { dispatchMain() }
 case "version", "--version":
 	print(version)
 default:
-	fail("usage: tychicus-vm serve <guest-dir> [--cold] | version", code: 2)
+	fail("usage: tychicus-vm serve <guest-dir> [--cold | --from-ready] | version", code: 2)
 }

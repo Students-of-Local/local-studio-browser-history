@@ -116,12 +116,43 @@ final class ControlServer: @unchecked Sendable {
 			}
 			return (status, false)
 		case "down":
-			changing.lock()
 			let t0 = now()
-			try onMain { try await self.guest.down() }
+			try down()
 			return (["ok": true, "downMs": now() - t0], true)
 		default:
 			throw VMError("unknown op \(op)")
+		}
+	}
+
+	/// Save the session and stop the guest. On success the lock stays held: the helper exits next.
+	func down() throws {
+		changing.lock()
+		do {
+			try onMain { try await self.guest.down() }
+		} catch {
+			changing.unlock()
+			throw error
+		}
+	}
+
+	/// SIGTERM and SIGINT (logout, shutdown, kill) do what the down request does, then exit.
+	func downOnSignals() -> [DispatchSourceSignal] {
+		[SIGTERM, SIGINT].map { sig in
+			signal(sig, SIG_IGN)
+			let source = DispatchSource.makeSignalSource(signal: sig, queue: .global())
+			source.setEventHandler { [self] in
+				var code: Int32 = 0
+				do {
+					try down()
+				} catch {
+					FileHandle.standardError.write("could not save the session: \(error)\n".data(using: .utf8)!)
+					code = 1
+				}
+				unlink(path)
+				exit(code)
+			}
+			source.resume()
+			return source
 		}
 	}
 
