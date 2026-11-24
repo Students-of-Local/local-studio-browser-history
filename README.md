@@ -1,21 +1,20 @@
-# Tychicus
+# Local Studio: browser and computer use
 
 [![CI](https://github.com/baney75/tychicus/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/baney75/tychicus/actions/workflows/ci.yml)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
 
-Tychicus gives AI agents browser use and computer use. It is a Chromium extension, a CLI helper
-and an MCP server. Claude Code, Codex, pi or any MCP client drives your real browser through it,
+This is the part of Local Studio that gives AI agents browser use and computer use: a Chromium
+extension, a CLI helper and an MCP server. Claude Code, Codex, pi or any MCP client drives your real browser through it,
 in background tabs of its own, while you keep working. The computer-use tools reach desktop apps
 through a platform driver.
 
-Tychicus works with or without Local Studio and ships three ways: as Local Studio's default
-plugin, as this Chrome extension, and as a standalone app. When Local Studio runs, the side panel
+It works with or without the Local Studio desktop app and ships three ways: as the app's default
+plugin, as this Chrome extension, and as a standalone helper. When the app runs, the side panel
 chats through its Eukhe daemon, on your local models and the subscriptions you signed in to there,
 without the extension holding any API key (see below). The rest of the CLI and the outside-agent
 tools work as they did in Polycarp.
 
-The name is Tychicus, Paul's courier in the New Testament (Ephesians 6:21-22, Colossians 4:7-8):
-the one who carries messages and does the errands.
+The command, the MCP server and the folders still use an earlier name, `tychicus`.
 
 ## How the panel reaches models
 
@@ -36,7 +35,7 @@ tool steps back to the panel. Stop sends Abort to that session.
   private folder, and only reads there run unasked (Eukhe's `shell.autoEffects`, for that session
   alone); the panel says no to every command and write. If Local Studio won't take the limit, the
   chat does not start.
-- **Only this extension.** The host answers only the pinned Tychicus extension ID and exits for
+- **Only this extension.** The host answers only the pinned Local Studio extension ID and exits for
   any other caller before it reads a message.
 - **When Local Studio is not running**, a chat on it says so and how to fix it (start Local
   Studio, or run `eukhe` in a terminal) within a few seconds, instead of waiting. Local Studio
@@ -48,7 +47,7 @@ tool steps back to the panel. Stop sends Abort to that session.
 
 Driving a consumer subscription (a chat plan you pay for as a person) through automation may
 break that provider's terms of service. Some providers allow it, some forbid it, and terms
-change. Tychicus does not decide this for you. Read your provider's terms and decide whether to
+change. Local Studio does not decide this for you. Read your provider's terms and decide whether to
 connect a subscription; API keys under a developer agreement are the safer route where terms
 are unclear.
 
@@ -77,13 +76,13 @@ release's own `tychicus install --release`, which checks again and registers the
 no sudo and refuses to run as root or administrator unless you pass `--allow-root`. On macOS and
 Linux it links `~/.local/bin/tychicus` to the installed release, so `tychicus` works in a new
 terminal; it says so when `~/.local/bin` isn't on your PATH or another `tychicus` comes first, and
-asks before replacing a `tychicus` there that isn't Tychicus's (without a terminal it leaves it and
+asks before replacing a `tychicus` there that isn't Local Studio's (without a terminal it leaves it and
 prints the `ln -sf` command).
 `TYCHICUS_VERSION=1.2.3` installs that release instead of the latest, and options after
 `sh -s --` go to the installer: `curl -fsSL <address above> | sh -s -- --local-studio`. Releases
 are built for macOS on Apple silicon, Linux x64 and Windows x64.
 
-Then load the extension as step 3 below says. Once Tychicus is listed on the Chrome Web Store,
+Then load the extension as step 3 below says. Once Local Studio is listed on the Chrome Web Store,
 that copy works too: its welcome screen shows the command for your computer with a Copy button,
 and shows the helper connected once the command has run.
 
@@ -141,12 +140,12 @@ claude mcp add --scope user tychicus -- tychicus mcp
 ```
 
 The extension ID (`igjafcggmahiboobmnhfkndodphjdnhg`) comes from the manifest key and
-differs from Polycarp's, and the native host is `com.tychicus.browser`, so Tychicus and Polycarp
+differs from Polycarp's, and the native host is `com.tychicus.browser`, so Local Studio and Polycarp
 can be installed side by side without either one answering for the other.
 
-### Tychicus keeps to its own files
+### Local Studio keeps to its own files
 
-Tychicus never writes to Polycarp's files. It has its own config folder (`~/.config/tychicus`),
+The helper never writes to Polycarp's files. It has its own config folder (`~/.config/tychicus`),
 data and cache folders, launchers (`tychicus`, `tychicus-host`), native host
 (`com.tychicus.browser`), socket folder (`/tmp/tychicus-bridge-<user>`), service names
 (`com.tychicus.serve`, `tychicus-serve.service` and so on) and MCP entry (`tychicus`). The npm
@@ -219,12 +218,12 @@ into a Polycarp folder. Tunnel credentials under a Polycarp folder are copied; o
 hostname, tunnel and sign-ins are kept, so the connector needs no change in claude.ai, ChatGPT or grok.com. Nothing under
 Polycarp's folders is changed or deleted.
 
-Then it swaps each service in turn: Polycarp's stops, Tychicus's starts and must answer (serve: `GET /mcp` on this
+Then it swaps each service in turn: Polycarp's stops, Local Studio's starts and must answer (serve: `GET /mcp` on this
 computer returns 401), or Polycarp's comes back, the copy is undone and the command exits 1 with the reason. On success
 Polycarp's plists move to `~/Library/LaunchAgents/retired-polycarp/` (Linux: its units are disabled, not deleted), and it
-reads back which services are loaded. It refuses when Tychicus already has remote state; `--force` replaces it after
-saving Tychicus's files to a `pre-import-<time>` folder. `tychicus install` prints a hint to run it when Polycarp has a
-`remote.json` and Tychicus doesn't.
+reads back which services are loaded. It refuses when Local Studio already has remote state; `--force` replaces it after
+saving Local Studio's files to a `pre-import-<time>` folder. `tychicus install` prints a hint to run it when Polycarp has a
+`remote.json` and Local Studio doesn't.
 
 ## Moved from Polycarp
 
@@ -245,5 +244,5 @@ built on his [pi](https://github.com/badlogic/pi-mono) and
 ## License
 
 [AGPL-3.0](LICENSE), unchanged from Polycarp's `browser/` folder and from upstream. If you run a
-modified Tychicus for others over a network, the AGPL asks you to offer them its source. The
+modified version for others over a network, the AGPL asks you to offer them its source. The
 Polycarp name and logo (in Polycarp's `brand/` folder) are not covered by this license.
