@@ -728,7 +728,9 @@ async function main(): Promise<void> {
 			throw new UsageError(`Usage: ${COMMAND_NAME} token create <name> --scope a,b | list | revoke <id|name|client id|grant id> | scopes | passcode | approval-code | clients`);
 		}
 		case "remote": {
-			const sub = argv.slice(1).find((a) => !a.startsWith("-") && a !== option("--public-url") && a !== option("--port") && a !== option("--cloudflare") && a !== option("--new-passcode-file"));
+			const sub = argv
+				.slice(1)
+				.find((a) => !a.startsWith("-") && a !== option("--public-url") && a !== option("--port") && a !== option("--cloudflare") && a !== option("--relay") && a !== option("--account") && a !== option("--new-passcode-file"));
 			if (sub === "cloudflare") {
 				const step = argv.slice(1).filter((a) => !a.startsWith("-"))[1];
 				if (step === "login") {
@@ -770,12 +772,18 @@ async function main(): Promise<void> {
 				const cloudflare = flag("--cloudflare") || rawCloudflare !== undefined ? (rawCloudflare === undefined || rawCloudflare.startsWith("-") ? "" : rawCloudflare) : undefined;
 				const tailscale = flag("--tailscale");
 				const tailnet = flag("--tailnet");
-				if ([cloudflare !== undefined, publicUrl !== undefined, tailscale, tailnet].filter(Boolean).length > 1) throw new UsageError("--tailscale, --tailnet, --cloudflare and --public-url are different routes: use one.");
+				// --relay with no name (last, or followed by another flag) takes the default Worker name.
+				const rawRelay = option("--relay");
+				const relay = flag("--relay") || rawRelay !== undefined ? (rawRelay === undefined || rawRelay.startsWith("-") ? "" : rawRelay) : undefined;
+				const account = option("--account");
+				if (account !== undefined && !/^[0-9a-f]{32}$/.test(account)) throw new UsageError("--account takes a Cloudflare account id: 32 hex digits, as wrangler whoami lists them.");
+				if ([relay !== undefined, cloudflare !== undefined, publicUrl !== undefined, tailscale, tailnet].filter(Boolean).length > 1) throw new UsageError("--relay, --tailscale, --tailnet, --cloudflare and --public-url are different routes: use one.");
+				if (account !== undefined && (cloudflare !== undefined || publicUrl !== undefined || tailscale || tailnet)) throw new UsageError("--account is for the relay route.");
 				const replaceFunnel = flag("--replace-funnel");
 				if (replaceFunnel && cloudflare === undefined) throw new UsageError("--replace-funnel moves a Funnel route to Cloudflare, so it needs --cloudflare name.yourdomain.com.");
 				const json = flag("--json");
 				const noInput = flag("--no-input");
-				if (noInput && cloudflare === undefined && publicUrl === undefined && !tailscale && !tailnet) throw new UsageError("--no-input needs a route: --tailscale, --tailnet, --cloudflare name.yourdomain.com or --public-url https://host.");
+				if (noInput && relay === undefined && cloudflare === undefined && publicUrl === undefined && !tailscale && !tailnet) throw new UsageError("--no-input needs a route: --relay, --tailscale, --tailnet, --cloudflare name.yourdomain.com or --public-url https://host.");
 				if (noInput && cloudflare === "") throw new UsageError("--no-input needs the name too: --cloudflare name.yourdomain.com.");
 				// A person at a terminal gets questions and waits; an app (--json), an agent's shell (no TTY) or --no-wait gets a report that says what's next.
 				const terminal = interactiveTerminal() && !json;
@@ -784,6 +792,8 @@ async function main(): Promise<void> {
 					cloudflare,
 					tailscale,
 					tailnet,
+					...(relay !== undefined ? { relay } : {}),
+					...(account !== undefined ? { account } : {}),
 					port,
 					service: !flag("--no-service"),
 					passcode: !flag("--no-passcode"),
@@ -830,7 +840,7 @@ async function main(): Promise<void> {
 				return;
 			}
 			throw new UsageError(
-				`Usage: ${COMMAND_NAME} remote setup [--tailscale | --tailnet | --cloudflare [name.yourdomain.com] | --public-url https://host] [--replace-funnel] [--port N] [--no-service] [--no-passcode] [--no-wait] [--no-input] [--yes] [--connect-code] [--json] | cloudflare login [--json] | status [--json] | test [--json] | fix [--yes] [--dry-run] [--json] | reset --new-passcode-file <path> [--yes] [--json] | join [--no-service] [--json] | off [--json] | import-polycarp [--dry-run] [--force]`,
+				`Usage: ${COMMAND_NAME} remote setup [--relay [name] [--account <id>] | --tailscale | --tailnet | --cloudflare [name.yourdomain.com] | --public-url https://host] [--replace-funnel] [--port N] [--no-service] [--no-passcode] [--no-wait] [--no-input] [--yes] [--connect-code] [--json] | cloudflare login [--json] | relay run | status [--json] | test [--json] | fix [--yes] [--dry-run] [--json] | reset --new-passcode-file <path> [--yes] [--json] | join [--no-service] [--json] | off [--json] | import-polycarp [--dry-run] [--force]`,
 			);
 		}
 		case "hub": {

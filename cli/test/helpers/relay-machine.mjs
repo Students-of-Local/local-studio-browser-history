@@ -14,8 +14,11 @@ export const ACCOUNT = "0123456789abcdef0123456789abcdef";
 export const ADDRESS = "https://tychicus-relay.test-sub.workers.dev";
 export const unix = process.platform === "linux" || process.platform === "darwin";
 
-/** A machine with node alone on PATH, stub service managers, and TYCHICUS_NPX at a script that answers like wrangler. */
-export function machine(root, name, { whoami = { loggedIn: true, accounts: [{ id: ACCOUNT, name: "Mine" }] }, deploy = "ok" } = {}) {
+/**
+ * A machine with node alone on PATH, stub service managers, and TYCHICUS_NPX at a script that answers like wrangler. A `login` writes
+ * a signed-in file, and whoami answers `afterLogin` from then on when one is given; `loginCode` is what it exits with.
+ */
+export function machine(root, name, { whoami = { loggedIn: true, accounts: [{ id: ACCOUNT, name: "Mine" }] }, afterLogin, loginCode = 0, deploy = "ok" } = {}) {
 	const dir = join(root, name);
 	const bin = join(dir, "bin");
 	const home = join(dir, "home");
@@ -34,11 +37,15 @@ export function machine(root, name, { whoami = { loggedIn: true, accounts: [{ id
 	script(
 		npx,
 		`#!${process.execPath}
-import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 const [yes, pkg, ...args] = process.argv.slice(2);
 appendFileSync(${JSON.stringify(log)}, ["npx", yes, pkg, ...args, "account=" + (process.env.CLOUDFLARE_ACCOUNT_ID ?? ""), "metrics=" + process.env.WRANGLER_SEND_METRICS].join(" ") + "\\n");
-const whoami = ${JSON.stringify(whoami)};
-if (args[0] === "whoami") {
+const signedIn = ${JSON.stringify(join(dir, "signed-in"))};
+const whoami = existsSync(signedIn) ? ${JSON.stringify(afterLogin ?? whoami)} : ${JSON.stringify(whoami)};
+if (args[0] === "login") {
+	writeFileSync(signedIn, "");
+	process.exit(${loginCode});
+} else if (args[0] === "whoami") {
 	if (whoami === "out") { console.log("You are not authenticated. Please run wrangler login."); process.exit(1); }
 	console.log(JSON.stringify(whoami));
 } else if (args[0] === "deploy") {
@@ -50,9 +57,11 @@ if (args[0] === "whoami") {
 `,
 	);
 	const env = { HOME: home, TYCHICUS_CONFIG_DIR: cfg, TABKYRA_CONFIG_DIR: cfg, NO_COLOR: "1", PATH: bin, TYCHICUS_NPX: npx, TABKYRA_APPLICATIONS_DIR: join(dir, "apps"), TABKYRA_DOH_URL: "http://127.0.0.1:9/dns-query" };
-	const run = (args, extra = {}, { hooks = false } = {}) =>
+	/** `hooks` preloads relay-hooks.mjs; `input` is stdin, a pipe the person "types" into (with TABKYRA_ASSUME_TTY for a terminal). */
+	const run = (args, extra = {}, { hooks = false, input } = {}) =>
 		new Promise((resolve) => {
-			const child = spawn(process.execPath, [...(hooks ? ["--import", HOOKS] : []), cli, ...args], { env: { ...env, ...extra }, stdio: ["ignore", "pipe", "pipe"] });
+			const child = spawn(process.execPath, [...(hooks ? ["--import", HOOKS] : []), cli, ...args], { env: { ...env, ...extra }, stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"] });
+			child.stdin?.end(input);
 			let stdout = "";
 			let stderr = "";
 			child.stdout.on("data", (d) => (stdout += d));

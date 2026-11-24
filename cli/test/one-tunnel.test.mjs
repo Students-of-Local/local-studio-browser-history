@@ -674,7 +674,7 @@ test("with Local Studio's record already there, a route flag for another route r
 	try {
 		localStudioStub(s);
 		s.writeRecord({ v: 1, owner: "local-studio", route: "cloudflare", hostname: STUDIO, ports: { mcp: local.port } });
-		for (const flag of [["--tailnet"], ["--tailscale"]]) {
+		for (const flag of [["--tailnet"], ["--tailscale"], ["--relay"]]) {
 			const r = await s.runAsync(["remote", "setup", ...flag, "--no-service", "--json"], {}, { hooks: true });
 			assert.equal(r.code, 1, r.out);
 			const report = r.json();

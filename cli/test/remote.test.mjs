@@ -1393,7 +1393,7 @@ test("remote off with no remote.json closes a Polycarp Funnel on 8443, and says 
 
 test("remote lists its subcommands in help and rejects unknown flags", () => {
 	const help = cliRun(["--help"]).out;
-	assert.match(help, /tychicus remote setup \[--cloudflare name\.yourdomain\.com\] \[--replace-funnel\] \[--public-url https:\/\/host\] \[--port N\] \[--no-service\]/);
+	assert.match(help, /tychicus remote setup \[--relay worker-name\] \[--account account-id\] \[--cloudflare name\.yourdomain\.com\] \[--replace-funnel\] \[--public-url https:\/\/host\] \[--port N\] \[--no-service\]/);
 	assert.match(help, /tychicus remote status \[--json\]/);
 	assert.match(help, /tychicus remote off \[--json\]/);
 	assert.match(help, /tychicus remote cloudflare login \[--json\]/);
