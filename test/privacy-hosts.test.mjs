@@ -1,11 +1,12 @@
-// PRIVACY.md names every host this code can contact. The scan reads every hard-coded http(s) or ws(s) host in src/,
-// cli/src/ and the manifest (tests and comment lines skipped). A host passes one of two ways:
+// PRIVACY.md names every host this code can contact, and no other. The scan reads every hard-coded http(s) or ws(s) host
+// in src/, cli/src/, hands/ and static/ (tests and comment lines skipped). A host passes one of two ways:
 //   1. PRIVACY.md names it in backticks, `models.dev`, which is the fix when the code contacts it; or
 //   2. NOT_CONTACTED lists it with the files that may mention it and why nothing is fetched there.
-// A host in a new file is checked again, so an exempt host can't quietly become a fetched one.
-// The scan can't see a host a library or another program supplies, so OTHER_HOSTS lists those by hand.
+// An exempt host in a new file is checked again; a new URL on it in a listed file is not.
+// The scan can't see a host a library, a redirect or another program supplies, so OTHER_HOSTS lists those by hand, nor one
+// built from pieces or written as a number.
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -39,6 +40,7 @@ const NOT_CONTACTED = new Map([
 	["tailscale.com", [LINK, ["cli/src/remote-state.ts"]]],
 	["www.apple.com", ["an XML document type", ["cli/src/service.ts"]]],
 	["www.derstandard.at", [PROMPT_EXAMPLE, ["src/tools/default-skills.ts"]]],
+	["www.freedesktop.org", ["an XML document type", ["hands/linux/src/engine.rs"]]],
 	["www.linkedin.com", [PROMPT_EXAMPLE, ["src/tools/default-skills.ts"]]],
 	["www.w3.org", ["an XML namespace", [
 		"src/app.css",
@@ -54,10 +56,13 @@ const NOT_CONTACTED = new Map([
 	["www.youtube.com", [PROMPT_EXAMPLE, ["src/tools/default-skills.ts"]]],
 ]);
 
-/** Hosts a library or another program supplies, so no literal shows them: where each comes from. */
+/** Hosts a library, a redirect or another program supplies, so no literal shows them: why, and the file that causes it. */
 const OTHER_HOSTS = new Map([
-	["huggingface.co", "@huggingface/transformers' default, src/dictation/worker.ts"],
-	["registry.npmjs.org", "npm's default, cli/src/subscriptions/install-sdk.ts"],
+	["api.githubcopilot.com", ["the Copilot kit's own address, read in its 1.0.28 runtime", "cli/src/subscriptions/copilot.ts"]],
+	["huggingface.co", ["@huggingface/transformers' default", "src/dictation/worker.ts"]],
+	["registry.npmjs.org", ["npm's default", "cli/src/subscriptions/install-sdk.ts"]],
+	["release-assets.githubusercontent.com", ["where github.com sends a release download", "cli/src/update.ts"]],
+	["us.aws.cdn.hf.co", ["where huggingface.co sends a model download", "src/dictation/worker.ts"]],
 ]);
 
 function* files(dir) {
@@ -65,7 +70,7 @@ function* files(dir) {
 		const path = join(dir, name);
 		if (name === "node_modules" || name === "dist") continue;
 		if (statSync(path).isDirectory()) yield* files(path);
-		else if (/\.(ts|js|mjs|json|html|css)$/.test(name) && !/\.test\./.test(name)) yield path;
+		else if (/\.(ts|js|mjs|json|html|css|rs|swift)$/.test(name) && !/\.test\./.test(name)) yield path;
 	}
 }
 
@@ -73,7 +78,7 @@ function* files(dir) {
 const RESERVED = /(^|\.)example\.(com|org|net)$|\.(example|invalid|test|localhost)$/;
 
 /** The hosts in a file's text, comment lines aside. */
-export function hostsIn(text) {
+function hostsIn(text) {
 	const found = new Set();
 	for (const line of text.split("\n")) {
 		if (/^\s*(?:\/\/|\/?\*)/.test(line)) continue;
@@ -87,8 +92,12 @@ export function hostsIn(text) {
 /** Named in backticks: a link to a page on the host doesn't count as saying the code contacts it. */
 const namedInPolicy = (host) => policy.includes(`\`${host}\``);
 
+/** The hosts a policy names in backticks. File names and the token scope look like hosts and aren't. */
+const hostsNamed = (text) =>
+	[...text.matchAll(/`((?:[a-z0-9-]+\.)+[a-z]{2,})`/g)].map(([, host]) => host).filter((host) => !RESERVED.test(host) && !/\.(json|toml|read)$/.test(host));
+
 const sources = new Map();
-for (const path of [...files(join(root, "src")), ...files(join(root, "cli/src")), join(root, "static/manifest.chrome.json")]) {
+for (const path of ["src", "cli/src", "hands", "static"].flatMap((dir) => [...files(join(root, dir))])) {
 	for (const host of hostsIn(readFileSync(path, "utf8"))) {
 		if (!sources.has(host)) sources.set(host, []);
 		sources.get(host).push(relative(root, path).replaceAll("\\", "/"));
@@ -102,8 +111,14 @@ test("PRIVACY.md names every host the code contacts", () => {
 		const allowed = NOT_CONTACTED.get(host)?.[1] ?? [];
 		for (const file of where) if (!allowed.includes(file)) missing.push(`${host} (${file})`);
 	}
-	for (const host of OTHER_HOSTS.keys()) if (!namedInPolicy(host)) missing.push(`${host} (${OTHER_HOSTS.get(host)})`);
+	for (const [host, [why]] of OTHER_HOSTS) if (!namedInPolicy(host)) missing.push(`${host} (${why})`);
 	assert.deepEqual(missing, [], "name each in PRIVACY.md in backticks, or list it in NOT_CONTACTED with the reason");
+});
+
+test("PRIVACY.md names no host that nothing here contacts", () => {
+	const unknown = hostsNamed(policy).filter((host) => !sources.has(host) && !OTHER_HOSTS.has(host));
+	assert.deepEqual(unknown, [], "take each out of PRIVACY.md, or list it in OTHER_HOSTS with where it comes from");
+	assert.deepEqual(hostsNamed("`gone.vendor.dev`, `settings.json`, `example.com` and `threads.read`"), ["gone.vendor.dev"]);
 });
 
 test("every exemption is still needed", () => {
@@ -111,6 +126,10 @@ test("every exemption is still needed", () => {
 	for (const [host, [, allowed]] of NOT_CONTACTED) {
 		if (namedInPolicy(host)) stale.push(`${host} is in PRIVACY.md`);
 		for (const file of allowed) if (!sources.get(host)?.includes(file)) stale.push(`${host} is not in ${file}`);
+	}
+	for (const [host, [, file]] of OTHER_HOSTS) {
+		if (!existsSync(join(root, file))) stale.push(`${host}: ${file} is gone`);
+		if (sources.has(host)) stale.push(`${host} is in the code now`);
 	}
 	assert.deepEqual(stale, []);
 });

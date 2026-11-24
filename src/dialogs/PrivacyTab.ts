@@ -225,7 +225,7 @@ export class PrivacyTab extends SettingsTab {
 						`Keeps a copy of your side panel chats in ~/.local/share/tychicus/threads (readable only by your user), so
 						agents like Claude Code and Codex can look up past chats, through the MCP server or as files. The copy is not
 						uploaded, but an agent that reads it may send it to its own AI.
-						Keys pasted into a chat are removed from the copy, and chats from private mode are never copied. Turning
+						Keys pasted into a chat are removed from the copy, and chats marked private are never copied. Turning
 						this off deletes the copy and stops agents reading past chats. Agents connected through ${hostCommand()} serve need a token with the threads.read scope.`,
 					)}
 				</div>

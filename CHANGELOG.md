@@ -3,9 +3,9 @@
 ## [Unreleased]
 
 ### Added
-- PRIVACY.md names every host the code contacts by itself or on request, when, and how to turn it off. It also says the
+- PRIVACY.md names every host the code contacts by itself or on request, when, and how to turn it off where there is a switch. It also says the
   chat copy for coding agents is on by default, and which other agents' settings files the helper opens. `test/privacy-hosts.test.mjs` fails when code
-  names a host the policy doesn't. Settings > Privacy says the copy is on by default and is not uploaded.
+  names a host the policy doesn't, and when the policy names one nothing here contacts. Settings > Privacy says the copy is on by default and is not uploaded.
 - Settings > Privacy has a switch that stops the model detail lookup on models.dev. The lookup (the public
   table at `https://models.dev/api.json`, when the copy is a day old, only while a key is saved for a provider that lists
   its models) had no off switch. Off, `loadMetadata` in `src/models/registry.ts` never fetches it. Test: `test/models-dev-switch.test.mjs`.

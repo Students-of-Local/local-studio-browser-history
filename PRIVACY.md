@@ -7,8 +7,8 @@ separate program.
 ## What is collected
 
 Nothing, for its developer. There is no account, no analytics, no automatic crash reporting and no server of its own. The
-developer receives none of the data below, except a bug report the user chooses to post (see "Bug reports") and the
-download counts GitHub shows for each release.
+developer receives none of the data below, except what the user chooses to post (a bug report, or a skill submitted for
+everyone) and the download counts GitHub shows for each release.
 
 Every host named below sees the computer's IP address, as any site does.
 
@@ -20,7 +20,8 @@ Every host named below sees the computer's IP address, as any site does.
   `~/.cache/tychicus`).
 - **A copy of the chats, on by default.** So that the user's coding agents can look up past chats, the helper keeps a copy
   of side panel chats in `~/.local/share/tychicus/threads`, readable only by the user. Keys pasted into a chat are
-  removed from the copy, and private mode chats are never copied. The copy is not uploaded. Agents the user connects can
+  removed from the copy, and chats marked private are never copied. Older versions didn't mark private mode chats, so chats
+  from before that mark are copied only with the switch "Also chats from before" that date. The copy is not uploaded. Agents the user connects can
   read it and may send what they read to their own AI; one connected remotely needs a token with the `threads.read`
   scope. Settings > Privacy > "Let my coding agents read my past chats" turns it off and deletes the copy.
 - Tokens for the ChatGPT and GitHub Copilot sign-ins (Settings > Providers) are kept by the helper in files only the user
@@ -31,14 +32,13 @@ Every host named below sees the computer's IP address, as any site does.
 
 | What | Host | When | How to turn it off |
 | --- | --- | --- | --- |
-| Update check, with the helper's name and version. Automatic updates also download the release. | `api.github.com`, `github.com` | About daily. A source checkout runs `git fetch` instead. | Settings > Updates, or `TYCHICUS_NO_UPDATE_CHECK=1` |
+| Update check, with the helper's name and version. Automatic updates also download the release. | `api.github.com`, `github.com`, and `release-assets.githubusercontent.com` for the files | About daily. A source checkout runs `git fetch` instead. | Settings > Updates, or `TYCHICUS_NO_UPDATE_CHECK=1` |
 | Community skills list | `github.com` | When the helper or its MCP server starts or the browser connects, then when the last good copy is a day old | Settings > Skills > "Receive community skills", or `tychicus skill sync --off` |
 | Model details, with no key, chat or page | `models.dev` | Only with a key saved for a provider that lists its models, when the copy is a day old | Settings > Privacy > "Look up model details on models.dev" |
 | Model lists, with the user's key for that provider (none for OpenRouter) | `api.anthropic.com`, `api.openai.com`, `generativelanguage.googleapis.com`, `openrouter.ai`, `api.mistral.ai`, `api.groq.com`, `api.x.ai`, `api.cerebras.ai`, `router.huggingface.co` | When the panel opens and the list is an hour old, only for providers with a saved key | Remove the key |
 | Free model list, with no key | `openrouter.ai` | When the panel opens and the copy is a day old, also with Free mode off | No switch |
 | Site icons: the site's host name, such as `example.com` | `www.google.com`, which answers from its image servers | When the panel shows a site whose icon it doesn't have | No switch |
-
-The side panel also loads a page's own icon from the address that page gives.
+| A page's own icon | The address that page gives, which can be another site's | When the panel shows that page | No switch |
 
 ## What leaves the computer to answer the user
 
@@ -46,8 +46,9 @@ The side panel also loads a page's own icon from the address that page gives.
   same computer through the helper. A local model keeps it on the computer. A subscription the user signed in to inside
   the app sends it to that subscription's provider. The extension never sees a key or a sign-in token.
 - **A ChatGPT or GitHub Copilot sign-in.** The side panel sends the chat to the helper on the same computer, which adds the
-  user's token and forwards it to OpenAI (`auth.openai.com`, `api.openai.com`) or GitHub (`github.com`, `api.github.com`).
-  Copilot's kit is installed from `registry.npmjs.org`. The sign-in itself runs on that provider's own page.
+  user's token and forwards it to OpenAI (`api.openai.com`) or GitHub (`api.githubcopilot.com`, or the Copilot address
+  GitHub gives the user's plan). Signing in and renewing use `auth.openai.com`, or `github.com` and `api.github.com`.
+  Copilot's kit is GitHub's own program, installed from `registry.npmjs.org`; what else it contacts is GitHub's choice. The sign-in itself runs on that provider's own page.
 - **An API key the user added.** The chat and what the agent reads go straight from the browser to that provider.
 - **Free mode.** Messages go to free models through OpenRouter (`openrouter.ai`), which may keep and train on them. It asks
   first, tries models that keep nothing first, and removes keys, card numbers and US Social Security numbers from the text.
@@ -60,16 +61,17 @@ The side panel also loads a page's own icon from the address that page gives.
   hub machine can ask the browser for page content and tool results. Those travel over the tunnel the user set up, on
   the user's own Tailscale Funnel or Cloudflare account, or to the hub machine the user named. Every request needs a
   sign-in the user approved. Setting it up looks the name up at `cloudflare-dns.com` and can download cloudflared from
-  `github.com`. `tychicus remote off` turns it off.
+  `github.com` and `release-assets.githubusercontent.com`. `tychicus remote off` turns it off.
 - **Pages, files and searches.** The agent opens the pages and files the user's request calls for. Reading a PDF uses the
   user's cookies for that site. Search and crawl go only to the user's own SearXNG or Firecrawl.
 - **Papers saved to the library** are looked up by DOI at `doi.org`, `api.crossref.org` and `api.openalex.org`.
-- **Dictation** downloads its model from `huggingface.co` on first use. Speech stays on the computer.
+- **Dictation** downloads its model from `huggingface.co` and its file servers, such as `us.aws.cdn.hf.co`, on first use. Speech stays on the computer.
 - **Code the agent writes in the panel** can load libraries from `esm.run`, `esm.sh`, `cdn.jsdelivr.net`, `unpkg.com`,
   `cdnjs.cloudflare.com`, `cdn.skypack.dev` and `cdn.tailwindcss.com`, data from those and `t1.gstatic.com`, and pictures
   from any https site. The Chrome Web Store build can't.
-- **Installing or sharing.** The install command and `tychicus skill submit` use `github.com`, through `git` and the
-  GitHub CLI where it is there.
+- **Installing or sharing.** The install command downloads from `github.com` and `release-assets.githubusercontent.com`.
+  `tychicus skill submit` shows what it would post, and once the user confirms, posts that skill, its test cases and the
+  note as a public pull request from the user's GitHub account, through `git` and the GitHub CLI.
 
 Each provider's own privacy policy and terms cover what it does with the data.
 
