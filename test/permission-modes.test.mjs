@@ -117,12 +117,103 @@ test("a migration whose first read came before a choice never overwrites it: Man
 	chrome.storage.local.get = get;
 });
 
-test("the notice promises only what this build does: action asks only once the bridge asks before risky actions", async () => {
+/** One exclusive lock per name, as navigator.locks gives every context of one extension. */
+function fakeLocks() {
+	const tails = new Map();
+	const asked = [];
+	return {
+		asked,
+		request(name, options, work) {
+			asked.push([name, options?.mode]);
+			const run = (tails.get(name) ?? Promise.resolve()).then(() => work({ name }));
+			tails.set(name, run.catch(() => undefined));
+			return run;
+		},
+	};
+}
+
+/** Give every module instance these locks for one test; set the result's `locks` to undefined for a browser without them. */
+function withLocks(t, locks) {
+	const before = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+	const navigator = { locks };
+	Object.defineProperty(globalThis, "navigator", { configurable: true, value: navigator });
+	t.after(() => (before ? Object.defineProperty(globalThis, "navigator", before) : delete globalThis.navigator));
+	return navigator;
+}
+
+/** The module as another extension context has it: its own state, the same storage and the same locks. */
+const context = (name) => import(`../src/bridge/permissions.ts?context=${name}-${Date.now()}`);
+const ticks = async (n = 50) => {
+	for (let i = 0; i < n; i++) await new Promise((r) => setImmediate(r));
+};
+
+test("a migration paused after its last read never overwrites Manual picked in another context", async (t) => {
+	installFakeChrome();
+	const locks = fakeLocks();
+	withLocks(t, locks);
+	const worker = await context("worker");
+	const panel = await context("panel");
+	const get = chrome.storage.local.get.bind(chrome.storage.local);
+	let release;
+	const gate = new Promise((r) => {
+		release = r;
+	});
+	let reads = 0;
+	// The migration's second read is the one it decides on: hold it there, with "no mode stored" in hand.
+	chrome.storage.local.get = async (keys) => {
+		const data = await get(keys);
+		if (++reads === 2) await gate;
+		return data;
+	};
+	const migrating = worker.getPermissionMode();
+	while (reads < 2) await ticks(1);
+	const choosing = panel.setPermissionMode("manual");
+	await ticks();
+	release();
+	await Promise.all([migrating, choosing]);
+	assert.equal(await stored(MODE_KEY), "manual", "the migration landed after the choice and put Auto back");
+	assert.equal(await getModeNotice(), undefined, "and the notice about Auto is gone");
+	assert.equal(await worker.getPermissionMode(), "manual");
+});
+
+test("every mode write takes the one exclusive lock; without Web Locks the writes still work", async (t) => {
+	installFakeChrome();
+	const locks = fakeLocks();
+	const navigator = withLocks(t, locks);
+	const m = await context("writes");
+	const held = async (write) => {
+		const before = locks.asked.length;
+		await write();
+		return locks.asked.slice(before);
+	};
+	const lock = [["tychicus-permission-mode", "exclusive"]];
+	assert.deepEqual(await held(() => m.getPermissionMode()), lock, "migration");
+	assert.deepEqual(await held(() => m.getPermissionMode()), [], "a plain read takes no lock");
+	assert.deepEqual(await held(() => m.startFreshInstall()), lock, "a fresh install");
+	for (const mode of ["manual", "auto", "yolo"]) assert.deepEqual(await held(() => m.setPermissionMode(mode)), lock, mode);
+	// Nothing else in the extension writes the key: the CLI's permission.setMode calls setPermissionMode.
+	const source = read("src/bridge/permissions.ts");
+	assert.equal(source.match(/\[MODE_KEY\]: /g).length, 3, "a new write of the mode belongs inside the lock");
+	navigator.locks = undefined;
+	const plain = await context("plain");
+	await plain.setPermissionMode("manual");
+	assert.equal(await plain.getPermissionMode(), "manual");
+});
+
+test("what Auto is said to do is what this build does: asks and site checks are named only once they are wired", async () => {
 	installFakeChrome();
 	const { MODE_NOTICE_TEXT } = await import(`../src/components/ModeNotice.ts?ctx=${Date.now()}`);
-	const bridgeAsks = /\bactionRisk\(/.test(read("src/bridge/native.ts"));
-	if (/\b(send|post|buy|delete)\b/.test(MODE_NOTICE_TEXT)) assert.ok(bridgeAsks, `the notice promises asks the bridge never makes: ${MODE_NOTICE_TEXT}`);
-	assert.match(MODE_NOTICE_TEXT, /frontier models open ordinary sites/);
+	const { modeSummary } = await import("../cli/src/permission-mode.ts");
+	const help = read("src/dialogs/BridgeTab.ts").match(/mode: "auto",[^}]*?help: "([^"]+)"/)?.[1];
+	// Calls in code; a name in a comment wires nothing.
+	const code = ["src/bridge/native.ts", "src/bridge/permissions.ts"].map((p) => read(p).replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "")).join("\n");
+	const asksActions = /\bactionRisk\(/.test(code);
+	const checksSites = /\bsensitiveSite\(/.test(code);
+	for (const [where, text] of Object.entries({ notice: MODE_NOTICE_TEXT, settings: help, cli: modeSummary("auto") })) {
+		assert.match(text, /frontier models open (any site|ordinary sites)/, where);
+		if (/\b(sends?|posts?|buys?|deletes?|risky)\b/i.test(text)) assert.ok(asksActions, `${where} promises action asks the bridge never makes: ${text}`);
+		if (/\b(ordinary|sensitive|mail|banks?)\b/i.test(text)) assert.ok(checksSites, `${where} promises a site check nothing makes: ${text}`);
+	}
 });
 
 test("mode names: the three modes, and the 1.4.0 names an older CLI sends", () => {

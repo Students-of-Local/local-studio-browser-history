@@ -21,5 +21,5 @@ export const MODE_TITLE: Record<PermissionMode, string> = { manual: "Manual", au
 export function modeSummary(mode: PermissionMode): string {
 	if (mode === "manual") return "agents ask before opening a site you haven't allowed";
 	if (mode === "yolo") return "agents open any site without asking";
-	return "agents on frontier models open ordinary sites; small or unknown models ask first";
+	return "agents on frontier models open any site on their own; small or unknown models ask first";
 }

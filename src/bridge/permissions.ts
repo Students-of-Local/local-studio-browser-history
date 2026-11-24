@@ -3,7 +3,7 @@
  * Tychicus, set in Settings > Agents or with `tychicus mode`:
  *
  * - "manual": every new site asks first (the old "ask").
- * - "auto" (the default): an agent on a frontier model opens ordinary sites without asking, and one on a small or
+ * - "auto" (the default): an agent on a frontier model opens any site without asking, and one on a small or
  *   unknown model asks (D60's "Match the model"; the CLI says which in its hello, cli/src/model-tier.ts).
  * - "yolo": nothing asks; agents may open any site (the old "allow_all").
  *
@@ -83,9 +83,16 @@ function storedMode(data: Record<string, unknown>): PermissionMode | undefined {
 	return stored && data[MODE_KEY] === stored ? stored : undefined;
 }
 
-/** Writes to the mode, one at a time in this page or worker, so a migration can't land between a read and a choice. */
+/**
+ * Every write of the mode runs in here, one at a time across the extension: Web Locks are shared by its worker, side
+ * panel and pages, so a migration can't land between another context's read and its choice. A browser without them
+ * gets one at a time in this context only.
+ */
+const MODE_LOCK = "tychicus-permission-mode";
 let modeWrites: Promise<unknown> = Promise.resolve();
-function oneModeWrite<T>(write: () => Promise<T>): Promise<T> {
+async function oneModeWrite<T>(write: () => Promise<T>): Promise<T> {
+	const locks = globalThis.navigator?.locks;
+	if (locks) return locks.request(MODE_LOCK, { mode: "exclusive" }, write);
 	const run = modeWrites.then(write, write);
 	modeWrites = run.catch(() => undefined);
 	return run;
@@ -94,8 +101,8 @@ function oneModeWrite<T>(write: () => Promise<T>): Promise<T> {
 /**
  * The stored mode. An install that has none yet is migrated from its 1.4.0 setting here, on first read (the
  * worker's onInstalled handler, `startFreshInstall`, takes the notice back for a new install). The migration reads
- * again just before it writes and stops if a mode was stored meanwhile, so it never overwrites a person's choice made
- * here or in another page.
+ * again inside the lock and writes only if no mode is stored then, so it never overwrites a person's choice made here
+ * or in another page.
  */
 export async function getPermissionMode(): Promise<PermissionMode> {
 	const first = storedMode(await chrome.storage.local.get([MODE_KEY, LEGACY_MODE_KEY]));

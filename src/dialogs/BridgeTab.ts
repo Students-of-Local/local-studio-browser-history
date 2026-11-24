@@ -39,7 +39,7 @@ export const MODE_CHOICES: ReadonlyArray<{ mode: PermissionMode; title: string; 
 	{
 		mode: "auto",
 		title: "Auto (default)",
-		help: "agents on frontier models open ordinary sites; small or unknown models ask first",
+		help: "agents on frontier models open any site on their own; small or unknown models ask first",
 	},
 	{
 		mode: "yolo",
