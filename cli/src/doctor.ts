@@ -357,9 +357,9 @@ function harnessChecks(): Check[] {
 			if (h.configured === true) {
 				return { id, status: "ok", label: `${h.name}: Tychicus MCP server configured` };
 			}
-			// Moved from Polycarp: Tychicus runs under the old name until `setup --agents --finish`.
+			// Tychicus runs under an old name until `setup --agents` renames it; agents:aliases below says so once.
 			const alias = h.configured === false ? liveAlias(h.id) : undefined;
-			if (alias) return { id, status: "ok", label: `${h.name}: Tychicus MCP server configured as "${alias.name}", a temporary alias` };
+			if (alias) return { id, status: "ok", label: `${h.name}: Tychicus MCP server configured under the old name "${alias.name}"` };
 			const replace = h.configured === "stale" || h.configured === "other";
 			let fix: string;
 			if (h.addCommand) fix = replace && h.removeCommand ? `${shellJoin(h.removeCommand)} && ${shellJoin(h.addCommand)}` : shellJoin(h.addCommand);
@@ -426,9 +426,10 @@ function polycarpAgentChecks(): Check[] {
 		const list = aliases.map((a) => `"${a.name}" in ${a.harness}`).join(", ");
 		checks.push({
 			id: "agents:aliases",
-			status: "ok",
-			label: `Temporary aliases that run Tychicus: ${list} (${aliasFile()})`,
-			fix: `Once nothing names them: ${COMMAND_NAME} setup --agents --finish`,
+			status: "warn",
+			label: `Agents run Tychicus under an old name: ${list}`,
+			detail: `${aliasFile()} lists them. The command below renames each to ${MCP_NAME} where that is safe; it backs up each file and asks first.`,
+			fix: `${COMMAND_NAME} setup --agents`,
 		});
 	}
 	return checks;
