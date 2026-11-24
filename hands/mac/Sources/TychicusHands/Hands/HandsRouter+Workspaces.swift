@@ -32,7 +32,7 @@ extension HandsRouter {
         return r
     }
 
-    /// A window BaneySpaces doesn't place, as the engine and the scope checks see it; nil when no process lists it as a
+    /// A window the host doesn't place, as the engine and the scope checks see it; nil when no process lists it as a
     /// child window (closed, a menu, or unreadable).
     func childWindow(_ id: UInt32) -> HandsWindow? {
         guard let owner = ChildWindowsAX.owner(id) else { return nil }

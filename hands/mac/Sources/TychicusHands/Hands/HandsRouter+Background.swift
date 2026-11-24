@@ -1,7 +1,7 @@
 import AppKit
 import HandsCore
 
-/// Routes shut for an app or process after it misbehaved, for as long as BaneySpaces runs.
+/// Routes shut for an app or process after it misbehaved, for as long as the helper runs.
 final class BackgroundBreaker {
     static let shared = BackgroundBreaker()
     private let lock = NSLock()

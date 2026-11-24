@@ -4,7 +4,7 @@ import HandsCore
 /// What the hands need from the rest of the app. Everything here runs on the main thread.
 struct HandsHost {
     var agentWorkspace: () -> Int? = { nil }
-    /// Every window BaneySpaces places, with its workspace, from its model (cheap: no scan).
+    /// Every window the host places, with its workspace, from its model (cheap: no scan).
     var windows: () -> [HandsWindow] = { [] }
     /// The same after a scan (at most twice a second): a window that opened a moment ago is in it.
     var freshWindows: () -> [HandsWindow] = { [] }
@@ -13,7 +13,7 @@ struct HandsHost {
     var titles: ([UInt32]) -> [UInt32: String] = { _ in [:] }
     /// What a window shows: its document (AXDocument), and whether it is an Open or Save panel.
     var inspect: (UInt32) -> (document: String?, panel: Bool) = { _ in (nil, false) }
-    /// The processes BaneySpaces started for an agent.
+    /// The processes the hands started for an agent.
     var agentOwned: () -> Set<Int32> = { [] }
     /// Asks Donovan, in a sheet, whether to lend an app; true only for a real click on "Lend".
     var askToLend: (_ app: String, _ minutes: Int, _ takeBack: Bool) -> Bool = { _, _, _ in false }
@@ -150,7 +150,7 @@ final class HandsRouter {
     }
 
     func decide(_ w: HandsWindow, _ agent: Int?, session: String = "") -> ScopeDecision {
-        // A window BaneySpaces doesn't place: usable only as a child of a window the agent may use (`ChildWindowRule`).
+        // A window the host doesn't place: usable only as a child of a window the agent may use (`ChildWindowRule`).
         if w.workspace == nil { return ScopeGuard.unplaced(w, child: childDecision(w.id, pid: w.pid, agent: agent, session: session)?.decision.scope) }
         let mode = access
         Self.refusedLock.lock(); let bad = Self.refused.contains(w.id); Self.refusedLock.unlock()
@@ -283,7 +283,7 @@ final class HandsRouter {
     }
 
     /// No window is used while it is or holds an Open or Save panel, which would browse his files, in any mode. Windows of a process
-    /// BaneySpaces started for an agent are also used only while they show no document from outside the handoff folder (a restored
+    /// the hands started for an agent are also used only while they show no document from outside the handoff folder (a restored
     /// one, or one opened through a panel). Checked on every use, so a late window is covered too.
     func inspectProblem(_ w: HandsWindow) -> HandsError? {
         let (owned, seen) = onMain { (host.agentOwned(), host.inspect(w.id)) }

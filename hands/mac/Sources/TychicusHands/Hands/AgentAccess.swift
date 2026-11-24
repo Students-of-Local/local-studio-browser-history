@@ -15,7 +15,7 @@ final class AgentAccess {
     /// The same grants as saved: those of processes that have quit drop out at the next launch.
     private var saved: [[Double]] = []
 
-    /// Where the grants are kept, so a relaunch of BaneySpaces doesn't forget them: pid and start time pairs.
+    /// Where the grants are kept, so a relaunch of the helper doesn't forget them: pid and start time pairs.
     static let grantsKey = "agentAccessGrants"
 
     private init() {

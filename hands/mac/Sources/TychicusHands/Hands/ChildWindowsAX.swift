@@ -42,7 +42,7 @@ enum HandsAXTree {
     }
 }
 
-/// The windows of one process that BaneySpaces does not place, as `ChildWindowRule` needs them: dialogs, alerts, palettes
+/// The windows of one process that the host does not place, as `ChildWindowRule` needs them: dialogs, alerts, palettes
 /// (from the app's AXWindows) and sheets (children of its placed windows). Only reads, from the caller's thread; a short
 /// timeout so a hung app costs a quarter second.
 enum ChildWindowsAX {

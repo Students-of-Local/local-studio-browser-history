@@ -98,8 +98,8 @@ struct IdleWatch {
     var hardwareSeen: Bool { !events.isEmpty }
 }
 
-/// Whether a probe app (BaneySpaces' own canvas test app) is the one built into this app: inside Resources/probe,
-/// its signature valid, signed by the same team as BaneySpaces when it has one, and its code hash the one recorded
+/// Whether a probe app (the host's own canvas test app) is the one built into this app: inside Resources/probe,
+/// its signature valid, signed by the same team as the host when it has one, and its code hash the one recorded
 /// when the bundle was built (the recording is inside the app's own signed seal). Anything else is refused.
 enum ProbeAppTrust {
     static var folder: URL? { Bundle.main.resourceURL?.appendingPathComponent("probe", isDirectory: true) }
@@ -119,7 +119,7 @@ enum ProbeAppTrust {
             return out as? [String: Any]
         }
         guard let a = info(mine), let b = info(theirs) else { return false }
-        // The same team when BaneySpaces has one.
+        // The same team when the host has one.
         if let team = a[kSecCodeInfoTeamIdentifier as String] as? String, (b[kSecCodeInfoTeamIdentifier as String] as? String) != team { return false }
         // The code hash recorded at build time, in the app's own sealed Resources.
         guard let unique = b[kSecCodeInfoUnique as String] as? Data,

@@ -5,7 +5,7 @@ import ScreenCaptureKit
 
 /// A picture of one window, taken by its window id: it works while the window is parked out of
 /// view, because ScreenCaptureKit captures the window itself, not the screen where it would be.
-/// The file goes only into BaneySpaces' own shots folder (0700), written atomically (0600).
+/// The file goes only into the helper's own shots folder (0700), written atomically (0600).
 enum WindowShot {
     struct Result {
         var path: String

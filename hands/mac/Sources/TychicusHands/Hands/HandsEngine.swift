@@ -53,9 +53,9 @@ final class HandsEngine {
     static let actionableWait: TimeInterval = 5
     enum Budget { static let snapshot: TimeInterval = 25, get: TimeInterval = 10, act: TimeInterval = 20, transaction: TimeInterval = 60, bounds: TimeInterval = 0.05 }
 
-    /// BaneySpaces' own folder for agents (handoff files, shots), readable by this user only.
+    /// The helper's own folder for agents (handoff files, shots), readable by this user only.
     static var home: URL { Wire.supportDir.appendingPathComponent("hands", isDirectory: true) }
-    /// Where the engine keeps its refs: a folder of its own, new for each launch of BaneySpaces and named at random,
+    /// Where the engine keeps its refs: a folder of its own, new for each launch of the helper and named at random,
     /// so nothing else has a reason to write there and an old launch's refs can't be mistaken for these.
     static let stateRoot: URL = home.appendingPathComponent("run-\(getpid())-\(UUID().uuidString)", isDirectory: true)
 
@@ -100,7 +100,7 @@ final class HandsEngine {
     private func lane(for pid: Int32) -> DispatchQueue {
         initLock.lock(); defer { initLock.unlock() }
         if let q = lanes[pid] { return q }
-        let q = DispatchQueue(label: "baneyspaces.hands.bounds.\(pid)", qos: .userInitiated)
+        let q = DispatchQueue(label: "tychicus.hands.bounds.\(pid)", qos: .userInitiated)
         lanes[pid] = q
         return q
     }
@@ -108,7 +108,7 @@ final class HandsEngine {
     private func queue(for pid: Int32) -> DispatchQueue {
         initLock.lock(); defer { initLock.unlock() }
         if let q = queues[pid] { return q }
-        let q = DispatchQueue(label: "baneyspaces.hands.engine.\(pid)")
+        let q = DispatchQueue(label: "tychicus.hands.engine.\(pid)")
         q.setSpecific(key: Self.queueKey, value: pid)
         queues[pid] = q
         return q
