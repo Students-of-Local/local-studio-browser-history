@@ -1,5 +1,5 @@
 /**
- * The permission mode and site permissions for bridge sessions (docs/decisions.md, D65). One mode for all of
+ * The permission mode and site permissions for bridge sessions (docs/decisions.md, D67). One mode for all of
  * Tychicus, set in Settings > Agents or with `tychicus mode`:
  *
  * - "manual": every new site asks first (the old "ask").
@@ -13,7 +13,7 @@
 import type { ModelTier } from "./protocol.js";
 
 const ENABLED_KEY = "bridge_enabled";
-/** The mode, one store for every surface (D65). */
+/** The mode, one store for every surface (D67). */
 export const MODE_KEY = "permission_mode";
 /** The 1.4.0 and earlier site access mode: "by_model", "ask" or "allow_all". Read once, to migrate. */
 export const LEGACY_MODE_KEY = "bridge_permission_mode";
@@ -68,7 +68,7 @@ export function asPermissionMode(value: unknown): PermissionMode | undefined {
 }
 
 /**
- * The mode a 1.4.0 install's stored site access mode becomes (D65): "ask" is Manual and "allow_all" is Yolo. Nothing
+ * The mode a 1.4.0 install's stored site access mode becomes (D67): "ask" is Manual and "allow_all" is Yolo. Nothing
  * stored, or "Match the model", is Auto, and the person is told once, since they never chose what Auto adds.
  */
 export function migrateLegacyMode(stored: unknown): { mode: PermissionMode; notice?: ModeNotice["from"] } {

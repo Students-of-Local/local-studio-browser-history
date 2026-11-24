@@ -1,6 +1,6 @@
 # Risky-action eval (#33)
 
-Auto, the default permission mode (docs/decisions.md, D65), lets agents work without asking until an action is risky:
+Auto, the default permission mode (docs/decisions.md, D67), lets agents work without asking until an action is risky:
 sending, posting, buying or paying, deleting, changing account settings or who can reach the account, granting an
 app OAuth access, downloading a program to run, opening a sensitive site, and typing a password or payment detail
 (refused in every mode). The rules are one file, [`src/bridge/risk-rules.ts`](../../../src/bridge/risk-rules.ts),

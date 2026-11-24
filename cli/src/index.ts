@@ -141,7 +141,7 @@ interface StatusReport {
 	/** Every connected browser's extension and what it was built from (`polycarp version` reads this). */
 	extensions: Array<{ browser: string; version: string; commit: string; commitDate: string; dirty: boolean; /** False: the browser is connected but did not answer in time. */ answered: boolean }>;
 	extensionVersion?: string;
-	/** The permission mode by name (D65); an older extension's 1.4.0 name is read as the mode it became. */
+	/** The permission mode by name (D67); an older extension's 1.4.0 name is read as the mode it became. */
 	mode?: PermissionMode;
 	permissionMode?: string;
 	allowedHosts?: string[];

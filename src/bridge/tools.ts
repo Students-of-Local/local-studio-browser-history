@@ -717,7 +717,7 @@ export async function extensionStatus() {
 		...(BUILD
 			? { build: { commit: BUILD.commit, commitDate: BUILD.commitDate ?? "", dirty: BUILD.dirty === true } }
 			: {}),
-		/** The permission mode by name (D65). */
+		/** The permission mode by name (D67). */
 		mode,
 		/** The same mode by its 1.4.0 name, for an older CLI's `status`. */
 		permissionMode: LEGACY_MODE_NAME[mode],

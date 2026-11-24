@@ -1,4 +1,4 @@
-// Auto mode's rule list (src/bridge/risk-rules.ts, docs/decisions.md D65): one test per rule, the actions no rule may
+// Auto mode's rule list (src/bridge/risk-rules.ts, docs/decisions.md D67): one test per rule, the actions no rule may
 // flag, and the labeled set's recall (evals/market/risky-actions).
 import assert from "node:assert/strict";
 import test from "node:test";

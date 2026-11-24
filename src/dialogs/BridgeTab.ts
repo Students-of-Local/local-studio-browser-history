@@ -33,7 +33,7 @@ import { saveSwitch } from "./switch-save.js";
  * Code, Codex through `tabkyra mcp`), which hosts they may open, and pending
  * permission requests.
  */
-/** The three modes as Settings > Agents offers them (D65), in this order. */
+/** The three modes as Settings > Agents offers them (D67), in this order. */
 export const MODE_CHOICES: ReadonlyArray<{ mode: PermissionMode; title: string; help: string }> = [
 	{ mode: "manual", title: "Manual", help: "agents ask before opening any site you haven't allowed" },
 	{

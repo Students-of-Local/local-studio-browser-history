@@ -1,4 +1,4 @@
-// Recall of Auto's risky-action rules (src/bridge/risk-rules.ts, D65) on the labeled cases (README.md). It reads the
+// Recall of Auto's risky-action rules (src/bridge/risk-rules.ts, D67) on the labeled cases (README.md). It reads the
 // rules' TypeScript, so it runs under tsx:
 //   node --import tsx evals/market/risky-actions/score.mjs           the score, the misses and the false flags
 //   node --import tsx evals/market/risky-actions/score.mjs --json    the market eval's score line (run.mjs reads it)

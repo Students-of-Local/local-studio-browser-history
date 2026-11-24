@@ -2187,7 +2187,7 @@ changes.
 took 16.1 ms, a 2,000-post scroll batch 14.7 ms, and a recheck of 4,000 posts after the filters changed 16.4 ms. The
 test fails over 50 ms per batch.
 
-## D65. One permission mode for all of Tychicus: Manual, Auto (default), Yolo (Claude, 2026-11-24)
+## D67. One permission mode for all of Tychicus: Manual, Auto (default), Yolo (Claude, 2026-11-24)
 
 **Context.** The owner asked for three modes across browser, computer use and VMs: "Auto by default, they can select
 Yolo and they can select manual" (#33, 2026-11-18). 1.4.0's default, "Match the model" (D60), lets an agent on a

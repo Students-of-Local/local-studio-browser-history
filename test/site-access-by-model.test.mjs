@@ -1,4 +1,4 @@
-// "Match the model" site access (docs/decisions.md, D60), now part of Auto (D65): Auto is the default, what it decides
+// "Match the model" site access (docs/decisions.md, D60), now part of Auto (D67): Auto is the default, what it decides
 // for each tier, and that Manual and Yolo mean what "ask" and "allow_all" did.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";

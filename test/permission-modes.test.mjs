@@ -1,4 +1,4 @@
-// The permission mode's one store and its migration from 1.4.0 (docs/decisions.md, D65): "ask" becomes Manual,
+// The permission mode's one store and its migration from 1.4.0 (docs/decisions.md, D67): "ask" becomes Manual,
 // "allow_all" becomes Yolo, nothing stored (or "Match the model") becomes Auto with a one-time notice, and a fresh
 // install is Auto with no notice.
 import assert from "node:assert/strict";

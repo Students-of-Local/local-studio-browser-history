@@ -632,7 +632,7 @@ test("open a page, snapshot, type, click and read back through MCP", async () =>
 	const status = JSON.parse(await tool("status"));
 	assert.equal(status.connected, true);
 	assert.equal(status.tabGroup, "Tychicus · e2e");
-	// Nothing stored is Auto (D65); this client names no model, so it asks before new sites.
+	// Nothing stored is Auto (D67); this client names no model, so it asks before new sites.
 	assert.equal(status.mode, "auto");
 	assert.ok(status.tabs.some((t) => t.current && t.url.startsWith(pageUrl)), JSON.stringify(status.tabs));
 

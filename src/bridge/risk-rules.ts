@@ -1,5 +1,5 @@
 /**
- * Auto mode's rule list (docs/decisions.md, D65): which agent actions are risky enough to ask the person first, which
+ * Auto mode's rule list (docs/decisions.md, D67): which agent actions are risky enough to ask the person first, which
  * sites and apps are sensitive, and what no mode allows (password and payment entry). Pure and in one file, so every
  * surface reads the same rules: the extension's bridge, and computer use and VMs when they read the mode.
  *

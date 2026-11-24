@@ -1,5 +1,5 @@
 /**
- * The permission mode as the CLI reads and names it (docs/decisions.md, D65): Manual, Auto (the default) or Yolo. The
+ * The permission mode as the CLI reads and names it (docs/decisions.md, D67): Manual, Auto (the default) or Yolo. The
  * extension keeps the one store; the CLI only reads it in `status` and writes it through the bridge.
  */
 export type PermissionMode = "manual" | "auto" | "yolo";

@@ -976,7 +976,7 @@ function onHostMessage(message: HostToExt): void {
 			}
 			if (message.method === "permission.setMode") {
 				// `tychicus mode`, and an older CLI's `ask` / `allow-all`: a local user process setting the permission mode,
-				// same trust as the Settings > Agents control (D65). An older CLI's names mean the mode they became.
+				// same trust as the Settings > Agents control (D67). An older CLI's names mean the mode they became.
 				const mode = asPermissionMode(message.params?.mode);
 				if (!mode) {
 					send({
