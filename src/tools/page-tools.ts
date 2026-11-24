@@ -103,7 +103,7 @@ export const sendToWorker: PanelSend = async (method, params, signal) => {
 			);
 		});
 		const reply = (await Promise.race([sent, stopped])) as PanelCallReply | undefined;
-		if (!reply) throw new Error("internal: The Tychicus service worker did not answer. Try again.");
+		if (!reply) throw new Error("internal: The Local Studio service worker did not answer. Try again.");
 		if (!reply.ok) throw new Error(reply.message);
 		return reply.result;
 	} finally {

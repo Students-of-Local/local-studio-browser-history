@@ -19,6 +19,12 @@ import {
 	validateAuthorize,
 } from "./oauth.ts";
 
+/**
+ * How long serve and the hub keep an idle connection open. A tunnel keeps its idle connections to us for about 90 seconds (cloudflared's
+ * default) and reuses them; Node's own 5 seconds closes one just as a request goes out on it, and that request fails with a 502.
+ */
+export const KEEP_ALIVE_MS = 120_000;
+
 export async function readBody(req: IncomingMessage, limit = 4_000_000): Promise<string> {
 	const chunks: Buffer[] = [];
 	let size = 0;

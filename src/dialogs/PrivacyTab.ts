@@ -7,6 +7,7 @@ import { Toast } from "../components/Toast.js";
 import { saveSwitch } from "./switch-save.js";
 import "../dictation/DictationSettings.js";
 import { hostCommand } from "../bridge/host-command.js";
+import { MODELS_DEV_KEY } from "../models/registry.js";
 import { BUG_LOG_KEY, BUG_REPORTS_KEY, type BugEntry, NEW_ISSUE_URL, reportText } from "../privacy/bug-reports.js";
 import { setBugReports } from "../privacy/capture.js";
 import { hostOf, PRIVATE_MODE_KEY, TRUSTED_HOSTS_KEY } from "../privacy/private-mode.js";
@@ -25,13 +26,14 @@ function explained(summary: string, more: string, detail: TemplateResult | strin
 	`;
 }
 
-/** Settings > Privacy: private mode, the hosts the user trusts as their own, and opt-in bug reports. */
+/** Settings > Privacy: private mode, the hosts the user trusts as their own, models.dev lookups and opt-in bug reports. */
 @customElement("tabkyra-privacy-tab")
 export class PrivacyTab extends SettingsTab {
 	@state() private privateMode = false;
 	@state() private trustedHosts = "";
 	@state() private bugReports = false;
 	@state() private mirror = true;
+	@state() private modelsDev = true;
 	@state() private shareOlder = false;
 	@state() private sharedSince = "";
 	@state() private log: BugEntry[] = [];
@@ -48,6 +50,7 @@ export class PrivacyTab extends SettingsTab {
 		this.privateMode = (await settings.get<boolean>(PRIVATE_MODE_KEY)) === true;
 		this.trustedHosts = ((await settings.get<string[]>(TRUSTED_HOSTS_KEY)) ?? []).join(", ");
 		this.bugReports = (await settings.get<boolean>(BUG_REPORTS_KEY)) === true;
+		this.modelsDev = (await settings.get<boolean>(MODELS_DEV_KEY)) !== false;
 		this.log = (await settings.get<BugEntry[]>(BUG_LOG_KEY)) ?? [];
 		const threads = await chrome.storage.local.get([MIRROR_KEY, SHARE_OLDER_KEY, SHARED_SINCE_KEY]);
 		this.mirror = threads[MIRROR_KEY] !== false;
@@ -74,6 +77,11 @@ export class PrivacyTab extends SettingsTab {
 	private async setMirror(on: boolean) {
 		if (await this.save(() => chrome.storage.local.set({ [MIRROR_KEY]: on }), "past chats for coding agents"))
 			this.mirror = on;
+	}
+
+	private async setModelsDev(on: boolean) {
+		if (await this.save(() => getTabkyraStorage().settings.set(MODELS_DEV_KEY, on), "model details"))
+			this.modelsDev = on;
 	}
 
 	private async setPrivateMode(on: boolean) {
@@ -161,6 +169,28 @@ export class PrivacyTab extends SettingsTab {
 				</div>
 
 				<div class="space-y-2">
+					<h3 class="text-sm font-semibold text-foreground">Model details</h3>
+					<label class="flex items-start justify-between gap-3 text-sm text-foreground cursor-pointer">
+						<span>Look up model details on models.dev</span>
+						<input
+							type="checkbox"
+							role="switch"
+							class="tk-switch"
+							.checked=${live(this.modelsDev)}
+							@change=${(e: Event) => this.setModelsDev((e.target as HTMLInputElement).checked)}
+						/>
+					</label>
+					${explained(
+						"Fills in prices and limits for models your API keys list. It sends no key, chat or page.",
+						"What is fetched",
+						`When you have an API key for a provider that lists its models, Local Studio downloads the public model
+						table at https://models.dev/api.json when its copy is a day old or missing, to fill in names, prices and context
+						limits the provider leaves out. models.dev sees your IP address, as any site does. Off: models.dev is never asked; Local Studio uses the provider's own
+						details, its built-in table and a copy it downloaded earlier, if any.`,
+					)}
+				</div>
+
+				<div class="space-y-2">
 					<h3 class="text-sm font-semibold text-foreground">Chats on this computer</h3>
 					<label class="flex items-start justify-between gap-3 text-sm text-foreground cursor-pointer">
 						<span>Let my coding agents read my past chats</span>
@@ -190,11 +220,12 @@ export class PrivacyTab extends SettingsTab {
 							: ""
 					}
 					${explained(
-						"Keeps a copy of your chats on this computer so your coding agents can look up what you asked Tychicus.",
+						"On by default. Keeps a copy of your chats on this computer so your coding agents can look up past chats.",
 						"What is copied, and where",
 						`Keeps a copy of your side panel chats in ~/.local/share/tychicus/threads (readable only by your user), so
-						agents like Claude Code and Codex can look up what you asked Tychicus, through Tychicus's MCP server or as files.
-						Keys pasted into a chat are removed from the copy, and chats from private mode are never copied. Turning
+						agents like Claude Code and Codex can look up past chats, through the MCP server or as files. The copy is not
+						uploaded, but an agent that reads it may send it to its own AI.
+						Keys pasted into a chat are removed from the copy, and chats marked private are never copied. Turning
 						this off deletes the copy and stops agents reading past chats. Agents connected through ${hostCommand()} serve need a token with the threads.read scope.`,
 					)}
 				</div>

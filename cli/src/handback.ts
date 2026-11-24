@@ -25,12 +25,12 @@ export function handbackResultText(reply: unknown, err?: unknown): ToolResult {
 	if (err === undefined) {
 		const r = reply as Partial<HandbackOutcome>;
 		if (typeof r?.text === "string" && typeof r.status === "string") return { content: [{ type: "text", text: r.text }] };
-		return { content: [{ type: "text", text: "Tychicus returned an unexpected reply to tabs_show." }], isError: true };
+		return { content: [{ type: "text", text: "Local Studio returned an unexpected reply to tabs_show." }], isError: true };
 	}
 	if (err instanceof BridgeRpcError) {
 		if (err.rpc.code === "not_found")
 			return {
-				content: [{ type: "text", text: "This Tychicus extension can't wait for the user yet. Call tabs_show without wait, and ask the user in the chat to tell you when they are done." }],
+				content: [{ type: "text", text: "This Local Studio extension can't wait for the user yet. Call tabs_show without wait, and ask the user in the chat to tell you when they are done." }],
 				isError: true,
 			};
 		return { content: [{ type: "text", text: `${err.rpc.code}: ${err.rpc.message}` }], isError: true };
@@ -56,7 +56,7 @@ export async function waitForUser(client: BridgeClient, args: { tabId?: number; 
 							params: {
 								progressToken: token,
 								progress: ++ticks,
-								message: `Waiting for the user to press Continue in Tychicus (${Math.max(0, Math.ceil((HANDBACK_TIMEOUT_MS - (Date.now() - startedAt)) / 60000))} min left)`,
+								message: `Waiting for the user to press Continue in Local Studio (${Math.max(0, Math.ceil((HANDBACK_TIMEOUT_MS - (Date.now() - startedAt)) / 60000))} min left)`,
 							},
 						})
 						.catch(() => undefined);

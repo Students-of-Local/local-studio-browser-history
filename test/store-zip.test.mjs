@@ -1,5 +1,5 @@
 // The real store zip: scripts/build-store.sh builds it from this checkout, and this reads the manifest and file list back
-// out of the zip itself. It fails if the zipped manifest has a `key`, is not named Tychicus, carries another version
+// out of the zip itself. It fails if the zipped manifest has a `key`, is not named Local Studio, carries another version
 // than package.json, misses an icon, or asks for a permission store/permissions.md does not explain. It also fails if the
 // zip could load code from outside itself: a remote source in a content security policy, a file that names a CDN, a
 // prompt that offers one, or a library the store prompt names that is not packed.
@@ -27,7 +27,7 @@ test("build-store.sh makes a zip the store takes", { skip: process.platform === 
 		const files = execFileSync("unzip", ["-Z1", zip], { encoding: "utf8" }).split("\n").filter(Boolean);
 
 		assert.equal("key" in manifest, false, "the zipped manifest has a key; Google assigns the store id");
-		assert.equal(manifest.name, "Tychicus");
+		assert.equal(manifest.name, "Local Studio");
 		assert.equal(manifest.version, pkg.version);
 		assert.ok(manifest.description.length <= 132);
 		for (const icon of Object.values(manifest.icons)) assert.ok(files.includes(icon), `${icon} is not in the zip`);
