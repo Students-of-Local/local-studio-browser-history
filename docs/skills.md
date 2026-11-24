@@ -120,14 +120,16 @@ await skill({ action: 'delete', name: 'old-skill' })
 
 ## Domain Matching
 
-Skills use **minimatch** for glob pattern matching:
+A pattern is a host glob with an optional path glob. `*` is any run of characters but `/`, `?` is one character and
+`**` is any number of path segments; everything else is itself (no braces, classes or negation). Case and a leading
+`www.` don't count. A pattern over 256 characters, and any after a skill's first 100, match nothing:
 
 ```javascript
-// Exact domain
-["slack.com"]  // Matches slack.com, app.slack.com, *.slack.com
+// One host, every page on it
+["slack.com"]  // Matches slack.com and www.slack.com, not app.slack.com
 
 // With path
-["github.com/*/issues"]  // Matches github.com/org/repo/issues
+["github.com/*/*/issues"]  // Matches github.com/org/repo/issues
 
 // Wildcard domain
 ["google.*/search*"]  // Matches google.com/search, google.de/search?q=...
@@ -136,7 +138,7 @@ Skills use **minimatch** for glob pattern matching:
 ["youtube.com", "youtu.be"]  // Matches both domains
 ```
 
-**Implementation**: [src/storage/stores/skills-store.ts:81-112](../src/storage/stores/skills-store.ts)
+**Implementation**: [src/storage/stores/domain-match.ts](../src/storage/stores/domain-match.ts)
 
 ## Skill Lifecycle
 
