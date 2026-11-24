@@ -1194,6 +1194,21 @@ async function js(code, args = {}) {
 	return JSON.parse(await tool("run_js", { code, ...args })).value;
 }
 
+extraPages["/globals"] = `<!doctype html><title>Polycarp globals</title><h1>Shop</h1><script>
+window.seen = [];
+window.mine = "the page's";
+Object.defineProperty(window, "__probe", { configurable: true, set(v) { window.seen.push(v); }, get() { return "the page's"; } });
+</script>`;
+
+test("run_js runs apart from the page's own scripts, whatever path it takes; world main still reaches them", async () => {
+	await go("globals");
+	assert.equal(await js(`(() => { window.__probe = "ours"; return [typeof window.mine, window.__probe, document.querySelector("h1").textContent].join(); })()`), "undefined,ours,Shop");
+	assert.deepEqual(await js(`[window.seen.length, typeof window.__tabkyraSend, typeof window.__tabkyraChrome, window.mine].join()`, { world: "main" }), "0,undefined,undefined,the page's");
+	// A navigation gives the next run a world of the new document.
+	await go("globals");
+	assert.equal(await js(`typeof window.__probe + document.title`), "undefinedPolycarp globals");
+});
+
 test("press select-all (Meta+a and Control+a) selects the field's text, so typing replaces it", async () => {
 	await go("edit");
 	for (const chord of ["Meta+a", "Control+a"]) {

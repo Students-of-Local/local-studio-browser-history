@@ -7,10 +7,11 @@
  *
  * 1. `userScripts.execute` when the toggle is on (isolated world, our own CSP, real
  *    `chrome.runtime.sendMessage` messaging).
- * 2. The debugger's `Runtime.evaluate` in the page's main world otherwise. CSP does not
- *    apply to it. Messaging is provided by a CDP binding: injected code calls a local
- *    `chrome.runtime.sendMessage` shim that posts through the binding, and replies come
- *    back through `Runtime.evaluate`.
+ * 2. The debugger's `Runtime.evaluate` otherwise, in an isolated world of the page made for
+ *    it: the code carries a chat's attachments and artifacts, so the page's own scripts must
+ *    never see its globals. CSP does not apply to it. Messaging is provided by a CDP binding
+ *    only that world has: injected code calls a local `chrome.runtime.sendMessage` shim that
+ *    posts through the binding, and replies come back through `Runtime.evaluate`.
  *
  * Both paths run the same code; callers do not need to know which one is in use.
  */
@@ -78,6 +79,8 @@ export async function dispatchToSandbox(message: Record<string, unknown>): Promi
 }
 
 const BINDING = "__tabkyraSend";
+/** The isolated world runs on the debugger path use: the page's own scripts see none of its globals, the binding included. */
+const WORLD = "tychicus-run";
 const bindingReady = new Set<number>();
 let bindingListenerInstalled = false;
 const runningExecutions = new Map<string, number>();
@@ -87,8 +90,9 @@ function installBindingListener(): void {
 	bindingListenerInstalled = true;
 	chrome.debugger.onEvent.addListener((source, method, params) => {
 		if (method !== "Runtime.bindingCalled" || source.tabId === undefined) return;
-		const p = params as { name?: string; payload?: string } | undefined;
+		const p = params as { name?: string; payload?: string; executionContextId?: number } | undefined;
 		if (p?.name !== BINDING || !p.payload) return;
+		const contextId = p.executionContextId;
 		const tabId = source.tabId;
 		let parsed: { id: number; message: Record<string, unknown> };
 		try {
@@ -107,7 +111,7 @@ function installBindingListener(): void {
 			const expression = `window.__tabkyraReceive && window.__tabkyraReceive(${parsed.id}, ${JSON.stringify(
 				response ?? null,
 			)}, ${JSON.stringify(error ?? null)})`;
-			await cdpSend(tabId, "Runtime.evaluate", { expression, returnByValue: true }).catch(() => undefined);
+			await cdpSend(tabId, "Runtime.evaluate", { expression, contextId, returnByValue: true }).catch(() => undefined);
 		})();
 	});
 	chrome.tabs.onRemoved.addListener((tabId) => bindingReady.delete(tabId));
@@ -121,8 +125,21 @@ async function ensureBinding(tabId: number): Promise<void> {
 	await ensureAttached(tabId);
 	if (bindingReady.has(tabId)) return;
 	await cdpSend(tabId, "Runtime.enable");
-	await cdpSend(tabId, "Runtime.addBinding", { name: BINDING }).catch(() => undefined);
+	// By the world's name, so it is there in each document's world, and never in the page's own.
+	await cdpSend(tabId, "Runtime.addBinding", { name: BINDING, executionContextName: WORLD }).catch(() => undefined);
 	bindingReady.add(tabId);
+}
+
+/** The execution context of the run world in the tab's current document, with the binding ready. */
+async function runWorld(tabId: number): Promise<number> {
+	await ensureBinding(tabId);
+	const { frameTree } = await cdpSend<{ frameTree: { frame: { id: string } } }>(tabId, "Page.getFrameTree");
+	const world = await cdpSend<{ executionContextId: number }>(tabId, "Page.createIsolatedWorld", {
+		frameId: frameTree.frame.id,
+		worldName: WORLD,
+		grantUniveralAccess: false,
+	});
+	return world.executionContextId;
 }
 
 /**
@@ -155,8 +172,13 @@ const SHIM = `(() => {
 	}
 })();`;
 
-async function cdpInject<T>(tabId: number, code: string, options: InjectOptions): Promise<T> {
-	await ensureBinding(tabId);
+async function cdpInject<T>(
+	tabId: number,
+	code: string,
+	options: InjectOptions,
+	/** The world to run in (runWorld). Never the page's main world: without one, nothing runs. */
+	contextId: number,
+): Promise<T> {
 	// `chrome` inside the injected code resolves to the shim; the page's own window.chrome is untouched.
 	const expression = `${SHIM}\n(async () => { const chrome = window.__tabkyraChrome; return await (${code}); })()`;
 	if (options.executionId) runningExecutions.set(options.executionId, tabId);
@@ -167,13 +189,20 @@ async function cdpInject<T>(tabId: number, code: string, options: InjectOptions)
 		const result = await cdpSend<{
 			result: { value?: T; description?: string };
 			exceptionDetails?: { exception?: { description?: string }; text?: string };
-		}>(tabId, "Runtime.evaluate", { expression, returnByValue: true, awaitPromise: true });
+		}>(tabId, "Runtime.evaluate", { expression, contextId, returnByValue: true, awaitPromise: true });
 		if (result.exceptionDetails) {
 			throw new PageException(
 				result.exceptionDetails.exception?.description ?? result.exceptionDetails.text ?? "Evaluation failed",
 			);
 		}
 		return result.result.value as T;
+	} catch (err) {
+		// The document went before the code reached its world: it ran nowhere.
+		if (err instanceof PageException || !/Cannot find context/i.test(err instanceof Error ? err.message : String(err)))
+			throw err;
+		throw new PageException(
+			"Not run: the page changed as the script was about to start. Call read_page to see the page, then try again.",
+		);
 	} finally {
 		if (options.executionId) {
 			runningExecutions.delete(options.executionId);
@@ -223,7 +252,7 @@ function listenForRuns(): boolean {
 export async function injectScript<T = unknown>(tabId: number, code: string, options: InjectOptions = {}): Promise<T> {
 	const api = userScriptsApi();
 	// Nothing has run yet, so the debugger path is safe when a start could not be heard.
-	if (!api || !listenForRuns()) return cdpInject<T>(tabId, code, options);
+	if (!api || !listenForRuns()) return cdpInject<T>(tabId, code, options, await runWorld(tabId));
 	const worldId = options.worldId ?? "tabkyra";
 	const mark = crypto.randomUUID();
 	const send = (fields: string) =>
@@ -267,7 +296,7 @@ export async function injectScript<T = unknown>(tabId: number, code: string, opt
 			});
 		} catch (err) {
 			// Present but refused (permission or toggle): the code never ran, so the debugger path runs it.
-			if (isUserScriptsGated(err)) return cdpInject<T>(tabId, code, options);
+			if (isUserScriptsGated(err)) return cdpInject<T>(tabId, code, options, await runWorld(tabId));
 			throw err;
 		}
 		const first = results[0];
@@ -302,8 +331,9 @@ async function lostResult<T>(
 	if (options.executionId && terminated.has(options.executionId))
 		throw new PageException("The script was stopped before it ran. Nothing was done on the page.");
 	const words = (err: unknown) => (err instanceof Error ? err.message : String(err));
+	let world: number;
 	try {
-		await ensureBinding(tabId);
+		world = await runWorld(tabId);
 	} catch (err) {
 		// It never ran on either path (second-F5): say so, with the debugger's own words.
 		throw new PageException(
@@ -311,7 +341,7 @@ async function lostResult<T>(
 		);
 	}
 	try {
-		return await cdpInject<T>(tabId, code, options);
+		return await cdpInject<T>(tabId, code, options, world);
 	} catch (err) {
 		if (err instanceof PageException) throw err;
 		// Sent to the page, then cut off (a detach, a navigation): it may have run (first-F2 of the review of PR 265).

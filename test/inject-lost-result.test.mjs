@@ -63,6 +63,8 @@ chrome.debugger.sendCommand = async (target, method, params) => {
 		return { result: { value: await run(params.expression, undefined) } };
 	}
 	if (method === "Runtime.enable" || method === "Runtime.addBinding") return {};
+	if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "top" } } };
+	if (method === "Page.createIsolatedWorld") return { executionContextId: 7 };
 	return plain.call(chrome.debugger, target, method, params);
 };
 const { injectScript, terminateInjection } = await import("../src/browser/inject.ts");
