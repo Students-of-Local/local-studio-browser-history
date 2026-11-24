@@ -20,8 +20,6 @@ export interface VeilTheme {
 	dark: Record<string, string>;
 	/** "auto" follows the page's prefers-color-scheme. */
 	scheme: "auto" | "light" | "dark";
-	/** A Polycarp theme that turned motion off. */
-	reduced: boolean;
 }
 
 /** Where the agent's input lands (cdp.ts PointerCue), in main-frame viewport CSS pixels. */
@@ -282,16 +280,12 @@ ${GROUP_COLORS}
 @keyframes caret { 0%, 50% { opacity: 1; } 25%, 75%, 100% { opacity: 0; } }
 @keyframes nudge { 35% { transform: translateY(3px); } 70% { transform: translateY(-1px); } }
 @keyframes chev { 30% { opacity: 0.9; } 100% { opacity: 0; } }
-.veil.reduced .mote, .veil.reduced .mote * { transition: none !important; animation: none !important; }
 @keyframes spin { to { transform: rotate(1turn); } }
 @keyframes breathe { from { opacity: 0.4; } to { opacity: 1; } }
 @keyframes pulse {
 	from { box-shadow: 0 0 0 0 var(--soft); }
 	to { box-shadow: 0 0 0 7px var(--clear); }
 }
-.veil.reduced .ring, .veil.reduced .glow { display: none; }
-.veil.reduced .dot { animation: none; }
-.veil.reduced .edge { box-shadow: inset 0 0 0 3px var(--session); }
 @media (prefers-reduced-motion: reduce) {
 	.mote, .mote * { transition: none !important; animation: none !important; }
 	.ring, .glow { display: none; }
@@ -666,7 +660,6 @@ export function veilPage(cmd: VeilCommand): VeilPageResult {
 	cur.paint = paint;
 	media.addEventListener("change", paint);
 	paint();
-	box.classList.toggle("reduced", theme.reduced);
 	box.classList.toggle("locked", !cmd.interactive);
 	box.classList.toggle("concealed", cmd.concealed);
 	box.classList.toggle("nomote", !cmd.pointer);

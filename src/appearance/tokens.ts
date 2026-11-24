@@ -15,57 +15,26 @@ import {
 	type ThemeChoice,
 	textOn,
 } from "./palettes.js";
-import type { PolycarpTheme } from "./polycarp.js";
 
 /** The accent the panel draws in this mode: the custom one, or the preset's own. What the color box and swatches show. */
-export function effectiveAccent(choice: ThemeChoice, dark: boolean, polycarp?: PolycarpTheme): string {
-	return (polycarp?.palettes ?? resolveTheme(choice))[dark ? "dark" : "light"].accent;
+export function effectiveAccent(choice: ThemeChoice, dark: boolean): string {
+	return resolveTheme(choice)[dark ? "dark" : "light"].accent;
 }
 
 /**
  * The custom accent to save when the person types `hex`, or undefined when it changes nothing: the
- * saved choice's own accent in this mode. A Polycarp theme in use doesn't count, so its accent can be
- * kept for when the theme is gone.
+ * saved choice's own accent in this mode.
  */
 export function accentToSave(choice: ThemeChoice, dark: boolean, hex: string): string | undefined {
 	return hex === effectiveAccent(choice, dark) ? undefined : hex;
 }
 
-const ms = (n: number, reduced: boolean) => `${reduced ? 0 : n}ms`;
-
 /**
- * What a Polycarp theme adds beyond color: radii (mini-lit's --radius, the panel's -sm and -lg),
- * the three font stacks (mini-lit's --font-sans, --font-serif and --font-mono) and base size, and
- * motion (three durations and the easing; "reduced" makes every duration 0).
+ * CSS custom properties for one mode, keyed by name (with the leading dashes), from Tychicus's own presets
+ * only. test/fixtures/appearance-main.snapshot.json pins the result for every preset, accent and mode.
  */
-function polycarpShapeVariables(t: PolycarpTheme): Record<string, string> {
-	return {
-		"--radius": `${t.shape.radius}px`,
-		"--tk-radius-sm": `${t.shape.radiusSmall}px`,
-		"--tk-radius-lg": `${t.shape.radiusLarge}px`,
-		"--font-sans": t.type.ui,
-		"--font-serif": t.type.display,
-		"--font-mono": t.type.mono,
-		"--tk-font-size": `${t.type.size}px`,
-		"--tk-motion-fast": ms(t.motion.fast, t.motion.reduced),
-		"--tk-motion-normal": ms(t.motion.normal, t.motion.reduced),
-		"--tk-motion-slow": ms(t.motion.slow, t.motion.reduced),
-		"--tk-ease": t.motion.easing,
-	};
-}
-
-/**
- * CSS custom properties for one mode, keyed by name (with the leading dashes). A Polycarp theme, when
- * given, replaces the choice's palette and adds shape, type and motion; without one the result is
- * test/fixtures/appearance-main.snapshot.json, which is what it was before Polycarp plus each non-default
- * preset's --tk-brass-edge.
- */
-export function appearanceVariables(
-	choice: ThemeChoice,
-	dark: boolean,
-	polycarp?: PolycarpTheme,
-): Record<string, string> {
-	const p: Palette = (polycarp?.palettes ?? resolveTheme(choice))[dark ? "dark" : "light"];
+export function appearanceVariables(choice: ThemeChoice, dark: boolean): Record<string, string> {
+	const p: Palette = resolveTheme(choice)[dark ? "dark" : "light"];
 	const secondary = mix(p.panel, p.text, 0.05);
 	const hover = mix(p.panel, p.text, 0.1);
 	const controlOn = accentInk(p.accent, [p.bg, p.panel], p.text, 3);
@@ -102,10 +71,9 @@ export function appearanceVariables(
 		"--tk-control-on": controlOn,
 		"accent-color": controlOn,
 		"--tk-brass-text": accentInk(p.accent, [p.panel, p.bg, secondary], p.text),
-		...(polycarp ? polycarpShapeVariables(polycarp) : {}),
 		// The far end of the tutorial pills' gradient: the accent's own color, so rose ends in rose. The default preset
-		// with no theme keeps app.css's moss (Donovan's answer on #13).
-		...(polycarp || (isPreset(choice.preset) && choice.preset !== DEFAULT_PRESET)
+		// keeps app.css's moss (Donovan's answer on #13).
+		...(isPreset(choice.preset) && choice.preset !== DEFAULT_PRESET
 			? { "--tk-brass-edge": mix(p.accent, p.text, 0.25) }
 			: {}),
 	};
@@ -143,6 +111,17 @@ export const SHAPE_PAIRS: ReadonlyArray<readonly [string, string]> = [
 ];
 
 export const APPEARANCE_KEY = "tabkyra.appearance";
+
+/**
+ * Where older builds kept the last theme the Polycarp app sent. Nothing reads it now; the service worker
+ * deletes it once at startup so a cached copy never lingers.
+ */
+export const STALE_POLYCARP_THEME_KEY = "tabkyra.polycarp";
+
+/** Delete the stale Polycarp theme cache. Quiet when storage is unavailable. */
+export async function dropStalePolycarpTheme(): Promise<void> {
+	await chrome.storage.local.remove(STALE_POLYCARP_THEME_KEY).catch(() => undefined);
+}
 
 /** The saved choice from storage, or the default for anything that isn't one. */
 export function parseChoice(raw: unknown): ThemeChoice {

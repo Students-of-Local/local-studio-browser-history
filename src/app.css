@@ -16,8 +16,7 @@
 
 /*
  * Small and large corners. The defaults are mini-lit's (radius minus 4px for small, plus 4px for
- * large); a Polycarp theme sets --tk-radius-sm and --tk-radius-lg (src/appearance/tokens.ts).
- * Tailwind's rounded-sm and rounded-xl and the rules below read these.
+ * large). Tailwind's rounded-sm and rounded-xl and the rules below read these.
  */
 @theme inline {
 	--radius-sm: var(--tk-radius-sm);
@@ -37,7 +36,7 @@
 	/* Text and glyphs drawn on --tk-brass. Appearance (src/appearance/tokens.ts) pairs it with the accent per preset. */
 	--tk-on-brass: #ffffff;
 	--tk-tide: #3f6b6a;
-	/* The darker stop of the brass gradients. A Polycarp theme sets it from its accent. */
+	/* The darker stop of the brass gradients. A non-default preset sets it from its accent (src/appearance/tokens.ts). */
 	--tk-brass-edge: #2a3fe0;
 	/* Fixed colors: the recording pill, switch thumbs and their shadow, the success mark. */
 	--tk-on-rec: #fff;
@@ -80,7 +79,7 @@
 	accent-color: var(--tk-brass);
 }
 
-/* A Polycarp theme's base size goes on the root too, so rem text (Tailwind's text-sm and the like) scales with it. No theme: unchanged. */
+/* --tk-font-size, when set, goes on the root too, so rem text (Tailwind's text-sm and the like) scales with it. Unset: unchanged. */
 html {
 	font-size: var(--tk-font-size, 100%);
 }
@@ -743,16 +742,6 @@ button[role="switch"]:disabled {
 		transition-delay: 0.45s;
 		transition-duration: 0s;
 	}
-}
-
-/* A Polycarp theme with reduced motion: the same as the system setting. Durations are already 0 through the tokens; this stops the looping animations too. */
-[data-tk-reduced-motion] .welcome-container,
-[data-tk-reduced-motion] .tutorial-pill::before,
-[data-tk-reduced-motion] .tk-rec-dot {
-	animation: none;
-}
-[data-tk-reduced-motion] .tutorial-pill:hover {
-	transform: none;
 }
 
 /* ---- Runs view (src/runs/panel.ts): each run, its status and its step timeline ---- */

@@ -3,13 +3,12 @@
 // and for custom accents, computed from the CSS variables the panel actually sets.
 import { needsPolycarp, polycarpFile } from "./polycarp-root.mjs";
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test } from "node:test";
 import { contrast, mix, PRESETS } from "../src/appearance/palettes.ts";
-import { checkPolycarpTheme, isEasing, isFontStack, parsePolycarpTheme, polycarpPayload } from "../src/appearance/polycarp.ts";
-import { accentToSave, appearanceVariables, effectiveAccent, parseChoice, SHAPE_PAIRS, TEXT_PAIRS } from "../src/appearance/tokens.ts";
+import { accentToSave, appearanceVariables, dropStalePolycarpTheme, effectiveAccent, parseChoice, SHAPE_PAIRS, STALE_POLYCARP_THEME_KEY, TEXT_PAIRS } from "../src/appearance/tokens.ts";
 
 const check = (choice, label) => {
 	for (const dark of [false, true]) {
@@ -78,7 +77,7 @@ test("the accent in use is the custom one, else the preset's own in this mode, n
 
 test("the Appearance tab binds the color box and the hex box to the accent in use, with a hint rather than a value as placeholder", () => {
 	const text = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "src", "dialogs", "AppearanceTab.ts"), "utf8");
-	assert.match(text, /effectiveAccent\(choice, this\.isDark\(\), currentPolycarp\(\)\)/);
+	assert.match(text, /effectiveAccent\(choice, this\.isDark\(\)\)/);
 	assert.match(text, /type="color"[\s\S]{0,200}\.value=\$\{hex\}/);
 	assert.match(text, /\.value=\$\{shown\}/);
 	assert.doesNotMatch(text, /\?\? "#000000"/);
@@ -209,10 +208,7 @@ test("picking a preset when the panel's choice has no accent sends accent: null,
 	assert.match(tab, /clearedAccent \? \{ accent: null \}/);
 });
 
-// ---------- Polycarp themes ----------
-
-const BUILT_INS = ["polycarp", "still-water", "evening", "parchment", "blocks", "calm"];
-const fixtureFile = (name) => JSON.parse(readFileSync(new URL(`./fixtures/polycarp/${name}.json`, import.meta.url), "utf8"));
+// ---------- Tychicus's own theme only ----------
 
 test("the tutorial pills' gradient edge is each non-default preset's own accent; the default preset keeps app.css's moss (#13)", () => {
 	for (const preset of Object.keys(PRESETS)) {
@@ -226,7 +222,7 @@ test("the tutorial pills' gradient edge is each non-default preset's own accent;
 	}
 });
 
-test("with no Polycarp theme, appearanceVariables is byte for byte the pinned snapshot, for every preset, accent and mode", () => {
+test("appearanceVariables is byte for byte the pinned snapshot, for every preset, accent and mode", () => {
 	const snapshot = JSON.parse(readFileSync(new URL("./fixtures/appearance-main.snapshot.json", import.meta.url), "utf8"));
 	let seen = 0;
 	for (const preset of Object.keys(PRESETS)) {
@@ -235,7 +231,6 @@ test("with no Polycarp theme, appearanceVariables is byte for byte the pinned sn
 				const key = `${preset}|${accent ?? "none"}|${dark ? "dark" : "light"}`;
 				const choice = { preset, ...(accent ? { accent } : {}) };
 				assert.equal(JSON.stringify(appearanceVariables(choice, dark)), JSON.stringify(snapshot[key]), key);
-				assert.equal(JSON.stringify(appearanceVariables(choice, dark, undefined)), JSON.stringify(snapshot[key]), `${key} (undefined theme)`);
 				seen++;
 			}
 		}
@@ -243,186 +238,86 @@ test("with no Polycarp theme, appearanceVariables is byte for byte the pinned sn
 	assert.equal(seen, Object.keys(snapshot).length, "the snapshot covers exactly these");
 });
 
-test("all six built-in Polycarp themes parse, and their roles map to the panel's palette and tokens", () => {
-	for (const name of BUILT_INS) {
-		const file = fixtureFile(name);
-		const theme = parsePolycarpTheme(file);
-		assert.ok(theme, name);
-		assert.equal(theme.name, name);
-		assert.equal(theme.mode, file.mode);
-		for (const dark of [false, true]) {
-			const c = file.surfaces.browser[dark ? "dark" : "light"];
-			const vars = appearanceVariables({ preset: "slate" }, dark, theme);
-			assert.equal(vars["--background"], c.background, `${name} bg`);
-			assert.equal(vars["--card"], c.surface);
-			assert.equal(vars["--popover"], c.surface);
-			assert.equal(vars["--foreground"], c.foreground);
-			assert.equal(vars["--muted-foreground"], c.muted);
-			assert.equal(vars["--border"], c.border);
-			assert.equal(vars["--primary"], c.accent);
-			assert.equal(vars["--primary-foreground"], c.on_accent);
-			assert.equal(vars["--tk-on-brass"], c.on_accent);
-			assert.equal(vars["--destructive"], c.urgent);
-			assert.equal(effectiveAccent({ preset: "slate" }, dark, theme), c.accent);
-			// The saved preset and accent do not matter while a theme is in force.
-			assert.deepEqual(appearanceVariables({ preset: "rose", accent: "#123456" }, dark, theme), vars);
-		}
-		const { shape, type, motion } = file.surfaces.browser;
-		const vars = appearanceVariables({ preset: "tabkyra" }, false, theme);
-		assert.equal(vars["--radius"], `${shape.radius}px`);
-		assert.equal(vars["--tk-radius-sm"], `${shape.radius_small}px`);
-		assert.equal(vars["--tk-radius-lg"], `${shape.radius_large}px`);
-		assert.equal(vars["--font-sans"], type.ui);
-		assert.equal(vars["--font-serif"], type.display);
-		assert.equal(vars["--font-mono"], type.mono);
-		assert.equal(vars["--tk-font-size"], `${type.size}px`);
-		const zero = (n) => `${motion.reduced ? 0 : n}ms`;
-		assert.equal(vars["--tk-motion-fast"], zero(motion.fast));
-		assert.equal(vars["--tk-motion-normal"], zero(motion.normal));
-		assert.equal(vars["--tk-motion-slow"], zero(motion.slow));
-		assert.equal(vars["--tk-ease"], motion.easing);
+// The owner wants Tychicus's own theme only (no Polycarp app theme). These fail if that path comes back.
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+const sourceFiles = (dir) =>
+	readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+		const path = join(dir, e.name);
+		if (e.isDirectory()) return e.name === "node_modules" || e.name === "dist" ? [] : sourceFiles(path);
+		return /\.(ts|mjs|js)$/.test(e.name) ? [path] : [];
+	});
+
+test("no Polycarp app theme: no appearance/polycarp module, and nothing under src/ or cli/src/ imports or reads one", () => {
+	assert.equal(existsSync(join(repoRoot, "src", "appearance", "polycarp.ts")), false, "src/appearance/polycarp.ts is gone");
+	const files = [...sourceFiles(join(repoRoot, "src")), ...sourceFiles(join(repoRoot, "cli", "src"))];
+	assert.ok(files.length > 50, "the walk found the sources");
+	const banned = [
+		[/appearance\/polycarp/, "imports appearance/polycarp"],
+		[/\b(?:PolycarpTheme|parsePolycarpTheme|checkPolycarpTheme|polycarpPayload|loadPolycarpTheme|polycarpThemeFile)\b/, "names the Polycarp theme reader"],
+		[/["']current["'],\s*["']theme\.json["']|current\/theme\.json/, "reads the Polycarp app's current/theme.json"],
+		[/polycarpRefused/, "carries a Polycarp theme refusal"],
+	];
+	for (const file of files) {
+		const text = readFileSync(file, "utf8");
+		for (const [pattern, what] of banned) assert.doesNotMatch(text, pattern, `${file} ${what}`);
+	}
+	// The stale cache key appears only where the service worker deletes it.
+	const withKey = files.filter((f) => readFileSync(f, "utf8").includes('"tabkyra.polycarp"'));
+	assert.deepEqual(withKey.map((f) => f.slice(repoRoot.length + 1)), [join("src", "appearance", "tokens.ts")]);
+});
+
+test("appearanceVariables and effectiveAccent take only the choice and the mode: no theme argument", () => {
+	assert.equal(appearanceVariables.length, 2);
+	assert.equal(effectiveAccent.length, 2);
+	const tokens = readFileSync(join(repoRoot, "src", "appearance", "tokens.ts"), "utf8");
+	assert.match(tokens, /export function appearanceVariables\(choice: ThemeChoice, dark: boolean\): Record<string, string>/);
+	assert.match(tokens, /export function effectiveAccent\(choice: ThemeChoice, dark: boolean\): string/);
+	// A third argument changes nothing.
+	const plain = appearanceVariables({ preset: "slate" }, true);
+	assert.deepEqual(appearanceVariables({ preset: "slate" }, true, { palettes: { dark: { bg: "#ffffff" } } }), plain);
+});
+
+test("the service worker deletes the stale tabkyra.polycarp cache once at startup", async () => {
+	const background = readFileSync(join(repoRoot, "src", "background.ts"), "utf8");
+	assert.match(background, /^void dropStalePolycarpTheme\(\);$/m, "called at the worker's top level");
+	const removed = [];
+	const prior = globalThis.chrome;
+	globalThis.chrome = { storage: { local: { remove: async (key) => removed.push(key) } } };
+	try {
+		await dropStalePolycarpTheme();
+	} finally {
+		globalThis.chrome = prior;
+	}
+	assert.deepEqual(removed, [STALE_POLYCARP_THEME_KEY]);
+	assert.equal(STALE_POLYCARP_THEME_KEY, "tabkyra.polycarp");
+	// Quiet when storage refuses.
+	globalThis.chrome = { storage: { local: { remove: async () => { throw new Error("no storage"); } } } };
+	try {
+		await dropStalePolycarpTheme();
+	} finally {
+		globalThis.chrome = prior;
 	}
 });
 
-test("reduced motion makes every exported duration 0", () => {
-	const file = fixtureFile("still-water");
-	file.surfaces.browser.motion.reduced = true;
-	const vars = appearanceVariables({ preset: "tabkyra" }, false, parsePolycarpTheme(file));
-	assert.deepEqual([vars["--tk-motion-fast"], vars["--tk-motion-normal"], vars["--tk-motion-slow"]], ["0ms", "0ms", "0ms"]);
-});
-
-test("every text pair the panel draws reaches WCAG AA, and every shape 3:1, for all six Polycarp themes in light and dark", () => {
-	for (const name of BUILT_INS) {
-		const theme = parsePolycarpTheme(fixtureFile(name));
-		for (const dark of [false, true]) {
-			const vars = appearanceVariables({ preset: "tabkyra" }, dark, theme);
-			const label = `${name} ${dark ? "dark" : "light"}`;
-			for (const [fg, bg] of TEXT_PAIRS) {
-				const ratio = contrast(vars[fg], vars[bg]);
-				assert.ok(ratio >= 4.5, `${label}: ${fg} ${vars[fg]} on ${bg} ${vars[bg]} is ${ratio.toFixed(2)}:1, below 4.5:1`);
-			}
-			for (const [shape, bg] of SHAPE_PAIRS) {
-				const ratio = contrast(vars[shape], vars[bg]);
-				assert.ok(ratio >= 3, `${label}: ${shape} ${vars[shape]} on ${bg} ${vars[bg]} is ${ratio.toFixed(2)}:1, below 3:1`);
-			}
-		}
-	}
-});
-
-test("the panel refuses a Polycarp theme that is not exactly right", () => {
-	const good = fixtureFile("evening");
-	const edit = (fn) => {
-		const copy = structuredClone(good);
-		fn(copy);
-		return copy;
-	};
-	assert.ok(parsePolycarpTheme(good));
-	for (const [label, bad] of Object.entries({
-		null: null,
-		string: "x",
-		array: [],
-		"schema 3": edit((f) => { f.schema = 3; }),
-		"no browser": edit((f) => { delete f.surfaces.browser; }),
-		"bad color": edit((f) => { f.surfaces.browser.light.muted = "grey"; }),
-		"radius -1": edit((f) => { f.surfaces.browser.shape.radius = -1; }),
-		"size 25": edit((f) => { f.surfaces.browser.type.size = 25; }),
-		"NaN-ish duration": edit((f) => { f.surfaces.browser.motion.fast = null; }),
-		"font url": edit((f) => { f.surfaces.browser.type.mono = "url(x)"; }),
-		"font braces": edit((f) => { f.surfaces.browser.type.ui = "a{b}"; }),
-		"easing text": edit((f) => { f.surfaces.browser.motion.easing = "ease-in; x"; }),
-		"title with newline": edit((f) => { f.title = "a\nb"; }),
-	})) {
-		assert.equal(parsePolycarpTheme(bad), undefined, label);
-	}
-	// The stacks the built-in themes use, and Unicode family names, are fine.
-	assert.equal(isFontStack('Newsreader, "Iowan Old Style", Georgia, serif'), true);
-	assert.equal(isFontStack("Noto Sans JP, Hiragino-Sans, my_font"), true);
-	assert.equal(isFontStack("a,,b"), false);
-	assert.equal(isFontStack("a, 'b\\c'"), false);
-	assert.equal(isEasing("cubic-bezier(0.2, 0, 0, 1)"), true);
-	assert.equal(isEasing("cubic-bezier(0.2, 0, 1.5, 1)"), false);
-	assert.equal(isEasing("cubic-bezier(0.2, 0, 0)"), false);
-});
-
-test("a schema 2 theme reads like schema 1: terminal, syntax and diff blocks and unknown keys are ignored (tychicus#21)", () => {
-	const one = fixtureFile("evening");
-	const two = structuredClone(one);
-	two.schema = 2;
-	two.future = { anything: true };
-	for (const mode of ["light", "dark"]) {
-		two.surfaces.browser[mode].terminal = { black: "#000000", red: "#ff0000" };
-		two.surfaces.browser[mode].syntax = { keyword: "#0000ff" };
-		two.surfaces.browser[mode].diff = { added: "#00ff00", removed: "#ff0000" };
-	}
-	assert.ok(parsePolycarpTheme(two), "schema 2 is read");
-	assert.deepEqual(parsePolycarpTheme(two), parsePolycarpTheme(one));
-	assert.equal(polycarpPayload(two).schema, 1, "the helper still sends schema 1, so an older panel reads it");
-	assert.deepEqual(parsePolycarpTheme(polycarpPayload(two)), parsePolycarpTheme(one));
-});
-
-test("the payload the helper sends carries only Polycarp's section, and the panel parses it back to the same theme", () => {
-	const file = fixtureFile("blocks");
-	const payload = polycarpPayload(file);
-	assert.deepEqual(Object.keys(payload.surfaces), ["browser"]);
-	assert.deepEqual(parsePolycarpTheme(payload), parsePolycarpTheme(file));
-	assert.equal(polycarpPayload({ ...file, schema: 3 }), undefined);
-});
-
-test("the Appearance tab says which Polycarp theme is in use, how to change it, and keeps every control", () => {
-	const tab = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "src", "dialogs", "AppearanceTab.ts"), "utf8");
-	assert.match(tab, /Polycarp app theme in use: \$\{polycarp\.title\}/);
-	assert.match(tab, /data-polycarp-theme=\$\{polycarp\.name\}/);
-	assert.match(tab, /polycarp theme set &lt;name&gt;/);
-	assert.match(tab, /onPolycarp\(\(\) => this\.requestUpdate\(\)\)/, "the tab redraws when the theme changes");
-	// Marked, not removed: the presets, the accent box and the mode radios are all still drawn.
-	assert.match(tab, /role="group" aria-label="Color preset">\s*<div[^>]*>Colors\$\{overridden\(polycarp !== undefined\)\}/);
+test("the Appearance tab has no Polycarp theme card, refusal notice, forget button or overridden markers", () => {
+	const tab = readFileSync(join(repoRoot, "src", "dialogs", "AppearanceTab.ts"), "utf8");
+	assert.doesNotMatch(tab, /olycarp/);
+	assert.doesNotMatch(tab, /overridden/);
+	assert.doesNotMatch(tab, /opacity-/, "controls are never dimmed");
+	assert.match(tab, /role="group" aria-label="Color preset">\s*<div[^>]*>Colors<\/div>/);
 	assert.match(tab, /id="tk-accent-text"/);
 	assert.match(tab, /name="tk-mode"/);
-	assert.match(tab, /modeOverridden/);
 });
 
-// #13 sol-F2: dimming a whole group dropped its text below the contrast the panel checks.
-test("overridden controls are marked in words, never dimmed", () => {
-	const tab = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "src", "dialogs", "AppearanceTab.ts"), "utf8");
-	assert.doesNotMatch(tab, /opacity-/);
-	assert.match(tab, /\(overridden by the theme\)/);
-	assert.match(tab, /Mode\$\{overridden\(modeOverridden\)\}/);
-});
-
-// #13 sol-F3: under a theme, typing its accent compared against the theme's own and saved nothing.
-test("typing the theme's accent saves it; typing the saved one changes nothing", () => {
-	const theme = parsePolycarpTheme(fixtureFile("still-water"));
-	assert.ok(theme);
+test("typing the saved accent changes nothing; another color is saved", () => {
 	for (const dark of [false, true]) {
 		const own = effectiveAccent({ preset: "slate" }, dark);
-		const themes = effectiveAccent({ preset: "slate" }, dark, theme);
-		assert.notEqual(own, themes, "the fixture's accent differs from slate's");
-		assert.equal(accentToSave({ preset: "slate" }, dark, themes), themes);
 		assert.equal(accentToSave({ preset: "slate" }, dark, own), undefined);
+		assert.equal(accentToSave({ preset: "slate" }, dark, "#d6336c"), "#d6336c");
 		assert.equal(accentToSave({ preset: "slate", accent: "#d6336c" }, dark, "#d6336c"), undefined);
 	}
-	const tab = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "src", "dialogs", "AppearanceTab.ts"), "utf8");
+	const tab = readFileSync(join(repoRoot, "src", "dialogs", "AppearanceTab.ts"), "utf8");
 	assert.match(tab, /accentToSave\(choice, this\.isDark\(\), hex\)/);
-});
-
-test("a palette that fails contrast is refused, with the pair named: white text on white backgrounds", () => {
-const whiteOnWhite = (file) => {
-	const copy = structuredClone(file);
-	for (const mode of ["light", "dark"]) {
-		for (const role of Object.keys(copy.surfaces.browser[mode])) copy.surfaces.browser[mode][role] = "#ffffff";
-	}
-	return copy;
-};
-	for (const name of BUILT_INS) {
-		assert.equal(parsePolycarpTheme(whiteOnWhite(fixtureFile(name))), undefined, name);
-		assert.equal(polycarpPayload(whiteOnWhite(fixtureFile(name))), undefined, name);
-	}
-	const result = checkPolycarpTheme(whiteOnWhite(fixtureFile("calm")));
-	assert.match(result.reason, /light foreground on background is 1\.00:1, needs 4\.5:1/);
-	// One weak pair in one mode is enough: muted text on the page in dark mode.
-	const dim = fixtureFile("calm");
-	dim.surfaces.browser.dark.muted = dim.surfaces.browser.dark.background;
-	assert.match(checkPolycarpTheme(dim).reason, /dark muted on background/);
 });
 
 test("--tk-radius-sm and --tk-radius-lg are read: Tailwind's rounded-sm and rounded-xl and the panel's own small corners use them, and the defaults stay mini-lit's", () => {
@@ -433,38 +328,9 @@ test("--tk-radius-sm and --tk-radius-lg are read: Tailwind's rounded-sm and roun
 	assert.match(css, /--tk-radius-lg:\s*calc\(var\(--radius\) \+ 4px\)/);
 	assert.equal([...css.matchAll(/border-radius:\s*calc\(var\(--radius\) - 4px\)/g)].length, 0, "small corners go through --tk-radius-sm");
 	assert.ok([...css.matchAll(/border-radius:\s*var\(--tk-radius-sm\)/g)].length >= 3);
-	const vars = appearanceVariables({ preset: "tabkyra" }, false, parsePolycarpTheme(fixtureFile("blocks")));
-	const theme = fixtureFile("blocks").surfaces.browser.shape;
-	assert.equal(vars["--tk-radius-sm"], `${theme.radius_small}px`);
-	assert.equal(vars["--tk-radius-lg"], `${theme.radius_large}px`);
-});
-
-test("the base size from a Polycarp theme goes on the root element, so rem text scales; with no theme the root is untouched", () => {
-	const css = readFileSync(new URL("../src/app.css", import.meta.url), "utf8");
-	assert.match(css, /\nhtml \{\s*font-size: var\(--tk-font-size, 100%\);/);
-	assert.match(css, /\nbody \{\s*font-size: var\(--tk-font-size, 16px\);/);
+	assert.equal("--tk-radius-sm" in appearanceVariables({ preset: "tabkyra" }, false), false, "the stylesheet's defaults are in force");
 	assert.equal("--tk-font-size" in appearanceVariables({ preset: "tabkyra" }, false), false);
-});
-
-test("the Appearance tab shows the reason a Polycarp theme was refused, in one line, only when no theme is in use", () => {
-	const tab = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "src", "dialogs", "AppearanceTab.ts"), "utf8");
-	assert.match(tab, /refused && !polycarp/);
-	assert.match(tab, /data-polycarp-refused>The Polycarp app's theme was refused, so your saved preset is used: \$\{refused\}/);
-});
-
-test("type.display reaches no panel heading, and browser/AGENTS.md says so; the day something uses font-serif, the note goes", () => {
-	const root = join(dirname(fileURLToPath(import.meta.url)), "..");
-	const note = /`type\.display` is read and sent as `--font-serif`, but the panel draws no display headings/;
-	const uses = (dir) =>
-		readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
-			const path = join(dir, e.name);
-			if (e.isDirectory()) return uses(path);
-			return /\.(ts|css)$/.test(e.name) && !path.endsWith(join("appearance", "tokens.ts")) && /font-serif|var\(--font-serif\)/.test(readFileSync(path, "utf8")) ? [path] : [];
-		});
-	const used = uses(join(root, "src"));
-	const text = readFileSync(join(root, "AGENTS.md"), "utf8");
-	assert.equal(note.test(text), used.length === 0, used.length ? `${used.join(", ")} uses font-serif: delete the note` : "AGENTS.md must note that type.display is not used");
-	assert.match(text, /`shape\.density` is not applied/);
+	assert.doesNotMatch(css, /data-tk-reduced-motion/);
 });
 
 // #13 sol-F1: an open approval or hub page keeps the CSS it was served with, and nothing said so.

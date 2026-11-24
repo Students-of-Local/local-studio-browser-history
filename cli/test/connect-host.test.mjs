@@ -40,7 +40,7 @@ const { ConnectService, parseConnect, safeMessage, setLinkBusyAsync, HubCodeErro
 async function inConfig(name, fn) {
 	const dir = join(root, name);
 	mkdirSync(dir, { recursive: true, mode: 0o700 });
-	// An empty Polycarp config folder, so a developer's own Polycarp theme never changes what status says.
+	// An empty Polycarp config folder, so a developer's own Polycarp files never change what status says.
 	const polycarp = join(dir, "polycarp-config");
 	mkdirSync(polycarp, { recursive: true });
 	const before = { t: process.env.TABKYRA_CONFIG_DIR, p: process.env.POLYCARP_CONFIG_DIR, s: process.env.POLYCARP_SPACES_BIN };
@@ -1510,17 +1510,19 @@ test("a method that is not a string is bad_params, never coerced, and the host k
 	host.proc.stdin.end();
 });
 
-test("status says why a Polycarp theme file was refused, and says nothing when there is no file", async () => {
-	await inConfig("polycarp-refused", async (dir) => {
+test("status carries no Polycarp app theme, whether or not the Polycarp app wrote one", async () => {
+	await inConfig("no-polycarp-theme", async (dir) => {
 		const service = new ConnectService();
 		let { result } = await ask(service, "status");
-		assert.equal("polycarpRefused" in result, false, "no file: nothing to say");
-		assert.equal("polycarp" in result, false);
+		const before = result.theme;
 		mkdirSync(join(dir, "polycarp-config", "current"), { recursive: true });
-		writeFileSync(join(dir, "polycarp-config", "current", "theme.json"), "{nope");
-		({ result } = await ask(service, "status"));
-		assert.equal(result.polycarpRefused, "theme.json is not valid JSON");
-		assert.equal("polycarp" in result, false);
+		for (const file of ["{nope", JSON.stringify({ schema: 1, name: "calm", title: "Calm", mode: "dark", surfaces: { browser: {} } })]) {
+			writeFileSync(join(dir, "polycarp-config", "current", "theme.json"), file);
+			({ result } = await ask(service, "status"));
+			assert.equal("polycarp" in result, false);
+			assert.equal("polycarpRefused" in result, false);
+			assert.deepEqual(result.theme, before, "only Tychicus's own saved theme");
+		}
 	});
 });
 
