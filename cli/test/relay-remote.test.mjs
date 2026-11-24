@@ -34,7 +34,7 @@ test("signed out at a terminal: setup runs wrangler login, then deploys with the
 	assert.equal(r.code, 3, r.stdout + r.stderr);
 	assert.deepEqual(
 		m.wrangler().map((l) => l.split(" ")[3]),
-		["whoami", "login", "whoami", "deploy"],
+		["whoami", "login", "whoami", "secret", "deploy"],
 	);
 	assert.match(r.stdout, /Signed in to Cloudflare/);
 	assert.ok(m.wrangler().at(-1).includes(`account=${ACCOUNT} `), "the deploy goes to the account of the new sign-in");
@@ -133,9 +133,24 @@ test("setup end to end: deploy, a new key on stdin, saved 0600, the connector's 
 		assert.equal(off.code, 0, off.stdout + off.stderr);
 		assert.match(off.stdout + off.stderr, /npx wrangler@4\.163\.0 delete tychicus-relay/);
 		assert.equal(m.remoteJson(), undefined);
+		// The Worker that stayed is this computer's own, so setup takes it again.
+		const back = await m.run(["remote", "setup", "--relay", "--json", "--port", String(serve.port)], extra, { hooks: true });
+		assert.equal(back.code, 0, back.stdout);
 	} finally {
 		await serve.close();
 	}
+});
+
+test("a relay of the default name with a key from elsewhere is left alone; naming it takes it over", { skip: !unix }, async () => {
+	const m = machine(root, "taken", { keyed: true, deploy: "subdomain" });
+	const r = await m.run(["remote", "setup", "--relay", "--json"]);
+	assert.equal(r.code, 3, r.stdout + r.stderr);
+	assert.equal(r.json().code, "relay_taken");
+	assert.match(r.json().next.command, /^tychicus remote setup --relay tychicus-relay-[a-z0-9][a-z0-9-]*[a-z0-9]$|-2$/);
+	assert.ok(!m.wrangler().some((l) => l.includes(" deploy ")), "nothing is deployed");
+	assert.equal(m.secret(), undefined);
+	const named = await m.run(["remote", "setup", "--relay", "tychicus-relay", "--json"]);
+	assert.equal(named.json().code, "workers_subdomain", "it went on to deploy");
 });
 
 test("remote status names the connector's state, and remote off removes the connector and says the Worker stays", { skip: !unix }, async () => {

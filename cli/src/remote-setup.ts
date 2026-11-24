@@ -10,7 +10,7 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { lookup } from "node:dns/promises";
 import { get as httpGet } from "node:http";
-import { userInfo } from "node:os";
+import { hostname, userInfo } from "node:os";
 import { join } from "node:path";
 import {
 	CLOUDFLARE_SERVICE,
@@ -71,7 +71,7 @@ import { type RouteRecord, readRouteRecord, routeRecordFile, TYCHICUS_PATHS } fr
 import { applyMounts, funnelOn443, handlersOn443, type Mount, mountTarget, planMounts, readServeState, removeMounts, type ServeState, wantedMounts } from "./tailnet.ts";
 import { cloudflareTunnelPaths, setupThroughLocalStudio } from "./remote-join.ts";
 import { generateRelayKey, RELAY_SERVICE, readRelayStatus, relayStateFile } from "./relay.ts";
-import { DEFAULT_RELAY_NAME, deploy as deployRelay, login as relayLogin, npxBinary, onboardingUrl, putKey as putRelayKey, verify as verifyRelay, WRANGLER_VERSION, whoami as relayWhoami } from "./relay-setup.ts";
+import { DEFAULT_RELAY_NAME, deploy as deployRelay, login as relayLogin, npxBinary, onboardingUrl, putKey as putRelayKey, someoneElses as someoneElsesRelay, verify as verifyRelay, WRANGLER_VERSION, whoami as relayWhoami } from "./relay-setup.ts";
 
 /** Funnel's own port: keeps the OAuth paths at the root and anything on 443 private. */
 export const FUNNEL_PORT = 8443;
@@ -741,6 +741,15 @@ async function runSetup(options: SetupOptions): Promise<number> {
 			// Funnel on 8443 would stay public and forward to this machine, whatever else is set up.
 			const stray = await strayFunnel();
 			if (stray.kind !== "none") return fail("port_busy", `Funnel on ${FUNNEL_PORT} is on${stray.kind === "unknown" ? ` (${stray.message})` : ""}; run ${COMMAND_NAME} remote off first. Nothing was changed.`, { code: "tailscale_port" });
+		}
+		// Naming the Worker is the go-ahead to replace what it is; the default name may be another computer's relay.
+		if (!options.relay && previous?.relay?.name !== relayName && (await someoneElsesRelay(relayName, relayAccount))) {
+			const host = hostname().split(".")[0]?.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") ?? "";
+			const other = `${COMMAND_NAME} remote setup --relay ${relayName}-${host.slice(0, 40).replace(/-+$/, "") || "2"}${options.account ? ` --account ${options.account}` : ""}`;
+			return fail("problem", `A relay named ${relayName} is already on this Cloudflare account with a key this computer didn't set, so it is probably another computer's. For this computer's own relay, run ${other}. To take that one over, which cuts the other computer off, run ${COMMAND_NAME} remote setup --relay ${relayName}. Nothing was changed.`, {
+				code: "relay_taken",
+				next: { kind: "run_command", command: other },
+			});
 		}
 		// The relay goes live refusing every connector until RELAY_KEY is set (relay/deploy.md), so deploying before the key is safe.
 		say(`${sym.dot} Deploying the relay as ${relayName} to your Cloudflare account.`);
