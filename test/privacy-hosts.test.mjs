@@ -65,6 +65,9 @@ const OTHER_HOSTS = new Map([
 	["us.aws.cdn.hf.co", ["where huggingface.co sends a model download", "src/dictation/worker.ts"]],
 ]);
 
+/** Files that only write about a host, so naming one there is no sign it is still contacted. */
+const DESCRIBES = new Set(["src/dialogs/PrivacyTab.ts", "src/prompts/prompts.ts"]);
+
 function* files(dir) {
 	for (const name of readdirSync(dir)) {
 		const path = join(dir, name);
@@ -116,7 +119,8 @@ test("PRIVACY.md names every host the code contacts", () => {
 });
 
 test("PRIVACY.md names no host that nothing here contacts", () => {
-	const unknown = hostsNamed(policy).filter((host) => !sources.has(host) && !OTHER_HOSTS.has(host));
+	const contacted = (host) => OTHER_HOSTS.has(host) || (sources.get(host) ?? []).some((file) => !DESCRIBES.has(file));
+	const unknown = hostsNamed(policy).filter((host) => !contacted(host));
 	assert.deepEqual(unknown, [], "take each out of PRIVACY.md, or list it in OTHER_HOSTS with where it comes from");
 	assert.deepEqual(hostsNamed("`gone.vendor.dev`, `settings.json`, `example.com` and `threads.read`"), ["gone.vendor.dev"]);
 });
