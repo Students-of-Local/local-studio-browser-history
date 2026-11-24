@@ -644,7 +644,12 @@ export async function serve(options: ServeOptions): Promise<{ close: () => Promi
 				clearInterval(sweep);
 				for (const file of watched) unwatchFile(file, sweepSessions);
 				for (const { transport } of sessions.values()) void transport.close();
-				http.close(() => resolve());
+				// close() drops the connections idle now; one still being answered goes idle after it and would wait out KEEP_ALIVE_MS.
+				const idle = setInterval(() => http.closeIdleConnections(), 100);
+				http.close(() => {
+					clearInterval(idle);
+					resolve();
+				});
 			}),
 	};
 }
