@@ -1,6 +1,6 @@
 // The product is called Tychicus. Fails when "Polycarp" or "Tabkyra" appears in text a person can see: the extension's
 // source, its static pages, the helper's source, and the manifest. Polycarp is a separate Mac and Windows app, and some
-// text is genuinely about it: its Mac helper (polycarp-spaces) that the computer tools call, its theme, the commands and
+// text is genuinely about it: its Mac helper (polycarp-spaces) that the computer tools call, the commands and
 // folders Tychicus imports from or steps around. Those lines match KEPT below, or carry the marker comment. What stays
 // on purpose (MCP tool names, the manifest key, stored data, the fallbacks that keep older installs working) is written
 // in AGENTS.md ("Names that keep the old name") and is lowercase or an identifier, which this scan leaves alone. The
@@ -86,11 +86,11 @@ const POLYCARP_ALLOW = new Map([
 
 /**
  * Text that is about Polycarp the separate app, and stays: its Mac app and helper (polycarp-spaces, which the computer
- * tools call), the theme the Polycarp app writes (`polycarp theme set`), the app's own update command, and the connector
+ * tools call), the app's own update command, and the connector
  * `remote import-polycarp` moves over, and the move of agents off Polycarp's browser MCP server (`tychicus setup --agents`,
  * cli/src/agent-migration.ts), which names the server it moves them from.
  */
-const KEPT = /Polycarp(?:'s)? (?:Mac )?app\b|Polycarp\.app|polycarp-spaces|Polycarp's computer-use helper|Polycarp's Mac helper|Tychicus or Polycarp serve|install Polycarp from its releases page|polycarp theme set|import-polycarp|part of Polycarp, which updates it|`polycarp update`|Polycarp's browser MCP\b|agents from Polycarp\b|Polycarp drops its browser/;
+const KEPT = /Polycarp(?:'s)? (?:Mac )?app\b|Polycarp\.app|polycarp-spaces|Polycarp's computer-use helper|Polycarp's Mac helper|Tychicus or Polycarp serve|install Polycarp from its releases page|import-polycarp|part of Polycarp, which updates it|`polycarp update`|Polycarp's browser MCP\b|agents from Polycarp\b|Polycarp drops its browser/;
 
 // Capitalized in prose, also right after a "\n" escape in source.
 const POLYCARP = /\bPolycarp\b/;
@@ -122,9 +122,9 @@ test("no user-visible text says Polycarp, except about the Polycarp app", () => 
 
 test("the product-name scan catches the old name and lets the Polycarp app's own text through", () => {
 	const flagged = (line) => (POLYCARP.test(line) || POLYCARP_COMMAND.test(line)) && !KEPT.test(line);
-	for (const line of ['html`<h1>Welcome to Polycarp</h1>`', '"Run polycarp-browser doctor"', "`polycarp browser setup`", "https://github.com/baney75/polycarp", "[polycarp-host] bad frame", "polycarp.yourdomain.com", "Polycarp's helper isn't connected"])
+	for (const line of ['html`<h1>Welcome to Polycarp</h1>`', '"Run polycarp-browser doctor"', "`polycarp browser setup`", "https://github.com/baney75/polycarp", "[polycarp-host] bad frame", "polycarp.yourdomain.com", "Polycarp's helper isn't connected", "Polycarp theme in use: Still Water. To change it, run polycarp theme set <name>."])
 		assert.ok(flagged(line), line);
-	for (const line of ["Computer use needs Polycarp's Mac app on a Mac.", "through polycarp-spaces", "run polycarp theme set <name>", "the owner's approval in the Polycarp app", "remote import-polycarp", "PolycarpTheme", "polycarpMark(18)", "Claude Code still runs Polycarp's browser MCP server (polycarp)", "Move agents from Polycarp (dry run)", "when Polycarp drops its browser, these lose their browser tools."])
+	for (const line of ["Computer use needs Polycarp's Mac app on a Mac.", "through polycarp-spaces", "the owner's approval in the Polycarp app", "remote import-polycarp", "polycarpMark(18)", "Claude Code still runs Polycarp's browser MCP server (polycarp)", "Move agents from Polycarp (dry run)", "when Polycarp drops its browser, these lose their browser tools."])
 		assert.ok(!flagged(line), line);
 	// "approval" starts with "app", which must not pass as the Polycarp app.
 	assert.ok(flagged("this computer's Polycarp approval address"));

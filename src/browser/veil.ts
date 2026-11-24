@@ -8,7 +8,6 @@
  * PDF viewer) get no veil and no error.
  */
 
-import { checkPolycarpTheme } from "../appearance/polycarp.js";
 import { APPEARANCE_KEY, appearanceVariables, parseChoice } from "../appearance/tokens.js";
 import { isRestrictedUrl, setCaptureCover, setPointerCue } from "./cdp.js";
 import { BrowserSession, isAgentSession, sessionOwningTab } from "./session.js";
@@ -43,7 +42,6 @@ const INPUT_METHODS = new Set(["click", "hover", "drag", "type", "scroll", "fill
 /** Never let a slow page hold a tool call up for the veil. */
 const EFFECT_TIMEOUT_MS = 1500;
 const SESSIONS_KEY = "browser_sessions";
-const POLYCARP_CACHE_KEY = "tabkyra.polycarp";
 
 let state: VeilState = EMPTY_VEIL;
 let timer: ReturnType<typeof setTimeout> | undefined;
@@ -225,40 +223,22 @@ function queuePoint(tabId: number, cue: PointerAction | undefined): Promise<void
 
 let themeCache: VeilTheme | undefined;
 
-const THEME_VARS = [
-	"--background",
-	"--foreground",
-	"--card",
-	"--muted-foreground",
-	"--border",
-	"--accent",
-	"--ring",
-	"--font-sans",
-	"--tk-ease",
-];
+const THEME_VARS = ["--background", "--foreground", "--card", "--muted-foreground", "--border", "--accent", "--ring"];
 
-/** The side panel's tokens for light and dark, from the same saved choice and Polycarp theme it paints with. */
+/** The side panel's tokens for light and dark, from the same saved choice it paints with. */
 async function theme(): Promise<VeilTheme> {
 	if (themeCache) return themeCache;
 	const stored = await chrome.storage.local
-		.get([APPEARANCE_KEY, POLYCARP_CACHE_KEY, MODE_MIRROR_KEY])
+		.get([APPEARANCE_KEY, MODE_MIRROR_KEY])
 		.catch(() => ({}) as Record<string, unknown>);
 	const choice = parseChoice(stored[APPEARANCE_KEY]);
-	const checked =
-		stored[POLYCARP_CACHE_KEY] === undefined ? undefined : checkPolycarpTheme(stored[POLYCARP_CACHE_KEY]);
-	const polycarp = checked && "theme" in checked ? checked.theme : undefined;
 	const pick = (dark: boolean) => {
-		const all = appearanceVariables(choice, dark, polycarp);
+		const all = appearanceVariables(choice, dark);
 		return Object.fromEntries(THEME_VARS.filter((k) => all[k] !== undefined).map((k) => [k, all[k]]));
 	};
 	const mirrored = stored[MODE_MIRROR_KEY];
-	const scheme: VeilTheme["scheme"] =
-		polycarp && polycarp.mode !== "auto"
-			? polycarp.mode
-			: mirrored === "light" || mirrored === "dark"
-				? mirrored
-				: "auto";
-	themeCache = { light: pick(false), dark: pick(true), scheme, reduced: polycarp?.motion.reduced === true };
+	const scheme: VeilTheme["scheme"] = mirrored === "light" || mirrored === "dark" ? mirrored : "auto";
+	themeCache = { light: pick(false), dark: pick(true), scheme };
 	return themeCache;
 }
 
@@ -458,8 +438,7 @@ export function startVeil(logger?: (line: string) => void): void {
 			pointer = changes[POINTER_ENABLED_KEY].newValue !== false;
 			for (const id of Object.keys(state.tabs)) void queuePoint(Number(id), undefined);
 		}
-		if (APPEARANCE_KEY in changes || POLYCARP_CACHE_KEY in changes || MODE_MIRROR_KEY in changes)
-			themeCache = undefined;
+		if (APPEARANCE_KEY in changes || MODE_MIRROR_KEY in changes) themeCache = undefined;
 		if (SESSIONS_KEY in changes)
 			followTable(changes[SESSIONS_KEY].newValue as Record<string, { id: string; tabIds: number[] }> | undefined);
 	});

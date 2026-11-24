@@ -133,19 +133,6 @@ test("the real executable treats a chrome-extension argument as the native host"
 	assert.doesNotMatch(String(r.stderr), /Unknown command|Usage/);
 });
 
-test("the real executable reads the Polycarp theme from POLYCARP_CONFIG_DIR, and ignores a missing or relative one", { skip: !haveBun && "bun is not installed" }, () => {
-	const { home, env } = sandbox("theme");
-	const run = (extra) => JSON.parse(execFileSync(exe, ["theme", "--json"], { env: { ...env, ...extra }, encoding: "utf8" }));
-	assert.equal(run({}).polycarp, undefined, "no theme file, no Polycarp theme");
-	const dir = join(home, "polycarp", "current");
-	mkdirSync(dir, { recursive: true });
-	writeFileSync(join(dir, "theme.json"), readFileSync(new URL("../../test/fixtures/polycarp/still-water.json", import.meta.url)));
-	const seen = run({});
-	assert.equal(seen.polycarp?.name, "still-water");
-	// The same file through the config dir the app and `polycarp theme` use; a relative value is skipped.
-	assert.equal(run({ POLYCARP_CONFIG_DIR: "relative/path" }).polycarp, undefined);
-});
-
 test("the real executable keeps using the existing ~/.config/tychicus data in place", { skip: !haveBun && "bun is not installed" }, () => {
 	const { home, env } = sandbox("config");
 	const dir = join(home, ".config", "tychicus");

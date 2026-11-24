@@ -11,17 +11,9 @@ export function currentMode(): Mode {
 
 const systemDark = () => window.matchMedia("(prefers-color-scheme: dark)").matches;
 
-/** A mode a Polycarp theme pins (light or dark). Not saved: the person's own setting is kept for when the theme is gone. */
-let pinned: "light" | "dark" | undefined;
-
-export function pinMode(mode: "light" | "dark" | undefined): void {
-	pinned = mode;
-	showMode();
-}
-
-/** The mode on screen: the pinned one, else the person's setting. */
+/** Put the person's setting on screen. */
 function showMode(): void {
-	const mode = pinned ?? currentMode();
+	const mode = currentMode();
 	document.documentElement.classList.toggle("dark", mode === "dark" || (mode === "system" && systemDark()));
 }
 
@@ -44,6 +36,6 @@ export function mirrorMode(): void {
 /** Follow the system setting while the mode is "system". */
 export function followSystem(): void {
 	window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
-		if (pinned || currentMode() === "system") showMode();
+		if (currentMode() === "system") showMode();
 	});
 }

@@ -60,8 +60,12 @@ test("the panel opens with less than the budget, and without the libraries that 
 test("the panel's outline paints before any script, in the saved colors", () => {
 	const page = readFileSync(join(root, "static/sidepanel.html"), "utf8");
 	assert.ok(page.indexOf('id="panel-shell"') > 0 && page.indexOf('id="panel-shell"') < page.indexOf("sidepanel.js"));
-	assert.ok(readFileSync(join(root, "static/theme-loader.js"), "utf8").includes("tk-colors-dark"));
-	assert.ok(readFileSync(join(root, "src/appearance/apply.ts"), "utf8").includes('"tk-colors-dark"'));
+	const loader = readFileSync(join(root, "static/theme-loader.js"), "utf8");
+	assert.ok(loader.includes("tk-paint-dark"));
+	assert.ok(readFileSync(join(root, "src/appearance/apply.ts"), "utf8").includes('"tk-paint-dark"'));
+	// The cache from before 1.4.1 could hold an outside app theme: dropped, never read.
+	assert.ok(loader.includes("removeItem('tk-colors-dark')") && loader.includes("removeItem('tk-colors-light')"));
+	assert.ok(!/getItem\([^)]*tk-colors/.test(loader));
 	assert.ok(readFileSync(join(root, "src/sidepanel.ts"), "utf8").includes('getElementById("panel-shell")?.remove()'));
 });
 

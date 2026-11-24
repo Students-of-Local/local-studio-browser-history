@@ -8,7 +8,10 @@
 	// The saved colors from the last open in this mode, so the first frame is already in them (src/appearance/apply.ts keeps them current).
 	try {
 		const dark = document.documentElement.classList.contains('dark');
-		const colors = JSON.parse(localStorage.getItem(dark ? 'tk-colors-dark' : 'tk-colors-light') || '{}');
+		// tk-colors-* are the cache from before 1.4.1, which could hold an outside app theme: dropped, never read.
+		localStorage.removeItem('tk-colors-dark');
+		localStorage.removeItem('tk-colors-light');
+		const colors = JSON.parse(localStorage.getItem(dark ? 'tk-paint-dark' : 'tk-paint-light') || '{}');
 		for (const name in colors) document.documentElement.style.setProperty(name, colors[name]);
 	} catch {
 		// Nothing saved yet, or it can't be read: the stylesheet's colors stand until the panel applies the real ones.
