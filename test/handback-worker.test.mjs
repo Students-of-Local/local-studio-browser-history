@@ -38,11 +38,8 @@ test("a cancel that beats its hand-back in ends it unseen, for that client and c
 
 	b.worker.cancelHandback("c1", "w3");
 	b.worker.cancelHandbacksFor("c1");
-	const after = b.ask("c1", "w3");
-	await new Promise((r) => setTimeout(r, 100));
-	assert.equal((await pending()).length, 1, "a client that left takes its cancels with it");
-	b.worker.cancelHandbacksFor(undefined);
-	assert.equal((await after).status, "disconnected");
+	assert.equal((await b.ask("c1", "w3")).status, "aborted", "Ctrl-C: the cancel, then the disconnect, then the call");
+	assert.deepEqual(await pending(), []);
 });
 
 /** Runs `then` once, while the worker looks the next hand-back's tab up. */

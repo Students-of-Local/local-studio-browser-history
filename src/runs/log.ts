@@ -160,10 +160,9 @@ export interface StepInput {
 	mode?: string;
 }
 
-/** Record one step: the run starts if it is new, and is running again if it had ended. */
 /**
- * A step of a run. `endedAt` is when the run last ended: a call still open then (its agent left) answers after it, and
- * is one more step of the ended run, not a new start.
+ * Record one step: the run starts if it is new, and is running again if it had ended. `endedAt` is when the run last
+ * ended: a call still open then (its agent left) answers after it, and is one more step of the ended run, not a new start.
  */
 export function addStep(log: RunsLog, id: string, s: StepInput, now: number, endedAt?: number): RunsLog {
 	const late = endedAt !== undefined && now - s.ms <= endedAt;

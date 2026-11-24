@@ -51,7 +51,7 @@ const arriving = new Set<Arriving>();
 
 /**
  * Cancels that came before their call (`clientId waitId` -> when): handback.cancel skips the checks handback waits on.
- * Entries go after CANCEL_MEMORY_MS or a disconnect.
+ * Entries go after CANCEL_MEMORY_MS. A disconnect keeps them: the call may still be in those checks.
  */
 const cancelledEarly = new Map<string, number>();
 const CANCEL_MEMORY_MS = 10 * 60 * 1000;
@@ -208,8 +208,6 @@ export function cancelHandback(clientId: string, waitId: unknown): number {
 
 /** The client left (or every client, `undefined`): nobody hears a Continue any more. */
 export function cancelHandbacksFor(clientId: string | undefined): number {
-	for (const key of [...cancelledEarly.keys()])
-		if (clientId === undefined || key.startsWith(`${clientId} `)) cancelledEarly.delete(key);
 	return (
 		endWhere((w) => clientId === undefined || w.pending.clientId === clientId, "disconnected") +
 		endArriving((c) => clientId === undefined || c.clientId === clientId, "disconnected")
