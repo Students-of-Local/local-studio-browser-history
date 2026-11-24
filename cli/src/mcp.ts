@@ -34,6 +34,7 @@ import { VERSION } from "./version.ts";
 import { COMPUTER_INSTRUCTION, COMPUTER_STATUS_TOOL, type ComputerClient, LOCAL_COMPUTER_INSTRUCTION, LocalComputer } from "./computer.ts";
 import { COMMAND_NAME } from "./self.ts";
 import { envVar } from "./env.ts";
+import { hopTracer } from "./hop-trace.ts";
 import { configuredModel, launchOf, type ModelTier, type ProcessInfo, sessionTier } from "./model-tier.ts";
 import { chooseProfile, hideOutsideCore, peekClientName, SMALL_CORE, SMALL_INSTRUCTION } from "./small-profile.ts";
 import type { RosterDevice } from "./link-protocol.ts";
@@ -401,6 +402,7 @@ export function createMcpServer(options: McpServerOptions = {}): { server: McpSe
 	// Last, so a hidden tool's handler is the one the gates above wrapped.
 	const addMoreTools = small ? hideOutsideCore(server) : undefined;
 	const choice = options.session ? { name: options.session, auto: false } : chooseSession({ flag: options.sessionFlag });
+	const tracer = hopTracer();
 	const client = new BridgeClient({
 		name: options.name ?? harnessName(),
 		session: choice.name,
@@ -409,6 +411,7 @@ export function createMcpServer(options: McpServerOptions = {}): { server: McpSe
 		named: !options.session && choice.named === true,
 		project: "project" in choice ? choice.project : undefined,
 		...(options.model ? { tier: options.model.tier, ...(options.model.model ? { model: options.model.model } : {}) } : {}),
+		...tracer?.client,
 		onEvent: (event, data) => {
 			if (event === "permission_request") void handlePermission(data);
 			// The same session under a new name: its saved files go with it.
@@ -511,11 +514,13 @@ export function createMcpServer(options: McpServerOptions = {}): { server: McpSe
 	{
 		const register = server.registerTool.bind(server) as (...args: unknown[]) => unknown;
 		(server as unknown as { registerTool: (...args: unknown[]) => unknown }).registerTool = (name: unknown, config: unknown, cb: unknown, ...rest: unknown[]) => {
-			if (name === "run_js" || typeof cb !== "function") return register(name, config, cb, ...rest);
+			if (typeof cb !== "function") return register(name, config, cb, ...rest);
 			const handler = cb as (...a: unknown[]) => unknown;
+			const traced = tracer ? tracer.wrap(String(name), handler) : handler;
+			if (name === "run_js") return register(name, config, traced, ...rest);
 			return register(name, config, (...a: unknown[]) => {
 				lastValue = undefined;
-				return handler(...a);
+				return traced(...a);
 			}, ...rest);
 		};
 	}
@@ -1092,12 +1097,18 @@ export function createMcpServer(options: McpServerOptions = {}): { server: McpSe
 			return { content: text({ ...rest, path: saved.path, bytes: saved.bytes }) };
 		},
 	);
+	// A list a small model may send as one string: "a, b" is ["a", "b"]. A /regex/ stays whole, commas and all.
+	const listArg = () =>
+		z.preprocess(
+			(v) => (typeof v === "string" ? (/^\/.+\/[a-z]*$/s.test(v.trim()) ? [v] : v.split(/[,\n]/).map((x) => x.trim()).filter(Boolean)) : v),
+			z.array(z.string()).optional(),
+		);
 	server.registerTool(
 		"site_edit",
 		{
 			title: "Edit a site for the user",
 			description:
-				"Change how a site looks or loads on every visit: hide elements, block requests on that site, ad blocking. On at once; the user can undo each in Settings > Sites, so say what you changed. Test selectors with find first. Code goes through site_script. Example: {\"action\":\"hide\",\"host\":\"x.com\",\"value\":\"[aria-label=Trending]\",\"note\":\"hide trending\"}",
+				"Change how a site looks or loads on every visit: hide elements, block requests on that site, ad blocking. On at once; the user can undo each in Settings > Sites, so say what you changed. Test selectors with find first. Code goes through site_script, posts by topic or author through site_filter; list, off and remove cover both. Example: {\"action\":\"hide\",\"host\":\"x.com\",\"value\":\"[aria-label=Trending]\",\"note\":\"hide trending\"}",
 			inputSchema: {
 				action: z.enum(["list", "hide", "block", "off", "remove", "adblock_on", "adblock_off"]).describe("What to do"),
 				host: z.string().optional().describe("Site, like x.com"),
@@ -1126,6 +1137,28 @@ export function createMcpServer(options: McpServerOptions = {}): { server: McpSe
 			},
 		},
 		(args) => call("edits.add", { kind: "script", host: args.host, value: args.code, note: args.note }),
+	);
+	server.registerTool(
+		"site_filter",
+		{
+			title: "Filter a site's feed",
+			description:
+				"Hide a site's feed posts on every visit by their words or author: x.com, YouTube, Reddit, Hacker News, Bluesky, LinkedIn built in, articles elsewhere. On at once; the page shows a count the user can click to see them. A fixed part of a page goes through site_edit hide; list and remove filters there. On YouTube, Shorts hides Shorts. Example: {\"host\":\"x.com\",\"words\":[\"crypto\",\"/airdrops?/\"]} {\"host\":\"reddit.com\",\"handles\":[\"u/spez\",\"r/politics\"]}",
+			inputSchema: {
+				host: z.string().describe("Site, like x.com"),
+				words: listArg().describe("Whole words or phrases, any case, or /regex/"),
+				handles: listArg().describe("Accounts: @name, u/name, r/sub"),
+				items: z.string().optional().describe("CSS selector for one post, if the built-in misses"),
+				note: z.string().optional().describe("Why, for the user"),
+			},
+		},
+		(args) =>
+			call("edits.add", {
+				kind: "filter",
+				host: args.host,
+				value: JSON.stringify({ words: args.words ?? [], handles: args.handles ?? [], ...(args.items ? { items: args.items } : {}) }),
+				note: args.note,
+			}),
 	);
 	server.registerTool(
 		"inspect_page",
@@ -1399,7 +1432,7 @@ function registerLocalComputer(server: McpServer, local: LocalComputer): void {
 	server.registerTool(
 		COMPUTER_STATUS_TOOL,
 		{
-			description: "Whether computer use (computer_* tools for native Mac apps) is available here, and what to tell the user if it isn't. Example: {}",
+			description: "Whether computer use (computer_* tools for native apps) is available here, and what to tell the user if it isn't. Example: {}",
 			inputSchema: {},
 			annotations: { readOnlyHint: true, openWorldHint: false },
 		},

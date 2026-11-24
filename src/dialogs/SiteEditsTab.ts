@@ -3,6 +3,7 @@ import { SettingsTab } from "@mariozechner/pi-web-ui";
 import { html, type TemplateResult } from "lit";
 import { customElement, state } from "lit/decorators.js";
 import { probeUserScripts } from "../browser/userscripts-status.js";
+import { filterSummary, parseFilterValue } from "../site-edits/feed-match.js";
 import {
 	change,
 	load,
@@ -13,7 +14,22 @@ import {
 	switched,
 } from "../site-edits/store.js";
 
-const KIND_LABEL: Record<SiteEdit["kind"], string> = { hide: "Hides", block: "Blocks", script: "Script" };
+const KIND_LABEL: Record<SiteEdit["kind"], string> = {
+	hide: "Hides",
+	block: "Blocks",
+	script: "Script",
+	filter: "Filters the feed",
+};
+
+/** What a row shows under its title: the selector or pattern, or for a filter its words and accounts. */
+function detail(e: SiteEdit): string {
+	if (e.kind !== "filter") return e.value;
+	try {
+		return filterSummary(parseFilterValue(e.value));
+	} catch {
+		return e.value;
+	}
+}
 
 /**
  * Settings > Sites: what agents (or you) changed on each site, every one undoable, ad blocking, and scripts waiting for
@@ -90,7 +106,7 @@ export class SiteEditsTab extends SettingsTab {
 								? html`<button class="text-xs underline text-muted-foreground" @click=${() => this.toggleOpen(e.id)}>
 										${shown ? "Hide code" : "Read the code"}
 									</button>`
-								: html`<code class="block text-xs text-muted-foreground truncate" title=${e.value}>${e.value}</code>`
+								: html`<code class="block text-xs text-muted-foreground truncate" title=${detail(e)}>${detail(e)}</code>`
 						}
 					</div>
 					<div class="flex items-center gap-2 shrink-0">
@@ -126,7 +142,8 @@ export class SiteEditsTab extends SettingsTab {
 				<div class="space-y-1">
 					<h3 class="text-lg font-semibold text-foreground">Site edits</h3>
 					<p class="text-sm text-muted-foreground">
-						What agents changed on each site, applied on every visit. Ask one to hide something, block it, or clean a page up.
+						What agents changed on each site, applied on every visit. Ask one to hide something, block it, clean a page up, or
+						filter a feed ("hide every post about crypto on x.com"). A filtered page shows how many posts it hid; click the count to see them.
 					</p>
 				</div>
 

@@ -362,7 +362,7 @@ test("tunnel ports are validated, and Funnel is refused when other paths share p
 });
 
 // Every tool name an instruction could mention.
-const NAMED = ["status", "tabs_context", "session_info", "session_end", "tabs_release", "wait", "navigate", "read_page", "click", "type", "fill", "actions", "tabs_create", "tabs_close", "get_page_text", "handle_dialog", "tabs_show", "run_js", "library_add", "library_search", "library_cite", "skill_match", "skill_read", "ask_user", "threads_list", "thread_read", "thread_search", "search", "page_markdown", "map", "crawl", "site_edit", "site_script", "screenshot", "find"];
+const NAMED = ["status", "tabs_context", "session_info", "session_end", "tabs_release", "wait", "navigate", "read_page", "click", "type", "fill", "actions", "tabs_create", "tabs_close", "get_page_text", "handle_dialog", "tabs_show", "run_js", "library_add", "library_search", "library_cite", "skill_match", "skill_read", "ask_user", "threads_list", "thread_read", "thread_search", "search", "page_markdown", "map", "crawl", "site_edit", "site_filter", "site_script", "screenshot", "find"];
 
 // first-F2, second-F9: each scope profile in use gets instructions written for its tools. The password rule with its
 // handoff is whole and in one place (it once dropped out of a session without fill, and its "Then" followed another

@@ -42,7 +42,7 @@ export const SMALL_CORE: ReadonlySet<string> = new Set([
 ]);
 
 export const SMALL_INSTRUCTION =
-	'More tools (tabs, run_js, files, hover, drag, page_markdown, library, past chats, skills, the rest of computer use) are behind more_tools: more_tools {} lists them; more_tools {"name":"run_js","arguments":{"code":"document.title"}} runs one.';
+	'More tools (tabs, run_js, files, hover, drag, page_markdown, site_filter for feeds, library, past chats, skills, the rest of computer use) are behind more_tools: more_tools {} lists them; more_tools {"name":"run_js","arguments":{"code":"document.title"}} runs one.';
 
 /**
  * MCP clients that run a model on this machine, by the name they give in initialize (clientInfo.name). A local model is

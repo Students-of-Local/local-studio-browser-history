@@ -307,6 +307,7 @@ export function isDetachError(err: unknown): boolean {
 function forgetAttachment(tabId: number): void {
 	attachedTabs.delete(tabId);
 	viewportTabs.delete(tabId);
+	forgetDrawing(tabId);
 	// Attaching again starts a new debugging session: its console and network domains are off.
 	noteCaptureStopped(tabId, "the debugger had detached without notice and was attached again");
 }
@@ -419,6 +420,7 @@ export async function detachTab(tabId: number, force = false): Promise<void> {
 	if (force) await stopScreencast(tabId).catch(() => undefined);
 	attachedTabs.delete(tabId);
 	viewportTabs.delete(tabId);
+	forgetDrawing(tabId);
 	noteCaptureStopped(tabId, "Tychicus released the debugger (the client disconnected or the session ended)");
 	try {
 		await chrome.debugger.detach({ tabId });
@@ -1462,6 +1464,9 @@ function installScreencastListener(): void {
 		const tabId = source.tabId;
 		const cast = screencasts.get(tabId);
 		const p = params as { data: string; metadata: Record<string, unknown>; sessionId: number };
+		// The frame keeper's own cast: nobody reads its frames, and without an ack Chrome sends no more of them while the
+		// page goes on drawing.
+		if (!cast && drawing.has(tabId)) return;
 		if (cast) cast.sink({ data: p.data, metadata: p.metadata });
 		// Chrome sends the next frame only after this ack, so holding it is the frame-rate cap.
 		const wait = cast ? Math.max(0, cast.lastAckAt + cast.minGapMs - Date.now()) : 0;
@@ -1472,12 +1477,14 @@ function installScreencastListener(): void {
 	});
 	chrome.debugger.onDetach.addListener((source, reason) => {
 		if (source.tabId === undefined) return;
+		forgetDrawing(source.tabId);
 		const cast = screencasts.get(source.tabId);
 		screencasts.delete(source.tabId);
 		if (cast) void cover?.conceal(source.tabId, "cast", false).catch(() => undefined);
 		cast?.ended?.(`debugger detached: ${reason}`);
 	});
 	chrome.tabs.onRemoved.addListener((tabId) => {
+		forgetDrawing(tabId);
 		const cast = screencasts.get(tabId);
 		screencasts.delete(tabId);
 		cast?.ended?.("tab closed");
@@ -1518,19 +1525,34 @@ export async function startScreencast(
 		await send(tabId, "Runtime.evaluate", { expression: options.initScript }).catch(() => undefined);
 	}
 	const format = options.format ?? "jpeg";
-	await send(tabId, "Page.startScreencast", {
-		format,
-		...(format === "jpeg" ? { quality: options.quality ?? 80 } : {}),
-		...(options.maxWidth ? { maxWidth: options.maxWidth } : {}),
-		...(options.maxHeight ? { maxHeight: options.maxHeight } : {}),
-		everyNthFrame: 1,
-	});
+	const start = () =>
+		send(tabId, "Page.startScreencast", {
+			format,
+			...(format === "jpeg" ? { quality: options.quality ?? 80 } : {}),
+			...(options.maxWidth ? { maxWidth: options.maxWidth } : {}),
+			...(options.maxHeight ? { maxHeight: options.maxHeight } : {}),
+			everyNthFrame: 1,
+		});
+	// The frame keeper's 1x1 cast (D62) gives way: Chrome runs one cast per tab, and this one draws the tab too.
+	const keeper = drawing.has(tabId);
+	forgetDrawing(tabId);
+	if (keeper) await sendRaw(tabId, "Page.stopScreencast").catch(() => undefined);
+	try {
+		await start();
+	} catch (err) {
+		// A keeper's cast still on its way when this one asked: stop it and ask once more.
+		if (!/already active/i.test(String(err instanceof Error ? err.message : err))) throw err;
+		await sendRaw(tabId, "Page.stopScreencast").catch(() => undefined);
+		await start();
+	}
 }
 
 export async function stopScreencast(tabId: number): Promise<boolean> {
 	const cast = screencasts.get(tabId);
 	if (!cast) return false;
 	screencasts.delete(tabId);
+	// Stopping the cast stops the keeper's too: the next action starts a new one.
+	forgetDrawing(tabId);
 	void cover?.conceal(tabId, "cast", false).catch(() => undefined);
 	await sendRaw(tabId, "Page.stopScreencast").catch(() => undefined);
 	if (cast.scriptId)
@@ -1538,6 +1560,67 @@ export async function stopScreencast(tabId: number): Promise<boolean> {
 			() => undefined,
 		);
 	return true;
+}
+
+// ---- Frame keeper (D62) -----------------------------------------------------
+//
+// A tab out of sight draws no frames, and after a click or a key Chromium holds the page's tasks until the next frame
+// or 50 ms (DeferRendererTasksAfterInput, kDiscreteInputResponseDeadline), so every input action waited those 50 ms
+// before it could see what the page did. A screencast makes the browser draw the tab while it lasts, seen or not. While
+// an agent acts in a tab, Tychicus keeps a 1x1 one going that nobody reads; it ends KEEP_DRAWING_MS after the last
+// action, so an idle agent tab draws nothing, as before. A live view or recording (startScreencast) already draws, and
+// takes the tab's one cast over from the keeper when it starts.
+
+/** How long a tab keeps drawing after the last action that asked for it. Longer than an action's settle cap. */
+export const KEEP_DRAWING_MS = 3000;
+/** Tabs the keeper draws, each with the timer that ends it. */
+const drawing = new Map<number, ReturnType<typeof setTimeout>>();
+
+/**
+ * Keep the tab drawing for the next KEEP_DRAWING_MS: call before an input goes out. The first call sends the cast;
+ * later ones only push its end back. Best effort: a tab the debugger can't reach is left as it is.
+ */
+export async function keepDrawing(tabId: number): Promise<void> {
+	installScreencastListener();
+	const timer = drawing.get(tabId);
+	armDrawing(tabId);
+	if (timer !== undefined) {
+		clearTimeout(timer);
+		return;
+	}
+	if (screencasts.has(tabId)) return;
+	try {
+		await send(tabId, "Page.startScreencast", {
+			format: "jpeg",
+			quality: 0,
+			maxWidth: 1,
+			maxHeight: 1,
+			everyNthFrame: 1,
+		});
+		// A start that had to attach again went through forgetAttachment, which dropped the entry: the cast it
+		// started still needs its stop timer.
+		if (!drawing.has(tabId) && !screencasts.has(tabId)) armDrawing(tabId);
+	} catch {
+		// No cast is running. An action that came in meanwhile saw the entry and sent nothing, so drop it whoever
+		// set it: the next action starts the cast.
+		forgetDrawing(tabId);
+	}
+}
+
+/** Set the keeper's stop timer for a tab, KEEP_DRAWING_MS from now. */
+function armDrawing(tabId: number): void {
+	const next = setTimeout(() => {
+		if (drawing.get(tabId) !== next) return;
+		drawing.delete(tabId);
+		if (!screencasts.has(tabId)) void sendRaw(tabId, "Page.stopScreencast").catch(() => undefined);
+	}, KEEP_DRAWING_MS);
+	drawing.set(tabId, next);
+}
+
+/** The keeper's cast is gone with the debugging session, the tab or a cast that replaced it. */
+function forgetDrawing(tabId: number): void {
+	clearTimeout(drawing.get(tabId));
+	drawing.delete(tabId);
 }
 
 /** Stop every cast a client started; its frames would have nowhere to go. */

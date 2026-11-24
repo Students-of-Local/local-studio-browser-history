@@ -13,8 +13,8 @@
  */
 
 import { isGuardedUrl } from "../bridge/permissions.js";
-import { cdpSend, onDebuggerSessionEnd, openDialog } from "./cdp.js";
-import { watchDownloads } from "./downloads.js";
+import { cdpSend, keepDrawing, onDebuggerSessionEnd, openDialog } from "./cdp.js";
+import { downloadBegun, watchDownloads } from "./downloads.js";
 import { runInPage } from "./page.js";
 import { veilTag } from "./veil-shared.js";
 
@@ -23,14 +23,23 @@ export const ACTION_SETTLE = { quietMs: 300, capMs: 2500, longMs: 2000 };
 /**
  * After a click or fill the page showed no sign of reacting to: no DOM change, request, navigation or loader since the
  * action began. Waiting out the whole quiet window then only adds its 300 ms to every such action (D50). A sign that
- * comes within this time keeps the quiet window. 60 ms until D56, which drains the page's queued tasks before it looks.
+ * comes within this time keeps the quiet window. 60 ms until D56, which drains the page's queued tasks before it looks;
+ * 20 ms until D62, which counts a navigation the page asks for and draws the tab while it acts, so the drained look's
+ * answer is the answer: nothing the page queued is still to come, and what it sent is ordered before that reply.
  */
-export const IDLE_MS = 20;
+export const IDLE_MS = 0;
+/**
+ * The idle window when the settle's first probe was the first in its document (a tab the page opened, or one handed
+ * over): the probe's click listener was not there for the action, so a download link's click went unseen. The old
+ * 20 ms window covered a download beginning; this keeps it for that one settle (review r1 first-F2).
+ */
+export const FRESH_IDLE_MS = 20;
 /**
  * After a navigation, once the load event has fired and nothing else holds the wait (no request, loader or pending
- * navigation): how long the page must stay quiet. Until then it is ACTION_SETTLE's 300 ms (D56).
+ * navigation): how long the page must stay quiet. ACTION_SETTLE's 300 ms until D56, 50 ms until D62: the drained look
+ * runs what the load queued, and a navigation that queued work asks for is counted (Page.frameRequestedNavigation).
  */
-export const LOADED_QUIET_MS = 50;
+export const LOADED_QUIET_MS = 0;
 /** `wait {until:"settled"}` with no timeoutMs. */
 export const WAIT_SETTLE = { quietMs: 500, capMs: 10000, longMs: 5000 };
 
@@ -62,6 +71,8 @@ const mainDoc = new Map<number, string>();
  * session before the change report lists it.
  */
 const lastOpened = new Map<number, number>();
+/** When the page in a tab last asked for a navigation (Page.frameRequestedNavigation). */
+const lastAsked = new Map<number, number>();
 let installed = false;
 
 function install(): void {
@@ -99,6 +110,11 @@ function install(): void {
 			if (frames.size > 100) frames.delete(frames.keys().next().value as string);
 			const map = pending.get(tabId);
 			for (const [k, r] of map ?? []) if (r.frameId === frame.id && r.loaderId !== frame.loaderId) map?.delete(k);
+		} else if (method === "Page.frameRequestedNavigation") {
+			// The page asked to go somewhere (a link, a form, a script setting location): sent by the page's own process
+			// as it asks, so it comes before the reply to a probe that drained the task that asked. The browser's
+			// pendingUrl and the document request come on another path and can come after that reply (D62).
+			lastAsked.set(tabId, Date.now());
 		} else if (method === "Page.windowOpen") {
 			// The page asked for a new window (a target=_blank link, window.open, a form): sent on the tab's own session
 			// as the request is made, so it comes before the reply to any later probe there, well before the new tab's
@@ -115,6 +131,7 @@ function install(): void {
 		loaders.delete(tabId);
 		mainDoc.delete(tabId);
 		lastOpened.delete(tabId);
+		lastAsked.delete(tabId);
 	};
 	chrome.tabs.onCreated.addListener((tab) => {
 		if (tab.openerTabId !== undefined) lastOpened.set(tab.openerTabId, Date.now());
@@ -138,7 +155,8 @@ function install(): void {
 async function watchNetwork(tabId: number): Promise<void> {
 	install();
 	await Promise.race([
-		cdpSend(tabId, "Network.enable").catch(() => undefined),
+		// The tab draws while the action runs, so the page's answer to an input is not held 50 ms (cdp.ts, D62).
+		Promise.all([cdpSend(tabId, "Network.enable").catch(() => undefined), keepDrawing(tabId)]),
 		new Promise((r) => setTimeout(r, ENABLE_MS)),
 	]);
 }
@@ -173,6 +191,9 @@ export interface SettleMark {
 	doc: Document;
 	owed: number;
 	drawn: Promise<void> | null;
+	/** The last click on a download link in this document, and when it came (fileAgo). */
+	file?: Event;
+	fileAt?: number;
 }
 
 /** What settleProbe says about the page: ms since it last changed, still parsing, a loader on screen, load fired. */
@@ -187,6 +208,14 @@ interface ProbeReport {
 	 * a task or a timer later, so a short window counts only once that end is a full quiet window old (D56).
 	 */
 	lateAgo: number | null;
+	/**
+	 * Ms since a click on a download link (an `a` or `area` with `download` and `href`) the page did not cancel; null
+	 * when none. The browser fetches the file and only then begins the download, after the page has gone quiet, so
+	 * settle waits for it (FILE_START_MS).
+	 */
+	fileAgo: number | null;
+	/** This probe was the first in its document, so it saw nothing of the action (FRESH_IDLE_MS). */
+	fresh: boolean;
 }
 type ProbeResult = ProbeReport | { guarded: true };
 
@@ -209,6 +238,7 @@ function settleProbe(
 	if (guarded(location.href, hosts)) return { guarded: true };
 	const w = window as unknown as { __tabkyraSettle?: SettleMark };
 	let s = w.__tabkyraSettle;
+	const fresh = !s || s.doc !== document;
 	if (!s || s.doc !== document) {
 		s = { last: performance.now(), doc: document, owed: 0, drawn: null };
 		w.__tabkyraSettle = s;
@@ -240,6 +270,21 @@ function settleProbe(
 				),
 			);
 		}).observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
+		// First in the capture phase, so the page can't hide the click; whether it canceled it is read at report time.
+		addEventListener(
+			"click",
+			(e) => {
+				for (const n of e.composedPath() as Element[]) {
+					if (n.nodeType !== 1 || (n.localName !== "a" && n.localName !== "area")) continue;
+					if (n.hasAttribute("download") && n.hasAttribute("href")) {
+						mark.file = e;
+						mark.fileAt = performance.now();
+					}
+					return;
+				}
+			},
+			true,
+		);
 	}
 	const seen = s;
 	const report = (): ProbeReport => {
@@ -294,6 +339,11 @@ function settleProbe(
 			busy,
 			complete,
 			lateAgo,
+			fileAgo:
+				seen.file && seen.fileAt !== undefined && !seen.file.defaultPrevented
+					? Math.round(now - seen.fileAt)
+					: null,
+			fresh,
 		};
 	};
 	if (!drain) return report();
@@ -362,13 +412,15 @@ export async function settle(
 		if (!options.watched) await watchNetwork(tabId);
 		const veil = (await within(veilTag(tabId), 300)) ?? "";
 		// The short windows look only after the page has run what is already queued (settleProbe's drain).
-		let drain = !!options.idleMs || options.loadedQuietMs !== undefined;
+		let drain = options.idleMs !== undefined || options.loadedQuietMs !== undefined;
 		const probeCode = (d: boolean) =>
 			`(${settleProbe.toString()})(${JSON.stringify(veil)}, ${JSON.stringify(options.guardedHosts ?? [])}, ${isGuardedUrl.toString()}, ${d})`;
 		let code = probeCode(drain);
 		let lastActivity = start;
 		/** Something on the page answered the action (idleMs): never reset once set. */
-		let reacted = !options.idleMs;
+		let reacted = options.idleMs === undefined;
+		/** The idle window: FRESH_IDLE_MS once a probe was the first in its document. */
+		let idleMs = options.idleMs ?? 0;
 		/** Probes refused in a row. A page the extension may not script (a store page, a viewer) is judged by its requests alone. */
 		let refused = 0;
 		/** The document the refusals were counted on: a new one may be scriptable. */
@@ -380,6 +432,8 @@ export async function settle(
 			waitingOn = undefined;
 			/** This pass's probe saw the load event fired (loadedQuietMs). */
 			let loaded = false;
+			/** When this pass's probe says a download link was clicked, by this clock; 0 when none. */
+			let fileAsked = 0;
 			const tab = await chrome.tabs.get(tabId).catch(() => undefined);
 			// The cap came while the tab was read: no probe goes out after it.
 			if (over) return { settled: false, ms: Date.now() - start };
@@ -440,6 +494,8 @@ export async function settle(
 					if (lateAgo !== null) lastActivity = Math.max(lastActivity, at - lateAgo);
 					// Only a drained probe reads Resource Timing, so only its answer can show the data requests ended.
 					loaded = drain && page.complete === true && (lateAgo === null || lateAgo >= quietMs);
+					if (typeof page.fileAgo === "number" && Number.isFinite(page.fileAgo)) fileAsked = at - page.fileAgo;
+					if (page.fresh === true) idleMs = Math.max(idleMs, FRESH_IDLE_MS);
 					if (page.parsing || page.busy) {
 						waitingOn = "loading";
 						lastActivity = Date.now();
@@ -454,11 +510,28 @@ export async function settle(
 			} else lastActivity = Math.max(lastActivity, Math.min(now, lastEnd.get(tabId) ?? 0));
 			if ((lastEnd.get(tabId) ?? 0) >= since) reacted = true;
 			if ((lastOpened.get(tabId) ?? 0) >= since) reacted = true;
+			// A navigation the page asked for since the action began: the browser may not show it pending yet, so the
+			// quiet window runs from the ask and the next pass reads the tab again.
+			const asked = lastAsked.get(tabId) ?? 0;
+			if (asked >= since) {
+				reacted = true;
+				lastActivity = Math.max(lastActivity, asked);
+			}
+			// A download link clicked since the action began: the file is fetched before the download begins, often after
+			// the page went quiet. Wait for it to begin (downloads.ts), then look again; a download that never begins
+			// holds the wait FILE_START_MS at most.
+			if (fileAsked >= since && now - fileAsked < FILE_START_MS && now < deadline) {
+				const left = Math.min(FILE_START_MS - (now - fileAsked), deadline - now);
+				if (!(await downloadBegun(tabId, since, 0))) {
+					await downloadBegun(tabId, since, left);
+					continue;
+				}
+			}
 			lastReason = waitingOn;
 			const quiet =
 				loaded && options.loadedQuietMs !== undefined ? Math.min(quietMs, options.loadedQuietMs) : quietMs;
 			if (!waitingOn && now - lastActivity >= quiet) return { settled: true, ms: now - start };
-			const idleLeft = reacted ? Number.POSITIVE_INFINITY : (options.idleMs ?? 0) - (now - start);
+			const idleLeft = reacted ? Number.POSITIVE_INFINITY : idleMs - (now - start);
 			if (!waitingOn && idleLeft <= 0) return { settled: true, ms: now - start, idle: true };
 			if (now >= deadline) return { settled: false, ms: now - start, waitingOn: waitingOn ?? "dom" };
 			// The next look comes when the quiet window would end (or the idle one, or the cap), and at least every 100 ms.
@@ -479,6 +552,9 @@ export async function settle(
 		clearTimeout(timer);
 	}
 }
+
+/** The longest settle waits for a download to begin after the page says a download link was clicked. */
+export const FILE_START_MS = 1000;
 
 /** The longest one DOM probe may take before the page counts as busy. */
 const PROBE_MS = 400;

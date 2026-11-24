@@ -2034,3 +2034,157 @@ the caller's session). A signed-in gh that refuses an artifact still refuses the
 and `--skip-attestation` are unchanged.
 
 **Why.** The check is extra assurance when gh can give it, not a gate that a missing sign-in closes. gh's English is never parsed, so a reworded message can't change the outcome.
+
+## D62. Input actions draw the tab, settle stops at the drained look, and page scripts are installed once (Claude, 2026-11-22)
+
+**Context.** The market eval's speed run (`evals/market/rivals/run.mjs`, same machine, same session) measured
+Tychicus's medians at click 71 ms, fill 43 ms and first page text 112 ms; agent-browser's were 24, 9 and 41. A hop
+trace (`TYCHICUS_TRACE`, `cli/src/hop-trace.ts`) put the time in four places, not in the MCP, socket or native
+messaging hops (about 1 ms each way together):
+1. After a click or a key, Chromium holds the page's deferrable tasks until the next frame or 50 ms
+   (`DeferRendererTasksAfterInput`, `kDiscreteInputResponseDeadline`). An agent's tab is out of sight and draws no
+   frames, so it always waited the 50 ms. In a background tab with a click handler that schedules `setTimeout(0)`,
+   the timer ran 50 to 60 ms after the click on 8 of 9 clicks; with a screencast running it ran 5 to 12 ms after on
+   9 of 9 (method in `docs/verification/speed-trace.md`).
+2. The settle after an action waited `IDLE_MS` (20 ms) for a sign the page reacted, and a navigation's settle waited
+   `LOADED_QUIET_MS` (50 ms) after the load event, though D56's drained look had already run everything the page had
+   queued.
+3. Every input call waited for a page call (the veil's pill turning its button off) before its handler began.
+4. The change report's look, fill and the click's locate are 15 to 25 KB scripts. Each call's text held its own
+   arguments, so V8 compiled each anew: about 4 ms of a 5 ms evaluate, three to four times per action.
+
+**Decision.**
+- *Frame keeper.* Before an action's input goes out, `keepDrawing` (`src/browser/cdp.ts`) starts a 1x1 screencast
+  whose frames are never acknowledged, so the tab draws its next frame and the hold ends there. It runs until 3 s
+  (`KEEP_DRAWING_MS`) after the last action, then stops; a tab nobody acts on draws nothing, as before. A live view or
+  recording that already casts is left alone, and one that starts takes the tab's one cast over from the keeper. A
+  start that had to attach the debugger again still gets its stop timer, and a start that fails clears the entry so
+  the next action sends the cast again. Cost: no frames on a page that doesn't change; on a page with a running
+  animation about a tenth of one core while the agent acts and for 3 s after.
+- *Settle.* `IDLE_MS` and `LOADED_QUIET_MS` are 0: the drained look (one message-channel turn, then a timer) is the
+  answer. `Page.frameRequestedNavigation` now counts as a reaction, so a click whose navigation starts on a later
+  task still waits for it. Requests, loaders, new tabs and D56's Resource Timing rule hold the wait as before. The
+  old 20 ms window also caught a download a link began: the browser fetches the file before it creates the download,
+  after the page has gone quiet. The probe now notes a click on an `a` or `area` with `download` and `href` that the
+  page did not cancel, and settle waits for the download to begin, at most 1 s (`FILE_START_MS`). A script that
+  clicks an anchor it never put in the document is not seen this way; its download is reported when it begins
+  before the look after the action. The listener is left by the settle's first probe in a document, so a settle whose first
+  probe was the first in its document (a tab the page opened, or one handed over) keeps a 20 ms idle window
+  (`FRESH_IDLE_MS`) for a download its listener could not see.
+- *Page library.* Each large page script is a function installed once per document and world, under a key that
+  hashes its code and a salt chosen per service-worker run (`runLib`, `src/browser/page.ts`). A call sends only the
+  key and its JSON arguments. A document not known to have the function (the tab's first call, or the first after
+  a navigation commits) gets the install (a constant script, so V8's compilation cache serves it) and the call, sent
+  together; one that answers that it lacks the function gets the same. Frames still get the whole expression.
+  The entry is non-enumerable and non-writable. In the isolated world a page can't reach it. In the main-world
+  fallback a page could learn a key and plant a function under it in a later document of the same run; that page
+  already controls the main world's DOM and prototypes, so the report it could forge is no worse than before.
+- *Veil before input.* Every input call waited for the veil's pill to turn its button off before the handler began:
+  a page call of 1 to 2.5 ms. Click, fill, type, press and scroll now start that change and wait for it in
+  `actionStart`, right before their first input, so it overlaps the look before. An input still never goes out
+  before the pill's button is off. Every other method waits where it did, and the call's end is counted only after
+  its begin, so the pill's counts stay paired when a call fails early.
+
+**Not done.** Folding the look before into the fill's call, and the look after into the settle's first probe, cut two
+page calls from a fill but measured no faster (22.6 and 22.0 ms over 25 runs each): the looks' page work, not the
+calls, is the cost. Both were left out.
+
+**Why.** Each cost was a fixed wait or repeated work that no page needed, and each fix keeps what the result reports.
+The dom-bench floor and the market tasks gate it.
+
+**Results.** The rivals harness, 3 reps, same session, load 16: Tychicus click 27 ms, fill 16, first text 48, start
+1769; agent-browser 20, 9, 43 and 2049. Tasks 30/30 for both, dom-bench 54/54. The hop trace's click fell from 67.7 to
+29.9 ms, fill from 41.1 to 15.4 and navigate from 93.3 to 46.3. What keeps click, fill and first text above
+agent-browser's, which reports no changes and does not settle, is in `docs/verification/speed-trace.md`.
+
+<<<<<<< HEAD
+## D63. The Linux helper: agent windows by workspace or by process, hands.json for access, no physical input (Claude, 2026-11-22)
+
+**Context.** Issue #27 asks for `tychicus-hands` on Linux. Linux has no lend sheet and no one way to keep an app off
+the person's screen: Hyprland and Sway have workspaces another program can use, X11 window managers have none that
+stays hidden, and GNOME and KDE under Wayland give another program no window control at all. Tychicus had no access
+setting for computer use outside Polycarp's Mac app.
+
+**Decision.**
+- Which windows are an agent's: on Hyprland and Sway, those on the agent workspace (`special:tychicus`,
+  `tychicus-agent`); everywhere, those of processes an agent started (recorded in Tychicus's state folder). Every other
+  window is the person's.
+- Access is `hands.json` in Tychicus's config folder: `access` (`read_only`, `default`, `full`; an unknown value reads
+  as `default`) and `apps`, read on every call. A file that is there but can't be read or parsed reads as `read_only`:
+  a typo must never widen what the person chose. Under `default` an agent uses only its own windows and may start editors,
+  calculators and viewers plus the listed apps. `full` opens every window to an agent on this computer. A connector is
+  capped at `default`, as the protocol says.
+- Browsers, mail, password managers and chat apps are never started for an agent, in any mode (`needs_sandbox`): an
+  agent copy would run in the person's own profile. The check follows `env`, `flatpak run`, `snap run` and symlinks,
+  matches name families and desktop categories, and refuses launchers it can't see through. Agent profiles for them
+  are later work.
+- An agent's app runs on a session bus of its own, so a single-instance app (most editors and viewers) can't take
+  the person's later launches into the agent's process.
+- Pictures under `default` only when nothing else can be in them: X11 checks the stacking order; Hyprland and Sway
+  can't (layer surfaces), so they need `full`. On GNOME and KDE, `open` needs `full`.
+- Opening: Hyprland's `exec [workspace special:tychicus silent]`; on Sway the helper makes a Wayland socket for the app
+  through security-context-v1, tagged with a random instance id for this launch, and adds
+  `for_window [sandbox_instance_id="<id>"] move container to workspace tychicus-agent` and `no_focus` for the same id
+  before the app starts, so its dialogs follow it and nothing takes focus. Sway keeps rules for its whole session, so
+  they name the launch, not a process id a later app of the person's could reuse; the app runs without `DISPLAY`, so it
+  can't map through Xwayland outside the rules. Sway before 1.10 (Ubuntu 24.04 ships 1.9) has no sandbox criteria:
+  there `tychicus-hands hold` starts the app stopped, adds `[pid=N]` rules, lets it run and never reaps it, so the pid
+  stays taken (a zombie once the app exits) until Sway's process exits and its rules with it. The holder ends on that
+  process (its pid and start time, from the socket's peer credentials), never on a missed IPC reply, and ignores
+  SIGTERM, SIGHUP and SIGINT. Once a rule may name the pid, a failure kills the app unstarted and keeps holding. Rules
+  can name only the started process, so `flatpak run` and `snap run` are refused there, and a window that still lands
+  off the agent workspace (an app that forks its window's process) is closed with its app and the open fails. The hold
+  route is taken only when Sway reports a version below 1.10; any other failure to make the socket refuses the open. On
+  X11 the helper watches focus for 1.2 s and gives it back through `_NET_ACTIVE_WINDOW` when the new app took it.
+- No physical input, ever: no XTest, uinput, ydotool or virtual keyboard. What AT-SPI can't do in the background
+  (`drag`, right clicks, keys with no accessibility meaning) answers `not_supported`.
+
+**Why.** The person's typing and pointer must never be shared with an agent, so input that could land in their window
+is out even where it would work most of the time. A file in the config folder is what `tychicus` already uses for
+settings, and reading it on every call makes a narrowing apply at once.
+=======
+## D64. Feed filters are a site edit kind with their own tool, run by the extension's own content script (Claude, 2026-11-23)
+
+**Context.** Owners ask agents to filter feeds in plain words: "hide every post about X on x.com", "remove Shorts from
+YouTube", "hide posts from these accounts on Reddit". The only way to do that before was `site_script`, which stays off
+until the person turns it on, and which every agent had to write anew per site, with a selector that breaks when the site
+changes.
+
+**Decision.**
+- *A new edit kind, `filter`, with its own MCP tool, `site_filter`.* The kind lives in the same store as hide, block and
+  script (`tk-site-edits`), so Settings > Sites, `site_edit list`, `off` and `remove`, the 300-edit cap and the
+  guarded-host check all cover it unchanged. The tool is separate rather than a `filter` action on `site_edit` because a
+  filter takes two lists and an optional selector, and `site_edit` has one string `value`: folding them in would mean
+  either JSON inside a string, which small local models get wrong, or three more optional arguments every `site_edit`
+  call carries. `site_filter`'s schema is five flat fields; `words` and `handles` are string arrays that also accept one
+  comma-separated string, since local models often send that. It sits behind `more_tools` in the small profile, and
+  `SMALL_INSTRUCTION` names it.
+- *The value is canonical JSON* (`{"words":[...],"handles":[...],"items":"..."}`): trimmed, duplicates dropped, handles as
+  `name` or `r/name`, so the same filter asked twice is one edit, and older builds that don't know the kind ignore it.
+- *On at once, like hide.* A filter is data, not code: the extension's own content script (`feed-filter.js`, an IIFE
+  registered with `chrome.scripting.registerContentScripts` for each site with a filter on, at `document_start`, and
+  injected into tabs already open there) finds posts and adds a class. Nothing an agent writes runs in the page.
+- *The page asks; storage stays in the worker.* The content script never touches `chrome.storage`: it asks the service
+  worker for its own page's filters (`tk-feed-filter:get`, answered only for this extension's script in a top frame of an
+  http(s) page), and after every site edit change the worker sends each web tab its filters again (`tk-feed-filter:set`),
+  so a removed or switched-off filter shows its posts at once. A storage listener in the page would have handed every
+  change to `chrome.storage.local` (allowed hosts, run records, mirrored settings) to each filtered site's renderer.
+  The only page-shaping input is the optional `items` selector, which goes through the same `checkSelectors` as hide and
+  is used with `querySelectorAll`, never as CSS. A regex that nests one repeat in another is refused (it could freeze the
+  page on every visit), and a post's text is read up to 10,000 characters.
+- *Hide, never remove; count and reveal.* Matched posts (or the list cell around them, on X) get `tk-feed-hidden`, and one
+  stylesheet hides that class unless `<html>` has `tk-feed-reveal`. A badge in an open shadow root says how many are
+  hidden; a click toggles the reveal, and its x closes it for that page. `html`, `body`, `main` and `[role=main]` are never
+  hidden, whatever selector a filter names.
+- *Batching.* A MutationObserver gathers added nodes; they are handled once per animation frame (before the frame is
+  drawn), or on a timer in a hidden tab, which draws no frames but which an agent may read. Text is read with a text-node
+  walk that puts a line break between block elements, because `textContent` runs a name, a time and the post together
+  ("1hcrypto") and word edges then miss; `innerText` would force layout on every post.
+- *Word matching.* Whole words at Unicode letter and digit edges, any case, all plain words in one alternation so a post
+  costs one scan. `/regex/` with no flags is case-insensitive; written flags are used as given, without `g`, `y` or `d`.
+  On YouTube the word `Shorts` is a format check (Shorts shelves, tiles and `/shorts/` links), not text.
+
+**Results.** In Chromium (`cli/test/e2e-feed-filter.test.mjs`, macOS, Apple silicon): the first pass over 2,000 posts
+took 16.1 ms, a 2,000-post scroll batch 14.7 ms, and a recheck of 4,000 posts after the filters changed 16.4 ms. The
+test fails over 50 ms per batch.
+>>>>>>> 1743b19 (Add site_filter: hide a site's feed posts by words or accounts)

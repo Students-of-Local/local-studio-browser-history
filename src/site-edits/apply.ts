@@ -3,15 +3,22 @@
  * - hide: a stylesheet put into each matching page as it commits, and into open tabs when an edit changes;
  * - block: dynamic network rules, ids SITE_RULE_BASE and up (the custom-provider CORS rules use 2000-2999);
  * - script: user scripts registered for the site, only when the person turned them on and user scripts are allowed;
+ * - filter: the extension's own content script (feed-filter.js) registered for every site with a filter on, and put into
+ *   tabs already open there. It asks for its page's filters, and every tab is sent its filters again after a change
+ *   (site-edits/feed-filter.ts);
  * - ad blocking: the "ads" ruleset on or off.
  */
 
 import { userScriptsApi } from "../browser/userscripts-status.js";
+import { FEED_FILTER_GET, FEED_FILTER_SET } from "./common.js";
+import { filtersFor } from "./feed-match.js";
 import { blockRules, hideCss, load, onHost, type SiteEditsState, STORAGE_KEY } from "./store.js";
 
 export const SITE_RULE_BASE = 50_000;
 const SITE_RULE_MAX = 50_999;
 const SCRIPT_PREFIX = "site-edit-";
+export const FILTER_SCRIPT_ID = "tk-feed-filter";
+const FILTER_SCRIPT_FILE = "feed-filter.js";
 const AD_RULESET = "ads";
 
 /**
@@ -107,6 +114,65 @@ async function syncScripts(state: SiteEditsState): Promise<void> {
 	);
 }
 
+/** Match patterns for a filter's site and its subdomains. An IP address has no subdomains, and "*.1.2.3.4" is no pattern. */
+export function filterMatches(hosts: string[]): string[] {
+	return hosts.flatMap((h) => (/^[\d.]+$/.test(h) ? [`*://${h}/*`] : [`*://${h}/*`, `*://*.${h}/*`]));
+}
+
+/** The feed filter's content script on every site with a filter on, at document start so nothing it hides is drawn first. */
+async function syncFilters(state: SiteEditsState): Promise<void> {
+	const scripting = chrome.scripting;
+	if (!scripting?.registerContentScripts) return;
+	const hosts = [...new Set(state.edits.filter((e) => e.on && e.kind === "filter").map((e) => e.host))].sort();
+	const existing = await scripting.getRegisteredContentScripts({ ids: [FILTER_SCRIPT_ID] });
+	if (!hosts.length) {
+		if (existing.length) await scripting.unregisterContentScripts({ ids: [FILTER_SCRIPT_ID] });
+		return;
+	}
+	const script: chrome.scripting.RegisteredContentScript = {
+		id: FILTER_SCRIPT_ID,
+		matches: filterMatches(hosts),
+		js: [FILTER_SCRIPT_FILE],
+		runAt: "document_start",
+		allFrames: false,
+		persistAcrossSessions: true,
+	};
+	if (existing.length) await scripting.updateContentScripts([script]);
+	else await scripting.registerContentScripts([script]);
+	// Pages already open on those sites get it now. It starts once per page, so a second injection does nothing.
+	const tabs = await chrome.tabs.query({});
+	await Promise.all(
+		tabs
+			.filter((t) => t.id !== undefined && hosts.some((h) => onHost(t.url, h)))
+			.map((t) =>
+				scripting
+					.executeScript({ target: { tabId: t.id as number }, files: [FILTER_SCRIPT_FILE] })
+					.catch(() => undefined),
+			),
+	);
+}
+
+/**
+ * Every web page's top frame is sent its filters as they are now. A page whose filter was just removed or turned off is sent
+ * none and shows everything; a tab with no feed filter running has no listener, and its send fails quietly.
+ */
+async function pushFilters(state: SiteEditsState): Promise<void> {
+	const tabs = await chrome.tabs.query({});
+	await Promise.all(
+		tabs
+			.filter((t) => t.id !== undefined && /^https?:/.test(t.url ?? ""))
+			.map((t) =>
+				chrome.tabs
+					.sendMessage(
+						t.id as number,
+						{ type: FEED_FILTER_SET, filters: filtersFor(state, t.url) },
+						{ frameId: 0 },
+					)
+					.catch(() => undefined),
+			),
+	);
+}
+
 async function syncOpenTabs(state: SiteEditsState): Promise<void> {
 	const tabs = await chrome.tabs.query({});
 	await Promise.all(
@@ -135,7 +201,14 @@ export function syncSiteEdits(): Promise<void> {
 		do {
 			again = false;
 			const state = await load();
-			await Promise.allSettled([syncBlocks(state), syncAdBlock(state), syncScripts(state), syncOpenTabs(state)]);
+			await Promise.allSettled([
+				syncBlocks(state),
+				syncAdBlock(state),
+				syncScripts(state),
+				syncFilters(state),
+				pushFilters(state),
+				syncOpenTabs(state),
+			]);
 		} while (again);
 	})().finally(() => {
 		running = undefined;
@@ -153,6 +226,17 @@ function sameHost(a: string, b: string): boolean {
 }
 
 let started = false;
+
+/**
+ * Whether a message came from a page's top document. A prerendered page (Chrome prerenders a confident address-bar
+ * suggestion) or a page in the back/forward cache is a top document too, but not frame 0, so the frame number alone would
+ * leave it unfiltered once it is shown.
+ */
+function topDocument(sender: chrome.runtime.MessageSender): boolean {
+	const frameType = (sender as { frameType?: string }).frameType;
+	if (frameType !== undefined) return frameType === "outermost_frame";
+	return sender.frameId === 0;
+}
 
 export function startSiteEdits(): void {
 	if (started) return;
@@ -176,6 +260,18 @@ export function startSiteEdits(): void {
 				if (after && !sameHost(after.url, d.url)) await injectCss(d.tabId, d.frameId, after.url, state);
 			}
 		});
+	});
+	// The feed filter's question: its own page's filters, for this extension's content script in a page's top frame only.
+	chrome.runtime?.onMessage?.addListener((message: unknown, sender, sendResponse: (filters: unknown) => void) => {
+		if ((message as { type?: unknown } | null)?.type !== FEED_FILTER_GET) return undefined;
+		if (sender.id !== chrome.runtime.id || !topDocument(sender) || !/^https?:/.test(sender.url ?? "")) {
+			sendResponse([]);
+			return undefined;
+		}
+		void load()
+			.then((state) => sendResponse(filtersFor(state, sender.url)))
+			.catch(() => sendResponse([]));
+		return true;
 	});
 	chrome.tabs?.onRemoved?.addListener((tabId) => {
 		for (const key of [...applied.keys()]) if (key.startsWith(`${tabId}:`)) applied.delete(key);

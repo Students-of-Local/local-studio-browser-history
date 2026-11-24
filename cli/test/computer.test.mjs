@@ -23,7 +23,8 @@ writeFileSync(
 	helper,
 	`#!/usr/bin/env node
 const { appendFileSync } = require("node:fs");
-appendFileSync(${JSON.stringify(log)}, JSON.stringify({ argv: process.argv.slice(2) }) + "\\n");
+const seen = Object.fromEntries(["DISPLAY", "WAYLAND_DISPLAY", "DBUS_SESSION_BUS_ADDRESS", "TABKYRA_CONFIG_DIR", "FAKE_LEAK"].map((k) => [k, process.env[k]]));
+appendFileSync(${JSON.stringify(log)}, JSON.stringify({ argv: process.argv.slice(2), env: seen }) + "\\n");
 const tool = (name, properties = {}, required = []) => ({ name, description: name + " it", inputSchema: { type: "object", properties, required } });
 const tools = [
 	tool("windows"),
@@ -254,7 +255,7 @@ test("the local server lists computer_* tools from the helper's own list, as the
 	assert.equal(open.inputSchema.properties.targets.type, "array");
 	assert.equal(tools.find((t) => t.name === "computer_windows").annotations.readOnlyHint, true);
 	assert.equal(tools.find((t) => t.name === "computer_shot").annotations.readOnlyHint, false, "read-only as the helper marks it");
-	assert.match(client.getInstructions(), /computer_\* tools for native Mac apps/);
+	assert.match(client.getInstructions(), /computer_\* tools for native apps/);
 	assert.match(client.getInstructions(), /never take focus/);
 	assert.equal((await client.callTool({ name: "computer_windows", arguments: {} })).content[0].text, "did windows");
 	await client.close();
@@ -435,4 +436,15 @@ test("doctor names the helper that answered, or says there is none", () => {
 	const hung = doctorComputer({ TYCHICUS_HANDS_BIN: silent });
 	assert.equal(hung.status, "warn");
 	assert.match(hung.label, /didn't answer/);
+});
+
+test("a connector's helper gets the way to the desktop and the settings folder, and nothing else of the service's", async () => {
+	rmSync(log, { force: true });
+	const url = await serve({ POLYCARP_SPACES_BIN: helper, DISPLAY: ":3", WAYLAND_DISPLAY: "wayland-9", DBUS_SESSION_BUS_ADDRESS: "unix:path=/tmp/bus", FAKE_LEAK: "service only" });
+	const client = await connect(url, token("desktop-env", "computer.read"));
+	await client.callTool({ name: "computer_windows", arguments: {} });
+	const first = JSON.parse(readFileSync(log, "utf8").trim().split("\n")[0]);
+	assert.deepEqual(first.argv, ["mcp", "--connector"]);
+	assert.deepEqual(first.env, { DISPLAY: ":3", WAYLAND_DISPLAY: "wayland-9", DBUS_SESSION_BUS_ADDRESS: "unix:path=/tmp/bus", TABKYRA_CONFIG_DIR: base.TABKYRA_CONFIG_DIR });
+	await client.close();
 });

@@ -185,6 +185,9 @@ not built yet; see [docs/LINUX.md](docs/LINUX.md) for what works there and what 
 ## More
 
 - [GUIDE.md](GUIDE.md): the full user guide (sessions, skills, library, remote MCP, safety model).
+- Feed filters: ask any agent "hide every post about crypto on x.com" or "remove Shorts from YouTube" and it calls
+  `site_filter`; the filter stays on every visit, shows a count you can click, and is undone in Settings > Sites
+  ([GUIDE.md, Site edits and feed filters](GUIDE.md#site-edits-and-feed-filters)).
 - [docs/](docs/README.md): design notes and references.
 - [CONTRIBUTING.md](CONTRIBUTING.md) and [SECURITY.md](SECURITY.md).
 

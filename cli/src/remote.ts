@@ -51,8 +51,8 @@ export const SCOPES: Record<string, { tools: string[]; what: string }> = {
 		what: "Save a page as PDF, save the files a page links to or shows (fetched with your sign-in on that site, so the agent can read them), and put those saved files into pages. Saving a link needs browser.navigate too; saving an address the agent names needs browser.script. Never a file path on this computer; the saved files are removed when the session ends",
 	},
 	"browser.edit": {
-		tools: ["site_edit"],
-		what: "Change how sites look and load for you, on every visit: hide parts of pages, block requests on a site, ad blocking. Each one you can undo in the side panel",
+		tools: ["site_edit", "site_filter"],
+		what: "Change how sites look and load for you, on every visit: hide parts of pages, block requests on a site, ad blocking, filter a feed's posts by topic or account. Each one you can undo in the side panel",
 	},
 	"browser.script": {
 		tools: ["run_js", "site_script"],

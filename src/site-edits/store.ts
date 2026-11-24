@@ -1,4 +1,16 @@
+import { onHost, STORAGE_KEY } from "./common.js";
+import {
+	MAX_HANDLES,
+	MAX_TERM,
+	MAX_TERMS,
+	normalizeHandle,
+	parseFilterValue,
+	regexTerm,
+	riskyPattern,
+} from "./feed-match.js";
 import { PUBLIC_SUFFIX_RULES } from "./public-suffixes.js";
+
+export { onHost, STORAGE_KEY };
 
 /**
  * Site edits: changes to how a site looks or loads, kept per site and applied on every visit.
@@ -7,13 +19,15 @@ import { PUBLIC_SUFFIX_RULES } from "./public-suffixes.js";
  * - block: a request pattern blocked on that site only (a tracker, an ad server, an autoplay video).
  * - script: JavaScript that runs on the site after it loads. It runs with the user's sign-in on every visit, so
  *   an agent can only propose one: it stays off until the person turns it on in Settings > Sites.
+ * - filter: feed items to hide by the words in them or who posted them (site-edits/feed-match.ts). The extension's own
+ *   content script does the hiding (site-edits/feed-filter.ts), so it is data, not code, and starts on like hide.
  *
  * Ad blocking is one switch for a list of known ad networks (static/ads-rules.json).
  *
  * This file holds the rules and the storage; site-edits/apply.ts makes the browser follow them.
  */
 
-export type EditKind = "hide" | "block" | "script";
+export type EditKind = "hide" | "block" | "script" | "filter";
 /** Who changed it. Only "person" can turn a script on. */
 export type Actor = "person" | "agent";
 
@@ -22,7 +36,7 @@ export interface SiteEdit {
 	/** Lowercase host without "www.", like "x.com". The edit applies there and on its subdomains. */
 	host: string;
 	kind: EditKind;
-	/** Selectors for hide, a request pattern for block, source code for script. */
+	/** Selectors for hide, a request pattern for block, source code for script, a filter as JSON (feed-match.ts) for filter. */
 	value: string;
 	note: string;
 	/** "agent:<name>" or "you". */
@@ -36,7 +50,6 @@ export interface SiteEditsState {
 	adBlock: boolean;
 }
 
-export const STORAGE_KEY = "tk-site-edits";
 export const MAX_EDITS = 300;
 const MAX_SELECTORS = 2000;
 const MAX_PATTERN = 500;
@@ -126,7 +139,11 @@ export function normalizeHost(raw: string): string {
 	} catch {
 		throw new SiteEditError(`${raw} isn't a site.`);
 	}
-	host = host.replace(/^www\./, "").replace(/\.$/, "");
+	// "*.x.com" names x.com and its subdomains, which is what every edit covers already.
+	host = host
+		.replace(/^\*\./, "")
+		.replace(/^www\./, "")
+		.replace(/\.$/, "");
 	if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(host) || host.length > 253)
 		throw new SiteEditError(`${raw} isn't a site. Use one like example.com.`);
 	if (sharedSuffix(host))
@@ -134,20 +151,6 @@ export function normalizeHost(raw: string): string {
 			`${host} is shared by many sites, so an edit there would reach all of them. Name the site itself.`,
 		);
 	return host;
-}
-
-/** Whether `url` is on `host` or one of its subdomains. */
-export function onHost(url: string | undefined, host: string): boolean {
-	if (!url) return false;
-	let h: string;
-	try {
-		const parsed = new URL(url);
-		if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
-		h = parsed.hostname.toLowerCase();
-	} catch {
-		return false;
-	}
-	return h === host || h.endsWith(`.${host}`);
 }
 
 /**
@@ -206,6 +209,47 @@ export function checkPattern(raw: string): string {
 	return pattern;
 }
 
+/**
+ * A filter's value, from what an agent sent: JSON with words, handles and an optional item selector. Returns it in one
+ * canonical form (trimmed, duplicates dropped, handles as "name" or "r/name"), so the same filter saved twice is one edit.
+ */
+export function checkFilter(raw: string): string {
+	let spec: ReturnType<typeof parseFilterValue>;
+	try {
+		spec = parseFilterValue(raw);
+	} catch {
+		throw new SiteEditError('A filter is JSON: {"words":["crypto"],"handles":["@name"]}.');
+	}
+	const words: string[] = [];
+	const seen = new Set<string>();
+	for (const w of spec.words) {
+		const term = w.trim();
+		if (!term || seen.has(term.toLowerCase())) continue;
+		if (term.length > MAX_TERM) throw new SiteEditError(`A word or pattern is limited to ${MAX_TERM} characters.`);
+		const re = regexTerm(term);
+		if (re) {
+			try {
+				new RegExp(re.source, re.flags);
+			} catch {
+				throw new SiteEditError(`${term} isn't a pattern the browser can read.`);
+			}
+			const risky = riskyPattern(re.source);
+			if (risky) throw new SiteEditError(`${term} ${risky}, which could freeze the page. Write it more simply.`);
+		}
+		seen.add(term.toLowerCase());
+		words.push(term);
+	}
+	const handles = [...new Set(spec.handles.map(normalizeHandle).filter(Boolean))];
+	for (const h of handles)
+		if (!/^(r\/)?[\p{L}\p{N}_.-]{1,100}$/u.test(h))
+			throw new SiteEditError(`${h} isn't an account name. Use @name, u/name or r/subreddit.`);
+	if (words.length > MAX_TERMS) throw new SiteEditError(`A filter takes up to ${MAX_TERMS} words.`);
+	if (handles.length > MAX_HANDLES) throw new SiteEditError(`A filter takes up to ${MAX_HANDLES} accounts.`);
+	if (!words.length && !handles.length) throw new SiteEditError("Give words or handles to filter.");
+	const items = spec.items ? checkSelectors(spec.items) : undefined;
+	return JSON.stringify({ words, handles, ...(items ? { items } : {}) });
+}
+
 function checkScript(raw: string): string {
 	if (!raw.trim()) throw new SiteEditError("The script is empty.");
 	if (raw.length > MAX_SCRIPT) throw new SiteEditError(`A script is limited to ${MAX_SCRIPT} characters.`);
@@ -215,18 +259,19 @@ function checkScript(raw: string): string {
 export function checkValue(kind: EditKind, value: string): string {
 	if (kind === "hide") return checkSelectors(value);
 	if (kind === "block") return checkPattern(value);
+	if (kind === "filter") return checkFilter(value);
 	return checkScript(value);
 }
 
-/** The state after an addition. A script from an agent starts off; hide and block start on (each is one click to undo). */
+/** The state after an addition. A script from an agent starts off; hide, block and filter start on (each is one click to undo). */
 export function added(
 	state: SiteEditsState,
 	input: { host: string; kind: EditKind; value: string; note?: string; actor: Actor; who: string },
 	id: string,
 	now: number,
 ): { state: SiteEditsState; edit: SiteEdit } {
-	if (!["hide", "block", "script"].includes(input.kind))
-		throw new SiteEditError(`Unknown kind ${input.kind}: hide, block or script.`);
+	if (!["hide", "block", "script", "filter"].includes(input.kind))
+		throw new SiteEditError(`Unknown kind ${input.kind}: hide, block, script or filter.`);
 	if (state.edits.length >= MAX_EDITS)
 		throw new SiteEditError(`There are already ${MAX_EDITS} site edits. Remove some in Settings > Sites.`);
 	const host = normalizeHost(input.host);
