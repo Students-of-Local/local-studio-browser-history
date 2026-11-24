@@ -1194,6 +1194,24 @@ async function js(code, args = {}) {
 	return JSON.parse(await tool("run_js", { code, ...args })).value;
 }
 
+extraPages["/globals"] = `<!doctype html><title>Polycarp globals</title><h1>Shop</h1><script>
+window.seen = [];
+window.mine = "the page's";
+Object.defineProperty(window, "__probe", { configurable: true, set(v) { window.seen.push(v); }, get() { return "the page's"; } });
+</script>`;
+
+test("run_js runs apart from the page's own scripts, whatever path it takes; world main still reaches them", async () => {
+	await go("globals");
+	assert.equal(await js(`(() => { window.__probe = "ours"; return [typeof window.mine, window.__probe, document.querySelector("h1").textContent].join(); })()`), "undefined,ours,Shop");
+	// These runs take the debugger path (no "Allow user scripts" here): its binding is in that world, in each document.
+	assert.equal(await js(`typeof window.__tabkyraSend`), "function");
+	assert.deepEqual(await js(`[window.seen.length, typeof window.__tabkyraSend, typeof window.__tabkyraChrome, window.mine].join()`, { world: "main" }), "0,undefined,undefined,the page's");
+	// A navigation gives the next run a world of the new document.
+	await go("globals");
+	assert.equal(await js(`typeof window.__probe + document.title`), "undefinedPolycarp globals");
+	assert.equal(await js(`typeof window.__tabkyraSend`), "function");
+});
+
 test("press select-all (Meta+a and Control+a) selects the field's text, so typing replaces it", async () => {
 	await go("edit");
 	for (const chord of ["Meta+a", "Control+a"]) {
@@ -1213,13 +1231,13 @@ test("type paste:true pastes: an editor's own paste handler gets the text, a pla
 	const toField = await tool("type", { selector: "#plain", text: "a\nb", paste: true });
 	assert.match(toField, /"handledBy":\s*"inserted"/, toField);
 	assert.equal(await js("document.getElementById('plain').value"), "a\nb");
-	assert.equal(await js("window.keys"), 0, "a key event went out");
+	assert.equal(await js("window.keys", { world: "main" }), 0, "a key event went out");
 	// Inserted, not typed: Chromium sends one insertText input per line.
-	assert.match(await js("window.inputs.join(',')"), /^insertText(,insertText)*$/);
+	assert.match(await js("window.inputs.join(',')", { world: "main" }), /^insertText(,insertText)*$/);
 	// Steps take the same paste, as {paste: text}.
 	await tool("actions", { steps: [{ click: { selector: "#plain" } }, { paste: "!" }] });
 	assert.equal(await js("document.getElementById('plain').value"), "a\nb!");
-	assert.equal(await js("window.keys"), 0, "a key event went out in steps");
+	assert.equal(await js("window.keys", { world: "main" }), 0, "a key event went out in steps");
 });
 
 /**
@@ -2893,12 +2911,12 @@ test("change report: controls with live counters do not pile up refs between rea
 	await tool("read_page", { filter: "interactive" });
 	for (let i = 0; i < 10; i++) await tool("click", { selector: "#go" });
 	// Each look keeps a ref for every ticking control; without a cap that is 600 and growing.
-	const kept = await js("[window.__tabkyraRefs?.size ?? -1, window.__tabkyraStale?.size ?? -1]");
+	const kept = await js("[window.__tabkyraRefs?.size ?? -1, window.__tabkyraStale?.size ?? -1]", { world: "main" });
 	assert.ok(kept[0] > 0 && kept[0] <= 260, `refs held after ten actions: ${kept}`);
 	assert.ok(kept[1] <= 200, `stale refs after ten actions: ${kept}`);
 	// The agent's own read retires them.
 	await tool("read_page", { filter: "interactive" });
-	const after = await js("window.__tabkyraRefs.size");
+	const after = await js("window.__tabkyraRefs.size", { world: "main" });
 	assert.ok(after <= 40, `refs after a read: ${after}`);
 });
 
@@ -3082,7 +3100,7 @@ render();
 test("a ref never heals onto another row because the page reused its position id", async () => {
 	await go("remove-ids");
 	const refsOf = (label, read) => read.split("\n").filter((l) => l.includes(`"${label}"`)).map((l) => l.match(/\b(e\d+)\b/)[1]);
-	const left = async () => JSON.parse(JSON.parse(await tool("run_js", { code: "JSON.stringify([items, twins.length])" })).value);
+	const left = async () => JSON.parse(JSON.parse(await tool("run_js", { code: "JSON.stringify([items, twins.length])", world: "main" })).value);
 	// Identical rows: after tw-0's row goes, the next "Draft" row comes back as tw-0, the same in id, look and row text.
 	// The repeat of the click that removed it must fail, not remove a second draft.
 	const [tw0, tw1] = refsOf("Discard", await tool("read_page", { filter: "interactive" }));
@@ -3122,12 +3140,12 @@ function render() {
 
 test("a ref never heals onto the next row after its row was removed another way", async () => {
 	await go("remove-wrapped");
-	const left = async () => JSON.parse(JSON.parse(await tool("run_js", { code: "JSON.stringify(items)" })).value);
+	const left = async () => JSON.parse(JSON.parse(await tool("run_js", { code: "JSON.stringify(items)", world: "main" })).value);
 	for (const rows of [["Draft A", "Draft B"], ["Draft", "Draft"]]) {
-		await tool("run_js", { code: `(() => { items = ${JSON.stringify(rows)}; render(); return "ok"; })()` });
+		await tool("run_js", { code: `(() => { items = ${JSON.stringify(rows)}; render(); return "ok"; })()`, world: "main" });
 		const page = await tool("read_page", { filter: "interactive" });
 		const [first] = page.split("\n").filter((l) => l.includes('"Remove"')).map((l) => l.match(/\b(e\d+)\b/)[1]);
-		await tool("run_js", { code: '(() => { items.splice(0, 1); render(); return "ok"; })()' });
+		await tool("run_js", { code: '(() => { items.splice(0, 1); render(); return "ok"; })()', world: "main" });
 		assert.match(await failure("click", { ref: first }), /^stale_ref: Ref e\d+ not found: the element it named left the page\. Nothing was done\./, rows.join(", "));
 		assert.deepEqual(await left(), rows.slice(1), `the other row is still there (${rows.join(", ")})`);
 	}
@@ -3149,10 +3167,10 @@ test("an action refused because the control was covered does not count as done",
 	const email = refFor(page, '"Email"');
 	const save = refFor(page, '"Save"');
 	// The banner comes up after the read, as a cookie banner does a moment after load.
-	await tool("run_js", { code: '(() => { banner(); return "ok"; })()' });
+	await tool("run_js", { code: '(() => { banner(); return "ok"; })()', world: "main" });
 	assert.match(await failure("fill", { ref: email, value: "a@b.c" }), /is covered by/);
 	assert.match(await failure("click", { ref: save }), /is covered by/);
-	await tool("run_js", { code: '(() => { dismiss(); return "ok"; })()' });
+	await tool("run_js", { code: '(() => { dismiss(); return "ok"; })()', world: "main" });
 	await tool("fill", { ref: email, value: "a@b.c" });
 	await tool("click", { ref: save });
 	assert.deepEqual(JSON.parse(JSON.parse(await tool("run_js", { code: "JSON.stringify([document.getElementById('email').value, document.title])" })).value), ["a@b.c", "saved"]);
