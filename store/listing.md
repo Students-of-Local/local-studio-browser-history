@@ -65,7 +65,7 @@ irm https://github.com/baney75/tychicus/releases/latest/download/install.ps1 | i
 
 You stay in charge:
 
-• The agent can't open a new site until you allow it. Allowed sites are listed in Settings, where you can remove them.
+• You pick when agents ask. By default, agents on frontier models open ordinary sites, small or unknown models ask first, and every agent asks before it goes straight to mail, a bank or another sensitive site. Manual asks before every new site. Allowed sites are listed in Settings, where you can remove them.
 • It stops and hands the tab to you for sign-ins and captchas.
 • Private mode sends prompts only to models that don't keep them, or to your own machines.
 
@@ -111,7 +111,7 @@ The extension loads no script, module or WebAssembly from outside its package. T
 
 **Data usage: what the extension handles.** Tick these:
 
-- Authentication information: API keys the user adds under "Use an API key instead", stored locally and sent only to that provider; and the ChatGPT and GitHub Copilot sign-ins, whose tokens the helper keeps on this computer (the extension never holds them). Local Studio sign-ins stay in Local Studio.
+- Authentication information: API keys the user adds under "Use an API key instead", stored locally and sent only to that provider; and the ChatGPT and GitHub Copilot sign-ins, whose tokens the helper keeps on this computer (the extension never holds them). Sign-ins in the Local Studio app stay in the app.
 - Web history: the addresses of pages the agent opens.
 - User activity: the agent's clicks and typing in its own tabs.
 - Website content: text, images and form contents of pages the agent reads.
@@ -133,9 +133,9 @@ not used to determine creditworthiness or for lending.
 No account is needed.
 
 1. Click the toolbar icon to open the side panel.
-2. In the welcome, choose "Chat here" and add a key for any listed provider. A free key from openrouter.ai works with Free mode. (Local Studio, the default when it runs, needs the Local Studio app on the same computer. Without it the panel offers API keys, so the reviewer doesn't need it.)
+2. In the welcome, choose "Chat here" and add a key for any listed provider. A free key from openrouter.ai works with Free mode. (Chatting through the Local Studio app, the default when the app runs, needs that app on the same computer. Without it the panel offers API keys, so the reviewer doesn't need it.)
 3. Ask: "Open example.com and tell me what the page says."
-4. Approve example.com when asked. A new tab group opens, and the agent reads the page in it.
+4. If it asks about example.com, allow it (small and unknown models ask first). A new tab group opens, and the agent reads the page in it.
 
 Connecting a coding agent needs the free Local Studio helper. The welcome shows the command that installs it (curl -fsSL https://github.com/baney75/tychicus/releases/latest/download/install.sh | sh on macOS and Linux). It isn't required to review the side panel.
 ```
