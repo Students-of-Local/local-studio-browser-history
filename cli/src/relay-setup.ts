@@ -4,17 +4,15 @@
  * their own browser, deploys the vendored relay bundle (relay-dist.ts) to it, and sets RELAY_KEY as a Worker secret through stdin.
  * Tychicus never reads wrangler's stored credentials and never sees a Cloudflare token. remote-setup.ts runs these in order.
  */
-import { spawn } from "node:child_process";
-import { mkdirSync, readFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { type ChildProcess, spawn, spawnSync } from "node:child_process";
+import { chmodSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { join, win32 } from "node:path";
 import { envVar } from "./env.ts";
 import { configDir } from "./files.ts";
 import { which } from "./harness.ts";
-import { HEALTH_PATH } from "./relay.ts";
 import { RELAY_JS, RELAY_WRANGLER } from "./relay-dist.ts";
 import { validAccountId } from "./remote-config.ts";
-import { sleep, writeAtomic } from "./service.ts";
-import { USER_AGENT } from "./version.ts";
+import { systemRoot, writeAtomic } from "./service.ts";
 
 /** The wrangler deploy.md was checked with. Every command runs this one. */
 export const WRANGLER_VERSION = "4.163.0";
@@ -23,6 +21,9 @@ export const WRANGLER_VERSION = "4.163.0";
 export const DEFAULT_RELAY_NAME = "tychicus-relay";
 
 export const relayFolder = () => join(configDir(), "relay");
+
+/** A workers.dev Worker name, so the one argument that isn't fixed here is safe in a Windows shell line. */
+export const validRelayName = (name: string): boolean => /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/.test(name);
 
 /** Where a fresh account picks its workers.dev subdomain, the one thing wrangler can't do without a terminal prompt. */
 export const onboardingUrl = (accountId: string) => `https://dash.cloudflare.com/${accountId}/workers/onboarding`;
@@ -39,11 +40,16 @@ export interface WranglerOptions {
 	timeoutMs: number;
 }
 
+/** `out` is both streams, for messages; `stdout` is what a command answers, without npm's notices. */
+export interface WranglerResult {
+	code: number;
+	out: string;
+	stdout: string;
+}
+
 export interface RelaySeam {
 	/** Runs `npx --yes wrangler@<version> <args>`; tests pass a stand-in. */
-	wrangler?: (args: string[], options: WranglerOptions) => Promise<{ code: number; out: string }>;
-	fetch?: typeof fetch;
-	sleep?: (ms: number) => Promise<void>;
+	wrangler?: (args: string[], options: WranglerOptions) => Promise<WranglerResult>;
 }
 
 /** npx from the person's Node.js, or TYCHICUS_NPX for tests. */
@@ -51,13 +57,29 @@ export function npxBinary(): string | undefined {
 	return envVar("NPX") || which("npx");
 }
 
-function runWrangler(args: string[], options: WranglerOptions): Promise<{ code: number; out: string }> {
+/** Wrangler is npx's child, and cmd.exe's on Windows, so ending the first process alone would leave it deploying. */
+function killTree(child: ChildProcess): void {
+	if (!child.pid) return;
+	if (process.platform === "win32") {
+		spawnSync(win32.join(systemRoot(), "System32", "taskkill.exe"), ["/PID", String(child.pid), "/T", "/F"], { windowsHide: true });
+		return;
+	}
+	try {
+		process.kill(-child.pid, "SIGKILL");
+	} catch {
+		child.kill("SIGKILL");
+	}
+}
+
+export function runWrangler(args: string[], options: WranglerOptions): Promise<WranglerResult> {
 	const npx = npxBinary();
-	if (!npx) return Promise.resolve({ code: 127, out: "npx isn't on PATH." });
-	const env = { ...process.env, WRANGLER_SEND_METRICS: "false", ...(options.accountId ? { CLOUDFLARE_ACCOUNT_ID: options.accountId } : {}), ...options.env };
+	if (!npx) return Promise.resolve({ code: 127, out: "npx isn't on PATH.", stdout: "" });
+	// A Cloudflare token, account or Worker name set for other work would win over the person's browser sign-in and our arguments.
+	const inherited = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(CLOUDFLARE_|CF_|WRANGLER_CI_)/i.test(key)));
+	const env = { ...inherited, WRANGLER_SEND_METRICS: "false", ...(options.accountId ? { CLOUDFLARE_ACCOUNT_ID: options.accountId } : {}), ...options.env };
 	return new Promise((resolve) => {
 		// npx is a .cmd on Windows, which Node runs only through a shell, so its path is quoted (C:\Program Files). Every argument is
-		// fixed here or checked first (a Worker name).
+		// fixed here or a validRelayName.
 		const windows = process.platform === "win32";
 		const child = spawn(windows ? `"${npx}"` : npx, ["--yes", `wrangler@${WRANGLER_VERSION}`, ...args], {
 			cwd: options.cwd,
@@ -65,20 +87,31 @@ function runWrangler(args: string[], options: WranglerOptions): Promise<{ code: 
 			stdio: options.inherit ? "inherit" : [options.input === undefined ? "ignore" : "pipe", "pipe", "pipe"],
 			shell: windows,
 			windowsHide: true,
+			// A group of its own to end on a timeout; the sign-in stays in the terminal's, so Ctrl-C reaches it.
+			detached: !windows && !options.inherit,
 		});
 		let out = "";
-		child.stdout?.on("data", (b: Buffer) => (out += b));
+		let stdout = "";
+		const done = (code: number, message = "") => {
+			clearTimeout(timer);
+			resolve({ code, out: out + message, stdout });
+		};
+		child.stdout?.on("data", (b: Buffer) => {
+			stdout += b;
+			out += b;
+		});
 		child.stderr?.on("data", (b: Buffer) => (out += b));
+		const timer = setTimeout(() => {
+			killTree(child);
+			child.stdout?.destroy();
+			child.stderr?.destroy();
+			done(124, `\nTimed out after ${Math.round(options.timeoutMs / 1000)} s.`);
+		}, options.timeoutMs);
+		child.on("error", (err) => done(127, err.message));
+		child.on("close", (code) => done(code ?? 1));
+		// A wrangler that never read its input: the exit code already says it failed.
+		child.stdin?.on("error", () => {});
 		if (options.input !== undefined) child.stdin?.end(options.input);
-		const timer = setTimeout(() => child.kill("SIGTERM"), options.timeoutMs);
-		child.on("error", (err) => {
-			clearTimeout(timer);
-			resolve({ code: 127, out: err.message });
-		});
-		child.on("close", (code) => {
-			clearTimeout(timer);
-			resolve({ code: code ?? 1, out });
-		});
 	});
 }
 
@@ -109,7 +142,7 @@ export function parseWhoami(out: string): { loggedIn: boolean; accounts: Cloudfl
 export async function whoami(seam: RelaySeam = {}): Promise<{ loggedIn: boolean; accounts: CloudflareAccount[] } | { error: string }> {
 	mkdirSync(relayFolder(), { recursive: true, mode: 0o700 });
 	const r = await wrangler(seam)(["whoami", "--json"], { cwd: relayFolder(), timeoutMs: 180_000 });
-	const parsed = parseWhoami(r.out);
+	const parsed = parseWhoami(r.stdout);
 	if (parsed) return parsed;
 	// A signed-out wrangler exits non-zero; it says so in words when --json has nothing to print.
 	if (/not authenticated|not logged in|wrangler login/i.test(r.out)) return { loggedIn: false, accounts: [] };
@@ -122,9 +155,10 @@ export async function login(seam: RelaySeam = {}): Promise<boolean> {
 	return (await wrangler(seam)(["login"], { cwd: relayFolder(), inherit: true, timeoutMs: 10 * 60_000 })).code === 0;
 }
 
-/** The deploy kit in a folder of its own, holding only the two files, as deploy.md asks. */
+/** The deploy kit in a folder of its own, as deploy.md asks. */
 export function stageRelay(dir: string = relayFolder()): void {
 	mkdirSync(dir, { recursive: true, mode: 0o700 });
+	chmodSync(dir, 0o700); // mkdir's mode is only for a folder it makes.
 	writeAtomic(join(dir, "relay.js"), RELAY_JS, 0o600);
 	writeAtomic(join(dir, "wrangler.jsonc"), RELAY_WRANGLER, 0o600);
 }
@@ -155,12 +189,39 @@ export function deployedAddress(ndjson: string): string | undefined {
 	return undefined;
 }
 
-export type DeployResult = { ok: true; url: string } | { ok: false; subdomain: true } | { ok: false; subdomain?: false; message: string };
+/** The Worker this computer last deployed. It outlives `remote off`, so setting up again takes the same one. */
+const mineFile = () => join(relayFolder(), "mine.json");
 
-/** `wrangler deploy --name <name>` with the staged kit. With no terminal, wrangler asks nothing; a missing subdomain is its own answer. */
-export async function deploy(name: string, accountId: string | undefined, seam: RelaySeam = {}): Promise<DeployResult> {
+/**
+ * What a deploy to this name would replace. `relay` has a RELAY_KEY this computer didn't set, so it is most likely another computer's
+ * and a new key would cut that one off; `other` has none, so it is no relay at all. Wrangler itself would replace either unasked.
+ */
+async function replaces(name: string, accountId: string | undefined, seam: RelaySeam): Promise<{ kind: "nothing" | "mine" | "relay" | "other" } | { kind: "unknown"; message: string }> {
+	try {
+		const mine = JSON.parse(readFileSync(mineFile(), "utf8")) as { name?: unknown; accountId?: unknown };
+		if (mine.name === name && mine.accountId === accountId) return { kind: "mine" };
+	} catch {
+		// Nothing deployed from here yet.
+	}
+	const r = await wrangler(seam)(["secret", "list", "--name", name], { cwd: relayFolder(), accountId, timeoutMs: 180_000 });
+	if (r.code === 0) return { kind: r.stdout.includes('"RELAY_KEY"') ? "relay" : "other" };
+	if (r.out.includes(`Worker "${name}" not found`) || /\bcode: 10007\b/.test(r.out)) return { kind: "nothing" };
+	return { kind: "unknown", message: `wrangler secret list failed (exit ${r.code})${r.out ? `: ${r.out.trim().slice(-300)}` : ""}` };
+}
+
+export type DeployResult = { ok: true; url: string } | { ok: false; why: "subdomain" | "relay" | "other" } | { ok: false; why: "failed"; message: string };
+
+/**
+ * `wrangler deploy --name <name>` with the staged kit. With no terminal, wrangler asks nothing; a missing subdomain is its own answer.
+ * A Worker already there is never replaced, save one this computer deployed or, with `takeOver`, another computer's relay.
+ */
+export async function deploy(name: string, accountId: string | undefined, { takeOver = false }: { takeOver?: boolean } = {}, seam: RelaySeam = {}): Promise<DeployResult> {
+	if (!validRelayName(name)) return { ok: false, why: "failed", message: `${name} isn't a Worker name: lowercase letters, digits and dashes, 63 at most.` };
 	const dir = relayFolder();
 	stageRelay(dir);
+	const there = await replaces(name, accountId, seam);
+	if (there.kind === "unknown") return { ok: false, why: "failed", message: there.message };
+	if (there.kind === "other" || (there.kind === "relay" && !takeOver)) return { ok: false, why: there.kind };
 	const output = join(dir, "deploy-output.ndjson");
 	rmSync(output, { force: true });
 	const r = await wrangler(seam)(["deploy", "--name", name], { cwd: dir, accountId, env: { WRANGLER_OUTPUT_FILE_PATH: output }, timeoutMs: 5 * 60_000 });
@@ -171,9 +232,12 @@ export async function deploy(name: string, accountId: string | undefined, seam: 
 		// No output file: the deploy never got that far.
 	}
 	const url = r.code === 0 ? deployedAddress(lines) : undefined;
+	const subdomain = !url && needsSubdomain(r.out);
+	// Wrangler uploads the Worker before it looks for a subdomain, so a setup that stops there or times out finds its own next time.
+	if (r.code === 0 || r.code === 124 || subdomain) writeAtomic(mineFile(), JSON.stringify({ name, accountId }), 0o600);
 	if (url) return { ok: true, url };
-	if (needsSubdomain(r.out)) return { ok: false, subdomain: true };
-	return { ok: false, message: r.code === 0 ? "wrangler deploy finished but named no workers.dev address." : `wrangler deploy failed (exit ${r.code})${r.out ? `: ${r.out.trim().slice(-400)}` : ""}` };
+	if (subdomain) return { ok: false, why: "subdomain" };
+	return { ok: false, why: "failed", message: r.code === 0 ? "wrangler deploy finished but named no workers.dev address." : `wrangler deploy failed (exit ${r.code})${r.out ? `: ${r.out.trim().slice(-400)}` : ""}` };
 }
 
 /** The Worker this computer last set a key on. It outlives `remote off`, so setting up again takes the same one. */
@@ -196,45 +260,12 @@ export async function someoneElses(name: string, accountId: string | undefined, 
 
 /** `wrangler secret put RELAY_KEY` with the key on stdin, so it never touches argv, a file or a log. */
 export async function putKey(name: string, key: string, accountId: string | undefined, seam: RelaySeam = {}): Promise<{ ok: true } | { ok: false; message: string }> {
+	if (!validRelayName(name)) return { ok: false, message: `${name} isn't a Worker name.` };
+	mkdirSync(relayFolder(), { recursive: true, mode: 0o700 });
 	const r = await wrangler(seam)(["secret", "put", "RELAY_KEY", "--name", name], { cwd: relayFolder(), accountId, input: key, timeoutMs: 3 * 60_000 });
 	if (r.code === 0) {
 		writeAtomic(mineFile(), JSON.stringify({ name, accountId }), 0o600);
 		return { ok: true };
 	}
 	return { ok: false, message: `wrangler secret put RELAY_KEY failed (exit ${r.code})${r.out ? `: ${r.out.replaceAll(key, "<key>").trim().slice(-300)}` : ""}` };
-}
-
-/**
- * The end-to-end check: the relay reports the connector, then GET /v1/health through it comes back from serve as {"ok":true}.
- * A new subdomain can take minutes to resolve and the connector a few seconds to dial, so it retries until `deadline`.
- */
-export async function verify(url: string, deadline: number, every: number, seam: RelaySeam = {}): Promise<{ ok: true } | { ok: false; code: "relay_connector" | "relay_health"; message: string }> {
-	const get = seam.fetch ?? fetch;
-	const wait = seam.sleep ?? sleep;
-	const headers = { "user-agent": USER_AGENT };
-	let last = "";
-	let connected = false;
-	for (;;) {
-		try {
-			if (!connected) {
-				const res = await get(`${url}/_relay/health`, { headers, signal: AbortSignal.timeout(10_000) });
-				const body = (await res.json().catch(() => undefined)) as { connected?: unknown } | undefined;
-				connected = res.ok && body?.connected === true;
-				last = connected ? "" : res.ok ? "the relay answers but no connector is connected" : `the relay answered ${res.status}`;
-			}
-			if (connected) {
-				const res = await get(`${url}${HEALTH_PATH}`, { headers, signal: AbortSignal.timeout(10_000) });
-				const body = (await res.json().catch(() => undefined)) as { ok?: unknown } | undefined;
-				if (res.status === 200 && body?.ok === true) return { ok: true };
-				last = `${HEALTH_PATH} through the relay answered ${res.status}`;
-			}
-		} catch (err) {
-			last = err instanceof Error ? err.message : String(err);
-		}
-		if (Date.now() + every > deadline) break;
-		await wait(every);
-	}
-	return connected
-		? { ok: false, code: "relay_health", message: `The relay reaches this computer, but serve didn't answer ${HEALTH_PATH} through it (${last}).` }
-		: { ok: false, code: "relay_connector", message: `The relay at ${url} didn't report this computer's connector (${last}).` };
 }
