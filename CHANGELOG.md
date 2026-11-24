@@ -44,7 +44,7 @@
 - Tychicus opens in its dark look until you pick Light or Match system in Settings > Appearance. The side panel, its first frame and the in-use veil on agents' pages all follow it. Before, nothing saved meant Match system, so a Mac in light mode got a white panel; that choice is now stored by name, and anyone who never picked one gets dark. Tests: `test/appearance.test.mjs`.
 - Site access is now a permission mode: Manual, Auto (the default) or Yolo, in Settings > Agents. Manual is the
   old "Ask before opening a new site", Yolo the old "Always allow", and Auto keeps "Match the model" (frontier models
-  open any site, small or unknown models ask). A stored setting moves to its new name on update; an install
+  open ordinary sites, small or unknown models ask). A stored setting moves to its new name on update; an install
   that never chose one is Auto, with a one-time notice in the side panel and a Switch to Manual button. The mode is
   one store (`permission_mode`), for computer use and VMs to read too; `permission.setMode` and `status` take and
   report the new names (`mode`), and still take and report the 1.4.0 ones for an older CLI. Decision D67. Issue #33.

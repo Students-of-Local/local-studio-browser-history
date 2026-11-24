@@ -3,7 +3,7 @@
  * Tychicus, set in Settings > Agents or with `tychicus mode`:
  *
  * - "manual": every new site asks first (the old "ask").
- * - "auto" (the default): an agent on a frontier model opens any site without asking, and one on a small or
+ * - "auto" (the default): an agent on a frontier model opens ordinary sites without asking, and one on a small or
  *   unknown model asks (D60's "Match the model"; the CLI says which in its hello, cli/src/model-tier.ts).
  * - "yolo": nothing asks; agents may open any site (the old "allow_all").
  *

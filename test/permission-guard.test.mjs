@@ -139,6 +139,14 @@ test("the input tools all pass the mode's check, beside the look before them; th
 	assert.doesNotMatch(read("src/bridge/panel-calls.ts"), /guard:/, "the side panel's agent is the person's own");
 });
 
+test("the mode notice tells an updated install that Auto now asks before risky actions, since the bridge does", () => {
+	const notice = read("src/components/ModeNotice.ts");
+	assert.match(notice, /frontier models open ordinary sites on their own/);
+	assert.match(notice, /asks before mail, banks and other sensitive sites, and before it sends, posts, buys, deletes or changes settings as you/);
+	assert.match(read("src/bridge/native.ts"), /\bactionRisk\(/);
+	assert.match(read("src/bridge/permissions.ts"), /return !sensitiveSite\(url\)/);
+});
+
 test("the side panel shows an action question above the chat, with one click to allow once, allow on the site or deny", async () => {
 	fresh();
 	const ask = {
