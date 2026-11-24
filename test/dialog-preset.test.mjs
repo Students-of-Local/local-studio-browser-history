@@ -292,7 +292,7 @@ test("sol-F2, first-F2: one armed answer per tab across the session's clients; a
 	assert.ok((await reply(slow)).result && c.result?.dialog?.answered === "ok", JSON.stringify(c));
 });
 
-test("first-F3 (review of PR 200): on_dialog's OK fails: Tychicus cancels the box at once and the call fails, with no wait for the guard", async (t) => {
+test("first-F3 (review of PR 200): on_dialog's OK fails: Local Studio cancels the box at once and the call fails, with no wait for the guard", async (t) => {
 	setup(t);
 	records.deleted = 0;
 	const tab = await agentTab(deletePage);

@@ -244,7 +244,7 @@ Chromium (`cli/test/e2e-feed-filter.test.mjs` fails over 50 ms).
 ## Sessions and tab groups
 
 Each agent works in a session: its own tab group, titled with the agent and the project,
-for example **Tychicus · claude · dbaney.com**. The group is how you see what an agent is
+for example **Local Studio · claude · dbaney.com**. The group is how you see what an agent is
 doing, and what you do to it means something:
 
 | You | Tychicus |
@@ -511,7 +511,7 @@ Your browser is signed in as you, so the defaults are conservative.
   It doesn't limit what the agent does on a site you've allowed, including running
   scripts there with `run_js`. Allow only sites you'd let the agent act on, and for
   high-stakes accounts, run agents in a separate browser profile that isn't signed in.
-- **Agents stay in their own tab group** ("Tychicus · claude", "Tychicus · codex"). Their
+- **Agents stay in their own tab group** ("Local Studio · claude", "Local Studio · codex"). Their
   tabs open in the background, they can't see your other tabs, and popups from their
   tabs don't steal focus. `tabs_show` is the only tool that changes what you see.
 - **Nothing listens on the network by default.** The browser starts the native host,
@@ -540,7 +540,7 @@ flowchart LR
   A["Your agent<br/>Claude Code, Codex, OpenCode, Cursor"] -- "MCP (stdio)" --> B["tychicus mcp"]
   B -- "Unix socket<br/>user-only" --> C["Native host<br/>started by the browser"]
   C -- "Native messaging" --> D["Tychicus extension"]
-  D -- "chrome.debugger,<br/>tab groups" --> E["Background tabs<br/>Tychicus · claude"]
+  D -- "chrome.debugger,<br/>tab groups" --> E["Background tabs<br/>Local Studio · claude"]
   U(["You"]) -. "approve sites,<br/>watch, take over" .-> D
 ```
 
