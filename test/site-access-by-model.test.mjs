@@ -76,10 +76,10 @@ test("a hello's tier is trusted only as frontier or small; anything else is unkn
 test("the bridge checks each site against the calling client's tier, and guarded hosts before that", () => {
 	const native = read("src/bridge/native.ts");
 	assert.match(native, /tier: asModelTier\(msg\.client\.tier\)/, "the hello's tier is kept for the client");
-	assert.match(native, /async function askPermission\([^)]*\): Promise<boolean> \{\s*if \(isOwnExtensionUrl\(url\)\) return false;\s*if \(await isUrlAllowed\(url, state\.tier\)\) return true;/);
+	assert.match(native, /async function askPermission\([^)]*\): Promise<boolean> \{\s*if \(isOwnExtensionUrl\(url\)\) return false;\s*if \(await isUrlAllowed\(url, state\.tier, state\.remote\)\) return true;/);
 	assert.match(native, /if \(isGuardedUrl\(url, req\.guardedHosts\)\) throw guardedError\(url\);\s*if \(!\(await askPermission\(state, url\)\)\)/);
-	assert.match(native, /isUrlAllowed\(url, state\.tier\)\),\s*askUpload/, "frames use the client's tier");
-	assert.match(read("src/bridge/files.ts"), /isUrlAllowed\(url, ctx\.tier\)/, "an upload's page uses the client's tier");
+	assert.match(native, /isUrlAllowed\(url, state\.tier, state\.remote\)\),\s*askUpload/, "frames use the client's tier");
+	assert.match(read("src/bridge/files.ts"), /isUrlAllowed\(url, ctx\.tier, ctx\.remote\)/, "an upload's page uses the client's tier");
 	// The upload question is asked in every mode: askUpload never reads the permission mode.
 	const askUpload = native.slice(native.indexOf("async function askUpload("), native.indexOf("async function askUpload(") + 1500);
 	assert.doesNotMatch(askUpload, /getPermissionMode|isUrlAllowed|opensAnySite/);
@@ -90,5 +90,5 @@ test("Settings > Agents offers Manual, Auto and Yolo, and Auto is the default", 
 	assert.match(tab, /@state\(\) private mode: PermissionMode = "auto";/);
 	const modes = [...tab.matchAll(/\{\s*mode: "([a-z]+)",\s*title: "([^"]+)"/g)].map((m) => [m[1], m[2]]);
 	assert.deepEqual(modes, [["manual", "Manual"], ["auto", "Auto (default)"], ["yolo", "Yolo"]]);
-	assert.match(tab, /agents on frontier models open any site on their own; small or unknown models ask first/);
+	assert.match(tab, /agents on frontier models open ordinary sites; small or unknown models ask first\. Every agent asks before it goes straight to mail, a bank or another sensitive site you haven't allowed \(a link it clicks there isn't checked\)/);
 });
