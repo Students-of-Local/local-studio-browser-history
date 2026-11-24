@@ -11,7 +11,7 @@ import { envVar } from "./env.ts";
 import { configDir } from "./files.ts";
 import { which } from "./harness.ts";
 import { RELAY_JS, RELAY_WRANGLER } from "./relay-dist.ts";
-import { validAccountId } from "./remote-config.ts";
+import { validAccountId, validWorkerName } from "./remote-config.ts";
 import { systemRoot, writeAtomic } from "./service.ts";
 
 /** The wrangler deploy.md was checked with. Every command runs this one. */
@@ -21,9 +21,6 @@ export const WRANGLER_VERSION = "4.163.0";
 export const DEFAULT_RELAY_NAME = "tychicus-relay";
 
 export const relayFolder = () => join(configDir(), "relay");
-
-/** A workers.dev Worker name, so the one argument that isn't fixed here is safe in a Windows shell line. */
-export const validRelayName = (name: string): boolean => /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/.test(name);
 
 /** Where a fresh account picks its workers.dev subdomain, the one thing wrangler can't do without a terminal prompt. */
 export const onboardingUrl = (accountId: string) => `https://dash.cloudflare.com/${accountId}/workers/onboarding`;
@@ -79,7 +76,7 @@ export function runWrangler(args: string[], options: WranglerOptions): Promise<W
 	const env = { ...inherited, WRANGLER_SEND_METRICS: "false", ...(options.accountId ? { CLOUDFLARE_ACCOUNT_ID: options.accountId } : {}), ...options.env };
 	return new Promise((resolve) => {
 		// npx is a .cmd on Windows, which Node runs only through a shell, so its path is quoted (C:\Program Files). Every argument is
-		// fixed here or a validRelayName.
+		// fixed here or a validWorkerName.
 		const windows = process.platform === "win32";
 		const child = spawn(windows ? `"${npx}"` : npx, ["--yes", `wrangler@${WRANGLER_VERSION}`, ...args], {
 			cwd: options.cwd,
@@ -209,14 +206,14 @@ async function replaces(name: string, accountId: string | undefined, seam: Relay
 	return { kind: "unknown", message: `wrangler secret list failed (exit ${r.code})${r.out ? `: ${r.out.trim().slice(-300)}` : ""}` };
 }
 
-export type DeployResult = { ok: true; url: string } | { ok: false; why: "subdomain" | "relay" | "other" } | { ok: false; why: "failed"; message: string };
+export type DeployResult = { ok: true; url: string } | { ok: false; why: "subdomain" } | { ok: false; why: "relay" } | { ok: false; why: "other" } | { ok: false; why: "failed"; message: string };
 
 /**
  * `wrangler deploy --name <name>` with the staged kit. With no terminal, wrangler asks nothing; a missing subdomain is its own answer.
  * A Worker already there is never replaced, save one this computer deployed or, with `takeOver`, another computer's relay.
  */
 export async function deploy(name: string, accountId: string | undefined, { takeOver = false }: { takeOver?: boolean } = {}, seam: RelaySeam = {}): Promise<DeployResult> {
-	if (!validRelayName(name)) return { ok: false, why: "failed", message: `${name} isn't a Worker name: lowercase letters, digits and dashes, 63 at most.` };
+	if (!validWorkerName(name)) return { ok: false, why: "failed", message: `${name} isn't a Worker name: lowercase letters, digits and dashes, 63 at most.` };
 	const dir = relayFolder();
 	stageRelay(dir);
 	const there = await replaces(name, accountId, seam);
@@ -242,7 +239,7 @@ export async function deploy(name: string, accountId: string | undefined, { take
 
 /** `wrangler secret put RELAY_KEY` with the key on stdin, so it never touches argv, a file or a log. */
 export async function putKey(name: string, key: string, accountId: string | undefined, seam: RelaySeam = {}): Promise<{ ok: true } | { ok: false; message: string }> {
-	if (!validRelayName(name)) return { ok: false, message: `${name} isn't a Worker name.` };
+	if (!validWorkerName(name)) return { ok: false, message: `${name} isn't a Worker name.` };
 	mkdirSync(relayFolder(), { recursive: true, mode: 0o700 });
 	const r = await wrangler(seam)(["secret", "put", "RELAY_KEY", "--name", name], { cwd: relayFolder(), accountId, input: key, timeoutMs: 3 * 60_000 });
 	if (r.code === 0) return { ok: true };
