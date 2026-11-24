@@ -59,7 +59,7 @@ function askCard(p: PendingRequest, decide: (decision: PermissionDecision) => un
 		</div>
 		${
 			p.upload
-				? html`<div class="text-xs text-muted-foreground break-all max-h-24 overflow-y-auto">${p.upload.files.map((f) => `${f.name} (${fileSize(f.bytes)})`).join(", ")}</div>
+				? html`<div class="text-xs text-muted-foreground break-all">${p.upload.files.map((f) => `${f.name} (${fileSize(f.bytes)})`).join(", ")}</div>
 					<div class="text-xs text-muted-foreground">Only the name is shown here. The agent may be acting on what a page told it, so don't take its word for where the file is: say yes only if you asked for this file.</div>`
 				: html`<div class="text-xs text-muted-foreground break-all max-h-24 overflow-y-auto">${p.url}</div>`
 		}
@@ -67,33 +67,29 @@ function askCard(p: PendingRequest, decide: (decision: PermissionDecision) => un
 	</div>`;
 }
 
-/** How long a card must have stood still before its buttons answer: a click meant for the card it replaced doesn't. */
+/** How long a card must have stood still before its buttons answer: a click meant for another card doesn't. */
 const STILL_MS = 500;
 
 /**
  * Draws one surface's cards. Each card is its question's own (keyed), so one that goes takes its focus with it and the
- * next never inherits it. A card that just came up or moved up ignores clicks for a moment.
+ * next never inherits it. A card that just came up ignores clicks for a moment, and so does every card left when one
+ * goes: any of them may have moved under the pointer, scrolled ones too. A card added below the rest moves none.
  */
 export function askCards(): (
 	pending: PendingRequest[],
 	decide: (p: PendingRequest, decision: PermissionDecision) => unknown,
 ) => unknown {
-	let places = new Map<string, { i: number; since: number }>();
+	let still = new Map<string, number>();
 	return (pending, decide) => {
-		const now = Date.now();
-		places = new Map(
-			pending.map(({ requestId }, i) => {
-				const was = places.get(requestId);
-				return [requestId, was?.i === i ? was : { i, since: now }];
-			}),
-		);
+		const now = performance.now();
+		const held = [...still.keys()].every((id, i) => pending[i]?.requestId === id);
+		still = new Map(pending.map(({ requestId }) => [requestId, (held && still.get(requestId)) || now]));
 		return repeat(
 			pending,
 			(p) => p.requestId,
 			(p) =>
 				askCard(p, (d) => {
-					const since = places.get(p.requestId)?.since;
-					if (since !== undefined && Date.now() - since >= STILL_MS) return decide(p, d);
+					if (performance.now() - (still.get(p.requestId) ?? Infinity) >= STILL_MS) return decide(p, d);
 				}),
 		);
 	};

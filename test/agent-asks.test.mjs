@@ -25,12 +25,12 @@ const upload = { files: [{ name: "cv.pdf", bytes: 2048 }] };
 const panel = () => import(`../src/components/AgentAsks.ts?ctx=${Math.random()}`);
 /** storage.onChanged comes a moment after the write. */
 const changed = () => new Promise((r) => setTimeout(r, 20));
-/** A panel document to draw in, and the clock the cards read: `later()` is past the moment a moved card ignores. */
+/** A panel document to draw in, and the clock the cards read: `later()` is past the moment a moved card ignores clicks. */
 const page = new Window({ url: "https://panel.example/" });
 globalThis.document = page.document;
 const { render } = await import("lit");
-let now = Date.now();
-Date.now = () => now;
+let now = 1000;
+performance.now = () => now;
 const later = () => {
 	now += 500;
 };
@@ -91,6 +91,14 @@ test("a card that takes another's place has neither its focus nor the click mean
 	show(two, ask("three"));
 	buttons(left)[0].click();
 	assert.deepEqual(answers, [["two", "allow_once"]], "a card that stood still answers, whatever comes up below it");
+	// The last card goes, and the scrolled list slides the one above it, still first, under the pointer.
+	later();
+	show(two);
+	buttons(left)[0].click();
+	assert.equal(answers.length, 1, "any card going starts the wait again for those left");
+	later();
+	buttons(left)[1].click();
+	assert.deepEqual(answers[1], ["two", "deny"]);
 });
 
 test("the side panel draws a waiting question; one click answers it and takes the card down", async () => {
@@ -148,7 +156,7 @@ test("two agents asking at once both get a card, an answer takes only its own, a
 
 test("the side panel and Settings > Agents draw the same card", () => {
 	const side = read("src/sidepanel.ts");
-	assert.match(side, /\$\{modeNotice\(\)\}\s*\$\{agentAsks\(\)\}/);
+	assert.match(side, /\$\{agentAsks\(\)\}\s*\$\{updateNotice\(\)\}\s*\$\{modeNotice\(\)\}/, "above the notices, whose going would move the cards");
 	// Every way the panel opens watches them: a new chat and a saved one.
 	assert.equal(side.match(/watchAgentAsks\(renderApp\)/g).length, side.match(/watchBridgeQuestions\(renderApp\)/g).length);
 	assert.match(read("src/dialogs/BridgeTab.ts"), /this\.askCards\(this\.pending, \(p, d\) => this\.decide\(p, d\)\)/);

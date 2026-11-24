@@ -1481,9 +1481,9 @@ const renderApp = () => {
 				</div>
 			</div>
 
+			${agentAsks()}
 			${updateNotice()}
 			${modeNotice()}
-			${agentAsks()}
 			${handbackCards()}
 			${bridgeQuestions()}
 			${planBadge(agent?.state.model?.provider)}
