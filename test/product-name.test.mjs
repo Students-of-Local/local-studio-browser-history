@@ -71,7 +71,7 @@ test("no user-visible text says Tabkyra", () => {
 				});
 		}
 	}
-	assert.deepEqual(found, [], `say Local Studio:\n${found.slice(0, 20).join("\n")}`);
+	assert.deepEqual(found, [], `say Local Studio, or \`tychicus <command>\` for a command:\n${found.slice(0, 20).join("\n")}`);
 });
 
 /**
@@ -137,7 +137,7 @@ function scanPolycarp() {
 
 test("no user-visible text says Polycarp, except about the Polycarp app", () => {
 	const { found } = scanPolycarp();
-	assert.deepEqual(found, [], `say Local Studio (${found.length} lines):\n${found.slice(0, 40).join("\n")}`);
+	assert.deepEqual(found, [], `say Local Studio, or \`tychicus <command>\` for a command (${found.length} lines):\n${found.slice(0, 40).join("\n")}`);
 });
 
 test("every Polycarp exception still excuses a line: an exception can't outlive its code", () => {

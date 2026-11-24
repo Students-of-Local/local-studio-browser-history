@@ -259,7 +259,7 @@ export function dialogAdvice(seq: number, tabId: number, dialog: PageDialog): st
 	if (cause?.after)
 		return `It opened after the ${cause.after.type} (${JSON.stringify(cause.after.message)}) that your call's on_dialog answered. That answer stands: do not repeat the call. ${READ_FIRST}`;
 	if (!cause || cause.tabId !== tabId)
-		return `Tychicus does not know which action opened it (a script, a hover, a page timer, leaving the page): no call can answer it in advance. ${READ_FIRST} Ask the user if the page still needs this box answered.`;
+		return `Local Studio does not know which action opened it (a script, a hover, a page timer, leaving the page): no call can answer it in advance. ${READ_FIRST} Ask the user if the page still needs this box answered.`;
 	const repeat = Number(cause.step.params.repeat);
 	const ran = cause.batch
 		? `${cause.batch.index === 0 ? "No step" : `The first ${cause.batch.index} step${cause.batch.index === 1 ? "" : "s"}`} of your actions call ran before it${cause.batch.index === 0 ? "" : ": do not run them again"}. Step ${cause.batch.index + 1} (${cause.step.kind}) opened it${cause.batch.total > cause.batch.index + 1 ? `, and the ${cause.batch.total - cause.batch.index - 1} after it did not run` : ""}. `

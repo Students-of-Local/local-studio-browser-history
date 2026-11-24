@@ -1172,7 +1172,7 @@ const createAgent = async (initialState?: Partial<AgentState>, shouldSave = true
 			const reserved = await reserveRun(markBusyForSend);
 			if (!reserved) {
 				throw new Error(
-					"Local Studio is installing an update and reloads in a moment. Send it again after the reload.",
+					"The extension is installing an update and reloads in a moment. Send it again after the reload.",
 				);
 			}
 			if (note && agent) agent.appendMessage(note);

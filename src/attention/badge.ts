@@ -19,7 +19,7 @@ export async function showWaiting<K extends keyof Lists>(kind: K, list: Lists[K]
 		? `Local Studio: ${handbacks[0].agent ?? "An agent"} needs you (${handbacks[0].reason ?? "your turn"})`
 		: questions.length
 			? `Local Studio: ${questions[0].agentName ?? "An agent"} is asking you a question`
-			: "Local Studio";
+			: "Open Local Studio";
 	const action = chrome.action;
 	try {
 		await action.setBadgeBackgroundColor?.({ color: "#1b4ed8" });

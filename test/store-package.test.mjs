@@ -292,7 +292,7 @@ test("the store copy of pi-web-ui's prompts names the packed libraries and no CD
 	assert.match(store, /<script src="\/sandbox-lib\/tailwind\.js"><\/script>/);
 	assert.match(store, /await import\('xlsx'\)/);
 	assert.match(store, /Tailwind CSS v4[^\n]*There is no tailwind\.config[^\n]*@theme/);
-	assert.match(store, /runs only inside Local Studio/);
+	assert.match(store, /runs only inside this extension/);
 	assert.throws(() => storeVendorPrompts(source.replace("Use Tailwind CDN", "Use the Tailwind CDN"), sandboxLibraries(root)), /no longer say/);
 	assert.throws(
 		() => storeVendorPrompts(`${source}\nconst x = "await import('https://esm.run/lodash')";`, sandboxLibraries(root)),

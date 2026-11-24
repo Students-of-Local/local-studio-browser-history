@@ -15,7 +15,7 @@ export function storeVendorPrompts(source, libraries) {
 		],
 		[
 			`- Import ES modules from esm.sh: <script type="module">import X from 'https://esm.sh/pkg';</script>`,
-			`- Import only these bundled libraries, by name: ${specifiers.join(", ")}; for example <script type="module">import * as XLSX from 'xlsx';</script>. Nothing loads from outside the extension, so an artifact that uses them runs only inside Local Studio; say so when the user downloads one.`,
+			`- Import only these bundled libraries, by name: ${specifiers.join(", ")}; for example <script type="module">import * as XLSX from 'xlsx';</script>. Nothing loads from outside the extension, so an artifact that uses them runs only inside this extension; say so when the user downloads one.`,
 		],
 		[
 			'- Use Tailwind CDN: <script src="https://cdn.tailwindcss.com"></script>',

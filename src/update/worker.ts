@@ -237,7 +237,7 @@ async function advanceOnce(): Promise<void> {
 		if (!sendUpdateAction(pending.action as UpdateAction)) {
 			await chrome.storage.local.set({ [PENDING_KEY]: pending });
 			await release();
-			await setProgress(pending.action, "waiting", "Waiting for the Local Studio native host to connect.");
+			await setProgress(pending.action, "waiting", "Waiting for the extension's native host to connect.");
 			later();
 			return;
 		}
@@ -477,7 +477,7 @@ function startPanelAction(
 			await setProgress(
 				action,
 				"failed",
-				`The Local Studio native host isn't connected. Run ${hostCommandText("doctor")} in a terminal.`,
+				`The extension's native host isn't connected. Run ${hostCommandText("doctor")} in a terminal.`,
 			);
 			sendResponse({ ok: false, message: "No native host" });
 			return;
