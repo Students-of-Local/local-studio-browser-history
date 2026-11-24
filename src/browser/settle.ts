@@ -71,6 +71,8 @@ const mainDoc = new Map<number, string>();
  * session before the change report lists it.
  */
 const lastOpened = new Map<number, number>();
+/** The same, without a window.open the browser may have blocked (one with no click behind it). */
+const lastNewTab = new Map<number, number>();
 /** When the page in a tab last asked for a navigation (Page.frameRequestedNavigation). */
 const lastAsked = new Map<number, number>();
 let installed = false;
@@ -120,6 +122,7 @@ function install(): void {
 			// as the request is made, so it comes before the reply to any later probe there, well before the new tab's
 			// own events (D56: those came after a 20 ms idle window on a loaded machine).
 			lastOpened.set(tabId, Date.now());
+			if ((params as { userGesture?: boolean }).userGesture) lastNewTab.set(tabId, Date.now());
 		} else if (method === "Network.loadingFinished" || method === "Network.loadingFailed") {
 			const map = pending.get(tabId);
 			if (map?.delete(String(p.requestId))) lastEnd.set(tabId, Date.now());
@@ -131,13 +134,18 @@ function install(): void {
 		loaders.delete(tabId);
 		mainDoc.delete(tabId);
 		lastOpened.delete(tabId);
+		lastNewTab.delete(tabId);
 		lastAsked.delete(tabId);
 	};
+	const opened = (tabId: number) => {
+		lastOpened.set(tabId, Date.now());
+		lastNewTab.set(tabId, Date.now());
+	};
 	chrome.tabs.onCreated.addListener((tab) => {
-		if (tab.openerTabId !== undefined) lastOpened.set(tab.openerTabId, Date.now());
+		if (tab.openerTabId !== undefined) opened(tab.openerTabId);
 	});
 	// target=_blank implies noopener, and then Chrome may not set openerTabId; this event still names the source tab.
-	chrome.webNavigation.onCreatedNavigationTarget.addListener((d) => lastOpened.set(d.sourceTabId, Date.now()));
+	chrome.webNavigation.onCreatedNavigationTarget.addListener((d) => opened(d.sourceTabId));
 	chrome.debugger.onDetach.addListener((source) => {
 		if (source.tabId !== undefined) forget(source.tabId);
 	});
@@ -172,6 +180,26 @@ export async function settleStart(tabId?: number): Promise<number> {
 	install();
 	if (tabId !== undefined) await watchNetwork(tabId);
 	return Date.now();
+}
+
+/** The most a settled action waits for the tab it opened to join the session. */
+const NEW_TAB_MS = 2000;
+
+/**
+ * After the settle: when `tabId` opened a tab since `since`, wait until `joined` says the session has it. Joining takes
+ * the foreground guard several browser calls, which on a loaded machine outlast the quiet window: the report then said
+ * nothing happened (#75). Ends early when a download began instead (its tab closes again) or `stop` says so.
+ */
+export async function newTabJoins(
+	tabId: number,
+	since: number,
+	joined: () => boolean,
+	stop: () => boolean,
+): Promise<void> {
+	const at = lastNewTab.get(tabId) ?? 0;
+	if (at < since) return;
+	while (!joined() && !stop() && !openDialog(tabId) && Date.now() - at < NEW_TAB_MS)
+		if (await downloadBegun(tabId, since, 20)) return;
 }
 
 /** Requests the page is still waiting on that started at or after `since` and are younger than `longMs`. */
