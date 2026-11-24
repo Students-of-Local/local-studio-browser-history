@@ -25,6 +25,11 @@ const upload = { files: [{ name: "cv.pdf", bytes: 2048 }] };
 const panel = () => import(`../src/components/AgentAsks.ts?ctx=${Math.random()}`);
 /** storage.onChanged comes a moment after the write. */
 const changed = () => new Promise((r) => setTimeout(r, 20));
+/** Waits for `ok`, at most 5 seconds; the assertion after it names what never came. */
+const until = async (ok) => {
+	const start = Date.now();
+	while (!ok() && Date.now() - start < 5000) await changed();
+};
 /** A panel document to draw in, and the clock the cards read: `later()` is past the moment a moved card ignores clicks. */
 const page = new Window({ url: "https://panel.example/" });
 globalThis.document = page.document;
@@ -113,16 +118,16 @@ test("the side panel draws a waiting question; one click answers it and takes th
 	const before = redraws;
 	later();
 	shown()[2].click();
-	await changed();
+	await until(() => typeof agentAsks() === "symbol");
 	assert.equal((await chrome.storage.session.get("bridge_decision_c1:q1"))["bridge_decision_c1:q1"], "deny");
 	assert.equal(typeof agentAsks(), "symbol", "answered: the card is gone");
 	assert.ok(redraws > before);
 	// A question asked while the panel is open comes up, and one answered in the agent's own prompt goes.
 	await addPendingRequest(ask("c1:q2"));
-	await changed();
+	await until(() => typeof agentAsks() !== "symbol");
 	assert.equal(shown().length, 3);
 	await removePendingRequest("c1:q2");
-	await changed();
+	await until(() => typeof agentAsks() === "symbol");
 	assert.equal(typeof agentAsks(), "symbol");
 });
 
