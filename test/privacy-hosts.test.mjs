@@ -33,7 +33,7 @@ const NOT_CONTACTED = new Map([
 	["docs.github.com", [LINK, ["src/subscriptions/constants.ts"]]],
 	["docs.google.com", [PROMPT_EXAMPLE, ["src/tools/default-skills.ts"]]],
 	["news.ycombinator.com", [PROMPT_EXAMPLE, ["cli/src/mcp.ts"]]],
-	["nodejs.org", [LINK, ["cli/src/doctor.ts"]]],
+	["nodejs.org", [LINK, ["cli/src/doctor.ts", "cli/src/remote-state.ts"]]],
 	["schemas.microsoft.com", ["an XML namespace", ["cli/src/service.ts"]]],
 	["schemas.openxmlformats.org", ["an XML namespace", ["src/artifacts/preview/pptx.ts"]]],
 	["site.com", [PROMPT_EXAMPLE, ["src/prompts/prompts.ts"]]],
