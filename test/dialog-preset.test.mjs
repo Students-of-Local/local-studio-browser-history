@@ -17,8 +17,10 @@ installCdpListeners();
 /** Set by a test: the bridge's 90 s handler limit, or its 30 s count of a call's input, runs out after this many ms. */
 let handlerLimit;
 let countLimit;
+/** Set by a test: a risky action's question (60 s) runs out after this many ms. */
+let askLimit;
 globalThis.setTimeout = (fn, ms, ...args) => {
-	const short = ms === 90_000 ? handlerLimit : ms === 30_000 ? countLimit : undefined;
+	const short = ms === 90_000 ? handlerLimit : ms === 30_000 ? countLimit : ms === 60_000 ? askLimit : undefined;
 	const t = realSetTimeout(fn, short ?? ms, ...args);
 	if (ms >= 10000) t.unref();
 	return t;
@@ -49,6 +51,10 @@ const programs = new Map();
 const send = chrome.debugger.sendCommand;
 /** What the page's looks at the focus say, in turn and the last one from then on (src/browser/page.ts FOCUS_LIB); an Error fails the look. */
 let looks;
+/** What the page says a click or Enter reaches (src/browser/page.ts DESCRIBE_LIB), in turn and the last one from then
+ * on; an Error fails the look. Ordinary, so nothing asks, unless a test says otherwise. */
+const PLAIN = { role: "link", name: "Next page" };
+let targets = [PLAIN];
 /** Every input event a test's tabs got, for "nothing went to the page". */
 const inputs = [];
 chrome.debugger.sendCommand = async (target, method, params) => {
@@ -57,6 +63,10 @@ chrome.debugger.sendCommand = async (target, method, params) => {
 		const said = looks.length > 1 ? looks.shift() : looks[0];
 		// Where the focus is when text is refused or let in: what went out before it.
 		inputs.push({ tabId, method: "look" });
+		return { result: { value: said instanceof Error ? { ok: false, error: said.message } : { ok: true, value: said } } };
+	}
+	if (method === "Runtime.evaluate" && String(params?.expression).includes("out.frameUrl = W.location.href")) {
+		const said = targets.length > 1 ? targets.shift() : targets[0];
 		return { result: { value: said instanceof Error ? { ok: false, error: said.message } : { ok: true, value: said } } };
 	}
 	if (method.startsWith("Input.")) inputs.push({ tabId, method, params });
@@ -1183,6 +1193,194 @@ test("hard limit: a look the debugger's detach cut off is taken again", async (t
 		assert.equal(failed, 1);
 		assert.equal(sent(), want);
 	}
+});
+
+// Manual and Auto ask before a risky action under the person's sign-in; Yolo never does.
+
+const actionAsks = (client = "c1") =>
+	port.sent.filter((m) => m.type === "event" && m.clientId === client && m.event === "action_request").map((m) => m.data);
+/** The question after the first `seen` ones, once it comes. */
+async function actionAsk(seen, client = "c1") {
+	for (const end = Date.now() + 4000; Date.now() < end; await wait(5)) if (actionAsks(client).length > seen) return actionAsks(client).at(-1);
+	throw new Error("no action question");
+}
+async function modeTest(t, mode, ...said) {
+	setup(t);
+	targets = said;
+	inputs.length = 0;
+	records.deleted = 0;
+	t.after(() => {
+		targets = [PLAIN];
+		return chrome.storage.local.set({ permission_mode: "auto" });
+	});
+	await chrome.storage.local.set({ permission_mode: mode });
+	const tab = await agentTab(deletePage);
+	return { tab, seen: actionAsks().length, sent: () => inputs.filter((i) => i.tabId === tab && i.method.startsWith("Input.")).length };
+}
+const answer = async (ask, decision) =>
+	assert.equal((await request("permission.respond", { requestId: ask.requestId, decision })).result?.accepted, true);
+const DELETE = { role: "button", name: "Delete record" };
+
+for (const mode of ["auto", "manual"])
+	test(`${mode}: a Delete click asks first; Deny refuses it, says what was not done, and nothing reaches the page`, async (t) => {
+		const { tab, seen, sent } = await modeTest(t, mode, DELETE);
+		const call = deliver("c1", "click", { tabId: tab, x: 10, y: 10 });
+		const ask = await actionAsk(seen);
+		assert.deepEqual([ask.host, ask.action.target, ask.action.rule, ask.agent], ["shop.example.com", 'click "Delete record"', "delete", "claude"]);
+		assert.equal(ask.timeoutMs, 60_000, "inside the call's 90 s");
+		const pending = (await chrome.storage.session.get("bridge_pending_requests")).bridge_pending_requests;
+		assert.deepEqual(pending.find((p) => p.requestId === ask.requestId)?.action, ask.action, "the side panel lists it");
+		assert.equal(sent(), 0, "no input goes out while it waits");
+		await answer(ask, "deny");
+		const r = await reply(call);
+		assert.equal(r.error?.code, "permission_denied", JSON.stringify(r));
+		assert.match(r.error.message, /^Not done: click "Delete record" on shop\.example\.com deletes or cancels something of yours, and the user said no\. Nothing went to the page\./);
+		assert.deepEqual([sent(), records.deleted], [0, 0]);
+	});
+
+test("Auto: Allow once lets that one action go, and the next one asks again; an ordinary one never does", async (t) => {
+	const { tab, seen } = await modeTest(t, "auto", DELETE);
+	for (let n = 0; n < 2; n++) {
+		const call = deliver("c1", "click", { tabId: tab, x: 10, y: 10, on_dialog: "ok" });
+		await answer(await actionAsk(seen + n), "allow_once");
+		assert.equal((await reply(call)).error, undefined);
+		assert.equal(records.deleted, n + 1);
+		await pastGrace();
+	}
+	targets = [PLAIN];
+	assert.equal((await request("click", { tabId: tab, x: 10, y: 10 })).error, undefined);
+	assert.equal(actionAsks().length, seen + 2);
+	await pastGrace();
+});
+
+test("Auto: every way to commit asks: Enter, Space on a button, type with submit, a newline in the text, and each step of actions", async (t) => {
+	const send = { role: "textbox", name: "Message", form: { submit: "Send" } };
+	const { tab, seen, sent } = await modeTest(t, "auto", send);
+	const cases = [
+		["press", { key: "Enter" }, send],
+		["press", { key: "Meta+Enter" }, send],
+		["press", { key: "Space" }, DELETE],
+		["press", { key: "Enter" }, DELETE],
+		["type", { text: "Hi", submit: true }, send],
+		["type", { text: "Hi\nthere" }, send],
+		["actions", { steps: [{ key: "Enter" }] }, send],
+	];
+	for (const [i, [method, params, facts]] of cases.entries()) {
+		targets = [facts];
+		const call = deliver("c1", method, { tabId: tab, ...params });
+		const ask = await actionAsk(seen + i);
+		await answer(ask, "deny");
+		const r = await reply(call);
+		assert.match(JSON.stringify(r), /Not done: /, `${method} ${JSON.stringify(params)}`);
+	}
+	assert.equal(sent(), 0, "nothing went to the page");
+	// What commits nothing asks nothing, on the same controls.
+	looks = [""];
+	t.after(() => {
+		looks = undefined;
+	});
+	for (const [method, params] of [
+		["press", { key: "Tab" }],
+		["press", { key: "Space" }],
+		["type", { text: "Hi" }],
+		["click", { x: 10, y: 10, mouseButton: "right" }],
+	]) {
+		targets = [method === "click" ? DELETE : send];
+		assert.equal((await request(method, { tabId: tab, ...params })).error, undefined, `${method} ${JSON.stringify(params)}`);
+	}
+	assert.equal(actionAsks().length, seen + cases.length);
+});
+
+for (const [what, said] of [
+	["a failed look", new Error("the look's script crashed")],
+	["another site's frame", { unchecked: true }],
+])
+	test(`Auto: a target the page can't say (${what}) asks, and the click goes out only after the yes`, async (t) => {
+		const { tab, seen, sent } = await modeTest(t, "auto", said);
+		programs.set(tab, async () => undefined);
+		const call = deliver("c1", "click", { tabId: tab, x: 10, y: 10 });
+		const ask = await actionAsk(seen);
+		assert.equal(ask.action.rule, "unchecked");
+		assert.match(ask.action.why, /couldn't be checked/);
+		assert.equal(sent(), 0);
+		await answer(ask, "allow_once");
+		assert.equal((await reply(call)).error, undefined);
+		assert.ok(sent() > 0);
+	});
+
+for (const [what, fails, code] of [
+	["gone", "Ref e5 not found: its frame is gone or changed. Call read_page for fresh refs.", "stale_ref"],
+	["covered", "Ref e5 is covered by <div>, which would take the click. Close or dismiss it, then call read_page.", "not_actionable"],
+])
+	test(`Auto: a look that finds the target ${what} refuses the click and asks nothing`, async (t) => {
+		const { tab, seen, sent } = await modeTest(t, "auto", new Error(fails));
+		const r = await request("click", { tabId: tab, x: 10, y: 10 });
+		assert.equal(r.error?.code, code, JSON.stringify(r));
+		assert.equal(actionAsks().length, seen);
+		assert.equal(sent(), 0);
+	});
+
+for (const [what, now] of [
+	["another risky control", { role: "button", name: "Pay now" }],
+	["an ordinary one", PLAIN],
+	["the same one on another site", undefined],
+])
+	test(`Auto: the page has ${what} there once the person has decided: the yes is not for that`, async (t) => {
+		const { tab, seen, sent } = await modeTest(t, "auto", DELETE, now ?? DELETE);
+		const call = deliver("c1", "click", { tabId: tab, x: 10, y: 10 });
+		const ask = await actionAsk(seen);
+		if (!now) fake.commitNav(tab, "https://other.example.net/admin");
+		await answer(ask, "allow_once");
+		const r = await reply(call);
+		assert.equal(r.error?.code, "not_actionable", JSON.stringify(r));
+		assert.match(r.error.message, /^Not done: the user allowed click "Delete record" on shop\.example\.com, but the page changed/);
+		assert.equal(sent(), 0);
+	});
+
+test("Auto: no answer in the time is a no, and says so", async (t) => {
+	const { tab, seen, sent } = await modeTest(t, "auto", DELETE);
+	askLimit = 20;
+	t.after(() => {
+		askLimit = undefined;
+	});
+	const r = await request("click", { tabId: tab, x: 10, y: 10 });
+	assert.equal(r.error?.code, "permission_denied", JSON.stringify(r));
+	assert.match(r.error.message, /asked the user first, and no answer came within 60 s/);
+	assert.equal(sent(), 0);
+	const ask = await actionAsk(seen);
+	assert.equal((await request("permission.respond", { requestId: ask.requestId, decision: "allow_once" })).result?.accepted, false, "too late");
+});
+
+test("Yolo: the same Delete click asks nothing", async (t) => {
+	const { tab, seen } = await modeTest(t, "yolo", DELETE);
+	assert.equal((await request("click", { tabId: tab, x: 10, y: 10, on_dialog: "ok" })).error, undefined);
+	assert.deepEqual([records.deleted, actionAsks().length], [1, seen]);
+	await pastGrace();
+});
+
+test("a remote connector session in Yolo still asks before a risky action, and can't answer its own question", async (t) => {
+	const { tab: _, ...rest } = await modeTest(t, "yolo", DELETE);
+	port.deliver({ type: "client_connected", clientId: "r3", client: { name: "claude", session: "remote-3", remote: true } });
+	const tab = (await request("tabs.create", {}, "r3")).result.tabId;
+	t.after(() => void request("tabs.close", { tabId: tab }, "r3").catch(() => undefined));
+	fake.commitNav(tab, SITE);
+	const call = deliver("r3", "click", { tabId: tab, x: 10, y: 10 });
+	const ask = await actionAsk(0, "r3");
+	assert.equal((await request("permission.respond", { requestId: ask.requestId, decision: "allow_once" }, "r3")).error?.code, "permission_denied");
+	await answer(ask, "deny");
+	assert.equal((await reply(call)).error?.code, "permission_denied");
+	assert.equal(rest.sent(), 0);
+});
+
+test("Auto asks before a link that downloads a program and runs it", async (t) => {
+	const { tab, seen } = await modeTest(t, "auto", PLAIN);
+	await chrome.storage.local.set({ bridge_allowed_hosts: ["downloads.example.net"] });
+	t.after(() => chrome.storage.local.set({ bridge_allowed_hosts: [] }));
+	const call = deliver("c1", "navigate", { tabId: tab, url: "https://downloads.example.net/setup.exe" });
+	const ask = await actionAsk(seen);
+	assert.equal(ask.action.rule, "run-file");
+	await answer(ask, "deny");
+	assert.match((await reply(call)).error?.message ?? "", /downloads a program and runs it, and the user said no/);
 });
 
 // Last: it takes the native host away, and nothing after it could reach the bridge.

@@ -47,9 +47,12 @@ export interface ActionFacts {
 	submit?: boolean;
 	/** type and fill: the text, only so a hard limit can see that something is being entered. Never logged. */
 	text?: string;
+	/** The page couldn't say what the action reaches, so the rules can't tell what it does: it asks. */
+	unchecked?: boolean;
 }
 
-export type ActionRule = "send" | "post" | "pay" | "delete" | "account" | "oauth" | "run-file";
+/** "unchecked" is no word rule: the page couldn't be read before the action, so it asks rather than guess (D67). */
+export type ActionRule = "send" | "post" | "pay" | "delete" | "account" | "oauth" | "run-file" | "unchecked";
 export type SiteClass = "mail" | "bank" | "passwords" | "cloud" | "government" | "health" | "account-pages";
 export type AppClass = "keychain" | "system-settings" | "terminal" | "password-manager";
 export type HardLimit = "password-field" | "payment-field";
@@ -240,6 +243,15 @@ function formVerdict(form: TargetFacts["form"]): Verdict<ActionRule> | undefined
 }
 
 /**
+ * Whether a tool call could commit something, so the rules look at what it reaches first: a click, Enter, Space (it
+ * presses a focused button), and typing that ends with Enter.
+ */
+export function commits(tool: string, key?: string, submit?: boolean): boolean {
+	if (tool === "press") return SENDS_FIELD.test((key ?? "").trim()) || /^( |space)$/i.test(key ?? "");
+	return tool === "click" || (tool === "type" && submit === true);
+}
+
+/**
  * Whether an action needs the person's yes in Auto (and Manual), and why. Reading the page, scrolling, hovering and
  * typing into a field are never risky; a commit is: a click on a control, Enter in a field, type with submit.
  */
@@ -253,17 +265,24 @@ export function actionRisk(f: ActionFacts): Verdict<ActionRule> | undefined {
 		if (RUNS_WHEN_OPENED.test(u.pathname)) return { rule: "run-file", why: "downloads a program and runs it" };
 		return undefined;
 	}
-	if (tool === "click") {
-		const inputType = squash(t.inputType);
-		const committing =
-			COMMIT_ROLES.has(role) || inputType === "submit" || inputType === "button" || inputType === "image";
+	if (!commits(tool, f.key, f.submit)) return undefined;
+	const enter = tool === "type" || (tool === "press" && SENDS_FIELD.test((f.key ?? "").trim()));
+	// Space that can't be seen to press anything is a character or a scroll.
+	if (f.unchecked)
+		return tool === "press" && !enter
+			? undefined
+			: { rule: "unchecked", why: "couldn't be checked on the page first, so Tychicus can't tell what it does" };
+	const inputType = squash(t.inputType);
+	const committing =
+		COMMIT_ROLES.has(role) || inputType === "submit" || inputType === "button" || inputType === "image";
+	// Enter and Space press a focused control as a click does.
+	if (tool === "click" || (tool === "press" && role !== "" && (committing || !enter))) {
 		if (committing) return commitVerdict(t, f.url);
 		// A switch or checkbox on a settings page changes the setting with the click.
 		if (TOGGLE_ROLES.has(role) && isAccountPage(t.frameUrl ?? f.url))
 			return { rule: "account", why: "changes your account's settings" };
 		return undefined;
 	}
-	const enter = (tool === "press" && SENDS_FIELD.test((f.key ?? "").trim())) || (tool === "type" && f.submit === true);
 	if (!enter) return undefined;
 	// Enter in a field submits its form, or sends it when the field is a composer.
 	const byForm = formVerdict(t.form);

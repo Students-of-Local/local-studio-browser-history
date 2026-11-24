@@ -45,7 +45,7 @@ async function answer(act: () => Promise<void>): Promise<void> {
 
 /** The text of the notice, for the card and its test. */
 export const MODE_NOTICE_TEXT =
-	"Local Studio is now in Auto mode: agents on frontier models open ordinary sites on their own, small or unknown models ask you first, and every agent asks before it goes straight to mail, a bank or another sensitive site you haven't allowed.";
+	"Local Studio is now in Auto mode: agents on frontier models open ordinary sites on their own, small or unknown models ask you first, and every agent asks before it goes straight to mail, a bank or another sensitive site you haven't allowed, and before it sends, posts, buys, deletes or changes settings as you.";
 
 export function modeNotice(): TemplateResult | typeof nothing {
 	if (!notice) return nothing;

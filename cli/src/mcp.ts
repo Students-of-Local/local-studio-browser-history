@@ -417,6 +417,7 @@ export function createMcpServer(options: McpServerOptions = {}): { server: McpSe
 		...tracer?.client,
 		onEvent: (event, data) => {
 			if (event === "permission_request") void handlePermission(data);
+			if (event === "action_request") void handleActionQuestion(data);
 			// The same session under a new name: its saved files go with it.
 			if (event === "session_renamed" && typeof data.session === "string") files?.renamed(data.session);
 		},
@@ -462,6 +463,40 @@ export function createMcpServer(options: McpServerOptions = {}): { server: McpSe
 			);
 		}
 		await client.call("permission.respond", { requestId, decision }).catch(() => undefined);
+	}
+
+	/**
+	 * Auto and Manual ask before a risky action under the person's sign-in (D67). TABKYRA_AUTO_ALLOW does not answer it:
+	 * that setting is for sites. A client that can't show questions leaves it to the side panel.
+	 */
+	async function handleActionQuestion(data: Record<string, unknown>): Promise<void> {
+		if (remote) return;
+		const requestId = String(data.requestId);
+		const action = (data.action ?? {}) as { target?: unknown; why?: unknown };
+		const what = `${String(data.agent || "the browser agent")} wants to ${String(action.target)} on ${String(data.host)}. This ${String(action.why)}.`;
+		if (!server.server.getClientCapabilities()?.elicitation) {
+			process.stderr.write(`[tychicus] ${what} Answer in the Tychicus side panel.\n`);
+			return;
+		}
+		try {
+			const answer = await server.server.elicitInput(
+				{
+					message: `Tychicus: ${what} Allow?`,
+					requestedSchema: {
+						type: "object",
+						properties: {
+							decision: { type: "string", title: "Decision", enum: ["allow_once", "deny"], enumNames: ["Allow once", "Deny"] },
+						},
+						required: ["decision"],
+					},
+				},
+				{ timeout: Number(data.timeoutMs) },
+			);
+			const d = answer.action === "accept" ? (answer.content as { decision?: string } | undefined)?.decision : undefined;
+			await client.call("permission.respond", { requestId, decision: d === "allow_once" ? "allow_once" : "deny" });
+		} catch {
+			// No usable answer is not a yes: the side panel can still give one until the question times out.
+		}
 	}
 
 	/**

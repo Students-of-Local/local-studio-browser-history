@@ -59,6 +59,7 @@ import {
 	asPermissionMode,
 	clearPendingRequests,
 	DECISION_KEY_PREFIX,
+	getPermissionMode,
 	hostOf,
 	isBridgeEnabled,
 	isGuardedUrl,
@@ -66,6 +67,8 @@ import {
 	isRemoteClient,
 	isUrlAllowed,
 	modeFor,
+	type PendingAction,
+	type PendingRequest,
 	type PermissionDecision,
 	type PermissionMode,
 	peekPermissionMode,
@@ -97,6 +100,7 @@ import {
 	UPDATE_PROGRESS_KEY,
 	UPDATE_STATUS_KEY,
 } from "./protocol.js";
+import { type ActionFacts, actionRisk } from "./risk-rules.js";
 import { handleSessionsAdmin } from "./sessions-admin.js";
 import { type DeliveredStep, extensionStatus, type HandlerContext, handlers, normalizeStep } from "./tools.js";
 
@@ -112,6 +116,8 @@ export function trace(line: string): void {
 const RECONNECT_MIN_MS = 1000;
 const RECONNECT_MAX_MS = 30000;
 const PERMISSION_TIMEOUT_MS = 120000;
+/** How long a risky action waits for the person's answer (D67): inside the call's 90 s, with time left to act. */
+const ACTION_ASK_TIMEOUT_MS = 60000;
 
 interface ClientState {
 	clientId: string;
@@ -306,36 +312,43 @@ async function onClientDisconnected(clientId: string): Promise<void> {
 	}
 }
 
-async function askPermission(state: ClientState, url: string): Promise<boolean> {
-	if (isOwnExtensionUrl(url)) return false;
-	if (await isUrlAllowed(url, state.tier, state.remote)) return true;
-	const host = hostOf(url);
-	if (!host) return false;
+/** One question to the person, in the side panel and to the agent's client: their answer, or "timeout" for none. */
+async function askPerson(
+	state: ClientState,
+	about: { host: string; url: string; upload?: PendingRequest["upload"]; action?: PendingAction },
+	timeoutMs: number,
+	event: "permission_request" | "action_request",
+	data: Record<string, unknown> = {},
+): Promise<PermissionDecision | "timeout"> {
 	const requestId = `${state.clientId}:${crypto.randomUUID()}`;
-	const decision = new Promise<PermissionDecision>((resolve) => {
+	const decision = new Promise<PermissionDecision | "timeout">((resolve) => {
 		pendingDecisions.set(requestId, resolve);
 		setTimeout(() => {
-			if (pendingDecisions.delete(requestId)) resolve("deny");
-		}, PERMISSION_TIMEOUT_MS);
+			if (pendingDecisions.delete(requestId)) resolve("timeout");
+		}, timeoutMs);
 	});
 	await addPendingRequest({
 		requestId,
 		clientId: state.clientId,
 		clientName: state.name,
-		host,
-		url,
 		createdAt: Date.now(),
+		...about,
 	});
-	send({
-		type: "event",
-		clientId: state.clientId,
-		event: "permission_request",
-		data: { requestId, host, url, timeoutMs: PERMISSION_TIMEOUT_MS },
-	});
+	const { host, url } = about;
+	send({ type: "event", clientId: state.clientId, event, data: { requestId, host, url, timeoutMs, ...data } });
 	const result = await decision;
 	await removePendingRequest(requestId);
+	return result;
+}
+
+async function askPermission(state: ClientState, url: string): Promise<boolean> {
+	if (isOwnExtensionUrl(url)) return false;
+	if (await isUrlAllowed(url, state.tier, state.remote)) return true;
+	const host = hostOf(url);
+	if (!host) return false;
+	const result = await askPerson(state, { host, url }, PERMISSION_TIMEOUT_MS, "permission_request");
 	if (result === "allow_host") await allowHost(host);
-	return result !== "deny";
+	return result !== "deny" && result !== "timeout";
 }
 
 /**
@@ -352,31 +365,57 @@ async function askUpload(
 ): Promise<boolean> {
 	const host = hostOf(url);
 	if (!host || isOwnExtensionUrl(url)) return false;
-	const requestId = `${state.clientId}:${crypto.randomUUID()}`;
-	const decision = new Promise<PermissionDecision>((resolve) => {
-		pendingDecisions.set(requestId, resolve);
-		setTimeout(() => {
-			if (pendingDecisions.delete(requestId)) resolve("deny");
-		}, FILE_ASK_TIMEOUT_MS);
+	const extra = { kind: "upload", agent: state.name, files, askId };
+	const about = { host, url, upload: { files } };
+	return (await askPerson(state, about, FILE_ASK_TIMEOUT_MS, "permission_request", extra)) === "allow_once";
+}
+
+/** How an action reads in a question and a refusal: `click "Send"`, `press Enter in "Message"`. */
+function actionLabel(f: ActionFacts): string {
+	const name = (f.target?.name ?? "").replace(/\s+/g, " ").trim().slice(0, 80);
+	const on = name ? ` "${name}"` : "";
+	if (f.tool === "press") return `press ${f.key}${on && ` in${on}`}`;
+	if (f.tool === "type") return `type and submit${on && ` in${on}`}`;
+	if (f.tool === "navigate") return `open ${f.url}`;
+	return `${f.tool}${on}`;
+}
+
+/**
+ * Manual and Auto ask before a risky action under the person's sign-in (risk-rules.ts, D67); Yolo never does. A no, or
+ * no answer within ACTION_ASK_TIMEOUT_MS, refuses it. After a yes the target is looked at again: what was asked about
+ * must still be what the input would reach. Its own event, so a client from before it leaves the question to the side
+ * panel instead of answering it as a site's.
+ */
+async function askIfRisky(state: ClientState, facts: () => Promise<ActionFacts>): Promise<void> {
+	const mode = modeFor(await getPermissionMode(), state.remote);
+	if (mode === "yolo") return;
+	const f = await facts();
+	const risk = actionRisk(f);
+	if (!risk) return;
+	const url = f.url ?? "";
+	const host = hostOf(url) || "this page";
+	const target = actionLabel(f);
+	const action: PendingAction = { target, rule: risk.rule, why: risk.why };
+	const answer = await askPerson(state, { host, url, action }, ACTION_ASK_TIMEOUT_MS, "action_request", {
+		agent: state.name,
+		action,
 	});
-	await addPendingRequest({
-		requestId,
-		clientId: state.clientId,
-		clientName: state.name,
-		host,
-		url,
-		createdAt: Date.now(),
-		upload: { files },
-	});
-	send({
-		type: "event",
-		clientId: state.clientId,
-		event: "permission_request",
-		data: { requestId, host, url, timeoutMs: FILE_ASK_TIMEOUT_MS, kind: "upload", agent: state.name, files, askId },
-	});
-	const result = await decision;
-	await removePendingRequest(requestId);
-	return result === "allow_once";
+	const asked = `${target} on ${host} ${risk.why}`;
+	if (answer !== "allow_once")
+		throw new BridgeError(
+			ERR.PERMISSION_DENIED,
+			`Not done: ${asked}, ${
+				answer !== "timeout"
+					? "and the user said no."
+					: `so Tychicus (${mode === "manual" ? "Manual" : "Auto"} mode) asked the user first, and no answer came within ${ACTION_ASK_TIMEOUT_MS / 1000} s.`
+			} Nothing went to the page. Tell the user what you were about to do and let them decide; they can allow it when asked, or do it themselves.`,
+		);
+	const now = await facts();
+	if (actionLabel(now) !== target || actionRisk(now)?.rule !== risk.rule || hostOf(now.url ?? "") !== hostOf(url))
+		throw new BridgeError(
+			ERR.NOT_ACTIONABLE,
+			`Not done: the user allowed ${target} on ${host}, but the page changed while they decided. Nothing went to the page. Call read_page, then try again.`,
+		);
 }
 
 function guardedError(url: string): BridgeError {
@@ -576,6 +615,7 @@ async function runRequest(state: ClientState, req: HostForwardedRequest, answer?
 				(await isUrlAllowed(url, state.tier, state.remote)),
 			askUpload: (url, files, askId) => askUpload(state, url, files, askId),
 			hardLimits: true,
+			guard: (facts) => askIfRisky(state, facts),
 			checkUrl: async (url: string) => {
 				if (isGuardedUrl(url, req.guardedHosts)) throw guardedError(url);
 				if (!(await askPermission(state, url))) {
@@ -586,6 +626,8 @@ async function runRequest(state: ClientState, req: HostForwardedRequest, answer?
 							: `Not allowed to open ${hostOf(url) || url}. The user can allow it in the Tychicus side panel under Settings > Agents, or answer the permission prompt.`,
 					);
 				}
+				// A link that downloads a program asks too.
+				await askIfRisky(state, async () => ({ tool: "navigate", url }));
 			},
 		};
 		const dialogSafe = isDialogSafe(req.method, req.params);

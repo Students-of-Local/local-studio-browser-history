@@ -36,11 +36,15 @@ import { saveSwitch } from "./switch-save.js";
  */
 /** The three modes as Settings > Agents offers them (D67), in this order. */
 export const MODE_CHOICES: ReadonlyArray<{ mode: PermissionMode; title: string; help: string }> = [
-	{ mode: "manual", title: "Manual", help: "agents ask before opening any site you haven't allowed" },
+	{
+		mode: "manual",
+		title: "Manual",
+		help: "agents ask before opening any site you haven't allowed, and before every risky action there (send, post, buy, delete, change settings)",
+	},
 	{
 		mode: "auto",
 		title: "Auto (default)",
-		help: "agents on frontier models open ordinary sites; small or unknown models ask first. Every agent asks before it goes straight to mail, a bank or another sensitive site you haven't allowed (a link it clicks there isn't checked)",
+		help: "agents on frontier models open ordinary sites; small or unknown models ask first. Every agent asks before it goes straight to mail, a bank or another sensitive site you haven't allowed (a link it clicks there isn't checked), and before a click or Enter that sends, posts, buys, deletes or changes settings as you",
 	},
 	{
 		mode: "yolo",

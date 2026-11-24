@@ -1,8 +1,8 @@
 /**
- * The questions agents are waiting on, as one card each: a site to open, or files to upload. The side panel shows them
- * above the chat, and Settings > Agents lists them too, with the same buttons. One click answers: allow the site, allow
- * once, or deny (an upload has no "allow the site": every upload asks). The answer goes through recordDecision, which
- * the worker picks up.
+ * The questions agents are waiting on, as one card each: a site to open, a risky action under the person's sign-in
+ * (docs/decisions.md, D67), or files to upload. The side panel shows them above the chat, and Settings > Agents lists
+ * them too, with the same buttons. One click answers: allow the site, allow once, or deny (an action and an upload have
+ * no "allow the site": each one asks). The answer goes through recordDecision, which the worker picks up.
  */
 
 import { html, nothing, type TemplateResult } from "lit";
@@ -20,6 +20,11 @@ const fileSize = (n: number) =>
 
 /** The buttons a question offers, in order: the first is the one to reach for. */
 function askChoices(p: PendingRequest): Array<{ decision: PermissionDecision; label: string }> {
+	if (p.action)
+		return [
+			{ decision: "allow_once", label: "Allow once" },
+			{ decision: "deny", label: "Deny" },
+		];
 	if (p.upload)
 		return [
 			{ decision: "allow_once", label: "Upload this once" },
@@ -34,6 +39,7 @@ function askChoices(p: PendingRequest): Array<{ decision: PermissionDecision; la
 
 /** What the agent wants to do with the host, in a few words. */
 function askWhat(p: PendingRequest): string {
+	if (p.action) return `wants to ${p.action.target} on`;
 	if (!p.upload) return "wants to open";
 	return `wants to upload ${p.upload.files.length === 1 ? "a file from this computer" : `${p.upload.files.length} files from this computer`} to`;
 }
@@ -52,11 +58,12 @@ function askCard(p: PendingRequest, decide: (decision: PermissionDecision) => un
 	return html`<div
 		class="p-3 rounded-lg border border-orange-500/40 bg-orange-500/10 space-y-2"
 		data-testid="agent-ask"
-		data-kind=${p.upload ? "upload" : "site"}
+		data-kind=${p.upload ? "upload" : p.action ? "action" : "site"}
 	>
 		<div class="text-sm text-foreground [overflow-wrap:anywhere]">
 			<span class="font-medium">${p.clientName}</span> ${askWhat(p)} <span class="font-mono">${p.host}</span>
 		</div>
+		${p.action ? html`<div class="text-xs text-foreground">This ${p.action.why}.</div>` : nothing}
 		${
 			p.upload
 				? html`<div class="text-xs text-muted-foreground break-all">${p.upload.files.map((f) => `${f.name} (${fileSize(f.bytes)})`).join(", ")}</div>

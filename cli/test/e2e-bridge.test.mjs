@@ -17,6 +17,7 @@ import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { chromium } from "playwright-core";
 import { ethicsPdf, FAR_LINE, FRIENDSHIP_PAGES } from "./helpers/pdf.mjs";
 
@@ -272,7 +273,7 @@ extraPages["/files"] = `<!doctype html><title>Files</title>
 <label for="hidden" id="pick">Choose a file</label><input type="file" id="hidden" style="display:none">
 <div id="zone" style="width:240px;height:80px;border:2px dashed #888">Drop files here</div>
 <p id="plain">Not a drop area</p>
-<a id="dl" href="/files-data/blob.bin" download="linked.bin">Get the file</a>
+<a id="dl" href="/files-data/blob.dat" download="linked.bin">Get the file</a>
 <script>
 document.cookie = "dl=1; path=/";
 window.seen = [];
@@ -292,7 +293,7 @@ const FILES_BLOB = (() => {
 function serveFileData(req, res) {
 	const path = req.url.split("?")[0];
 	if (!path.startsWith("/files-data/")) return false;
-	if (path === "/files-data/blob.bin") {
+	if (path === "/files-data/blob.dat") {
 		res.writeHead(200, { "content-type": "application/octet-stream", "content-length": FILES_BLOB.length });
 		res.end(FILES_BLOB);
 	} else if (path === "/files-data/members-only") {
@@ -346,6 +347,9 @@ let socketDir;
 let browser;
 let server;
 let mcp;
+/** Every question put to the person through the MCP client, and what they say to a risky action's. */
+const asked = [];
+let actionAnswer = "allow_once";
 let pageUrl;
 let devtools;
 
@@ -574,7 +578,14 @@ before(async () => {
 	);
 	await cdp(version.webSocketDebuggerUrl, "Target.closeTarget", { targetId });
 
-	mcp = new Client({ name: "tabkyra-e2e", version: "0.0.0" });
+	// Auto asks before a risky click (D67), and these tests click "Delete" and "Pay now" on purpose. The person running
+	// them says Allow once to that question; a site or upload question still gets a no.
+	mcp = new Client({ name: "tabkyra-e2e", version: "0.0.0" }, { capabilities: { elicitation: {} } });
+	mcp.setRequestHandler(ElicitRequestSchema, async ({ params }) => {
+		asked.push(params.message);
+		const action = / wants to .+ on .+\. This /.test(params.message);
+		return action && actionAnswer === "allow_once" ? { action: "accept", content: { decision: "allow_once" } } : { action: "decline" };
+	});
 	await mcp.connect(new StdioClientTransport({ command: process.execPath, args: [cli, "mcp"], env: env(), stderr: "inherit" }));
 });
 
@@ -1193,6 +1204,47 @@ test("subscription sign-ins: the side panel reaches the native host through the 
 async function js(code, args = {}) {
 	return JSON.parse(await tool("run_js", { code, ...args })).value;
 }
+
+test("Auto asks before a risky action, by whatever names it, and a no keeps it off the page", async () => {
+	extraPages["/risky"] = `<!doctype html><title>Polycarp risky</title><h1>Account</h1>
+<button id="del" onclick="r.textContent+='deleted '">Delete account</button>
+<div id="icon" style="cursor:pointer;width:40px" onclick="r.textContent+='icon '"><svg width="20" height="20" aria-hidden="true"></svg><span>Send</span></div>
+<form onsubmit="event.preventDefault();r.textContent+='sent '"><input id="m" aria-label="Message"><button>Send message</button></form>
+<button id="ok" onclick="r.textContent+='opened '">Show details</button>
+<div id="host"></div><p id="r"></p><script>var r=document.getElementById('r');
+document.getElementById('host').attachShadow({mode:'open'}).innerHTML='<button onclick="r.textContent+=\\'paid \\'">Pay now</button>';</script>`;
+	await go("risky");
+	const said = () => js(`document.getElementById("r").textContent`);
+	const pay = await js(`(() => { const b = document.getElementById("host").shadowRoot.querySelector("button").getBoundingClientRect(); return [b.x + b.width / 2, b.y + b.height / 2]; })()`);
+	const del = refFor(await tool("read_page", { filter: "interactive" }), "Delete account");
+	await tool("click", { selector: "#m" });
+	const risky = [
+		["click", { ref: del }, /click "Delete account"/],
+		["click", { selector: "#del" }, /click "Delete account"/],
+		["click", { selector: "#icon svg" }, /click "Send"/],
+		["click", { x: Math.round(pay[0]), y: Math.round(pay[1]) }, /click "Pay now"/],
+		["press", { key: "Enter" }, /press Enter in "Message"/],
+		["type", { text: "Hi", submit: true }, /type and submit in "Message"/],
+	];
+	asked.length = 0;
+	actionAnswer = "deny";
+	try {
+		for (const [name, args, want] of risky) {
+			await js(`document.getElementById("m").focus()`);
+			assert.match(await failure(name, args), /^permission_denied: Not done: .* the user said no/, JSON.stringify(args));
+			assert.match(asked.at(-1), want);
+		}
+		assert.equal(await said(), "");
+		assert.equal(asked.length, risky.length);
+		await tool("click", { selector: "#ok" });
+		await tool("type", { selector: "#m", text: "Hi" });
+		assert.equal(asked.length, risky.length, "an ordinary click and typing ask nothing");
+	} finally {
+		actionAnswer = "allow_once";
+	}
+	for (const [name, args] of risky.slice(0, 4)) await tool(name, args);
+	assert.equal(await said(), "opened deleted deleted icon paid ");
+});
 
 test("press select-all (Meta+a and Control+a) selects the field's text, so typing replaces it", async () => {
 	await go("edit");
@@ -2338,8 +2390,8 @@ test("files upload: a file from outside the project waits for the answer in the 
 test("files download: a file fetched in the page, with its cookie, is saved privately and matches byte for byte", async () => {
 	const a = await filesAgent();
 	try {
-		const got = await a.ok({ action: "download", url: `${pageUrl}files-data/blob.bin` });
-		assert.deepEqual([got.name, got.bytes, got.sha256, got.sourceUrl], ["blob.bin", FILES_BLOB.length, sha256(FILES_BLOB), `${pageUrl}files-data/blob.bin`]);
+		const got = await a.ok({ action: "download", url: `${pageUrl}files-data/blob.dat` });
+		assert.deepEqual([got.name, got.bytes, got.sha256, got.sourceUrl], ["blob.dat", FILES_BLOB.length, sha256(FILES_BLOB), `${pageUrl}files-data/blob.dat`]);
 		assert.equal(sha256(readFileSync(got.path)), sha256(FILES_BLOB), "more than one 3 MB piece, in order");
 		assert.equal(statSync(got.path).mode & 0o777, 0o600);
 		assert.equal(statSync(dirname(got.path)).mode & 0o777, 0o700);
@@ -2367,7 +2419,7 @@ test("files download: a file fetched in the page, with its cookie, is saved priv
 		const local = await a.call({ action: "download", url: "file:///etc/hosts" });
 		assert.ok(local.isError && /Only http, https, blob and data/.test(local.text), local.text);
 		const listed = (await a.ok({ action: "list" })).files;
-		assert.deepEqual(listed.map((f) => f.name), ["blob.bin", "linked.bin", "report 2026.csv", listed[3].name, listed[4].name]);
+		assert.deepEqual(listed.map((f) => f.name), ["blob.dat", "linked.bin", "report 2026.csv", listed[3].name, listed[4].name]);
 		// A saved file goes back into a page by its id.
 		const up = await a.ok({ action: "upload", selector: "#many", ids: [members.id] });
 		assert.deepEqual(up.holds, [{ name: "report 2026.csv", bytes: 8, type: "text/csv" }]);

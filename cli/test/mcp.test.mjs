@@ -655,6 +655,7 @@ async function filesHost(name, behave = {}) {
 	};
 	const host = { dir, requests: [], frameBytes: [], uploads: [], serve: undefined, waiting: {} };
 	const server = createServer((socket) => {
+		host.event = (event, data) => socket.write(frame({ type: "event", event, data }));
 		let buffered = Buffer.alloc(0);
 		const reply = (id, result) => socket.write(frame({ type: "response", id, result }));
 		const fail = (id, code, message) => socket.write(frame({ type: "response", id, error: { code, message } }));
@@ -695,6 +696,7 @@ async function filesHost(name, behave = {}) {
 				} else if (msg.method === "permission.respond") {
 					reply(msg.id, { accepted: true });
 					const w = host.waiting[p.requestId];
+					if (!w) continue;
 					if (p.decision === "allow_once") w.begun();
 					else fail(w.id, "permission_denied", "The user did not approve the upload. Nothing was sent.");
 				} else if (msg.method === "files.upload.chunk") {
@@ -819,6 +821,59 @@ test("files upload: content goes in pieces under the frame limit and arrives byt
 	} finally {
 		await client.close().catch(() => {});
 		host.close();
+	}
+});
+
+test("a risky action's question is put to the client, which says yes once or no; AUTO_ALLOW never answers it", async () => {
+	const action = { target: 'click "Delete record"', rule: "delete", why: "deletes or cancels something of yours" };
+	const asked = (requestId) => ({ requestId, host: "shop.test", url: "https://shop.test/", timeoutMs: 60_000, agent: "Test Agent", action });
+	const answered = async (host, id) => {
+		for (const end = Date.now() + 5000; Date.now() < end; await new Promise((r) => setTimeout(r, 20))) {
+			const r = host.requests.find((m) => m.method === "permission.respond" && m.params.requestId === id);
+			if (r) return r.params.decision;
+		}
+		return undefined;
+	};
+	const fx = filesFixture("action");
+	const host = await filesHost("action");
+	const { client, run, connect } = await filesClient(host, fx, { capabilities: { elicitation: {} }, env: { TABKYRA_AUTO_ALLOW: "1" } });
+	const questions = [];
+	let answer;
+	client.setRequestHandler(ElicitRequestSchema, async (req) => {
+		questions.push(req.params);
+		return answer;
+	});
+	try {
+		await connect();
+		await run({ action: "list" });
+		for (const [i, [said, want]] of [
+			[{ action: "accept", content: { decision: "allow_once" } }, "allow_once"],
+			[{ action: "accept", content: { decision: "deny" } }, "deny"],
+			[{ action: "decline" }, "deny"],
+			[{ action: "cancel" }, "deny"],
+		].entries()) {
+			answer = said;
+			host.event("action_request", asked(`c1:a${i}`));
+			assert.equal(await answered(host, `c1:a${i}`), want, JSON.stringify(said));
+		}
+		assert.equal(questions[0].message, 'Tychicus: Test Agent wants to click "Delete record" on shop.test. This deletes or cancels something of yours. Allow?');
+		assert.deepEqual(questions[0].requestedSchema.properties.decision.enum, ["allow_once", "deny"], "no answer is kept for the site");
+	} finally {
+		await client.close().catch(() => {});
+		host.close();
+	}
+	// A client that can't show a question leaves it to the side panel.
+	const host2 = await filesHost("action2");
+	const bare = await filesClient(host2, fx, { env: { TABKYRA_AUTO_ALLOW: "1" } });
+	try {
+		await bare.connect();
+		await bare.run({ action: "list" });
+		host2.event("action_request", asked("c1:b"));
+		await new Promise((r) => setTimeout(r, 300));
+		assert.equal(host2.methods().includes("permission.respond"), false);
+	} finally {
+		await bare.client.close().catch(() => {});
+		host2.close();
 	}
 });
 

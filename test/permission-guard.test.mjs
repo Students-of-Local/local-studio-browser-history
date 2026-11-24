@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { entersText, textLimit } from "../src/bridge/risk-rules.ts";
+import { commits, entersText, textLimit } from "../src/bridge/risk-rules.ts";
 import { allowHost, getPermissionMode, isRemoteClient, isUrlAllowed, LEGACY_MODE_KEY, MODE_KEY, modeFor, peekPermissionMode, recordDecision, setPermissionMode } from "../src/bridge/permissions.ts";
 import { addStep } from "../src/runs/log.ts";
 import { installFakeChrome } from "./fake-chrome.mjs";
@@ -139,6 +139,26 @@ test("the presses that enter text: one character or Space, read as pressKey read
 		assert.equal(entersText(tool, key), want, `${tool} ${key ?? ""}`);
 	assert.doesNotMatch(read("src/bridge/panel-calls.ts"), /hardLimits/, "the side panel's agent is the person's own");
 	assert.match(read("src/bridge/native.ts"), /hardLimits: true,/);
+});
+
+test("the risk rules look at a target only before what could commit something", () => {
+	for (const [tool, key, submit, want] of [
+		["click", undefined, undefined, true],
+		["type", undefined, true, true],
+		["type", undefined, false, false],
+		["press", "Enter", undefined, true],
+		["press", "Meta+Enter", undefined, true],
+		["press", "Space", undefined, true],
+		["press", " ", undefined, true],
+		["press", "a", undefined, false],
+		["press", "Tab", undefined, false],
+		["press", "ArrowDown", undefined, false],
+		["fill", undefined, undefined, false],
+		["hover", undefined, undefined, false],
+		["scroll", undefined, undefined, false],
+	])
+		assert.equal(commits(tool, key, submit), want, `${tool} ${key ?? ""} submit=${submit}`);
+	assert.doesNotMatch(read("src/bridge/panel-calls.ts"), /guard:/, "the side panel's agent is the person's own");
 });
 
 test("the hard limit's rule runs in the page as it stands: it names nothing outside itself", () => {

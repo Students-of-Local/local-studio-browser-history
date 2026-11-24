@@ -7,7 +7,8 @@
  *   unknown model asks (D60's "Match the model"; the CLI says which in its hello, cli/src/model-tier.ts).
  * - "yolo": nothing asks; agents may open any site (the old "allow_all").
  *
- * Auto asks before a sensitive site (mail, a bank, a password manager: risk-rules.ts) even for a frontier model.
+ * Auto asks before a sensitive site (mail, a bank, a password manager: risk-rules.ts) even for a frontier model. Manual
+ * and Auto also ask before a risky action under the person's sign-in (send, post, pay, delete, change settings).
  *
  * Unknown hosts raise a permission request that the harness shows (MCP elicitation) or that the user answers in
  * Settings > Agents. What no mode opens (Tychicus's own pages, guarded hosts) is checked before the mode.
@@ -50,6 +51,16 @@ export interface PendingRequest {
 	 * (docs/decisions.md, D38). The answer covers this one upload and is never remembered.
 	 */
 	upload?: { files: Array<{ name: string; bytes: number }> };
+	/** Set when the question is about one risky action under the person's sign-in (D67). */
+	action?: PendingAction;
+}
+
+export interface PendingAction {
+	/** What the agent is about to do, as the page names it (`click "Delete repository"`). */
+	target: string;
+	rule: string;
+	/** Why it asks: "sends a message as you". */
+	why: string;
 }
 
 export async function isBridgeEnabled(): Promise<boolean> {

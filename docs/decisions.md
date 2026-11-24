@@ -2244,8 +2244,7 @@ autocomplete, a link's href, a control's form and dialog). They are a net for an
 a page can name its Send button something else. Manual is the mode for a person who wants every new site asked.
 
 The ask is the one Manual uses for a site: MCP elicitation in the agent's harness, a card above the side panel's chat,
-and the same card under "Waiting for your answer" in Settings > Agents. For an action it offers allow once, allow on this site (risky actions there stop asking; a
-separate list from the sites an agent may open) and deny. The answer has 60 seconds, inside the bridge's 90-second
+and the same card under "Waiting for your answer" in Settings > Agents. For an action it offers allow once and deny. The answer has 60 seconds, inside the bridge's 90-second
 limit for a call; no answer is a no, and the tool result says what was not done and how the person can allow it.
 `TYCHICUS_AUTO_ALLOW` answers site questions only, never an action question, as it never answered an upload.
 
@@ -2254,6 +2253,16 @@ one). The bridge runs it in Auto when the mode is Yolo, and refuses `permission.
 `permission.setMode` from it, so it can't answer its own question or widen its own reach. A CLI from before `remote` can't say it, but `serve` has
 always named its sessions `remote-<caller>`, so the bridge goes by that name too. The MCP server puts no site question
 to a remote or scoped session's caller: it waits in the side panel.
+
+The bridge asks before an input that could commit something goes out (`HandlerContext.guard`: click, type, paste, press,
+and each step of `actions`), with the target looked at then (`describeTarget`) and again after a yes: if the action, the
+rule or the site is no longer what was asked about, it is refused. A look that can't tell what the input reaches (it
+failed, another site's frame, a component with nothing to show) makes it `unchecked`, which asks; a look that finds the
+target gone or covered refuses the call. Text with no Enter is not looked at. A `navigate` to a program (`.exe`, `.dmg`,
+`.pkg` and the like) asks too. The question goes to the client as its own event (`action_request`), so a CLI from before it
+leaves it to the side panel instead of answering it as a site's. Not checked: a script (`run_js`), `fill` (it presses
+nothing), a drag, a select, and a click a page turns into something else after the look. The side panel's own agent is
+the person's own and is not asked about.
 
 The bridge checks the hard limits where the text goes in, not on the element the call named: a wrapper, a component, a
 field that swaps itself on focus or a next line can put it elsewhere. `fill` checks inside the page code that writes, on
@@ -2277,7 +2286,7 @@ about what an agent does in a page. Every bridge step in the Runs log carries th
 
 **Why these defaults.** Auto keeps what 1.4.0 got right (frontier agents are not stopped at every new site) and adds
 the asks the competitors make, at the actions that act as the person. Recall is the floor because a missed risky
-action is one the person never saw; a false flag costs one click and "allow on this site" ends it for that site.
+action is one the person never saw; a false flag costs one click.
 
 **Proof.** `test/permission-modes.test.mjs` (each migration, the notice, a fresh install), `test/risk-rules.test.mjs`
 (each rule) and `evals/market/risky-actions`: 86 labeled actions, 59 risky, recall 100% held as the `riskyActions`

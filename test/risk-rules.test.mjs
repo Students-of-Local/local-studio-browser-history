@@ -155,6 +155,25 @@ test("app classes: Keychain Access, System Settings, terminals and shells, passw
 	assert.deepEqual(Object.keys(SENSITIVE_APPS).sort(), ["keychain", "password-manager", "system-settings", "terminal"]);
 });
 
+test("an action whose page look failed asks, whatever the control would have been", () => {
+	const at = { url: "https://app.example.com/", unchecked: true };
+	for (const f of [{ tool: "click" }, { tool: "press", key: "Enter" }, { tool: "type", submit: true }])
+		assert.equal(ruleOf({ ...f, ...at }), "unchecked", JSON.stringify(f));
+	// Typing that commits nothing is no risky action, Space is a character there, and a navigation reads no control.
+	for (const f of [{ tool: "fill" }, { tool: "type" }, { tool: "press", key: "b" }, { tool: "press", key: "Space" }, { tool: "press", key: "Tab" }, { tool: "navigate" }])
+		assert.equal(ruleOf({ ...f, ...at }), undefined, JSON.stringify(f));
+});
+
+test("Enter and Space on a focused control are its click", () => {
+	const on = (key, target) => ruleOf({ tool: "press", key, url: "https://shop.example.com/", target });
+	for (const key of ["Enter", "Space", " "]) {
+		assert.equal(on(key, { role: "button", name: "Delete record" }), "delete", key);
+		assert.equal(on(key, { role: "button", name: "Cancel" }), undefined, key);
+	}
+	assert.equal(on("Space", { role: "textbox", name: "Message", form: { submit: "Send" } }), undefined, "a space in a field");
+	assert.equal(on("Space", {}), undefined, "a scroll");
+});
+
 // ---- hard limits ----------------------------------------------------------------------------------------------------
 
 test("hard limit password-field: by type, by autocomplete, by name; never a search box", () => {

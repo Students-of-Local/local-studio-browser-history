@@ -53,6 +53,7 @@ import type { FrameRule } from "../browser/frames.js";
 import { injectScript } from "../browser/inject.js";
 import {
 	type Aim,
+	describeTarget,
 	fillElement,
 	focusLimit,
 	goBack,
@@ -104,7 +105,7 @@ import {
 import { getAllowedHosts, getPermissionMode } from "./permissions.js";
 import { ERR, type ModelTier } from "./protocol.js";
 import { cleanRef, lookUpName, nodeLine, REF_RE } from "./ref-lookup.js";
-import { entersText, type HardLimit, limitWhy } from "./risk-rules.js";
+import { type ActionFacts, commits, entersText, type HardLimit, limitWhy } from "./risk-rules.js";
 
 export { BridgeError, detachedError };
 
@@ -182,6 +183,12 @@ export interface HandlerContext {
 	mark?(label: string): void;
 	/** No text goes into a password or payment field (D67, risk-rules.ts). Unset (the side panel's own agent): no check. */
 	hardLimits?: boolean;
+	/**
+	 * The permission mode's check before an input that commits something (D67, risk-rules.ts): asks the person about a
+	 * risky one and waits; throws when it may not go. `facts` looks at the target, and is called only when the mode
+	 * asks. Unset (the side panel's own agent): no check.
+	 */
+	guard?(facts: () => Promise<ActionFacts>): Promise<void>;
 }
 
 /**
@@ -358,6 +365,48 @@ async function refuseLimited(
 		);
 	});
 	if (limit) throw limitError(limit, partway);
+}
+
+/** The failed looks that refuse the input themselves: what it names can't be reached, so there is nothing to ask. */
+const LOOK_REFUSES: ReadonlySet<string> = new Set([
+	ERR.STALE_REF,
+	ERR.NOT_FOUND,
+	ERR.NOT_ACTIONABLE,
+	ERR.NO_TAB,
+	ERR.BAD_PARAMS,
+]);
+
+/** What Auto's rules read about an input before it goes out: the tab's URL and the control it will reach. */
+async function actionFacts(ctx: HandlerContext, tool: string, tabId: number, params: Params): Promise<ActionFacts> {
+	const tab = await chrome.tabs.get(tabId).catch(() => undefined);
+	const x = num(params, "x");
+	const y = num(params, "y");
+	// A click at x and y goes to the point even when a ref came with it (pointFor).
+	const at = tool === "click" && x !== undefined && y !== undefined;
+	const { unchecked, ...found } = await describeTarget(
+		tabId,
+		at ? { point: screenshotToCss(tabId, { x, y }) } : tool === "press" ? {} : target(params),
+		skipFor(ctx, tabId),
+	).catch((err: unknown) => {
+		const { error } = classify(err, tool);
+		if (LOOK_REFUSES.has(error.code)) throw error;
+		return { unchecked: true };
+	});
+	return {
+		tool,
+		url: tab?.pendingUrl || tab?.url,
+		target: found,
+		...(unchecked ? { unchecked } : {}),
+		key: str(params, "key"),
+		submit: params.submit === true,
+	};
+}
+
+/** The mode's check (HandlerContext.guard) on an input that could commit something. */
+async function askFirst(ctx: HandlerContext, tool: string, tabId: number, params: Params): Promise<void> {
+	if (!ctx.guard || !commits(tool, str(params, "key"), params.submit === true)) return;
+	await ctx.guard(() => actionFacts(ctx, tool, tabId, params));
+	stopIfAborted(ctx);
 }
 
 function stopIfAborted(ctx: HandlerContext): void {
@@ -606,6 +655,7 @@ const pasteText: Handler = async (ctx, params) => {
 	const text = requireStr(params, "text");
 	const tabId = await resolveTab(ctx, params, true);
 	const t = target(params);
+	await askFirst(ctx, "type", tabId, params);
 	/** Set once the paste goes to the page: from then on the field may hold the text. */
 	let handed = false;
 	const before = await changesBefore(ctx, tabId, params);
@@ -1140,6 +1190,7 @@ export const handlers: Record<string, Handler> = {
 	click: async (ctx, params) => {
 		const tabId = await resolveTab(ctx, params, true);
 		ctx.mark?.("resolve");
+		if (str(params, "mouseButton") !== "right") await askFirst(ctx, "click", tabId, params);
 		// The look first: the point is found right before the input goes out, so a layout that
 		// moved during the look can't misplace the click.
 		const before = await changesBefore(ctx, tabId, params);
@@ -1231,6 +1282,8 @@ export const handlers: Record<string, Handler> = {
 		const text = requireStr(params, "text");
 		const tabId = await resolveTab(ctx, params, true);
 		const t = target(params);
+		// A newline in the text is an Enter too.
+		await askFirst(ctx, "type", tabId, { ...params, submit: params.submit === true || /[\r\n]/.test(text) });
 		/** Set just before the first key event goes out: after that the page may hold some of the text. */
 		let keysStarted = false;
 		const before = await changesBefore(ctx, tabId, params);
@@ -1291,6 +1344,7 @@ export const handlers: Record<string, Handler> = {
 		const key = requireStr(params, "key");
 		const tabId = await resolveTab(ctx, params, true);
 		const repeat = num(params, "repeat") ?? 1;
+		await askFirst(ctx, "press", tabId, params);
 		const before = await changesBefore(ctx, tabId);
 		const since = await actionStart(ctx, tabId);
 		try {

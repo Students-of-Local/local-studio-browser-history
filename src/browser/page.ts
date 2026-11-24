@@ -6,7 +6,7 @@
  */
 
 import { isGuardedUrl } from "../bridge/permissions.js";
-import { type HardLimit, textLimit } from "../bridge/risk-rules.js";
+import { type HardLimit, type TargetFacts, textLimit } from "../bridge/risk-rules.js";
 import { cdpSend, cdpSendSession, isRestrictedUrl } from "./cdp.js";
 import {
 	bounded,
@@ -2394,6 +2394,100 @@ export async function focusLimit(
 		if (!chain[depth] || (await focusNode(tabId, frame)).frameId !== chain[depth].frameId) break;
 	}
 	return "other-site";
+}
+
+/**
+ * What Auto's rules read about the control an action reaches (risk-rules.ts TargetFacts): its role and name (as
+ * read_page gave them, when it has the ref), and the link, dialog and form around it. By ref, else selector, else the
+ * CSS point, else the focus. Reads only, and heals no ref: the action's own lookup does that, and refuses what this
+ * can't find. `unchecked` when the control is somewhere the page can't see into: another site's frame, or a custom
+ * element with nothing of its own to show.
+ */
+const DESCRIBE_LIB: PageLib = {
+	name: "describe",
+	source: () => `(ref, sel, x, y) => {
+		const FRAME = ${FRAME_TAG};
+		const squash = (t) => String(t || "").replace(/\\s+/g, " ").trim();
+		const said = (n) => squash(n && (n.getAttribute("aria-label") || n.innerText || n.value || n.textContent));
+		let el = null;
+		let meta;
+		if (ref) {
+			if (window.__tabkyraRefs instanceof Map) el = window.__tabkyraRefs.get(ref) || null;
+			if (window.__tabkyraRefMeta instanceof Map) meta = window.__tabkyraRefMeta.get(ref);
+			if (el && !el.isConnected) el = null;
+		}
+		if (!el && sel) try { el = document.querySelector(sel); } catch {}
+		if (!ref && !sel) el = typeof x === "number" ? document.elementFromPoint(x, y) : (${DEEP_FOCUS})();
+		// A point goes through open shadow roots and same-site frames to what takes it.
+		while (el && !ref && !sel && typeof x === "number") {
+			let doc = null;
+			if (FRAME.test(el.tagName)) try { doc = el.contentDocument; } catch {}
+			if (doc) {
+				const r = el.getBoundingClientRect();
+				x = (x - r.left) / (r.width / el.offsetWidth || 1) - el.clientLeft;
+				y = (y - r.top) / (r.height / el.offsetHeight || 1) - el.clientTop;
+			}
+			const root = doc || el.shadowRoot;
+			const inner = root && root.elementFromPoint(x, y);
+			if (!inner || inner === el) break;
+			el = inner;
+		}
+		const out = {};
+		if (meta) { out.role = meta.role; out.name = meta.name; }
+		if (!el) return out;
+		if (FRAME.test(el.tagName)) return { unchecked: true };
+		const W = el.ownerDocument.defaultView || window;
+		if (W !== W.top) out.frameUrl = W.location.href;
+		const pointer = (n) => W.getComputedStyle(n).cursor === "pointer";
+		let ctl = el.closest("button,a[href],input,select,textarea,summary,[contenteditable=''],[contenteditable=true]," +
+			"button,link,menuitem,menuitemcheckbox,menuitemradio,option,switch,checkbox,radio,tab,combobox,listbox,textbox,searchbox".split(",").map((r) => "[role=" + r + "]"));
+		// A plain element the page made clickable; an icon in one goes by the text around it.
+		if (!ctl) for (ctl = el; !said(ctl) && ctl.parentElement && pointer(ctl.parentElement); ) ctl = ctl.parentElement;
+		if (/^(BODY|HTML)$/.test(ctl.tagName)) return out;
+		const tag = ctl.tagName.toLowerCase();
+		const type = tag === "input" ? String(ctl.type || "text").toLowerCase() : "";
+		const button = tag === "button" || tag === "summary" || /^(submit|button|image|reset)$/.test(type);
+		const field = tag === "input" || tag === "textarea" || tag === "select";
+		if (!out.role)
+			out.role = squash(ctl.getAttribute("role")).split(" ")[0] || (
+				button ? "button" : tag === "a" ? "link" : /^(checkbox|radio)$/.test(type) ? type
+				: type === "search" ? "searchbox" : tag === "select" ? "combobox" : field || ctl.isContentEditable ? "textbox"
+				: pointer(ctl) ? "button" : tag);
+		if (!out.name) {
+			const root = ctl.getRootNode();
+			const labelled = squash(ctl.getAttribute("aria-labelledby")).split(" ").map((id) => said(id && root.getElementById ? root.getElementById(id) : null)).join(" ").trim();
+			out.name = squash(ctl.getAttribute("aria-label") || labelled || (field && !button
+				? [...(ctl.labels || [])].map(said).join(" ") || ctl.getAttribute("placeholder") || ctl.getAttribute("title") || ctl.getAttribute("name")
+				: said(ctl) || ctl.getAttribute("title") || ctl.getAttribute("alt") || [...ctl.querySelectorAll("[aria-label],[alt],title")].map((n) => n.getAttribute("aria-label") || n.getAttribute("alt") || n.textContent).join(" "))).slice(0, 200);
+		}
+		if (!out.name && ctl.tagName.includes("-") && !ctl.shadowRoot) return { unchecked: true };
+		if (type) out.inputType = type;
+		const link = el.closest("a[href]");
+		if (link) out.href = link.href;
+		const dialog = el.closest("dialog,[role=dialog],[role=alertdialog]");
+		if (dialog) out.dialog = said(dialog).slice(0, 300);
+		const form = ctl.form || el.closest("form");
+		if (form) {
+			const b = form.querySelector("button[type=submit],button:not([type]),input[type=submit],input[type=image]");
+			out.form = { submit: said(b).slice(0, 100) };
+			if (form.getAttribute("action")) out.form.action = form.action;
+		}
+		return out;
+	}`,
+};
+
+/** The facts DESCRIBE_LIB reads, where the ref lives (a cross-origin frame's isolated world for a frame ref). `point` is in CSS pixels. */
+export async function describeTarget(
+	tabId: number,
+	target: { ref?: string; selector?: string; point?: { x: number; y: number } },
+	rule: FrameRule = FRAMES_CLOSED,
+): Promise<TargetFacts & { unchecked?: boolean }> {
+	const code = (r: string | undefined, inFrame: boolean): LibCall => ({
+		lib: DESCRIBE_LIB,
+		args: [r ?? "", inFrame ? "" : (target.selector ?? ""), target.point?.x, target.point?.y],
+	});
+	const { value } = await runForRef<TargetFacts & { unchecked?: boolean }>(tabId, target.ref, code, rule);
+	return value ?? { unchecked: true };
 }
 
 /**
