@@ -1,5 +1,5 @@
 #!/bin/sh
-# Installs Tychicus's helper from a GitHub release, on macOS and Linux:
+# Installs the Local Studio helper from a GitHub release, on macOS and Linux:
 #
 #   curl -fsSL https://github.com/baney75/tychicus/releases/latest/download/install.sh | sh
 #
@@ -30,7 +30,7 @@ fail() {
 
 usage() {
 	cat <<'USAGE'
-Installs Tychicus's helper from the latest release of baney75/tychicus.
+Installs the Local Studio helper from the latest release of baney75/tychicus.
   curl -fsSL https://github.com/baney75/tychicus/releases/latest/download/install.sh | sh
   curl -fsSL <same address> | sh -s -- [--allow-root] [--local-studio] [--force] [--browser <name>] [--dry-run]
 TYCHICUS_VERSION=1.2.3 installs that release instead. TYCHICUS_GH=none skips the attestation check.
@@ -61,7 +61,7 @@ for arg in "$@"; do
 done
 
 if [ "$(id -u)" = 0 ] && [ "$allow_root" != 1 ]; then
-	fail "refusing to run as root. Tychicus installs into your own home folder and needs no sudo. Run this as your own user, or pass --allow-root to install for root."
+	fail "refusing to run as root. The helper installs into your own home folder and needs no sudo. Run this as your own user, or pass --allow-root to install for root."
 fi
 
 if [ -n "${TYCHICUS_INSTALL_BASE_URL:-}" ]; then
@@ -179,12 +179,12 @@ program="$dir/${archive%.tar.gz}/tychicus"
 [ "$dry_run" = 0 ] || exit 0
 root="${XDG_DATA_HOME:-$HOME/.local/share}/tychicus/release"
 say ""
-say "Tychicus $version is installed in $root."
+say "The Local Studio helper $version is installed in $root."
 # The release's install links ~/.local/bin/tychicus to it. When this shell finds that link and it names the release, the
 # short name works; a link it left alone (someone else's tychicus) doesn't count.
 run="$root/tychicus"
 if [ "$(command -v tychicus 2>/dev/null || true)" = "$HOME/.local/bin/tychicus" ] && [ "$(readlink "$HOME/.local/bin/tychicus" 2>/dev/null || true)" = "$root/tychicus" ]; then
 	run=tychicus
 fi
-say "Next: if you added Tychicus from the Chrome Web Store, its side panel now shows the helper connected. Otherwise load"
+say "Next: if you added the extension from the Chrome Web Store, its side panel now shows the helper connected. Otherwise load"
 say "the extension from the folder printed above. Then connect your coding agents: $run setup"

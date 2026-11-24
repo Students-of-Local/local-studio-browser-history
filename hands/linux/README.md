@@ -1,6 +1,6 @@
 # tychicus-hands for Linux
 
-Tychicus's computer-use helper for Linux: `tychicus-hands mcp [--connector]`. It speaks the hands protocol
+Local Studio's computer-use helper for Linux: `tychicus-hands mcp [--connector]`. It speaks the hands protocol
 (`docs/hands-protocol.md`) over stdio, reads and acts on windows through AT-SPI, and never sends physical input: no
 synthetic keys, no pointer moves, no typing into the window the person is using. What it can't do in the background it
 refuses with a protocol code.
@@ -13,7 +13,7 @@ cargo build --release --target aarch64-unknown-linux-musl   # links with rustup'
 install -m 755 target/x86_64-unknown-linux-musl/release/tychicus-hands ~/.local/bin/
 ```
 
-Tychicus finds it on `PATH` or in `~/.local/bin` (`findHelper` in `cli/src/computer.ts`); `TYCHICUS_HANDS_BIN` names
+The Local Studio helper finds it on `PATH` or in `~/.local/bin` (`findHelper` in `cli/src/computer.ts`); `TYCHICUS_HANDS_BIN` names
 one outright.
 
 ## Desktops
@@ -33,7 +33,7 @@ case it is in (`desktop: "atspi-only (GNOME)"`).
 
 ## Who may use what
 
-The person's access mode and app list live in `hands.json` in Tychicus's config folder (`TYCHICUS_CONFIG_DIR`, else
+The person's access mode and app list live in `hands.json` in the Local Studio helper's config folder (`TYCHICUS_CONFIG_DIR`, else
 `$XDG_CONFIG_HOME/tychicus`, else `~/.config/tychicus`), read on every call so a change applies at once:
 
 ```json

@@ -1,4 +1,4 @@
-// Run the scripted task set against Tychicus. Exits 1 unless every run passes.
+// Run the scripted task set against Local Studio. Exits 1 unless every run passes.
 //   node evals/market/tasks/run.mjs [--only t01-read,t02-form] [--repeat 3] [--out file.jsonl]
 // The market eval (../run.mjs) runs the same loop and gates it on ../floors.json; this is the task set alone.
 import { driver, startTychicus } from "./lib.mjs";
