@@ -237,7 +237,8 @@ async function theme(): Promise<VeilTheme> {
 		return Object.fromEntries(THEME_VARS.filter((k) => all[k] !== undefined).map((k) => [k, all[k]]));
 	};
 	const mirrored = stored[MODE_MIRROR_KEY];
-	const scheme: VeilTheme["scheme"] = mirrored === "light" || mirrored === "dark" ? mirrored : "auto";
+	// Dark unless the panel mirrored light or "Match system" (src/appearance/mode.ts).
+	const scheme: VeilTheme["scheme"] = mirrored === "light" ? "light" : mirrored === "system" ? "auto" : "dark";
 	themeCache = { light: pick(false), dark: pick(true), scheme };
 	return themeCache;
 }

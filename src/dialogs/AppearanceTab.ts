@@ -15,8 +15,8 @@ const PRESET_LABELS: Record<string, string> = {
 	midnight: "Midnight",
 };
 const MODES: Array<[Mode, string]> = [
-	["light", "Light"],
 	["dark", "Dark"],
+	["light", "Light"],
 	["system", "Match system"],
 ];
 const HEX = /^#[0-9a-f]{6}$/i;
