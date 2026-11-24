@@ -128,10 +128,23 @@ public enum KeyParse {
 
     /// Why a chord is never sent, or nil: the key equivalents `MenuPath` refuses, so a key never reaches what its menu
     /// item may not. By ANSI key code, and by `characters`, as `SessionClipboard.usesPasteboard` reads them (an app reads
-    /// cmd+q by its character; the Q key types something else on Dvorak).
+    /// cmd+q by its character; the Q key types something else on Dvorak). `chord` picks the key by its US place: where the
+    /// layout has other characters on that key, it would send another key than the one asked for, so it isn't sent.
+    /// fn with a letter or with control is the system's own (full screen, Emoji, window tiling, Quick Note).
     public static func refusal(_ c: KeyChord, characters: @autoclosure () -> [Character] = []) -> HandsError? {
-        guard c.hasCommand else { return nil }
         let typed = characters()
+        let place = base.first { $0.value == c.keyCode }?.key
+        if c.flags & KeyChord.function != 0, c.flags & KeyChord.control != 0 || place?.first?.isLetter == true || typed.contains(where: \.isLetter) {
+            return MenuPath.refuse(c.label, why: MenuPath.windows)
+        }
+        if let place, !typed.isEmpty {
+            let shifted = c.flags & KeyChord.shift == 0 ? nil : shiftedSymbols.first { $0.value == place }?.key
+            let asked = shifted.map(String.init) ?? place
+            if !typed.contains(where: { $0.lowercased() == asked }) {
+                return bad(c.label, "this Mac's keyboard layout has another character on that key")
+            }
+        }
+        guard c.hasCommand else { return nil }
         func key(_ name: String) -> Bool { base[name] == c.keyCode || typed.contains { $0.lowercased() == name } }
         let others = c.flags & (KeyChord.shift | KeyChord.option | KeyChord.control)
         // Quit, quit and keep windows, log out, lock the screen: every way cmd+q is held.
@@ -806,24 +819,28 @@ public enum KeyPrediction {
     /// What one step is expected to change (a step is a typed segment or a single chord; see `KeySteps`).
     public static func expected(_ chords: [KeyChord], focusIsText: Bool) -> Set<KeyEffect> {
         var out: Set<KeyEffect> = []
+        func add(_ effects: Set<KeyEffect>) { out.formUnion(effects) }
         for c in chords {
             if arrows.contains(c.keyCode) {
-                out.insert(focusIsText ? .selection : .content)
+                add(focusIsText ? [.selection, .content] : [.content])   // Page Up, Home and End scroll an AppKit text view
             } else if c.flags == KeyChord.command, [11, 34, 32].contains(c.keyCode) {
                 out.insert(.attributes)                       // bold, italic, underline
             } else if c.flags == KeyChord.command, c.keyCode == 0 {
                 out.insert(.selection)                        // select all
             } else if c.flags & (KeyChord.command | KeyChord.control) != 0 {
                 out.insert(.window)                           // save, new, close...: the window is what changes
+                // In text: undo, delete to the line's end, a caret move, a find bar that takes the focus.
+                if focusIsText { add([.text, .selection, .attributes, .focus, .content]) }
             } else if c.keyCode == 36 {
-                // Return types a newline in a text view, runs the action of a one-line field (the window may change).
-                out.insert(focusIsText ? .text : .content); out.insert(.window)
+                // Return types a newline in a text view, runs the action of a one-line field (a search, a rename, a sheet).
+                add(focusIsText ? [.text, .focus, .content, .window] : [.content, .window])
             } else if c.keyCode == 48 {
-                out.insert(.focus)
+                add(focusIsText ? [.focus, .text] : [.focus])            // a text view takes a tab character
             } else if isTextual(c) {
                 out.insert(focusIsText ? .text : .content)
             } else {
-                out.insert(.content)
+                // Escape, F-keys: a completion list gone, a search field cleared, a rename cancelled.
+                add(focusIsText ? [.content, .text, .selection, .focus, .window] : [.content])
             }
         }
         return out
@@ -1012,10 +1029,23 @@ public enum DeliveryProof {
         }
     }
 
+    /// Whether the whole of `typed` went in where the selection was: the text before it, then `typed`, and the text after
+    /// it at the end. Text that was already there proves nothing. With no selection read, the value must hold `typed` and
+    /// have grown by it.
+    static func inserted(_ typed: String, _ b: ElementReading, _ a: ElementReading) -> Bool {
+        guard let before = b.value.map({ Array($0.utf16) }), let after = a.value.map({ Array($0.utf16) }) else { return false }
+        let new = Array(typed.utf16)
+        guard let at = b.selectionLocation, let length = b.selectionLength, at >= 0, length >= 0, at + length <= before.count else {
+            return after.count >= before.count + new.count && a.value?.contains(typed) == true
+        }
+        let head = before[..<at], tail = before[(at + length)...]
+        return after.count >= head.count + new.count + tail.count && after.starts(with: head + new) && Array(after.suffix(tail.count)) == Array(tail)
+    }
+
     /// Keys, one step: proof is the change that step predicts, on the targeted element or the focused element (value,
     /// selection, attributes, focus), all inside the target window. A typed segment must also show its own characters.
-    /// The window's content counts only where there is no text element to read (Calculator), and the window itself
-    /// only for a shortcut that acts on the window (Save). An unrelated change does not count, and pixels never prove keys.
+    /// The window's content counts where there is no text element to read (Calculator) or the key may act outside it
+    /// (Return, Escape), and the window itself only for a key that acts on it (Save, Return). An unrelated change does not count, and pixels never prove keys.
     public static func keys(target: UInt32, step: KeyStep, ref: ReadingPair, focus: ReadingPair, content: Bool?,
                             window: (before: WindowReading?, after: WindowReading?) = (nil, nil), pixels: PixelChange?) -> DeliveryVerdict {
         let focusIsText = (focus.before?.isText ?? false) || (ref.before?.isText ?? false)
@@ -1026,7 +1056,7 @@ public enum DeliveryProof {
         if let typed = step.typed, seen.contains(.text) {
             func appears(_ p: ReadingPair) -> Bool {
                 guard let b = p.before, let a = p.after, b.window == target, a.window == target, b.valueDigest != a.valueDigest else { return false }
-                return a.value?.contains(typed) ?? false
+                return inserted(typed, b, a)
             }
             if !(appears(ref) || appears(focus)) { seen.remove(.text); wrongText = true }
         }
@@ -1036,7 +1066,7 @@ public enum DeliveryProof {
         }()
         for e in [KeyEffect.text, .selection, .focus, .attributes] where expected.contains(e) && seen.contains(e) { return .init(verified: true, basis: basis(e)) }
         if expected.contains(.window), windowChanged { return .init(verified: true, basis: "window_changed") }
-        if !focusIsText, expected.contains(.content), content == true { return .init(verified: true, basis: "content_changed") }
+        if expected.contains(.content), content == true { return .init(verified: true, basis: "content_changed") }
         if pixels?.anyChange == true { return .init(verified: false, basis: "pixels_only") }
         if !seen.isEmpty || wrongText || windowChanged || (focusIsText && content == true) { return .init(verified: false, basis: "unpredicted_change") }
         let read = ref.after != nil || focus.after != nil || content != nil
