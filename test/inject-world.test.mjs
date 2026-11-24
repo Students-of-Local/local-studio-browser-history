@@ -22,15 +22,24 @@ const created = (tabId, id, page, name, sessionId) =>
 	emit(tabId, "Runtime.executionContextCreated", { context: { id, name, uniqueId: unique(id, page) } }, sessionId);
 /** The name the runs' world goes by, as Chrome is asked for it. */
 let worldName;
+/** Each tab's document's run world; `newDocument` is a navigation to another. */
+const world = new Map();
+const newDocument = (tab = tabId) => {
+	world.delete(tab);
+	emit(tab, "Runtime.executionContextsCleared", {});
+};
 chrome.debugger.sendCommand = async ({ tabId }, method, params) => {
 	sent.push({ method, params });
 	if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "top" } } };
 	if (method === "Page.createIsolatedWorld") {
 		if (worldFails) throw new Error("No frame for given id found");
 		worldName = params.worldName;
-		const id = ++context;
-		announce(tabId, id, worldName);
-		return { executionContextId: id };
+		// Chrome gives the document's one world of that name again, with no second event.
+		if (world.get(tabId) === undefined) {
+			world.set(tabId, ++context);
+			announce(tabId, context, worldName);
+		}
+		return { executionContextId: world.get(tabId) };
 	}
 	return method === "Runtime.evaluate" ? evaluate(params, tabId) : {};
 };
@@ -43,6 +52,7 @@ beforeEach(() => {
 	worldFails = false;
 	announce = (id, context, name) => created(id, context, "page", name);
 	evaluate = () => ({ result: { value: 2 } });
+	newDocument();
 });
 
 test("the code runs in an isolated world of the page's top frame, and the binding is that world's only", async () => {
@@ -57,11 +67,42 @@ test("the code runs in an isolated world of the page's top frame, and the bindin
 	assert.deepEqual(of("Runtime.evaluate").map((p) => [p.contextId, p.uniqueContextId]), [[undefined, unique(context)]]);
 });
 
-test("a world of its own in each document: every run asks for the current one", async () => {
-	await injectScript(tabId, "1");
-	const first = context;
-	await injectScript(tabId, "1");
-	assert.deepEqual(of("Runtime.evaluate").map((p) => p.uniqueContextId), [unique(first), unique(first + 1)]);
+test("one world for a document's runs, and another for the next document's", async () => {
+	for (const next of [false, false, true]) {
+		if (next) newDocument();
+		await injectScript(tabId, "1");
+	}
+	assert.deepEqual(of("Runtime.evaluate").map((p) => p.uniqueContextId), [context - 1, context - 1, context].map((id) => unique(id)));
+});
+
+test("every run turns on the events and the binding again: a detach of the extension's own sends no event", async () => {
+	for (let n = 1; n < 3; n++) {
+		await injectScript(tabId, "1");
+		assert.deepEqual([of("Runtime.enable").length, of("Runtime.addBinding").length], [n, n]);
+	}
+});
+
+test("a world whose document went before its event came runs nothing, even when the next one's has its integer id", async () => {
+	announce = (id, context, name) => {
+		newDocument(id);
+		created(id, context, "next", name);
+	};
+	await assert.rejects(injectScript(tabId, "1"), /Not run: the page changed/);
+	assert.deepEqual(of("Runtime.evaluate"), []);
+});
+
+test("a run that finished with a value JSON can't hold, or was stopped, was not cut off", async () => {
+	for (const [said, want] of [
+		["Object reference chain is too long", /The script ran, but its value can't be returned as JSON/],
+		["Execution was terminated", /Execution was terminated/],
+	]) {
+		evaluate = () => {
+			throw new Error(said);
+		};
+		const failed = injectScript(tabId, "1");
+		await assert.rejects(failed, want);
+		await failed.catch((err) => assert.doesNotMatch(err.message, /cut off/));
+	}
 });
 
 test("without a world nothing runs", async () => {

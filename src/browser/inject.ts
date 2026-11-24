@@ -97,7 +97,8 @@ const notRun = (why: string) =>
 	new PageException(
 		`Not run: the page changed as the script was about to start (${why}). Call read_page to see the page, then try again.`,
 	);
-const bindingReady = new Set<number>();
+/** Counts each tab's cleared contexts, so a run that began before one never takes a later document's world. */
+const clears = new Map<number, number>();
 let bindingListenerInstalled = false;
 const runningExecutions = new Map<string, number>();
 
@@ -121,6 +122,7 @@ function installBindingListener(): void {
 			worlds.get(tabId)?.delete(p.executionContextId ?? -1);
 		} else if (method === "Runtime.executionContextsCleared") {
 			worlds.delete(tabId);
+			clears.set(tabId, (clears.get(tabId) ?? 0) + 1);
 		}
 		if (method !== "Runtime.bindingCalled" || p.name !== BINDING || !p.payload) return;
 		// Read before the handler runs: the document may be gone by its answer. Not one of this context's worlds: no answer.
@@ -149,8 +151,8 @@ function installBindingListener(): void {
 		})();
 	});
 	const forget = (tabId: number) => {
-		bindingReady.delete(tabId);
 		worlds.delete(tabId);
+		clears.delete(tabId);
 	};
 	chrome.tabs.onRemoved.addListener(forget);
 	chrome.debugger.onDetach.addListener((source) => {
@@ -161,16 +163,17 @@ function installBindingListener(): void {
 async function ensureBinding(tabId: number): Promise<void> {
 	installBindingListener();
 	await ensureAttached(tabId);
-	if (bindingReady.has(tabId)) return;
+	// Every time: a detach of the extension's own sends no event, and the console's Runtime.disable drops the binding. Each
+	// is a no-op when already in place.
 	await cdpSend(tabId, "Runtime.enable");
 	// By the world's name, so it is there in each document's world, and never in the page's own.
 	await cdpSend(tabId, "Runtime.addBinding", { name: BINDING, executionContextName: WORLD }).catch(() => undefined);
-	bindingReady.add(tabId);
 }
 
 /** The run world of the tab's current document, by its unique id, with the binding ready. */
 async function runWorld(tabId: number): Promise<string> {
 	await ensureBinding(tabId);
+	const began = clears.get(tabId);
 	let contextId: number;
 	try {
 		const { frameTree } = await cdpSend<{ frameTree: { frame: { id: string } } }>(tabId, "Page.getFrameTree");
@@ -181,12 +184,15 @@ async function runWorld(tabId: number): Promise<string> {
 		});
 		contextId = world.executionContextId;
 	} catch (err) {
+		// The debugger went (a Cancel on its bar): not the page's doing.
+		if (/not attached|detached/i.test(words(err))) throw new PageException(`Not run: ${words(err)}`);
 		throw notRun(words(err));
 	}
 	// The event that names it can land after the answer.
 	for (const end = Date.now() + WORLD_EVENT_MS; ; await new Promise((ok) => setTimeout(ok, 20))) {
 		const uniqueContextId = worlds.get(tabId)?.get(contextId);
 		if (uniqueContextId) return uniqueContextId;
+		if (clears.get(tabId) !== began) throw notRun("it went to another document");
 		if (Date.now() > end) throw notRun("its script context was not announced");
 	}
 }
@@ -197,7 +203,7 @@ async function runWorld(tabId: number): Promise<string> {
  */
 const SHIM = `(() => {
 	const w = window;
-	if (!w.__tabkyraPending) {
+	if (!Object.hasOwn(w, "__tabkyraPending")) {
 		w.__tabkyraPending = new Map();
 		w.__tabkyraSeq = 0;
 		w.__tabkyraReceive = (id, response, error) => {
@@ -207,7 +213,7 @@ const SHIM = `(() => {
 			if (error) p.reject(new Error(error)); else p.resolve(response);
 		};
 	}
-	if (!w.__tabkyraChrome) {
+	if (!Object.hasOwn(w, "__tabkyraChrome")) {
 		w.__tabkyraChrome = {
 			runtime: {
 				id: "tabkyra",
@@ -249,6 +255,10 @@ async function cdpInject<T>(
 		if (err instanceof PageException) throw err;
 		// The document went before the code reached its world: it ran nowhere.
 		if (/uniqueContextId not found/i.test(words(err))) throw notRun(words(err));
+		// It ran to its end, or was stopped: nothing was cut off.
+		if (/Execution was terminated/i.test(words(err))) throw err;
+		if (/Object reference chain is too long|returned by value/i.test(words(err)))
+			throw new PageException(`The script ran, but its value can't be returned as JSON (${words(err)}).`);
 		// Sent to the page, then cut off (a detach, a navigation): it may have run (first-F2 of the review of PR 265).
 		throw new PageException(
 			`The script was sent to the page, then cut off (${words(err)}), so it was not run again: it may have acted on the page. Call read_page to see the page before you act again.`,
