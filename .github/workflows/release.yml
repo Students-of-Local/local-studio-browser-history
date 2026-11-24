@@ -1,6 +1,7 @@
 # Builds a release and uploads it to the GitHub release for its tag:
 #   tychicus-<version>-linux-x64.tar.gz, -darwin-arm64.tar.gz, -win-x64.zip: the `tychicus` program (CLI, MCP server
-#     and native host, compiled by Bun) with extension/, plugins/ and LICENSE beside it
+#     and native host, compiled by Bun) with extension/, plugins/ and LICENSE beside it; the darwin archive also holds
+#     bin/tychicus-hands, the Mac computer-use helper, built and signed ad hoc on a Mac by the hands-mac job
 #   tychicus-<version>-extension.zip: the unpacked extension on its own
 #   install.sh, install.ps1: the one-command installers (scripts/), so releases/latest/download/install.sh installs the
 #     latest release
@@ -29,7 +30,30 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # The Mac computer-use helper for the darwin archive: hands/mac/scripts/package.sh builds it from the tag, signs it ad
+  # hoc with the hardened runtime and checks that the signed copy runs. No Developer ID yet, so it isn't notarized.
+  hands-mac:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - name: Check out the tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ inputs.tag || github.ref_name }}
+          persist-credentials: false
+
+      - name: Build and sign tychicus-hands
+        run: hands/mac/scripts/package.sh "$RUNNER_TEMP/hands"
+
+      - name: Hand it to the release job
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: tychicus-hands-darwin-arm64
+          path: ${{ runner.temp }}/hands/tychicus-hands
+          if-no-files-found: error
+
   release:
+    needs: hands-mac
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
@@ -91,8 +115,14 @@ jobs:
         working-directory: cli
         run: node --test test/local-studio-plugins.test.mjs
 
+      - name: Fetch the Mac helper
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: tychicus-hands-darwin-arm64
+          path: ${{ runner.temp }}/hands
+
       - name: Package every target
-        run: node scripts/package-release.mjs --out release --targets linux-x64,darwin-arm64,win-x64
+        run: node scripts/package-release.mjs --out release --targets linux-x64,darwin-arm64,win-x64 --hands "darwin-arm64=$RUNNER_TEMP/hands/tychicus-hands"
 
       # The Linux program from the archive answers with the tag's version, and the sums check.
       - name: Check the packaged files
@@ -102,6 +132,10 @@ jobs:
           mkdir smoke
           tar -xzf "tychicus-${TAG#v}-linux-x64.tar.gz" -C smoke
           test "$(smoke/tychicus-${TAG#v}-linux-x64/tychicus --version)" = "${TAG#v}"
+          tar -xzf "tychicus-${TAG#v}-darwin-arm64.tar.gz" -C smoke
+          hands="smoke/tychicus-${TAG#v}-darwin-arm64/bin/tychicus-hands"
+          test -x "$hands"
+          cmp "$hands" "$RUNNER_TEMP/hands/tychicus-hands"
           rm -rf smoke
 
       - name: Attest every artifact
