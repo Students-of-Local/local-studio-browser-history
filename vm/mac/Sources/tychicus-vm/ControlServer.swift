@@ -99,6 +99,8 @@ final class ControlServer: @unchecked Sendable {
 			changing.lock()
 			defer { changing.unlock() }
 			let t0 = now()
+			// Refusals come before the guest is touched, so they leave it running.
+			try onMain { try self.guest.checkResettable() }
 			do {
 				_ = try onMain { try await self.guest.reset() }
 				try Agent.waitReady(guest, timeout: 300)

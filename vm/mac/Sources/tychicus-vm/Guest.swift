@@ -234,6 +234,12 @@ final class Guest: NSObject, VZVirtualMachineDelegate {
 		DispatchQueue.main.asyncAfter(deadline: .now() + 3) { exit(1) }
 	}
 
+	/// Reset needs a running guest with a reset point: during the first boot, or after a failed capture, it is refused.
+	func checkResettable() throws {
+		guard state == "running" else { throw VMError("the guest is \(state); reset waits until it is ready") }
+		guard exists(readyDisk) else { throw VMError("no reset point yet: the guest has not reached ready once") }
+	}
+
 	/// Back to the reset point. With saved state that is a restore; without, a cold boot of the clean disk.
 	func reset() async throws -> [String: Any] {
 		guard exists(readyDisk) else { throw VMError("no reset point yet: the guest has not reached ready once") }
