@@ -45,8 +45,7 @@ A test that passed proves the logic, not what the user sees. Say which one you r
 ## Names that keep the old name
 The product is Tychicus: the manifest name, toolbar title, side panel, settings, onboarding, debug page, errors and the
 helper's output all say so, and `tychicus <command>` is the command the text gives. `test/product-name.test.mjs` fails
-when "Tabkyra" appears in a user-visible string, when "Polycarp" does outside text about the Polycarp app, its Mac helper
-(`polycarp-spaces`) or a legacy name (its `KEPT` list, or a line marked `product-name allowlist`), and when a renamed
+when "Tabkyra" appears in a user-visible string, when "Polycarp" does outside text about the Polycarp app or a legacy name (its `KEPT` list, or a line marked `product-name allowlist`; a `KEPT` rule or `POLYCARP_ALLOW` file that excuses no line fails it too), and when a renamed
 identifier below comes back anywhere but its named fallback.
 
 Renamed, with a fallback for installs made before the rename. The fallbacks stay until no supported helper, extension or hub

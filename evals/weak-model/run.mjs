@@ -58,7 +58,7 @@ const trials = int("trials", "2");
 const allowComputer = process.env.WM_ALLOW_COMPUTER === "1";
 const kind = opt("kind", allowComputer ? "all" : "browser");
 if (!["browser", "computer", "stub", "all"].includes(kind)) refuse(`--kind takes browser, computer, stub or all, not ${JSON.stringify(kind)}`);
-// The stub's launcher is a sh script (POLYCARP_SPACES_BIN), so stub runs are POSIX only (PR 272 first-F2).
+// The stub's launcher is a sh script (TYCHICUS_HANDS_BIN), so stub runs are POSIX only (PR 272 first-F2).
 if (kind === "stub" && process.platform === "win32") refuse("--kind stub runs on macOS and Linux: its launcher is a sh script");
 const only = opt("only", "")
 	.split(",")
@@ -92,8 +92,8 @@ const needsComputer = chosen.some((t) => t.kind === "computer");
 if (needsComputer && !allowComputer) refuse("computer tasks are switched off (they open apps on the owner's Mac); set WM_ALLOW_COMPUTER=1 only when the lead says so");
 // The computer tools go through a helper wrapper: connector mode, so the model is held to the agent workspace
 // and lent apps whatever access mode this Mac has (Full Access included), and the real HOME the helper needs.
-const helper = [join(homedir(), ".local", "bin", "polycarp-spaces"), join(homedir(), "Applications/Polycarp.app/Contents/Resources/bin/polycarp-spaces"), "/Applications/Polycarp.app/Contents/Resources/bin/polycarp-spaces"].find(existsSync);
-if (needsComputer && (!helper || process.platform !== "darwin")) refuse("computer tasks need polycarp-spaces on a Mac; run with --kind browser");
+const helper = [join(homedir(), ".local", "bin", "tychicus-hands"), join(homedir(), "Applications/Tychicus.app/Contents/Resources/bin/tychicus-hands"), "/Applications/Tychicus.app/Contents/Resources/bin/tychicus-hands"].find(existsSync);
+if (needsComputer && (!helper || process.platform !== "darwin")) refuse("computer tasks need tychicus-hands on a Mac; run with --kind browser");
 
 const cleanup = new Cleanup();
 const { leave, fail } = onExits(cleanup);
@@ -144,7 +144,7 @@ function mcpConfig(session, kind, stub) {
 			polycarp: {
 				command: process.execPath,
 				args: [cli, "mcp", "--session", session, "--profile", profile || "full"],
-				env: { ...serverEnv, PATH: process.env.PATH ?? "", TABKYRA_CLIENT_NAME: "weak-model", POLYCARP_SPACES_BIN: spacesBin(kind, { allowComputer, wrapper: helper && wrapper, stub, none: join(scratch, "no-computer-helper") }) },
+				env: { ...serverEnv, PATH: process.env.PATH ?? "", TABKYRA_CLIENT_NAME: "weak-model", TYCHICUS_HANDS_BIN: spacesBin(kind, { allowComputer, wrapper: helper && wrapper, stub, none: join(scratch, "no-computer-helper") }) },
 			},
 		},
 	};

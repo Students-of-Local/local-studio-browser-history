@@ -43,15 +43,15 @@ async function inConfig(name, fn) {
 	// An empty Polycarp config folder, so a developer's own Polycarp files never change what status says.
 	const polycarp = join(dir, "polycarp-config");
 	mkdirSync(polycarp, { recursive: true });
-	const before = { t: process.env.TABKYRA_CONFIG_DIR, p: process.env.POLYCARP_CONFIG_DIR, s: process.env.POLYCARP_SPACES_BIN };
+	const before = { t: process.env.TABKYRA_CONFIG_DIR, p: process.env.POLYCARP_CONFIG_DIR, s: process.env.TYCHICUS_HANDS_BIN };
 	process.env.TABKYRA_CONFIG_DIR = dir;
 	process.env.POLYCARP_CONFIG_DIR = polycarp;
-	// No computer-use helper, even on a Mac with Polycarp's app: status then offers no computer scopes (a test below sets one).
-	process.env.POLYCARP_SPACES_BIN = join(dir, "no-helper");
+	// No computer-use helper, even where tychicus-hands is installed: status then offers no computer scopes (a test below sets one).
+	process.env.TYCHICUS_HANDS_BIN = join(dir, "no-helper");
 	try {
 		return await fn(dir);
 	} finally {
-		for (const [k, v] of [["TABKYRA_CONFIG_DIR", before.t], ["POLYCARP_CONFIG_DIR", before.p], ["POLYCARP_SPACES_BIN", before.s]]) {
+		for (const [k, v] of [["TABKYRA_CONFIG_DIR", before.t], ["POLYCARP_CONFIG_DIR", before.p], ["TYCHICUS_HANDS_BIN", before.s]]) {
 			if (v === undefined) delete process.env[k];
 			else process.env[k] = v;
 		}
@@ -1531,11 +1531,11 @@ test("onlyKeys keeps its own doc comment", () => {
 	assert.match(src, /\/\*\* `params` must hold only these keys\.[^\n]*\*\/\nfunction onlyKeys/);
 });
 
-test("status never offers computer use to a join, even where Polycarp's Mac app is here: nothing can turn it on yet", async () => {
+test("status never offers computer use to a join, even where tychicus-hands is here: nothing can turn it on yet", async () => {
 	await inConfig("status-computer", async (dir) => {
-		const helper = join(dir, "polycarp-spaces");
+		const helper = join(dir, "tychicus-hands");
 		writeFileSync(helper, "");
-		process.env.POLYCARP_SPACES_BIN = helper;
+		process.env.TYCHICUS_HANDS_BIN = helper;
 		const { result } = await ask(new ConnectService(), "status");
 		assert.deepEqual(result.joinScopes, DEFAULT_SCOPE_ROWS, "what a join grants is unchanged");
 		assert.equal(result.optionalJoinScopes, undefined);

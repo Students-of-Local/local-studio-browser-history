@@ -296,8 +296,8 @@ same way setup does, including the copy setup downloaded.
 
 Two permissions on the approval page, both unticked until you tick them: `computer.read` (see the
 agent workspace and apps you lend) and `computer.act` (see them too, click and type in them, and start
-apps from Polycarp's short list). The assistant gets `computer_*` tools, which run through
-`polycarp-spaces mcp --connector` on your Mac. They need the Polycarp app, so another machine doesn't
+apps from your short list). The assistant gets `computer_*` tools, which run through
+`tychicus-hands mcp --connector`. They need that helper, so a machine without it doesn't
 offer them. An agent on the Mac itself gets them from the local stdio server without a connector or a
 token (README, "Computer use on this Mac"), with the access mode set in Settings > Agents; everything
 below is about remote callers only.
@@ -307,8 +307,8 @@ with it on, a connector still sees only the agent workspace and apps you lend, a
 the short list. It can't lend itself anything and can't drive an Open or Save panel in any window. An
 app Tychicus starts for it can't show a document from outside the handoff folder. Read Only stops it
 acting too. An app you lend is lent with what it shows, to every agent and connector with these
-permissions, until you take it back or the time runs out. If the Polycarp app or `polycarp-spaces` on
-this Mac is too old to enforce all this, the connector gets no computer tools.
+permissions, until you take it back or the time runs out. If `tychicus-hands` on
+this computer is too old to enforce all this, the connector gets no computer tools.
 
 The agent's apps run as you. Those window rules keep it out of your other windows, but an app can reach
 what you can, so tick this only for an assistant you'd let sit at your keyboard. Revoke a connector with
@@ -657,13 +657,13 @@ content-type the server sees is always `application/json`. The last scope can't 
 restarts the link service when there is one, and open sessions start over.
 
 Computer use (`computer.read`, `computer.act`) is not available over a link yet. Granting it needs
-the owner's approval in the Polycarp app, which isn't built yet, and nothing else can stand in for it:
+the owner's approval on that computer, which Tychicus can't ask for yet, and nothing else can stand in for it:
 a yes typed at a terminal can come from an agent running the command in a pseudo-terminal, and an
 agent with a shell can edit `link.json` by hand. So:
 
 - `link --scope computer.act` and `link scopes --add computer.act` (or `computer.read`) are refused
   and change nothing: "computer.act can't be turned on from the command line: granting computer use
-  over a link needs the owner's approval in the Polycarp app, and that approval isn't built yet."
+  over a link needs the owner's approval on this computer, and Tychicus can't ask for it yet."
 - `link run` never serves a computer scope, whatever `link.json` says. That includes a cap an
   earlier preview build wrote: it loses its computer scopes. `link run` logs one line naming them,
   and `link status` (and `link status --json`, as `notServed`) says which ones and why. It also drops
@@ -671,8 +671,8 @@ agent with a shell can edit `link.json` by hand. So:
 - The next `link scopes` change writes the cap without them.
 - Joining a hub from the side panel never grants computer use, and the panel doesn't offer it.
 
-A computer without Polycarp's Mac app (`polycarp-spaces`) is told "This computer can't serve
-computer.read: computer use needs Polycarp's Mac app, and it isn't on this computer."
+A computer without `tychicus-hands` is told "This computer can't serve computer.read: computer use
+needs Tychicus's computer-use helper, tychicus-hands, and it isn't on this computer.", then how to get it there.
 
 A cap written as an empty list allows nothing; only a `link.json` with no `scopes` gets the default
 grant. Removals are checked under `link.json`'s lock, so two at once can't empty the cap.
