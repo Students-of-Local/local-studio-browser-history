@@ -355,7 +355,7 @@ function noteProjects(plan: FilePlan, data: Record<string, unknown>): void {
 
 function twoServersNote(plan: FilePlan, servers: Record<string, unknown>): void {
 	if (Object.hasOwn(servers, MCP_NAME) && plan.repointed.some((r) => r.name !== MCP_NAME)) {
-		plan.notes.push(`a ${MCP_NAME} entry is there too, so this agent runs two Tychicus servers until the rename removes the old name (only when the two match in every field).`);
+		plan.notes.push(`a ${MCP_NAME} entry is there too, so this agent runs two Local Studio browser servers until the rename removes the old name (only when the two match in every field).`);
 	}
 }
 
@@ -437,7 +437,7 @@ function finishAction(plan: FilePlan, alias: string, entry: unknown, cmd: Comman
 	}
 	if (!cmd || !runsTychicus(cmd.command, cmd.args)) {
 		plan.forget.push(alias);
-		plan.notes.push(`"${alias}" no longer runs Tychicus${cmd ? ` (it runs ${commandLine(cmd.command, cmd.args)})` : ""}, so it was left alone and leaves the list of aliases.`);
+		plan.notes.push(`"${alias}" no longer runs Local Studio's helper${cmd ? ` (it runs ${commandLine(cmd.command, cmd.args)})` : ""}, so it was left alone and leaves the list of aliases.`);
 		return undefined;
 	}
 	if (!tychicus) return "rename";
@@ -810,7 +810,7 @@ function writeAliases(aliases: AliasRecord[]): void {
 		return;
 	}
 	const record = {
-		note: `Temporary: these entries keep their old names but run Tychicus. ${COMMAND_NAME} setup --agents renames each to ${MCP_NAME} where that is safe.`,
+		note: `Temporary: these entries keep their old names but run Local Studio's helper. ${COMMAND_NAME} setup --agents renames each to ${MCP_NAME} where that is safe.`,
 		aliases,
 	};
 	writeJsonPrivate(file, record);
@@ -911,7 +911,7 @@ function updateAliasList(plan: FilePlan, update: () => void): void {
 	} catch (err) {
 		const unnamed = plan.kind === "move" ? plan.repointed.map((r) => r.name).filter((n) => n !== MCP_NAME && !couldHoldEntry(n)) : [];
 		const byHand = unnamed.length > 0 ? ` Rename ${unnamed.map((n) => `"${n}"`).join(", ")} to ${MCP_NAME} by hand once nothing names ${unnamed.length === 1 ? "it" : "them"}.` : "";
-		plan.aliasWarning = `${aliasFile()} couldn't be updated (${message(err)}). ${COMMAND_NAME} setup --agents and ${COMMAND_NAME} doctor still find entries named polycarp or tabkyra that run Tychicus.${byHand}`;
+		plan.aliasWarning = `${aliasFile()} couldn't be updated (${message(err)}). ${COMMAND_NAME} setup --agents and ${COMMAND_NAME} doctor still find entries named polycarp or tabkyra that run Local Studio's helper.${byHand}`;
 	}
 }
 

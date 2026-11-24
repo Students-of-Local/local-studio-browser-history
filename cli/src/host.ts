@@ -271,7 +271,7 @@ export function callerRefusal(args: readonly string[], allowed: readonly string[
 	const origin = args.find((a) => !a.startsWith("--parent-window"));
 	if (origin === undefined) return undefined;
 	if (allowed.includes(origin)) return undefined;
-	return `${origin} is not the Tychicus extension (expected ${allowed.join(" or ")}); refusing to start`;
+	return `${origin} is not the Local Studio extension (expected ${allowed.join(" or ")}); refusing to start`;
 }
 
 export function runNativeHost(args: readonly string[] = []): void {
@@ -388,7 +388,7 @@ export function runNativeHost(args: readonly string[] = []): void {
 	process.stdin.on("end", () => {
 		eukhe?.closeAll();
 		stopping = true;
-		failOutstanding("the browser connection dropped while this ran (the Tychicus extension reloaded or restarted)");
+		failOutstanding("the browser connection dropped while this ran (the Local Studio extension reloaded or restarted)");
 		shutdown();
 	});
 	const killed = () => {

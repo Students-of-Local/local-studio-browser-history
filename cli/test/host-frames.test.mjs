@@ -88,7 +88,7 @@ test("the host refuses an extension that is not Tychicus before it reads a frame
 	other.stdin.write(encode({ type: "hello", version: "0", protocol: 1, methods: [], features: ["chunks"] }));
 	const code = await new Promise((r) => other.once("exit", r));
 	assert.equal(code, 1);
-	assert.match(stderr, /is not the Tychicus extension/);
+	assert.match(stderr, /is not the Local Studio extension/);
 	assert.equal(stdout, "", "nothing was sent to the other extension");
 	assert.ok(!existsSync(sockets) || readdirSync(sockets).length === 0, "no socket was opened for it");
 

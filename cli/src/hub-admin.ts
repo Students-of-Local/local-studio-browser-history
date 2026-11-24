@@ -52,7 +52,7 @@ export async function hubSetup(options: HubSetupOptions): Promise<number> {
 	const port = options.port ?? previous?.port ?? DEFAULT_PORT;
 	if (options.service && !launcherValid()) return fail(`${launcherBinary()} isn't a working launcher, so the service would have nothing to start. Run ${COMMAND_NAME} install first, then ${COMMAND_NAME} hub setup again. Nothing was changed.`);
 	const probe = await probeLocal(port, options.publicUrl);
-	if (probe.state === "other" && !options.service) return fail(`Something already listens on 127.0.0.1:${port} and isn't a Tychicus server for ${options.publicUrl} (${probe.detail}). Nothing was changed.`);
+	if (probe.state === "other" && !options.service) return fail(`Something already listens on 127.0.0.1:${port} and isn't a ${COMMAND_NAME} server for ${options.publicUrl} (${probe.detail}). Nothing was changed.`);
 	let passcode: string | undefined;
 	if (options.passcode === false && !passcodeSet()) {
 		say(`${sym.dot} No passcode made (--no-passcode). Approve a connection with a one-time connect code: ${COMMAND_NAME} token approval-code. ${COMMAND_NAME} token passcode sets a passcode later.`);
@@ -81,7 +81,7 @@ export async function hubSetup(options: HubSetupOptions): Promise<number> {
 Connector URL: ${c.bold(`${options.publicUrl}/mcp`)}
 
 Point your HTTPS front door (a Cloudflare named tunnel works) at http://127.0.0.1:${port}.
-Then, on each device that has a browser with Tychicus:
+Then, on each device that has a browser with the Local Studio extension:
   1. here:       ${COMMAND_NAME} hub code
   2. on device:  ${COMMAND_NAME} link ${options.publicUrl} --code <code>
 Add the connector URL once in claude.ai, ChatGPT or grok.com. Check it with: ${COMMAND_NAME} hub status`);
