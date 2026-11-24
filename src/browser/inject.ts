@@ -111,7 +111,9 @@ function installBindingListener(): void {
 			const expression = `window.__tabkyraReceive && window.__tabkyraReceive(${parsed.id}, ${JSON.stringify(
 				response ?? null,
 			)}, ${JSON.stringify(error ?? null)})`;
-			await cdpSend(tabId, "Runtime.evaluate", { expression, contextId, returnByValue: true }).catch(() => undefined);
+			await cdpSend(tabId, "Runtime.evaluate", { expression, contextId, returnByValue: true }).catch(
+				() => undefined,
+			);
 		})();
 	});
 	chrome.tabs.onRemoved.addListener((tabId) => bindingReady.delete(tabId));
@@ -198,7 +200,10 @@ async function cdpInject<T>(
 		return result.result.value as T;
 	} catch (err) {
 		// The document went before the code reached its world: it ran nowhere.
-		if (err instanceof PageException || !/Cannot find context/i.test(err instanceof Error ? err.message : String(err)))
+		if (
+			err instanceof PageException ||
+			!/Cannot find context/i.test(err instanceof Error ? err.message : String(err))
+		)
 			throw err;
 		throw new PageException(
 			"Not run: the page changed as the script was about to start. Call read_page to see the page, then try again.",
