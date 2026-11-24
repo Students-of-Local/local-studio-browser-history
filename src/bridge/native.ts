@@ -56,16 +56,16 @@ import {
 	addPendingRequest,
 	allowHost,
 	asModelTier,
+	asPermissionMode,
 	DECISION_KEY_PREFIX,
-	effectiveMode,
 	getPermissionMode,
 	hostOf,
 	isBridgeEnabled,
 	isGuardedUrl,
 	isOwnExtensionUrl,
 	isUrlAllowed,
+	opensAnySite,
 	type PermissionDecision,
-	type PermissionMode,
 	removePendingRequest,
 	setPermissionMode,
 } from "./permissions.js";
@@ -567,13 +567,13 @@ async function runRequest(state: ClientState, req: HostForwardedRequest, answer?
 			checkUrl: async (url: string) => {
 				if (isGuardedUrl(url, req.guardedHosts)) throw guardedError(url);
 				if (!(await askPermission(state, url))) {
-					const mode = effectiveMode(await getPermissionMode(), state.tier);
+					const asks = !opensAnySite(await getPermissionMode(), state.tier);
 					throw new BridgeError(
 						ERR.PERMISSION_DENIED,
 						isOwnExtensionUrl(url)
 							? "Not allowed to open Tychicus's own pages."
 							: `Not allowed to open ${hostOf(url) || url}. ` +
-									(mode === "ask"
+									(asks
 										? "The user can allow it in the Tychicus side panel under Settings > Agents, or answer the permission prompt."
 										: "Bridge navigation is blocked."),
 					);
@@ -975,19 +975,19 @@ function onHostMessage(message: HostToExt): void {
 				return;
 			}
 			if (message.method === "permission.setMode") {
-				// `polycarp browser allow-all` / `tabkyra ask`: a local user process flipping the site-permission mode,
-				// same trust as the Settings > Agents toggle.
-				const mode = String(message.params?.mode ?? "");
-				if (mode !== "by_model" && mode !== "ask" && mode !== "allow_all") {
+				// `tychicus mode`, and an older CLI's `ask` / `allow-all`: a local user process setting the permission mode,
+				// same trust as the Settings > Agents control (D65). An older CLI's names mean the mode they became.
+				const mode = asPermissionMode(message.params?.mode);
+				if (!mode) {
 					send({
 						type: "response",
 						clientId: message.clientId,
 						id: message.id,
-						error: { code: ERR.BAD_PARAMS, message: "mode must be by_model, ask or allow_all" },
+						error: { code: ERR.BAD_PARAMS, message: "mode must be manual, auto or yolo" },
 					});
 					return;
 				}
-				setPermissionMode(mode as PermissionMode).then(() =>
+				setPermissionMode(mode).then(() =>
 					send({ type: "response", clientId: message.clientId, id: message.id, result: { mode } }),
 				);
 				return;

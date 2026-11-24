@@ -2097,7 +2097,6 @@ The dom-bench floor and the market tasks gate it.
 29.9 ms, fill from 41.1 to 15.4 and navigate from 93.3 to 46.3. What keeps click, fill and first text above
 agent-browser's, which reports no changes and does not settle, is in `docs/verification/speed-trace.md`.
 
-<<<<<<< HEAD
 ## D63. The Linux helper: agent windows by workspace or by process, hands.json for access, no physical input (Claude, 2026-11-22)
 
 **Context.** Issue #27 asks for `tychicus-hands` on Linux. Linux has no lend sheet and no one way to keep an app off
@@ -2142,7 +2141,7 @@ setting for computer use outside Polycarp's Mac app.
 **Why.** The person's typing and pointer must never be shared with an agent, so input that could land in their window
 is out even where it would work most of the time. A file in the config folder is what `tychicus` already uses for
 settings, and reading it on every call makes a narrowing apply at once.
-=======
+
 ## D64. Feed filters are a site edit kind with their own tool, run by the extension's own content script (Claude, 2026-11-23)
 
 **Context.** Owners ask agents to filter feeds in plain words: "hide every post about X on x.com", "remove Shorts from
@@ -2187,4 +2186,61 @@ changes.
 **Results.** In Chromium (`cli/test/e2e-feed-filter.test.mjs`, macOS, Apple silicon): the first pass over 2,000 posts
 took 16.1 ms, a 2,000-post scroll batch 14.7 ms, and a recheck of 4,000 posts after the filters changed 16.4 ms. The
 test fails over 50 ms per batch.
->>>>>>> 1743b19 (Add site_filter: hide a site's feed posts by words or accounts)
+
+## D65. One permission mode for all of Tychicus: Manual, Auto (default), Yolo (Claude, 2026-11-24)
+
+**Context.** The owner asked for three modes across browser, computer use and VMs: "Auto by default, they can select
+Yolo and they can select manual" (#33, 2026-11-18). 1.4.0's default, "Match the model" (D60), lets an agent on a
+frontier model open any site with no ask and has no rule for a risky action once it is there. Claude in Chrome asks per
+site and lets a person allow all actions on one; ChatGPT agent confirms high-impact actions.
+
+**Decision.** One mode, one store (`permission_mode` in the extension's storage), read by every surface; the CLI
+writes it through the bridge (`permission.setMode`, which also takes the 1.4.0 names from an older CLI).
+
+- **Manual**: every new site asks, and so does every risky action. 1.4.0's `ask`.
+- **Auto** (the default): D60 for opening sites, kept whole (a frontier model opens ordinary sites, a small or unknown
+  model asks), plus asks for what a frontier model may not do alone: opening a sensitive site and a risky action.
+- **Yolo**: nothing asks. 1.4.0's `allow_all`. A one-time warning when it is first turned on.
+
+The rule list is one file, `src/bridge/risk-rules.ts`, pure, with a test per rule (`test/risk-rules.test.mjs`):
+
+- Risky actions (`actionRisk`): a commit (a click on a control, Enter or Cmd+Enter in a field, type with submit) that
+  sends, posts, buys or pays, deletes or cancels, changes account settings or who can reach the account, grants an
+  app OAuth access, or downloads a program to run. A control's name decides first; a generic yes ("OK", "Continue")
+  takes its meaning from the dialog it sits in, the form it submits (its submit button, its action URL) and whether
+  the page is an account settings page. A back-out name ("Cancel", "Close") is never risky. Reading, scrolling,
+  hovering and typing without Enter never are.
+- Sensitive sites (`sensitiveSite`): mail, banks and payments, password managers, cloud consoles and DNS,
+  government, health, and the person's own account settings pages on any site.
+- Sensitive apps (`sensitiveApp`), for computer use when it reads the mode: Keychain Access, System Settings,
+  terminals and shells, password managers.
+- Hard limits (`hardLimit`), refused in every mode, Yolo included: typing into a password field (by type,
+  autocomplete or name) or a payment field (card autocomplete, a card field's name, a payment provider's frame).
+  With the never-reachable pages (guarded hosts and the extension's own pages, as before), and a remote connector
+  session, which is never in Yolo: Yolo widens what a local agent may do, never what a remote caller may reach.
+
+The rules read only what `read_page` shows and what a page can't hide from the extension (an input's type and
+autocomplete, a link's href, a control's form and dialog). They are a net for an agent's mistakes, not a sandbox:
+a page can name its Send button something else. Manual is the mode for a person who wants every new site asked.
+
+The ask is the one Manual uses for a site: MCP elicitation in the agent's harness, and "Waiting for your answer" in
+Settings > Agents. For an action it offers allow once, allow on this site (risky actions there stop asking; a
+separate list from the sites an agent may open) and deny. The answer has 60 seconds, inside the bridge's 90-second
+limit for a call; no answer is a no, and the tool result says what was not done and how the person can allow it.
+`TYCHICUS_AUTO_ALLOW` answers site questions only, never an action question, as it never answered an upload.
+
+Migration: a stored `ask` is Manual, `allow_all` is Yolo. Nothing stored on an existing install is Auto with a
+one-time side panel notice naming the change and a one-click way back to Manual, since that person never chose
+what Auto adds; 1.4.0's stored `by_model` gets the same. A fresh install (`onInstalled` with reason `install`) is
+Auto with no notice.
+
+The upload question (D38) is still asked in every mode, Yolo included: it is about files leaving the computer, not
+about what an agent does in a page. Every step in the Runs log carries the mode it ran under.
+
+**Why these defaults.** Auto keeps what 1.4.0 got right (frontier agents are not stopped at every new site) and adds
+the asks the competitors make, at the actions that act as the person. Recall is the floor because a missed risky
+action is one the person never saw; a false flag costs one click and "allow on this site" ends it for that site.
+
+**Proof.** `test/permission-modes.test.mjs` (each migration, the notice, a fresh install), `test/risk-rules.test.mjs`
+(each rule) and `evals/market/risky-actions`: 86 labeled actions, 59 risky, recall 100% held as the `riskyActions`
+floor in `evals/market/floors.json`; 0 of 27 safe actions flagged.

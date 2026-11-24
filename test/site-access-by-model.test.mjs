@@ -1,5 +1,5 @@
-// "Match the model" site access (docs/decisions.md, D60): the default mode, what it decides for each tier, and that a
-// stored "ask" or "allow_all" still means what it did.
+// "Match the model" site access (docs/decisions.md, D60), now part of Auto (D65): Auto is the default, what it decides
+// for each tier, and that Manual and Yolo mean what "ask" and "allow_all" did.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -8,9 +8,9 @@ import { fileURLToPath } from "node:url";
 import {
 	allowHost,
 	asModelTier,
-	effectiveMode,
 	getPermissionMode,
 	isUrlAllowed,
+	opensAnySite,
 	setPermissionMode,
 } from "../src/bridge/permissions.ts";
 import { installFakeChrome } from "./fake-chrome.mjs";
@@ -24,20 +24,18 @@ function fresh() {
 	chrome.runtime.id = "abcdefghijklmnopabcdefghijklmnop";
 }
 
-test("nothing stored is by_model; a stored ask or allow_all is kept", async () => {
+test("nothing stored is auto; a set mode is kept", async () => {
 	fresh();
-	assert.equal(await getPermissionMode(), "by_model");
-	await chrome.storage.local.set({ bridge_permission_mode: "something-else" });
-	assert.equal(await getPermissionMode(), "by_model");
-	await setPermissionMode("ask");
-	assert.equal(await getPermissionMode(), "ask");
-	await setPermissionMode("allow_all");
-	assert.equal(await getPermissionMode(), "allow_all");
-	await setPermissionMode("by_model");
-	assert.equal(await getPermissionMode(), "by_model");
+	assert.equal(await getPermissionMode(), "auto");
+	await chrome.storage.local.set({ permission_mode: "something-else" });
+	assert.equal(await getPermissionMode(), "auto");
+	for (const mode of ["manual", "yolo", "auto"]) {
+		await setPermissionMode(mode);
+		assert.equal(await getPermissionMode(), mode);
+	}
 });
 
-test("by_model: a frontier model opens any site; small, unknown and silent clients need the site allowed", async () => {
+test("auto: a frontier model opens any site; small, unknown and silent clients need the site allowed", async () => {
 	fresh();
 	assert.equal(await isUrlAllowed(SITE, "frontier"), true);
 	assert.equal(await isUrlAllowed(SITE, "small"), false);
@@ -46,23 +44,23 @@ test("by_model: a frontier model opens any site; small, unknown and silent clien
 	await allowHost("example.com");
 	assert.equal(await isUrlAllowed(SITE, "small"), true, "an allowed site opens for every tier");
 	assert.equal(await isUrlAllowed(SITE, "unknown"), true);
-	assert.equal(effectiveMode("by_model", "frontier"), "allow_all");
-	assert.equal(effectiveMode("by_model", "small"), "ask");
-	assert.equal(effectiveMode("by_model", "unknown"), "ask");
-	assert.equal(effectiveMode("by_model", undefined), "ask");
+	assert.equal(opensAnySite("auto", "frontier"), true);
+	assert.equal(opensAnySite("auto", "small"), false);
+	assert.equal(opensAnySite("auto", "unknown"), false);
+	assert.equal(opensAnySite("auto", undefined), false);
 });
 
-test("a stored ask still asks a frontier client, and allow_all still opens for an unknown one", async () => {
+test("manual asks a frontier client, and yolo opens for an unknown one", async () => {
 	fresh();
-	await setPermissionMode("ask");
+	await setPermissionMode("manual");
 	assert.equal(await isUrlAllowed(SITE, "frontier"), false);
-	assert.equal(effectiveMode("ask", "frontier"), "ask");
-	await setPermissionMode("allow_all");
+	assert.equal(opensAnySite("manual", "frontier"), false);
+	await setPermissionMode("yolo");
 	assert.equal(await isUrlAllowed(SITE, "unknown"), true);
-	assert.equal(effectiveMode("allow_all", "small"), "allow_all");
+	assert.equal(opensAnySite("yolo", "small"), true);
 });
 
-test("by_model never opens Tychicus's own pages, even for a frontier model", async () => {
+test("auto never opens Tychicus's own pages, even for a frontier model", async () => {
 	fresh();
 	const own = `chrome-extension://${chrome.runtime.id}/sidepanel.html`;
 	assert.equal(await isUrlAllowed(own, "frontier"), false);
@@ -84,13 +82,13 @@ test("the bridge checks each site against the calling client's tier, and guarded
 	assert.match(read("src/bridge/files.ts"), /isUrlAllowed\(url, ctx\.tier\)/, "an upload's page uses the client's tier");
 	// The upload question is asked in every mode: askUpload never reads the permission mode.
 	const askUpload = native.slice(native.indexOf("async function askUpload("), native.indexOf("async function askUpload(") + 1500);
-	assert.doesNotMatch(askUpload, /getPermissionMode|isUrlAllowed|effectiveMode/);
+	assert.doesNotMatch(askUpload, /getPermissionMode|isUrlAllowed|opensAnySite/);
 });
 
-test("Settings > Agents offers Match the model first, and it is the default", () => {
+test("Settings > Agents offers Manual, Auto and Yolo, and Auto is the default", () => {
 	const tab = read("src/dialogs/BridgeTab.ts");
-	assert.match(tab, /@state\(\) private mode: PermissionMode = "by_model";/);
-	const radios = [...tab.matchAll(/name="bridge-mode" value="([a-z_]+)"/g)].map((m) => m[1]);
-	assert.deepEqual(radios, ["by_model", "ask", "allow_all"]);
-	assert.match(tab, /Match the model: agents on frontier models open any site; small or unknown models ask first/);
+	assert.match(tab, /@state\(\) private mode: PermissionMode = "auto";/);
+	const modes = [...tab.matchAll(/\{\s*mode: "([a-z]+)",\s*title: "([^"]+)"/g)].map((m) => [m[1], m[2]]);
+	assert.deepEqual(modes, [["manual", "Manual"], ["auto", "Auto (default)"], ["yolo", "Yolo"]]);
+	assert.match(tab, /agents on frontier models open ordinary sites; small or unknown models ask first/);
 });
