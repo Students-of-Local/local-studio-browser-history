@@ -176,10 +176,31 @@ export async function deploy(name: string, accountId: string | undefined, seam: 
 	return { ok: false, message: r.code === 0 ? "wrangler deploy finished but named no workers.dev address." : `wrangler deploy failed (exit ${r.code})${r.out ? `: ${r.out.trim().slice(-400)}` : ""}` };
 }
 
+/** The Worker this computer last set a key on. It outlives `remote off`, so setting up again takes the same one. */
+const mineFile = () => join(relayFolder(), "mine.json");
+
+/**
+ * Whether a Worker of this name already has a key this computer didn't set, so it is most likely another computer's relay: deploying over
+ * it and setting a new key would cut that computer off. A Worker with no key yet is a setup that never finished.
+ */
+export async function someoneElses(name: string, accountId: string | undefined, seam: RelaySeam = {}): Promise<boolean> {
+	try {
+		const mine = JSON.parse(readFileSync(mineFile(), "utf8")) as { name?: unknown; accountId?: unknown };
+		if (mine.name === name && mine.accountId === accountId) return false;
+	} catch {
+		// No key set from here yet.
+	}
+	const r = await wrangler(seam)(["secret", "list", "--name", name], { cwd: relayFolder(), accountId, timeoutMs: 180_000 });
+	return r.code === 0 && r.out.includes("RELAY_KEY");
+}
+
 /** `wrangler secret put RELAY_KEY` with the key on stdin, so it never touches argv, a file or a log. */
 export async function putKey(name: string, key: string, accountId: string | undefined, seam: RelaySeam = {}): Promise<{ ok: true } | { ok: false; message: string }> {
 	const r = await wrangler(seam)(["secret", "put", "RELAY_KEY", "--name", name], { cwd: relayFolder(), accountId, input: key, timeoutMs: 3 * 60_000 });
-	if (r.code === 0) return { ok: true };
+	if (r.code === 0) {
+		writeAtomic(mineFile(), JSON.stringify({ name, accountId }), 0o600);
+		return { ok: true };
+	}
 	return { ok: false, message: `wrangler secret put RELAY_KEY failed (exit ${r.code})${r.out ? `: ${r.out.replaceAll(key, "<key>").trim().slice(-300)}` : ""}` };
 }
 
