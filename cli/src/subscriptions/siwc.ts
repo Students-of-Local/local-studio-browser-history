@@ -230,12 +230,12 @@ export class Siwc {
 			const page = (status: number, text: string) => {
 				res.writeHead(status, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
 				res.end(
-					`<!doctype html><meta charset="utf-8"><title>Tychicus</title><body style="font:16px system-ui;margin:3em"><p>${text}</p></body>`,
+					`<!doctype html><meta charset="utf-8"><title>Local Studio</title><body style="font:16px system-ui;margin:3em"><p>${text}</p></body>`,
 				);
 			};
 			// A callback without our state is not ours: answer it and keep waiting for the real one.
 			if (url.searchParams.get("state") !== state) {
-				page(400, "This sign-in link doesn't match the one Tychicus started. Start the sign-in again from Tychicus's settings.");
+				page(400, "This sign-in link doesn't match the one Local Studio started. Start the sign-in again from Local Studio's settings.");
 				return;
 			}
 			const error = url.searchParams.get("error");
@@ -271,7 +271,7 @@ export class Siwc {
 			}
 			this.complete({ code, clientId, verifier, redirectUri, nonce, hostId, saved, current: () => !done && generation === this.generation }).then(
 				(status) => {
-					page(200, "Tychicus is signed in with ChatGPT. You can close this tab.");
+					page(200, "Local Studio is signed in with ChatGPT. You can close this tab.");
 					finish(undefined, status);
 				},
 				(err: Error) => {
@@ -499,7 +499,7 @@ export class Siwc {
 					throw new SubscriptionError("signed_out", "Your ChatGPT sign-in is no longer valid. Sign in again.");
 				}
 				if (tokens.error === "invalid_client")
-					throw new SubscriptionError("invalid_client", "ChatGPT rejected Tychicus's registration. Sign in again.");
+					throw new SubscriptionError("invalid_client", "ChatGPT rejected Local Studio's registration. Sign in again.");
 				throw new SubscriptionError(tokens.error, `Refreshing the ChatGPT sign-in failed (${tokens.error}); try again shortly.`);
 			}
 			if (!tokens.access_token) throw new SubscriptionError("bad_token_response", "OpenAI's refresh response had no access token.");
