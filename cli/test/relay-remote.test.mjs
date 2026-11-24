@@ -13,12 +13,12 @@ after(() => rmSync(root, { recursive: true, force: true }));
 
 test("signed out with no terminal: setup asks for the sign-in, runs no login and saves nothing", { skip: !unix }, async () => {
 	const m = machine(root, "signed-out", { whoami: "out" });
-	const r = await m.run(["remote", "setup", "--relay", "--json"]);
+	const r = await m.run(["remote", "setup", "--json"]);
 	assert.equal(r.code, 3, r.stdout + r.stderr);
 	const report = r.json();
 	assert.equal(report.code, "cloudflare_login");
 	assert.equal(report.step, "needs_signin");
-	assert.deepEqual(report.next, { kind: "sign_in", command: "tychicus remote setup --relay" });
+	assert.deepEqual(report.next, { kind: "sign_in", command: "tychicus remote setup" });
 	assert.deepEqual(
 		m.wrangler().map((l) => l.split(" ")[3]),
 		["whoami"],
@@ -66,10 +66,10 @@ test("no workers.dev subdomain: setup names the onboarding page for the account 
 test("a sign-in with two accounts needs --account, and --account picks the one wrangler deploys to", { skip: !unix }, async () => {
 	const whoami = { loggedIn: true, accounts: [{ id: ACCOUNT, name: "Mine" }, { id: OTHER, name: "Work" }] };
 	const m = machine(root, "two-accounts", { whoami, deploy: "subdomain" });
-	const r = await m.run(["remote", "setup", "--relay", "--json"]);
+	const r = await m.run(["remote", "setup", "--json"]);
 	assert.equal(r.code, 3);
 	assert.equal(r.json().code, "cloudflare_account");
-	assert.deepEqual(r.json().next, { kind: "run_command", command: "tychicus remote setup --relay --account <id>" });
+	assert.deepEqual(r.json().next, { kind: "run_command", command: "tychicus remote setup --account <id>" });
 	assert.ok(!m.wrangler().some((l) => l.includes(" deploy ")));
 	const picked = await m.run(["remote", "setup", "--json", "--relay", "my-relay", "--account", OTHER]);
 	assert.equal(picked.json().code, "workers_subdomain");
@@ -161,7 +161,7 @@ test("setup end to end: deploy, a new key on stdin, saved 0600, the connector's 
 	const serve = await serveStandIn();
 	try {
 		const extra = { RELAY_HOOK_PORT: String(serve.port), TYCHICUS_PUBLIC_WAIT_MS: "2000", TYCHICUS_PUBLIC_POLL_MS: "50" };
-		const r = await m.run(["remote", "setup", "--relay", "--json", "--port", String(serve.port)], extra, { hooks: true });
+		const r = await m.run(["remote", "setup", "--json", "--port", String(serve.port)], extra, { hooks: true });
 		assert.equal(r.code, 0, r.stdout + r.stderr);
 		const report = r.json();
 		assert.equal(report.state, "on");

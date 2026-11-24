@@ -440,7 +440,8 @@ export interface SetupOptions {
 	/** --tailnet: `tailscale serve` on 443 for this tailnet only, never Funnel (issue #31). */
 	tailnet?: boolean;
 	/**
-	 * --relay [name]: a relay Worker on the person's own free Cloudflare account, no domain (relay.ts). "" is the default name.
+	 * --relay [name]: a relay Worker on the person's own free Cloudflare account, no domain (relay.ts). "" is the default name. It is
+	 * also the route when no other is asked for and none is set up.
 	 */
 	relay?: string;
 	/** --account <id>: the Cloudflare account the relay goes to, when the sign-in has more than one. */
@@ -564,31 +565,6 @@ async function waitForFunnel(bin: string, dns: string, port: number, first: Funn
 	return opened;
 }
 
-/** In a terminal, when nothing says which route: use the one that's ready on `port`, or ask when both or neither is. */
-async function chooseRoute(say: (line: string) => void, port: number): Promise<"tailscale" | "cloudflare" | undefined> {
-	const routes = remoteRoutes();
-	const tailscale = (await preflight({}, undefined, port)).state === "ready";
-	const cloudflare = routes.cloudflare.installed && routes.cloudflare.signedIn;
-	if (tailscale && !cloudflare) {
-		say(`${sym.dot} Using Tailscale: it's installed and signed in. (--cloudflare name.yourdomain.com uses Cloudflare instead.)`);
-		return "tailscale";
-	}
-	if (cloudflare && !tailscale) {
-		say(`${sym.dot} Using Cloudflare: cloudflared is signed in. (--tailscale uses Tailscale instead.)`);
-		return "cloudflare";
-	}
-	say(tailscale ? "Tailscale and Cloudflare are both ready. Which should assistants use to reach this computer?" : "How should assistants reach this computer? Both are free, on your own account.");
-	say("  1  Tailscale (no domain needed)");
-	say("  2  Cloudflare (a domain on your Cloudflare account)");
-	for (;;) {
-		const answer = await ask("Type 1 or 2 [1]: ");
-		if (answer === undefined) return undefined;
-		const pick = answer.trim().toLowerCase();
-		if (pick === "" || pick === "1" || pick === "tailscale") return "tailscale";
-		if (pick === "2" || pick === "cloudflare") return "cloudflare";
-	}
-}
-
 /** In a terminal: the hostname for a Cloudflare route, asked until it can be one. Undefined when input ends. */
 async function askCloudflareHost(say: (line: string) => void): Promise<string | undefined> {
 	for (;;) {
@@ -678,20 +654,15 @@ async function runSetup(options: SetupOptions): Promise<number> {
 	const tailnet = (options.tailnet === true || (previous?.route === "tailnet" && !options.publicUrl && !options.tailscale && options.cloudflare === undefined));
 	// `remote setup` again on this route picks up where a failed run stopped, with the name it already has.
 	let cloudflareName = tailnet ? undefined : (options.cloudflare ?? (previous?.route === "cloudflare" && !options.publicUrl && !options.tailscale ? new URL(previous.publicUrl).hostname : undefined));
-	// The relay is the route when it is asked for, or when it's the one already set up and nothing else is asked for.
+	// The relay is the route when it is asked for, or when nothing else is asked for and no other route is set up: it needs no domain.
 	const otherRoute = tailnet || cloudflareName !== undefined || Boolean(options.publicUrl) || options.tailscale === true;
-	const relay = options.relay !== undefined || (!otherRoute && previous?.route === "relay");
+	const relay = options.relay !== undefined || (!otherRoute && (!previous || previous.route === "relay"));
 	if (relay && previous && previous.route !== "relay") return fail("problem", `The ${previous.route} route from an earlier setup is on. Run ${COMMAND_NAME} remote off first.`);
 	if (!relay && previous?.route === "relay") return fail("problem", `The relay route from an earlier setup is on. Run ${COMMAND_NAME} remote off first.`);
 	if (!relay && options.account !== undefined) return fail("problem", "--account is for the relay route. Nothing was changed.");
 	let relayName = "";
 	let relayAccount: string | undefined;
 	let relayBlock: RelayConfig | undefined;
-	if (input && !previous && !relay && !tailnet && cloudflareName === undefined && !options.publicUrl && !options.tailscale) {
-		const choice = await chooseRoute(say, port);
-		if (choice === undefined) return fail("problem", `No route was chosen, so nothing was changed. Run ${COMMAND_NAME} remote setup --tailscale, or --cloudflare name.yourdomain.com.`);
-		if (choice === "cloudflare") cloudflareName = "";
-	}
 	if (cloudflareName === "") {
 		const typed = input ? await askCloudflareHost(say) : undefined;
 		if (!typed) {

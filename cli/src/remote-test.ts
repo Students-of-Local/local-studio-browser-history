@@ -241,7 +241,7 @@ async function probe(address: string, publicUrl: string, token: string): Promise
 	const held = {
 		name: "streaming" as const,
 		status: "fail" as const,
-		next: `Assistants time out on a held stream. A quick tunnel (trycloudflare.com) or a buffering proxy does this: use ${COMMAND_NAME} remote setup (Tailscale Funnel or a Cloudflare named tunnel), or turn buffering off in your proxy.`,
+		next: `Assistants time out on a held stream. A quick tunnel (trycloudflare.com) or a buffering proxy does this: use ${COMMAND_NAME} remote setup (a relay, Tailscale Funnel or a Cloudflare named tunnel), or turn buffering off in your proxy.`,
 	};
 	let answer: Answer;
 	try {

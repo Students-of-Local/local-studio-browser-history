@@ -250,7 +250,7 @@ test("remote setup --json: success prints one JSON object with the connector URL
 	const s = scenario("su-ok");
 	const local = await localServer(`${FUNNEL_URL}/mcp`);
 	try {
-		const first = await s.runAsync(["remote", "setup", "--json", "--no-service", "--port", String(local.port)]);
+		const first = await s.runAsync(["remote", "setup", "--tailscale", "--json", "--no-service", "--port", String(local.port)]);
 		assert.equal(first.code, 0, first.stdout + first.stderr);
 		assert.equal(first.stderr, "");
 		const report = first.json();
@@ -274,7 +274,7 @@ test("remote setup --json: Funnel not allowed gives the admin URL Tailscale prin
 	const s = scenario("su-funnel", { funnelFails: `Funnel is not enabled on your tailnet.\nTo enable, visit:\n\n  ${url}\n` });
 	const local = await localServer(`${FUNNEL_URL}/mcp`);
 	try {
-		const first = await s.runAsync(["remote", "setup", "--json", "--no-service", "--port", String(local.port)]);
+		const first = await s.runAsync(["remote", "setup", "--tailscale", "--json", "--no-service", "--port", String(local.port)]);
 		assert.equal(first.code, 3);
 		assert.equal(first.stderr, "");
 		const report = first.json();
@@ -295,7 +295,7 @@ test("remote setup --json: a Funnel failure with no page to open is a problem wi
 	const s = scenario("su-funnel-other", { funnelFails: "listener already exists" });
 	const local = await localServer(`${FUNNEL_URL}/mcp`);
 	try {
-		const report = (await s.runAsync(["remote", "setup", "--json", "--no-service", "--port", String(local.port)])).json();
+		const report = (await s.runAsync(["remote", "setup", "--tailscale", "--json", "--no-service", "--port", String(local.port)])).json();
 		assert.equal(report.state, "problem");
 		assert.match(report.message, /listener already exists/);
 		assert.equal(report.code, "funnel");
@@ -315,7 +315,7 @@ test("remote setup --json: every refusal is a state, changes nothing and prints 
 	];
 	for (const [name, options, state, code] of cases) {
 		const s = scenario(name, options);
-		const r = s.run(["remote", "setup", "--json"]);
+		const r = s.run(["remote", "setup", "--tailscale", "--json"]);
 		assert.equal(r.code, code, name);
 		assert.equal(r.stderr, "", name);
 		const report = r.json();
@@ -329,7 +329,7 @@ test("remote setup --json: every refusal is a state, changes nothing and prints 
 	const s = scenario("su-local-busy");
 	const other = await localServer("https://elsewhere.example/mcp");
 	try {
-		const report = (await s.runAsync(["remote", "setup", "--json", "--no-service", "--port", String(other.port)])).json();
+		const report = (await s.runAsync(["remote", "setup", "--tailscale", "--json", "--no-service", "--port", String(other.port)])).json();
 		assert.equal(report.state, "port_busy");
 		assert.equal(report.code, "local_port", "a program here, not a Tailscale setting");
 		assert.ok(!s.remoteJsonExists());
@@ -341,7 +341,7 @@ test("remote setup --json: every refusal is a state, changes nothing and prints 
 
 test("remote setup --json with a service and no working launcher is a problem, not a hang", () => {
 	const s = scenario("su-launcher");
-	const r = s.run(["remote", "setup", "--json"]);
+	const r = s.run(["remote", "setup", "--tailscale", "--json"]);
 	assert.equal(r.code, 3);
 	assert.equal(r.json().state, "problem");
 	assert.match(r.json().message, /tychicus install --browser <name>/);
@@ -428,7 +428,7 @@ test("remote setup --json: Funnel not enabled and Tailscale waiting for it retur
 	const local = await localServer(`${FUNNEL_URL}/mcp`);
 	try {
 		const started = Date.now();
-		const r = await s.runAsync(["remote", "setup", "--json", "--no-service", "--port", String(local.port)]);
+		const r = await s.runAsync(["remote", "setup", "--tailscale", "--json", "--no-service", "--port", String(local.port)]);
 		assert.ok(Date.now() - started < 10_000, `took ${Date.now() - started} ms; the stub waits 300 s`);
 		const report = r.json();
 		assert.equal(r.code, 3);
@@ -445,7 +445,7 @@ test("remote setup --json: Funnel not enabled and Tailscale exiting 0 with the p
 	const s = scenario("fn-exit0url", { funnel: "exit0url" });
 	const local = await localServer(`${FUNNEL_URL}/mcp`);
 	try {
-		const r = await s.runAsync(["remote", "setup", "--json", "--no-service", "--port", String(local.port)]);
+		const r = await s.runAsync(["remote", "setup", "--tailscale", "--json", "--no-service", "--port", String(local.port)]);
 		assert.equal(r.code, 3);
 		assert.equal(r.json().state, "funnel_not_allowed");
 		assert.equal(r.json().adminUrl, ENABLE_URL);
@@ -459,7 +459,7 @@ test("remote setup: a docs link in Tailscale's failure is a problem with Tailsca
 	const s = scenario("fn-docs", { funnelFails: text });
 	const local = await localServer(`${FUNNEL_URL}/mcp`);
 	try {
-		const report = (await s.runAsync(["remote", "setup", "--json", "--no-service", "--port", String(local.port)])).json();
+		const report = (await s.runAsync(["remote", "setup", "--tailscale", "--json", "--no-service", "--port", String(local.port)])).json();
 		assert.equal(report.state, "problem");
 		assert.equal(report.code, "funnel");
 		assert.match(report.message, /HTTPS must be enabled\. See https:\/\/tailscale\.com\/s\/https/);
@@ -470,7 +470,7 @@ test("remote setup: a docs link in Tailscale's failure is a problem with Tailsca
 	const plain = scenario("fn-docs-text", { funnelFails: text });
 	const local2 = await localServer(`${FUNNEL_URL}/mcp`);
 	try {
-		const r = await plain.runAsync(["remote", "setup", "--no-service", "--port", String(local2.port)]);
+		const r = await plain.runAsync(["remote", "setup", "--tailscale", "--no-service", "--port", String(local2.port)]);
 		assert.equal(r.code, 1);
 		assert.match(r.stderr, /tailscale funnel failed: Funnel not available; HTTPS must be enabled/);
 		assert.doesNotMatch(r.stderr, /isn't enabled for this tailnet or node yet/);
@@ -484,7 +484,7 @@ test("remote setup --json: a funnel call that never ends and never prints a page
 	const local = await localServer(`${FUNNEL_URL}/mcp`);
 	try {
 		const started = Date.now();
-		const r = await s.runAsync(["remote", "setup", "--json", "--no-service", "--port", String(local.port)], { TABKYRA_FUNNEL_WAIT_MS: "1500" });
+		const r = await s.runAsync(["remote", "setup", "--tailscale", "--json", "--no-service", "--port", String(local.port)], { TABKYRA_FUNNEL_WAIT_MS: "1500" });
 		assert.ok(Date.now() - started < 15_000);
 		const report = r.json();
 		assert.equal(report.state, "problem");
@@ -500,7 +500,7 @@ test("remote setup --json: Tailscale exiting 0 without Funnel really on is a pro
 	const s = scenario("fn-silent0", { funnel: "silent0" });
 	const local = await localServer(`${FUNNEL_URL}/mcp`);
 	try {
-		const report = (await s.runAsync(["remote", "setup", "--json", "--no-service", "--port", String(local.port)])).json();
+		const report = (await s.runAsync(["remote", "setup", "--tailscale", "--json", "--no-service", "--port", String(local.port)])).json();
 		assert.equal(report.state, "problem");
 		assert.equal(report.code, "funnel");
 		assert.match(report.message, /Funnel isn't on for mac\.example\.ts\.net:8443/);
@@ -513,7 +513,7 @@ test("remote setup --json: Tailscale exiting 0 without Funnel really on is a pro
 test("remote setup --json: with nothing listening it is a problem (code serve), Funnel is never opened and the passcode still comes back", async () => {
 	const s = scenario("fn-nolisten");
 	const port = await freePort();
-	const r = s.run(["remote", "setup", "--json", "--no-service", "--port", String(port)]);
+	const r = s.run(["remote", "setup", "--tailscale", "--json", "--no-service", "--port", String(port)]);
 	assert.equal(r.code, 1);
 	const report = r.json();
 	assert.equal(report.ok, false);
@@ -621,7 +621,7 @@ serviceTest("remote setup --json: a service file that can't be written is a prob
 	blockServiceDir(s);
 	const local = await localServer(`${FUNNEL_URL}/mcp`);
 	try {
-		const r = await s.runAsync(["remote", "setup", "--json", "--port", String(local.port)]);
+		const r = await s.runAsync(["remote", "setup", "--tailscale", "--json", "--port", String(local.port)]);
 		assert.equal(r.code, 1, r.stdout + r.stderr);
 		assert.equal(r.stderr, "");
 		const report = r.json();
@@ -641,7 +641,7 @@ serviceTest("remote setup --json with a service: success is one JSON object and 
 	s.launcher();
 	const local = await localServer(`${FUNNEL_URL}/mcp`);
 	try {
-		const r = await s.runAsync(["remote", "setup", "--json", "--port", String(local.port)]);
+		const r = await s.runAsync(["remote", "setup", "--tailscale", "--json", "--port", String(local.port)]);
 		assert.equal(r.code, 0, r.stdout + r.stderr);
 		assert.equal(r.stderr, "");
 		const report = r.json(); // JSON.parse throws on anything but a single object on stdout
@@ -662,7 +662,7 @@ serviceTest("remote setup --json with a service: a service manager that fails is
 	s.script("systemctl", `echo "systemctl $*" >> ${join(s.dir, "calls.log")}\ncase "$2" in\nrestart) echo 'boom' >&2; exit 1 ;;\nesac\n`);
 	const local = await localServer(`${FUNNEL_URL}/mcp`);
 	try {
-		const r = await s.runAsync(["remote", "setup", "--json", "--port", String(local.port)]);
+		const r = await s.runAsync(["remote", "setup", "--tailscale", "--json", "--port", String(local.port)]);
 		assert.equal(r.code, 1, r.stdout + r.stderr);
 		const report = r.json();
 		assert.equal(report.state, "problem");
@@ -679,7 +679,7 @@ serviceTest("remote setup --json with a service: serve that never answers is cod
 	const s = scenario("su-svc-silent");
 	s.launcher();
 	const port = await freePort();
-	const r = await s.runAsync(["remote", "setup", "--json", "--port", String(port)], { TABKYRA_SERVE_WAIT_MS: "1500" });
+	const r = await s.runAsync(["remote", "setup", "--tailscale", "--json", "--port", String(port)], { TABKYRA_SERVE_WAIT_MS: "1500" });
 	assert.equal(r.code, 1, r.stdout + r.stderr);
 	const report = r.json();
 	assert.equal(report.state, "problem");
@@ -694,7 +694,7 @@ test("remote setup: a SIGTERM while `tailscale funnel` runs stops that process t
 	const s = scenario("su-sigterm", { funnel: "hang" });
 	const local = await localServer(`${FUNNEL_URL}/mcp`);
 	try {
-		const child = spawn(process.execPath, [cli, "remote", "setup", "--json", "--no-service", "--port", String(local.port)], { env: s.env });
+		const child = spawn(process.execPath, [cli, "remote", "setup", "--tailscale", "--json", "--no-service", "--port", String(local.port)], { env: s.env });
 		const closed = new Promise((resolve) => child.on("close", (code, signal) => resolve({ code, signal })));
 		const started = Date.now();
 		while (!existsSync(s.stub.pidFile)) {
@@ -719,7 +719,7 @@ test("the CLI finds the Tailscale app at its fixed path with nothing named: stat
 	const local = await localServer(`${FUNNEL_URL}/mcp`);
 	try {
 		assert.equal(s.run(["remote", "status", "--json"]).json().state, "ready", "found with no PATH entry");
-		const on = await s.runAsync(["remote", "setup", "--json", "--no-service", "--port", String(local.port)]);
+		const on = await s.runAsync(["remote", "setup", "--tailscale", "--json", "--no-service", "--port", String(local.port)]);
 		assert.equal(on.code, 0, on.stdout + on.stderr);
 		assert.equal(on.json().state, "on");
 		assert.ok(s.calls().includes(`tailscale funnel --bg --yes --https=8443 http://127.0.0.1:${local.port}`));
@@ -1002,7 +1002,7 @@ const remoteRoute = (s) => JSON.parse(readFileSync(join(s.env.TABKYRA_CONFIG_DIR
 test("remote setup --cloudflare --replace-funnel moves a running Funnel route to Cloudflare, closing Funnel only after the tunnel is made", async () => {
 	const { s, port } = await funnelRouteScenario("rf-ok");
 	await withServe(s, port, async () => {
-		const first = await s.runAsync(["remote", "setup", "--json", "--port", String(port)]);
+		const first = await s.runAsync(["remote", "setup", "--tailscale", "--json", "--port", String(port)]);
 		assert.equal(first.json().state, "on", first.stdout);
 		assert.equal(remoteRoute(s), "funnel");
 		assert.deepEqual(funnelOffCalls(s), []);
@@ -1024,7 +1024,7 @@ test("remote setup --cloudflare --replace-funnel moves a running Funnel route to
 test("a Cloudflare name that is taken leaves the Funnel route on: remote.json unchanged, Funnel never closed", async () => {
 	const { s, port } = await funnelRouteScenario("rf-taken", { route: "taken" });
 	await withServe(s, port, async () => {
-		const first = await s.runAsync(["remote", "setup", "--json", "--port", String(port)]);
+		const first = await s.runAsync(["remote", "setup", "--tailscale", "--json", "--port", String(port)]);
 		assert.equal(first.json().state, "on", first.stdout);
 		const before = readFileSync(join(s.env.TABKYRA_CONFIG_DIR, "remote.json"), "utf8");
 		const r = await s.runAsync(["remote", "setup", "--json", "--no-passcode", "--cloudflare", CF_HOST, "--replace-funnel", "--port", String(port)]);
@@ -1040,7 +1040,7 @@ test("a Cloudflare name that is taken leaves the Funnel route on: remote.json un
 test("--cloudflare over a Funnel route without --replace-funnel is still refused and changes nothing", async () => {
 	const { s, port } = await funnelRouteScenario("rf-refused");
 	await withServe(s, port, async () => {
-		const first = await s.runAsync(["remote", "setup", "--json", "--port", String(port)]);
+		const first = await s.runAsync(["remote", "setup", "--tailscale", "--json", "--port", String(port)]);
 		assert.equal(first.json().state, "on", first.stdout);
 		const before = readFileSync(join(s.env.TABKYRA_CONFIG_DIR, "remote.json"), "utf8");
 		const callsBefore = s.calls().length;
@@ -1114,12 +1114,12 @@ test("text-mode setup gives a connect code for a new assistant and never says th
 test("remote setup --json makes no connect code unless --connect-code asks for one", async () => {
 	const local = await localServer(`${FUNNEL_URL}/mcp`);
 	try {
-		const plain = await scenario("approve-json").runAsync(["remote", "setup", "--json", "--no-service", "--port", String(local.port)]);
+		const plain = await scenario("approve-json").runAsync(["remote", "setup", "--tailscale", "--json", "--no-service", "--port", String(local.port)]);
 		assert.equal(plain.code, 0, plain.stdout);
 		assert.equal("connectCode" in plain.json(), false);
 		assert.doesNotMatch(plain.stdout, /TK-[A-Z0-9]{4}-[A-Z0-9]{4}/);
 		assert.equal(plain.json().next.kind, "add_connector");
-		const asked = await scenario("approve-json-code").runAsync(["remote", "setup", "--json", "--connect-code", "--no-service", "--port", String(local.port)]);
+		const asked = await scenario("approve-json-code").runAsync(["remote", "setup", "--tailscale", "--json", "--connect-code", "--no-service", "--port", String(local.port)]);
 		assert.equal(asked.code, 0, asked.stdout);
 		assert.match(asked.json().connectCode, /^TK-[A-Z0-9]{4}-[A-Z0-9]{4}$/);
 		assert.ok(asked.json().connectCodeExpiresAt > Date.now(), "the code has an expiry in the future");
@@ -1146,7 +1146,7 @@ test("in a terminal, setup waits while Funnel isn't allowed and ends on once it 
 		assert.equal(remoteRoute(s), "funnel");
 		// The same run in waiting mode, as an app would read it: the JSON says on.
 		const again = scenario("fn-refuse2-wait-json", { funnel: "refuse2" });
-		const j = await again.runAsync(["remote", "setup", "--json", "--no-service", "--port", String(local.port)], TERMINAL);
+		const j = await again.runAsync(["remote", "setup", "--tailscale", "--json", "--no-service", "--port", String(local.port)], TERMINAL);
 		assert.equal(j.code, 3, "--json never waits");
 		const waited = await again.runAsync(["remote", "setup", "--tailscale", "--no-service", "--port", String(local.port)], TERMINAL);
 		assert.equal(waited.code, 0, waited.stdout);
@@ -1165,7 +1165,7 @@ test("with --no-wait the same refusal exits 3 at once, and the JSON names the pa
 		assert.doesNotMatch(t.stdout, /Waiting for/);
 		assert.equal(funnelCalls(text).length, 1);
 		const json = scenario("fn-refuse2-json", { funnel: "refuse2" });
-		const r = await json.runAsync(["remote", "setup", "--json", "--no-wait", "--no-service", "--port", String(local.port)], TERMINAL);
+		const r = await json.runAsync(["remote", "setup", "--tailscale", "--json", "--no-wait", "--no-service", "--port", String(local.port)], TERMINAL);
 		assert.equal(r.code, 3, r.stdout);
 		const report = r.json();
 		assert.equal(report.state, "funnel_not_allowed");
@@ -1311,12 +1311,14 @@ test("remote setup --cloudflare with no name reaches the hostname question, last
 	assert.match(scenario("cf-noname-ni", { tailscale: false }).run(["remote", "setup", "--cloudflare", "--no-input"]).stderr, /--no-input needs the name too/);
 });
 
-test("remote setup --no-wait in a terminal asks nothing: no route question, no download question (first-F2)", async () => {
+test("remote setup --no-wait in a terminal asks nothing: no account question, no download question (first-F2)", async () => {
 	const s = scenario("nowait-noask", { tailscale: false });
 	const r = await runTyped(s, ["remote", "setup", "--no-wait"], undefined, {}, 15_000);
 	assert.equal(r.hung, false, `it waited on stdin: ${r.stdout}`);
-	assert.doesNotMatch(r.stdout, /Type 1 or 2/);
+	// No route named means the relay, which needs npx; this machine has none, so it says where to get it and asks nothing.
+	assert.doesNotMatch(r.stdout, /Type 1 to|Press Enter/);
 	assert.equal(r.code, 3, r.stdout + r.stderr);
+	assert.match(r.stderr, /npx isn't on PATH/);
 	const cf = scenario("nowait-nodownload", { tailscale: false });
 	const d = await runTyped(cf, ["remote", "setup", "--no-wait", "--cloudflare", CF_HOST], undefined, {}, 15_000);
 	assert.equal(d.hung, false);
@@ -1334,7 +1336,7 @@ test("text-mode setup with no terminal makes no connect code unasked, and says h
 	const s = scenario("code-notty");
 	const local = await localServer(`${FUNNEL_URL}/mcp`);
 	try {
-		const r = await s.runAsync(["remote", "setup", "--no-service", "--port", String(local.port)]);
+		const r = await s.runAsync(["remote", "setup", "--tailscale", "--no-service", "--port", String(local.port)]);
 		assert.equal(r.code, 0, r.stdout + r.stderr);
 		assert.doesNotMatch(r.stdout, /TK-[A-Z0-9]{4}-[A-Z0-9]{4}/, "no live code in an agent's transcript");
 		assert.match(r.stdout, /Connect code: make one with tychicus token approval-code when you add an assistant/);
@@ -1350,7 +1352,7 @@ test("remote setup --json --connect-code that can't make the code fails, says wh
 	try {
 		// A folder where the codes file goes: the write fails, as a full disk or a bad permission would.
 		mkdirSync(join(s.env.TABKYRA_CONFIG_DIR, "oauth-codes.json"), { recursive: true });
-		const r = await s.runAsync(["remote", "setup", "--json", "--connect-code", "--no-service", "--port", String(local.port)]);
+		const r = await s.runAsync(["remote", "setup", "--tailscale", "--json", "--connect-code", "--no-service", "--port", String(local.port)]);
 		assert.equal(r.code, 1, r.stdout);
 		const report = r.json();
 		assert.equal(report.ok, false);
@@ -1494,25 +1496,6 @@ test("in a terminal, setup waits for Tailscale to be installed and carries on on
 		assert.match(r.stdout, /Waiting for Tailscale to be installed/);
 		assert.match(r.stdout, /Tailscale is signed in/);
 		assert.match(r.stdout, /Tailscale Funnel on https:\/\/mac\.example\.ts\.net:8443/);
-	} finally {
-		await local.close();
-	}
-});
-
-test("in a terminal with no route named, setup asks which one and uses the answer (second-F8)", async () => {
-	const s = scenario("route-choice", { tailscale: false });
-	const local = await localServer(`${FUNNEL_URL}/mcp`);
-	try {
-		// Neither route is ready, so it asks; "2" takes the Cloudflare route, which then asks for the name.
-		const cf = await runTyped(s, ["remote", "setup", "--no-service", "--port", String(local.port)], "2\n");
-		assert.match(cf.stdout, /Type 1 or 2 \[1\]: /);
-		assert.match(cf.stdout, /Connector hostname/);
-		// "1" takes Tailscale.
-		const t = scenario("route-choice-1", { tailscale: false });
-		const one = await runTyped(t, ["remote", "setup", "--no-service", "--no-passcode", "--port", String(local.port)], "1\n", { TABKYRA_TAILSCALE_WAIT_MS: "1", TABKYRA_TAILSCALE_POLL_MS: "1" });
-		assert.match(one.stdout, /Type 1 or 2/);
-		assert.match(one.stdout + one.stderr, /Tailscale isn't installed/);
-		assert.doesNotMatch(one.stdout, /Connector hostname/);
 	} finally {
 		await local.close();
 	}

@@ -248,7 +248,7 @@ export const COMMANDS: CommandSpec[] = [
 		subcommands: [
 			{
 				name: "setup",
-				what: "Tailscale Funnel (or a relay on your own free Cloudflare account with --relay, a Cloudflare tunnel with --cloudflare, your tailnet only with --tailnet, or your own --public-url), a passcode and a service that keeps serve running. Where Local Studio is installed, Local Studio runs the tunnel (--cloudflare or --tailnet) and this joins it. In a terminal it asks and waits; --no-wait stops instead",
+				what: "A relay on your own free Cloudflare account, no domain needed (or Tailscale Funnel with --tailscale, a Cloudflare tunnel with --cloudflare, your tailnet only with --tailnet, or your own --public-url), a passcode and services that keep serve running. Where Local Studio is installed, Local Studio runs the tunnel (--cloudflare or --tailnet) and this joins it. In a terminal it asks and waits; --no-wait stops instead",
 				flags: ["--relay", "--account", "--cloudflare", "--replace-funnel", "--public-url", "--port", "--no-service", "--no-passcode", "--tailscale", "--tailnet", "--no-wait", "--no-input", "--yes", "--connect-code", "--json"],
 				optionalValue: ["--cloudflare", "--relay"],
 			},
@@ -389,7 +389,7 @@ export const EXIT_CODES =
 /** `remote --help`, or `remote` alone (a usage error, exit 2): the remote commands in the order a person uses them. */
 export const REMOTE_GUIDE = [
 	"Remote access for claude.ai, ChatGPT and grok.com, in the order you use it:",
-	`  1. ${COMMAND_NAME} remote setup    Make serve reachable: Tailscale Funnel, a relay on your Cloudflare account, a Cloudflare tunnel or your own --public-url`,
+	`  1. ${COMMAND_NAME} remote setup    Make serve reachable: a relay on your Cloudflare account, Tailscale Funnel, a Cloudflare tunnel or your own --public-url`,
 	`  2. ${COMMAND_NAME} remote status   Fast checks from this computer: is it up?`,
 	`  3. ${COMMAND_NAME} remote test     Prove an assistant can reach and stream from it, from outside`,
 	`  4. ${COMMAND_NAME} remote fix      Repair what status or test found (--dry-run lists the steps)`,

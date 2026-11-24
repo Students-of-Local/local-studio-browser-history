@@ -1,12 +1,12 @@
 ---
 name: connector
-description: Add Tychicus as a custom connector in claude.ai, ChatGPT or grok.com through a tunnel on the person's own Tailscale or Cloudflare account, and pick what the connector may do, including computer use. Use when the user asks to add a connector, make a Cloudflare tunnel or Tailscale Funnel for Tychicus, reach this computer remotely from a web assistant, or fix a connector that stopped working.
+description: Add Tychicus as a custom connector in claude.ai, ChatGPT or grok.com through a relay or tunnel on the person's own Cloudflare or Tailscale account, and pick what the connector may do, including computer use. Use when the user asks to add a connector, make a Cloudflare relay or tunnel or Tailscale Funnel for Tychicus, reach this computer remotely from a web assistant, or fix a connector that stopped working.
 license: AGPL-3.0
 ---
 
 # Connector
 
-An assistant on the web reaches this computer through a tunnel on the person's own account. You can check where things stand and run the setup commands. Only the person can sign in, approve an assistant, or tick what it may do.
+An assistant on the web reaches this computer through a relay or tunnel on the person's own account. You can check where things stand and run the setup commands. Only the person can sign in, approve an assistant, or tick what it may do.
 
 ## When to use
 
@@ -28,19 +28,9 @@ For driving the browser from an agent on this computer, use the `polycarp-browse
 
 1. **Read the state.** Run `tychicus remote status --json`. It changes nothing. Read `state`, `connectorUrl` and `routes`.
 2. **If `state` is `on`,** give the person `connectorUrl` and go to step 6.
-3. **If nothing is set up, offer the choice.**
-
-   | | Tailscale | Cloudflare |
-   | --- | --- | --- |
-   | Needs a domain | No | Yes, on their Cloudflare account |
-   | Address | `https://<computer>.<tailnet>.ts.net:8443` | A name on their domain |
-   | New account | login.tailscale.com/start | dash.cloudflare.com/sign-up |
-   | Tool | tailscale.com/download | developers.cloudflare.com/tunnel/downloads |
-
-   If `routes` shows one signed in, suggest that one. With no domain on Cloudflare, suggest Tailscale.
-   The easiest way is the Tychicus side panel's Settings > Agents > "Use Tychicus from Claude, ChatGPT and Grok", which has these steps as buttons.
-4. **Tailscale.** The person installs it and signs in. Then, with their yes, run `tychicus remote setup --no-passcode`. If `state` is `funnel_not_allowed`, give them `adminUrl`, wait for them to allow it, and run setup again.
-5. **Cloudflare.** The person installs `cloudflared`. Run `tychicus remote cloudflare login` and tell them their browser opened: they sign in and pick the domain. Then ask which name to use, and with their yes run `tychicus remote setup --no-passcode --cloudflare tychicus.example.com`.
+3. **If nothing is set up, suggest the relay.** It needs no domain: a free Worker on the person's own Cloudflare account, at `https://tychicus-relay.<subdomain>.workers.dev`. It needs Node.js 22 or later. Other routes: Tailscale Funnel (no domain, `--tailscale`) or a Cloudflare tunnel on their domain (`--cloudflare <name>`). The side panel's Settings > Agents > "Use Tychicus from Claude, ChatGPT and Grok" has these steps as buttons.
+4. **Relay.** The person runs `tychicus remote setup` in their own terminal: wrangler opens Cloudflare's sign-in in their browser, and setup may open a page to pick a workers.dev subdomain. Your shell has no terminal, so `--json` answers `cloudflare_login` until they have done that once. Then, with their yes, you can run `tychicus remote setup --no-passcode`.
+5. **Tailscale or Cloudflare tunnel.** The person installs Tailscale and signs in, or installs `cloudflared` and runs `tychicus remote cloudflare login`. Then, with their yes, run `tychicus remote setup --no-passcode --tailscale` (on `funnel_not_allowed`, give them `adminUrl` and run it again once they allow it) or `--cloudflare tychicus.example.com`.
 6. **Have the person add the connector.**
    - claude.ai: Settings > Connectors > Add custom connector, paste the address.
    - ChatGPT: Settings > Apps & Connectors, turn on dev mode, Create, paste the address, OAuth.
@@ -56,7 +46,9 @@ For driving the browser from an agent on this computer, use the `polycarp-browse
 | --- | --- |
 | `tailscale_missing`, `tailscale_signed_out` | The person installs Tailscale or signs in. |
 | `cloudflared_missing` | The person installs `cloudflared`. |
-| `cloudflare_login` | Run `tychicus remote cloudflare login`. |
+| `cloudflare_login` | On the relay, the person runs `tychicus remote setup` in their terminal. On a tunnel, run `tychicus remote cloudflare login`. |
+| `cloudflare_account`, `workers_subdomain` | The person picks the account (`--account <id>`) or opens `next.url` to pick a subdomain. |
+| `relay_connector`, `relay_health` | `remote status --json` shows `relay.state`; `unauthorized` or `replaced` means setup again. |
 | `cloudflare_dns` | That name is in use or not valid. Ask for another. Never overwrite a record. |
 | `cloudflare_zone` | The sign-in is for another domain. The message says how to sign in again. |
 | `cloudflare_tunnel` | The message names the command. Show it, and run it only with their yes: it deletes a tunnel. |

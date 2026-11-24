@@ -106,7 +106,8 @@ test("the remote setup prompt runs setup, mints a one-time code and never repeat
 	assert.ok(remote.includes(`If tychicus isn't found, try ${RELEASE} doctor`));
 	assert.match(remote, /don't repeat it, write it to a file or put it in a message/);
 	// The agent path makes no passcode, so none lands in the agent's output, transcript or logs.
-	assert.match(remote, /tychicus remote setup --no-passcode/);
+	assert.match(remote, /ask me to run tychicus remote setup --no-passcode in my own terminal/);
+	assert.match(remote, /Tailscale installed and signed in: tychicus remote setup --tailscale --no-passcode/);
 	assert.match(remote, /tychicus hub setup --public-url https:\/\/ADDRESS --no-passcode/);
 	assert.match(remote, /Don't run tychicus token passcode yourself/);
 	assert.match(remote, /Don't ask me for API keys or passwords/);

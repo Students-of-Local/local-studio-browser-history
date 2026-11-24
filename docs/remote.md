@@ -2,7 +2,7 @@
 
 Web assistants can drive your own signed-in browser through Tychicus and, if you tick it when you
 approve one, apps on your Mac's agent workspace ([Computer use](#computer-use)). It runs on your computer and
-through your own free account with Tailscale or Cloudflare: no account with us, no relay, no cost.
+through your own free Cloudflare account (or Tailscale): no account with us, no hosted service, no cost.
 
 **In the Tychicus side panel, use Settings > Agents > "Use Tychicus from Claude, ChatGPT and Grok".** It
 walks you through the same steps with buttons. The rest of this page is the terminal.
@@ -15,17 +15,17 @@ One command:
 tychicus remote setup
 ```
 
-What you will see, in order:
+It puts a small relay on your own free Cloudflare account, so the connector gets an address with no domain and
+nothing on this computer listens to the internet ([The relay](#the-relay)). What you will see, in order:
 
-1. If both Tailscale and Cloudflare are ready, or neither is, it asks which one. Tailscale needs no domain, so pick it
-   if you're unsure.
-2. A line for each thing it waits on, if any: installing Tailscale (with the link), signing in, or allowing Funnel on
-   Tailscale's page, which it opens for you. Do that step; setup carries on by itself. Ctrl-C stops it, and running it
-   again continues from where it was.
+1. Cloudflare's sign-in page in your browser, the first time. Sign in, or make a free account there. If the account
+   has no workers.dev subdomain yet, setup opens the page to pick one and waits for Enter.
+2. `Relay deployed at https://tychicus-relay.<your-subdomain>.workers.dev`, then a line while it checks that a request
+   through the relay reaches this computer and comes back. A new subdomain can take a few minutes.
 3. `From the internet, as an assistant sees it:` and one line per check (public DNS, the certificate, the OAuth
    metadata, the sign-in challenge, a streaming probe). All ok means an assistant can connect now. A brand-new name
    can take a few minutes to reach public DNS; then run `tychicus remote test` again in a few minutes.
-4. The connector URL, `https://<this-computer>.<your-tailnet>.ts.net:8443/mcp`.
+4. The connector URL, `https://tychicus-relay.<your-subdomain>.workers.dev/mcp`.
 5. A connect code (`TK-XXXX-XXXX`). It works once, for 10 minutes. `tychicus token approval-code` makes another.
 6. The passcode, only in the run that made it. Keep it: it re-approves an assistant you already approved.
 
@@ -60,7 +60,7 @@ loginctl enable-linger $USER          # keeps your user services running after y
 Services run as systemd user units (`~/.config/systemd/user/tychicus-serve.service`). `remote status` and `remote fix`
 warn when either step is missing.
 
-**Windows.** Both routes work without administrator rights. Each service is a Task Scheduler task for your account,
+**Windows.** Every route works without administrator rights. Each service is a Task Scheduler task for your account,
 and its log is a file in the config folder ([Windows](#windows)). Task Scheduler words a task's status in the system's
 language, so `remote status` and `remote fix` treat an installed tunnel task as running; `remote test` says whether it answers.
 
@@ -72,7 +72,7 @@ and `remote status --json` give the `state` or check name in the first column.
 | State or check | What it means | Do this |
 | --- | --- | --- |
 | `not_set_up` | Nothing is set up on this computer. | `remote setup` |
-| `tailscale_missing` | Tailscale isn't installed. | Install it from tailscale.com, then `remote setup`. |
+| `tailscale_missing` | Tailscale isn't installed. | Install it from tailscale.com, then `remote setup --tailscale`. |
 | `tailscale_signed_out` | Tailscale isn't connected. | Open Tailscale and sign in (`tailscale up` on Linux). |
 | `tailnet_lock` | Funnel doesn't work with Tailnet Lock on. | Use Cloudflare: `remote setup --cloudflare <name>`. |
 | `funnel_not_allowed` | Your tailnet hasn't allowed Funnel for this computer. | Open the `adminUrl` page and allow it; setup waits. |
@@ -85,7 +85,7 @@ and `remote status --json` give the `state` or check name in the first column.
 | `resource_metadata` | The public name reaches something that isn't this connector, or (`pending`) its tunnel or gateway answers 502, 503, 504, 521, 522, 523 or 530 or nothing: it hasn't connected yet. | A pending one: wait a minute, then `remote test`. Otherwise, or if it stays: `remote fix` (restarts `serve` and the tunnel; a renamed computer gets its new URL). |
 | `auth_metadata` | The OAuth server metadata names another address, or no authorization or token endpoint on this one. | `remote fix`. |
 | `auth_challenge` | `/mcp` doesn't answer a sign-in challenge. | `remote fix`. |
-| `streaming` | The stream's first bytes take over 5 seconds, so assistants time out. | Use Tailscale Funnel or a Cloudflare named tunnel, not a quick tunnel or a buffering proxy. |
+| `streaming` | The stream's first bytes take over 5 seconds, so assistants time out. | Use the relay, Tailscale Funnel or a Cloudflare named tunnel, not a quick tunnel or a buffering proxy. |
 | `probe_cleanup` | `remote test` couldn't delete its probe token. It stops working by itself two minutes after it was made. | The `token revoke <id>` command in `next`. |
 | `passcode` | No passcode is set. | `tychicus token passcode` (shown once). |
 | `linger`, `tailscale user` | Linux one-time steps. | The command in [Mac, Linux and Windows](#mac-linux-and-windows). |
@@ -121,24 +121,51 @@ computer must stay on, awake and signed in to the browser with Tychicus loaded.
 
 ## Setup in detail
 
-`remote setup` turns on Tailscale Funnel for this computer, sets an approval passcode (shown once), writes
-`remote.json` and installs a user service that keeps `tychicus serve` running.
+`remote setup` turns on the route, sets an approval passcode (shown once), writes `remote.json` and installs user
+services that keep `tychicus serve` and the route's own connector running. With no route flag it sets up the relay, or
+repeats the route that is already on.
 
-In a terminal it waits instead of stopping. With no route flag it uses whichever of Tailscale and Cloudflare is ready,
-and asks when both or neither is. If Tailscale isn't installed it prints the download link and waits; if it's signed
+In a terminal it waits instead of stopping. On the relay it opens Cloudflare's sign-in, asks which account when there
+are several, and waits while you pick a workers.dev subdomain. With `--tailscale`, if Tailscale isn't installed it
+prints the download link and waits; if it's signed
 out it waits for the sign-in; if Funnel isn't allowed yet it opens Tailscale's page, says what to click and tries again
 every 5 seconds for up to 10 minutes; if the service has no launcher yet it writes one (only the launcher; run
 `tychicus install` yourself to register browsers). `--no-wait` makes it stop and say what to do instead, and
-`--no-input` never asks a question (it needs `--tailscale`, `--cloudflare <name>` or `--public-url`). `--json`, or a
+`--no-input` never asks a question (it needs a route flag). `--json`, or a
 run with no terminal, never waits or asks. A connect code is made for a person at a terminal, or with `--connect-code`.
 
 ## Moving from Polycarp
 
 `tychicus remote import-polycarp` moves a connector Polycarp serves to Tychicus at the same address, once. See the README, "Moving a connector from Polycarp", for what it copies and how it swaps the services; run it with `--dry-run` first.
 
-## Tailscale or Cloudflare
+## The relay
 
-Both are free and run on your own account. Tychicus never makes an account. It installs neither tool, and downloads cloudflared only when you say yes.
+The default route. Setup runs Cloudflare's own `wrangler` (version 4.163.0, through `npx`, never installed globally;
+npx comes with Node.js 22 or later) in your terminal:
+
+1. `wrangler whoami`, and `wrangler login` when you aren't signed in: Cloudflare's page in your browser. Tychicus never
+   reads wrangler's sign-in and never sees a Cloudflare token.
+2. With several accounts on the sign-in it asks which one (`--account <id>` without a terminal).
+3. `wrangler deploy` of the relay Worker, a copy of `relay/dist` from baney75/local-studio-tunnels kept in
+   `cli/src/relay-dist.ts`, as `tychicus-relay` (`--relay <name>` picks another name). It goes to `~/.config/tychicus/relay/`
+   first.
+4. A new relay key, 32 random bytes, set as the Worker's `RELAY_KEY` secret through stdin and saved in `remote.json`
+   (0600). Every setup run makes a new one, so an old copy of `remote.json` stops working.
+5. Two services: `serve`, and the connector (`tychicus remote relay run`, `com.tychicus.relay` or
+   `tychicus-relay.service`). The connector dials out to the relay with the key and carries only serve's MCP and OAuth
+   paths and `/v1/health` to `127.0.0.1:<port>`.
+6. The check: the relay reports the connector, and `GET /v1/health` through it comes back from serve.
+
+`remote status` shows the connector's state: connected, disconnected (it retries), or one it stops on: the key was
+refused (`unauthorized`), another computer took over with this key (`replaced`), or the relay speaks another protocol
+version (`outdated`). Each of those says to run `tychicus remote setup` again. `remote fix` restarts a connector that
+isn't running. `remote off` removes the connector's service and `remote.json`; the Worker stays on your account and
+refuses every connector. `npx wrangler@4.163.0 delete tychicus-relay` deletes it.
+
+## Tailscale or Cloudflare with your own domain
+
+Both are free and run on your own account. Name one with `--tailscale` or `--cloudflare <name>`; plain `remote setup`
+with one of them already on keeps it. Tychicus never makes an account. It installs neither tool, and downloads cloudflared only when you say yes.
 
 - **Tailscale** needs no domain, so it's the quickest. The address is `https://<computer>.<tailnet>.ts.net:8443`.
 - **Cloudflare** puts the address on a domain you have on your Cloudflare account, because a Cloudflare tunnel with a
@@ -401,8 +428,9 @@ app behave the same.
 
 - Tychicus installed and connected (`tychicus setup`, then `tychicus install` so the service has a
   launcher to start).
-- Tailscale on this computer, signed in. Free plan is enough. If Funnel isn't allowed for your
-  tailnet yet, `tychicus remote setup` opens the Tailscale page that allows it and waits while you
+- For the relay: Node.js 22 or later (it brings npx) and a free Cloudflare account.
+- For Tailscale Funnel: Tailscale on this computer, signed in. Free plan is enough. If Funnel isn't allowed for your
+  tailnet yet, `tychicus remote setup --tailscale` opens the Tailscale page that allows it and waits while you
   allow it (with `--no-wait`, `--json` or no terminal it prints the page and stops; run setup again after).
 
 On Linux, two more things:
