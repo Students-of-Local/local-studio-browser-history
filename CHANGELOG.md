@@ -74,6 +74,9 @@
 - The `skill-judge` CI job lets a pull request rename a skill: a base router case may carry the new name when `skills-eval/accepted-drops.json` records the rename under `renamed` (`from`, `to`, `reason`), the old skill is gone and the new one is new. The new name keeps the old accuracy floor. Any other removed or relabeled case still fails.
 
 ### Fixed
+- `read_page` right after a page opens now holds a cross-site frame (a payment form) that arrives a moment later. It waits for a frame it
+  first saw under a second ago, at most a second in all and once per frame; a frame that still hasn't loaded is listed as "still loading". The market
+  task `t05-iframe` missed the form in 2 of 3 runs on a Mac (#75). Tests: `test/frames.test.mjs`, `cli/test/e2e-bridge.test.mjs`.
 - Tychicus no longer adds CORS headers to the responses of api.anthropic.com, api.z.ai or a custom provider's host
   (`static/cors-rules.json` and the dynamic rules are gone, and each worker start takes away the saved ones). The side
   panel's own requests go out under the extension's host permissions and never needed them. Test: `test/provider-cors.test.mjs`.

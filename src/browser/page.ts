@@ -735,7 +735,7 @@ export function pageSnapshot(
 	print: (el: Element) => string,
 	keepStale = false,
 	frameShown: (el: Element) => "shown" | "hidden" | "away",
-	frameNotes: Record<"shown" | "hidden" | "away", string>,
+	frameNotes: Record<"shown" | "hidden" | "away" | "loading", string>,
 	rank?: {
 		offset: number;
 		/** The ranked read this offset continues (its `ranked.snapshot`); omitted, the page's last one. */
@@ -758,6 +758,7 @@ export function pageSnapshot(
 		__tabkyraTwins?: unknown;
 		__tabkyraRefMeta?: unknown;
 		__tabkyraFindLike?: unknown;
+		__tabkyraFramesSeen?: unknown;
 	};
 	// Adopt earlier state only when it is what this function wrote.
 	const refs = w.__tabkyraRefs instanceof Map ? (w.__tabkyraRefs as Map<string, Element>) : new Map<string, Element>();
@@ -994,6 +995,8 @@ export function pageSnapshot(
 	type Root = { root: Document | ShadowRoot; dx: number; dy: number; sx: number; sy: number; frame?: string };
 	const roots: Root[] = [];
 	const crossFrames: Array<{ el: Element; at: Root }> = [];
+	// A frame on its first empty page: what its src names has not arrived.
+	const blank = new Set<Element>();
 	const isShadow = (root: Node) => root.nodeType === 11;
 	// A frame's address without its query or fragment, which can carry a token (?secret=...).
 	const frameUrl = (el: Element) =>
@@ -1030,7 +1033,14 @@ export function pageSnapshot(
 			} catch {
 				doc = null;
 			}
-			if (doc?.documentElement) {
+			if (
+				doc?.documentElement &&
+				doc.URL === "about:blank" &&
+				/^https?:/.test(String((el as HTMLIFrameElement).src))
+			) {
+				blank.add(el);
+				crossFrames.push({ el, at });
+			} else if (doc?.documentElement) {
 				if (isVisible(el))
 					visit({ root: doc, ...inner(el, at), frame: frameUrl(el) || "(inline frame)" }, depth + 1);
 			} else crossFrames.push({ el, at });
@@ -1208,7 +1218,8 @@ export function pageSnapshot(
 		if (tag === "a" && f.href) node.href = String(f.href).slice(0, 200);
 		if (cross.has(el)) {
 			node.href = frameUrl(el).slice(0, 200);
-			node.states = [frameNotes[frameShown(el)]];
+			const shown = frameShown(el);
+			node.states = [frameNotes[blank.has(el) && shown === "shown" ? "loading" : shown]];
 		}
 		if (tag === "input") {
 			if (f.type === "checkbox" || f.type === "radio") node.value = f.checked ? "checked" : "unchecked";
@@ -1333,6 +1344,18 @@ export function pageSnapshot(
 			)
 			.filter(Boolean)
 			.join("\n");
+	// Shown frames first seen a moment ago: the caller may wait for what one holds, once per frame.
+	const framesSeen =
+		w.__tabkyraFramesSeen instanceof WeakMap
+			? (w.__tabkyraFramesSeen as WeakMap<Element, number>)
+			: new WeakMap<Element, number>();
+	w.__tabkyraFramesSeen = framesSeen;
+	const settling = crossFrames.filter(({ el }) => {
+		if (keepStale || frameShown(el) !== "shown") return false;
+		const first = framesSeen.get(el) ?? Date.now();
+		framesSeen.set(el, first);
+		return Date.now() - first < 1000;
+	}).length;
 	const parts = [document.body?.innerText ?? ""];
 	for (const at of roots.slice(1)) {
 		const own = isShadow(at.root) ? shadowText(at.root) : ((at.root as Document).body?.innerText ?? "");
@@ -1356,6 +1379,8 @@ export function pageSnapshot(
 		text,
 		...(ranked ? { ranked } : {}),
 		...(crossFrames.length ? { crossFrames: crossFrames.length } : {}),
+		...(settling ? { settling } : {}),
+		...(document.readyState === "loading" ? { parsing: true } : {}),
 	};
 }
 
@@ -1535,13 +1560,37 @@ export async function snapshot(
 		: "";
 	const code = (n: number, t: number, r = "") =>
 		`(${pageSnapshot.toString()})(${n}, ${t}, ${JSON.stringify(filter)}, ${refLive.toString()}, ${refPrint.toString()}, false, ${frameShown.toString()}, ${JSON.stringify(FRAME_STATES)}${r})`;
-	const snap = await runInPage<Snapshot & { crossFrames?: number }>(tabId, code(maxNodes, maxTextChars, rank));
-	if (typeof snap?.url === "string") snap.url = maskUrl(snap.url);
-	if (snap?.crossFrames) {
-		delete snap.crossFrames;
-		await readFrames(tabId, snap, { maxNodes, maxTextChars, floor }, code, options.skip ?? FRAMES_CLOSED);
+	const until = Date.now() + FRAME_ARRIVE_MS;
+	for (;;) {
+		const snap = await runInPage<Snapshot & FramesAt>(tabId, code(maxNodes, maxTextChars, rank));
+		if (typeof snap?.url === "string") snap.url = maskUrl(snap.url);
+		const { crossFrames, settling } = snap ?? {};
+		for (const key of ["crossFrames", "settling", "parsing"] as const) delete snap?.[key];
+		if (!crossFrames) return snap;
+		const whole = await readFrames(
+			tabId,
+			snap,
+			{ maxNodes, maxTextChars, floor },
+			code,
+			options.skip ?? FRAMES_CLOSED,
+		);
+		// A payment frame arrives just after the page around it: a first read that came in between would leave it out.
+		if (whole || !settling || Date.now() >= until) return snap;
+		await new Promise((r) => setTimeout(r, 50));
 	}
-	return snap;
+}
+
+/** How long a read waits for a frame the page has just put up to hold its document. */
+const FRAME_ARRIVE_MS = 1000;
+
+/** What a page's own snapshot says of its frames, for the caller alone. */
+interface FramesAt {
+	/** Cross-origin frames and those whose page has not arrived. */
+	crossFrames?: number;
+	/** Of those, the shown ones first seen under a second ago. */
+	settling?: number;
+	/** The document is still being parsed. */
+	parsing?: boolean;
 }
 
 /** What the change report compares, one side of an action (src/browser/changes.ts). */
@@ -1739,6 +1788,7 @@ export const FRAME_STATES = {
 	shown: "cross-origin: read it with navigate to its URL",
 	hidden: "cross-origin frame, not shown, so not read",
 	away: "cross-origin frame out of view: scroll to it, then read_page",
+	loading: "frame still loading: read_page again",
 } as const;
 const CROSS_NOTE = FRAME_STATES.shown;
 const NOT_SHOWN_NOTE = FRAME_STATES.hidden;
@@ -1817,7 +1867,7 @@ async function readFrames(
 	budget: { maxNodes: number; maxTextChars: number; floor: boolean },
 	code: (n: number, t: number) => string,
 	rule: FrameRule,
-): Promise<void> {
+): Promise<boolean> {
 	const frames = await crossOriginFrames(tabId, rule).catch(() => [] as PageFrame[]);
 	const end = Date.now() + FRAMES_READ_MS;
 	const { maxNodes, maxTextChars, floor } = budget;
@@ -1826,6 +1876,7 @@ async function readFrames(
 	const { width, height } = snap.viewport;
 	const taken = new Set<SnapshotNode>();
 	let read = 0;
+	let whole = !snap.nodes.some((n) => (n as Line).states?.[0] === FRAME_STATES.loading);
 	// Outermost first: a frame's line is in the snapshot only once the frame around it is read.
 	for (let depth = 1; depth <= MAX_DEPTH; depth++) {
 		const level = frames.filter((f) => f.chain.length === depth);
@@ -1864,7 +1915,7 @@ async function readFrames(
 		const got = await Promise.all(
 			wanted.map(({ f }) =>
 				bounded(
-					runInFrame<Snapshot>(tabId, f, code(room, textRoom)),
+					runInFrame<Snapshot & FramesAt>(tabId, f, code(room, textRoom)),
 					Math.max(0, Math.min(FRAME_READ_MS, end - Date.now())),
 				),
 			),
@@ -1873,6 +1924,7 @@ async function readFrames(
 			const s = got[i];
 			if (!s?.nodes || room <= 0) return;
 			read++;
+			if (s.parsing) whole = false;
 			const label = frameHost(f.url);
 			const nodes = s.nodes.slice(0, room).map((n) => {
 				const x = Math.round(f.offset.x + f.scale * n.x);
@@ -1900,6 +1952,14 @@ async function readFrames(
 			}
 		});
 	}
+	// A line no frame claimed is one the browser hasn't told of yet, unless its page failed to load (a site refusing to
+	// be framed) or it names no web page.
+	const unclaimed = snap.nodes.filter(
+		(n) => !taken.has(n) && (n as Line).states?.[0] === CROSS_NOTE && /^https?:/.test(n.href ?? ""),
+	).length;
+	if (!whole || unclaimed === 0) return whole;
+	const all = await chrome.webNavigation.getAllFrames({ tabId }).catch(() => null);
+	return unclaimed <= (all ?? []).filter((f) => f.errorOccurred).length;
 }
 
 /**

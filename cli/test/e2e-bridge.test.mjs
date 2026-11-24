@@ -2429,6 +2429,34 @@ function frameRef(snapshot, label) {
 	return line?.match(/\b(f[0-9a-z]{4}e\d+)\b/)?.[1];
 }
 
+// #75: the market's payment task read the page before its cross-site frame had arrived, and the form was missing.
+test("a cross-site frame that arrives after the page is in the first read", async () => {
+	let held;
+	const asked = new Promise((done) => {
+		held = done;
+	});
+	const inner = createServer((_req, res) => held(() => (res.writeHead(200, { "content-type": "text/html" }), res.end(FRAME_INNER("late")))));
+	await new Promise((r) => inner.listen(0, "127.0.0.1", r));
+	const hostsWere = await sw("chrome.storage.local.get('bridge_allowed_hosts').then((d) => d.bridge_allowed_hosts ?? [])");
+	const setHosts = (hosts) => sw(`chrome.storage.local.set({ bridge_allowed_hosts: ${JSON.stringify(hosts)} }).then(() => true)`);
+	try {
+		await setHosts([...new Set([...hostsWere, "localhost"])]);
+		extraPages["/xo-late"] = `<!doctype html><title>Polycarp late frame</title><h1>Invoice</h1>
+<iframe src="http://localhost:${inner.address().port}/inner" style="width:400px;height:160px;border:0"></iframe>`;
+		await go("xo-late");
+		const answer = await asked;
+		// The frame's page comes while the read is under way.
+		const read = tool("read_page", { filter: "all" });
+		setTimeout(answer, 250);
+		const page = await read;
+		assert.ok(frameRef(page, "Pay late"), page);
+	} finally {
+		await setHosts(hostsWere);
+		inner.closeAllConnections();
+		await new Promise((r) => inner.close(r));
+	}
+});
+
 test("cross-origin frames: read, click and fill inside a same-site and a cross-site frame; a covered or gone frame refuses", async () => {
 	const inner = createServer((req, res) => {
 		res.writeHead(200, { "content-type": "text/html" });
