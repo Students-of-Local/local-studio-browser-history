@@ -15,11 +15,11 @@
  * nothing to do and changes nothing.
  */
 
-import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { parse as parseToml } from "smol-toml";
-import { configDir } from "./files.ts";
+import { configDir, writeJsonPrivate } from "./files.ts";
 import { MCP_NAME } from "./harness.ts";
 import { blankComments, dropTrailingCommas, skipSpace, stringEnd } from "./jsonc.ts";
 import { COMMAND_NAME } from "./self.ts";
@@ -809,12 +809,11 @@ function writeAliases(aliases: AliasRecord[]): void {
 		rmSync(file, { force: true });
 		return;
 	}
-	mkdirSync(dirname(file), { recursive: true });
 	const record = {
 		note: `Temporary: these entries keep their old names but run Tychicus. ${COMMAND_NAME} setup --agents renames each to ${MCP_NAME} where that is safe.`,
 		aliases,
 	};
-	writeFileSync(file, `${JSON.stringify(record, null, 2)}\n`);
+	writeJsonPrivate(file, record);
 }
 
 function recordAliases(plan: FilePlan, now: Date): void {
