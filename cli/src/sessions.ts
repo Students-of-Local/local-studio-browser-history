@@ -192,7 +192,7 @@ export async function runSessions(args: string[], flags: { json: boolean; all: b
 		// "No match" and refusals from the extension are failures (exit 1), with what to do next.
 		if (err instanceof BridgeRpcError && err.rpc.code === "bad_params") throw new SessionsUsageError(err.rpc.message);
 		if (err instanceof BridgeRpcError && /^Unknown method sessions\./.test(err.rpc.message))
-			throw new Error(`The Tychicus extension in your browser is older than this CLI and has no sessions yet. Update it (${COMMAND_NAME} update) or reload it after a build (${COMMAND_NAME} reload).`);
+			throw new Error(`The Local Studio extension in your browser is older than this CLI and has no sessions yet. Update it (${COMMAND_NAME} update) or reload it after a build (${COMMAND_NAME} reload).`);
 		throw err instanceof BridgeRpcError ? new Error(err.rpc.message) : err;
 	}
 }

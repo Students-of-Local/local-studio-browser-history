@@ -219,7 +219,7 @@ test("update --yes installs the signed release and registers the host from it", 
 	assert.equal(r.code, 0, r.out);
 	assert.match(r.out, /Signature verified/);
 	assert.match(r.out, /Checksum verified/);
-	assert.match(r.out, /Reload Tychicus/);
+	assert.match(r.out, /Reload the extension/);
 	assert.equal(appVersion(), "9.1.1");
 	const launcher = readFileSync(join(home, ".config", "tychicus", "tychicus-host"), "utf8");
 	assert.ok(launcher.includes(appCli()), `launcher points at the release: ${launcher}`);
@@ -315,10 +315,10 @@ test("a release with only release.yml's attested archives: the check finds it, t
 		const check = await run(appCli(), "update", "--check", "--json");
 		assert.equal(check.code, 100, check.out);
 		assert.equal(JSON.parse(check.out).latest, "9.2.1");
-		assert.match(JSON.parse(check.out).unsigned, /Tychicus 9\.2\.1 has no signed update archive/);
+		assert.match(JSON.parse(check.out).unsigned, /Release 9\.2\.1 has no signed update archive/);
 		const r = await run(appCli(), "update");
 		assert.equal(r.code, 1, r.out);
-		assert.match(r.out, /Tychicus 9\.2\.1 has no signed update archive \(tychicus-9\.2\.1\.zip and SHA256SUMS\.minisig\)/);
+		assert.match(r.out, /Release 9\.2\.1 has no signed update archive \(tychicus-9\.2\.1\.zip and SHA256SUMS\.minisig\)/);
 		const command = process.platform === "win32" ? "install.ps1 | iex" : "install.sh | sh";
 		assert.ok(r.out.includes(`https://github.com/baney75/tychicus/releases/latest/download/${command}`), r.out);
 		assert.equal(appVersion(), "9.1.2");
