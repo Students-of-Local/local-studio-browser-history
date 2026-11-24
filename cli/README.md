@@ -48,7 +48,7 @@ it needs no extra step. Reload the extension once after the first install.
 | `tychicus pi-extension` | write `~/.pi/agent/extensions/tychicus.ts` for pi; it removes a `polycarp.ts` or `tabkyra.ts` an older copy of this helper wrote, and names the Polycarp app's own `polycarp.ts` without touching it |
 | `tychicus skill install [name...] [--all] [--force]` | install the bundled skills into Claude Code, Codex and OpenCode; a same-name skill Tychicus didn't write is left alone without `--force` |
 | `tychicus skill list` | the bundled skills and what each is for |
-| `tychicus skill print [name] [--raw]` | a skill as an AGENTS.md section (default `polycarp-browser`); `--raw` is the exact SKILL.md |
+| `tychicus skill print [name] [--raw]` | a skill as an AGENTS.md section (default `tychicus-browser`; its old names `polycarp-browser` and `tabkyra` still work); `--raw` is the exact SKILL.md |
 | `tychicus skill lint [path...]` | check skills for hidden text, injection, remote code, secret handling and structure ([rules](../docs/skill-security.md)) |
 | `tychicus skill apply <folder> [--yes]` | lint and diff an edited skill; `--yes` backs up the current one and installs the edit |
 | `tychicus skill revert <name>` | drop your edit and go back to the bundled skill |

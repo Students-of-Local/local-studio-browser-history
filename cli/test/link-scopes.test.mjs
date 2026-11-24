@@ -1,6 +1,6 @@
 // What a device behind a hub allows (its cap in link.json): the CLI never grants computer use, not even at a real
 // terminal, and never for a computer that can't serve it, narrowing at once, and nothing on the hub's side can write it.
-// Real processes as in hub-link.test.mjs. "Computer use is offered" is POLYCARP_SPACES_BIN naming a file that exists;
+// Real processes as in hub-link.test.mjs. "Computer use is offered" is TYCHICUS_HANDS_BIN naming a file that exists;
 // "a Linux box" is one naming a file that doesn't.
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
@@ -36,9 +36,9 @@ async function waitFor(check, what, timeoutMs = 15_000) {
 function deviceMachine(name, { helper }) {
 	const m = machine(root, name);
 	mkdirSync(m.config, { recursive: true });
-	const bin = join(root, name, "polycarp-spaces");
+	const bin = join(root, name, "tychicus-hands");
 	if (helper) writeFileSync(bin, "");
-	m.env.POLYCARP_SPACES_BIN = bin;
+	m.env.TYCHICUS_HANDS_BIN = bin;
 	return m;
 }
 const code = (hub, name) => hub.json(["hub", "code", "--name", name, "--json"]).code;
@@ -98,13 +98,13 @@ test("a default link has no computer scope, even where computer use is offered",
 	assert.ok(!linkJson(m).scopes.some((s) => s.startsWith("computer.")));
 });
 
-test("a computer without Polycarp's Mac app can't claim computer use, and the code stays unspent", async () => {
+test("a computer without tychicus-hands can't claim computer use, and the code stays unspent", async () => {
 	const hub = await hubFor("linux-hub");
 	const m = deviceMachine("linux-device", { helper: false });
 	const c = code(hub, "linuxbox");
 	const r = m.run(["link", hub.url, "--code", c, "--scope", "browser.read,computer.read", "--no-service"]);
 	assert.equal(r.code, 1);
-	assert.match(r.out, /This computer can't serve computer\.read: computer use needs Polycarp's Mac app, and it isn't on this computer\. Nothing was changed\./);
+	assert.match(r.out, /This computer can't serve computer\.read: computer use needs Tychicus's computer-use helper, tychicus-hands, and it isn't on this computer\. [^\n]*Nothing was changed\./);
 	assert.equal(linkJson(m), undefined, "nothing was written");
 	assert.equal(m.run(["link", hub.url, "--code", c, "--no-service", "--json"]).code, 0, "the code was never sent, so it still works");
 	assert.equal(m.run(["link", "scopes", "--add", "computer.act"]).code, 1, "nor can it be added after linking");

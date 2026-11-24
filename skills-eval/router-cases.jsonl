@@ -1,17 +1,17 @@
-{"task": "Open my Gmail in the browser and tell me how many unread emails I have", "skill": "polycarp-browser"}
-{"task": "Log into the staging dashboard in my browser and check whether the new chart renders", "skill": "polycarp-browser"}
-{"task": "Fill out the contact form on example.com with my name and email", "skill": "polycarp-browser"}
-{"task": "Click through the checkout flow on my local dev server at localhost:3000 and see if anything breaks", "skill": "polycarp-browser"}
-{"task": "Go to my GitHub notifications page and list the open review requests", "skill": "polycarp-browser"}
-{"task": "Check how the landing page I just built looks in a real browser", "skill": "polycarp-browser"}
-{"task": "In my signed-in Jira tab, find the ticket assigned to me with the highest priority", "skill": "polycarp-browser"}
-{"task": "Navigate to the Amazon order history page and read me the last three orders", "skill": "polycarp-browser"}
-{"task": "Take a screenshot of the pricing page after its JavaScript finishes loading", "skill": "polycarp-browser"}
-{"task": "Use the browser to click the Export button on the analytics site and download the CSV", "skill": "polycarp-browser"}
-{"task": "The web app needs a login; drive the page and test the signup form", "skill": "polycarp-browser"}
-{"task": "Read the comments under this YouTube video in my browser tab", "skill": "polycarp-browser"}
-{"task": "Scroll through my LinkedIn feed and summarize the first ten posts", "skill": "polycarp-browser"}
-{"task": "Test whether the dropdown menu on my React app opens when clicked", "skill": "polycarp-browser"}
+{"task": "Open my Gmail in the browser and tell me how many unread emails I have", "skill": "tychicus-browser"}
+{"task": "Log into the staging dashboard in my browser and check whether the new chart renders", "skill": "tychicus-browser"}
+{"task": "Fill out the contact form on example.com with my name and email", "skill": "tychicus-browser"}
+{"task": "Click through the checkout flow on my local dev server at localhost:3000 and see if anything breaks", "skill": "tychicus-browser"}
+{"task": "Go to my GitHub notifications page and list the open review requests", "skill": "tychicus-browser"}
+{"task": "Check how the landing page I just built looks in a real browser", "skill": "tychicus-browser"}
+{"task": "In my signed-in Jira tab, find the ticket assigned to me with the highest priority", "skill": "tychicus-browser"}
+{"task": "Navigate to the Amazon order history page and read me the last three orders", "skill": "tychicus-browser"}
+{"task": "Take a screenshot of the pricing page after its JavaScript finishes loading", "skill": "tychicus-browser"}
+{"task": "Use the browser to click the Export button on the analytics site and download the CSV", "skill": "tychicus-browser"}
+{"task": "The web app needs a login; drive the page and test the signup form", "skill": "tychicus-browser"}
+{"task": "Read the comments under this YouTube video in my browser tab", "skill": "tychicus-browser"}
+{"task": "Scroll through my LinkedIn feed and summarize the first ten posts", "skill": "tychicus-browser"}
+{"task": "Test whether the dropdown menu on my React app opens when clicked", "skill": "tychicus-browser"}
 {"task": "Find peer-reviewed studies on whether intermittent fasting improves insulin sensitivity", "skill": "academic-research"}
 {"task": "I need five scholarly sources on climate migration for my thesis, in APA format", "skill": "academic-research"}
 {"task": "Is this citation real? Smith et al. 2019, Journal of Applied Psychology, vol 104", "skill": "academic-research"}
@@ -210,8 +210,8 @@
 {"task": "Compute the standard deviation of 3, 7, 9 and 12", "skill": "none"}
 {"task": "Convert 72 degrees Fahrenheit to Celsius", "skill": "none"}
 {"task": "Explain what this bash script does", "skill": "none"}
-{"task": "Check my bank's website in the browser and tell me when the next statement closes", "skill": "polycarp-browser"}
-{"task": "Open the admin page of my Shopify store and change nothing, just read me the low-stock items", "skill": "polycarp-browser"}
+{"task": "Check my bank's website in the browser and tell me when the next statement closes", "skill": "tychicus-browser"}
+{"task": "Open the admin page of my Shopify store and change nothing, just read me the low-stock items", "skill": "tychicus-browser"}
 {"task": "Find three meta-analyses on mindfulness and anxiety and format them in Chicago style", "skill": "academic-research"}
 {"task": "Is the Stanford prison experiment paper still considered valid, or was it retracted?", "skill": "academic-research"}
 {"task": "Have a different model tear apart my migration plan before I run it", "skill": "adversarial-review"}
@@ -247,7 +247,7 @@
 {"task": "Fix the artifact upload in my GitHub Actions workflow", "skill": "none"}
 {"task": "Use the osint skill on the landlord at 12 Elm St", "skill": "osint"}
 {"task": "Run the dorks skill to find PDFs about flood maps", "skill": "dorks"}
-{"task": "Use the polycarp-browser skill to fill in the signup form", "skill": "polycarp-browser"}
+{"task": "Use the polycarp-browser skill to fill in the signup form", "skill": "tychicus-browser"}
 {"task": "Follow the proton-pass skill to give the deploy its token", "skill": "proton-pass"}
 {"task": "Apply the news-research skill to today's rail strike", "skill": "news-research"}
 {"task": "Invoke the artifacts skill for these quarterly numbers", "skill": "artifacts"}
@@ -259,7 +259,7 @@
 {"task": "Use the news-research skill for the latest updates on the rail strike", "skill": "news-research"}
 {"task": "Use the osint skill on the port authority's new contractor", "skill": "osint"}
 {"task": "Run the osint skill and review what you find on the landlord", "skill": "osint"}
-{"task": "Use the polycarp-browser skill to fill in my fixed address", "skill": "polycarp-browser"}
+{"task": "Use the polycarp-browser skill to fill in my fixed address", "skill": "tychicus-browser"}
 {"task": "Rewrite the dorks skill to Polycarp's skill standard", "skill": "kyraskillmaker"}
 {"task": "The proton-pass skill gave my small model a bad result, fix it", "skill": "fix"}
 {"task": "Don't use the osint skill, just search the news for the landlord", "skill": "none"}
@@ -271,7 +271,7 @@
 {"task": "I have no idea who runs this website so use the osint skill", "skill": "osint"}
 {"task": "Why not use the osint skill on this landlord?", "skill": "osint"}
 {"task": "No rush, use the osint skill", "skill": "osint"}
-{"task": "Use the polycarp-browser skill to open localhost:3000 and debug it", "skill": "polycarp-browser"}
+{"task": "Use the polycarp-browser skill to open localhost:3000 and debug it", "skill": "tychicus-browser"}
 {"task": "Run the osint skill on the landlord and review it", "skill": "osint"}
 {"task": "Don’t use the osint skill, just search the news for the landlord", "skill": "none"}
 {"task": "Don’t run the dorks skill, write me a plain search query", "skill": "none"}

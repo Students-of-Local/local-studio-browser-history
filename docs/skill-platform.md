@@ -65,11 +65,11 @@ How a task names a skill ("<name> skill") decides what the name does:
   "no" or "not" elsewhere ("no rush, use the osint skill", "why not use the osint skill",
   "I have no idea who runs this, so use the osint skill") rules nothing out.
 - **The CLI:** `tychicus skill install` (or another subcommand, or the same after the older
-  `polycarp browser`, `polycarp-browser` or `tabkyra`) is the Tychicus CLI, read as "polycarpbrowser cli",
-  not a request for the polycarp-browser skill.
+  `polycarp browser`, `polycarp-browser` or `tabkyra`) is the Tychicus CLI, read as "tychicusbrowser cli",
+  not a request for the tychicus-browser skill.
 - **The browser skill's other names:** "Tychicus", its earlier names "Polycarp" and "polycarp browser", and the
-  skill's old name "tabkyra" read as `polycarp-browser`, in tasks and in skill text alike, so "the polycarp
-  skill" and "the tabkyra skill" ask for it.
+  skill's old names "polycarp-browser" and "tabkyra" read as `tychicus-browser`, in tasks and in skill text alike, so
+  "the polycarp skill", "the polycarp-browser skill" and "the tabkyra skill" ask for it.
 - **A subject, not a skill:** nothing points the mention at a skill: no "the", "this" or
   "that" before a singular mention, no use, edit or negation verb, no slash command and no
   backticks. "My biology skill", "what chemistry skills do employers want" and "improve my

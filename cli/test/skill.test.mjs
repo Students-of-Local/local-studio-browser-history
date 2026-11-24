@@ -1,4 +1,4 @@
-// The agent skill (skills/polycarp-browser/SKILL.md) and the MCP server must agree: every tool and
+// The agent skill (skills/tychicus-browser/SKILL.md) and the MCP server must agree: every tool and
 // parameter the skill shows exists, the server instructions carry the same rules, and
 // `polycarp browser skill install` writes it where each harness looks, without clobbering others' files.
 import assert from "node:assert/strict";
@@ -14,7 +14,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 
 const here = dirname(fileURLToPath(import.meta.url));
 const cli = join(here, "..", "dist", "index.js");
-const skill = readFileSync(join(here, "..", "..", "skills", "polycarp-browser", "SKILL.md"), "utf8");
+const skill = readFileSync(join(here, "..", "..", "skills", "tychicus-browser", "SKILL.md"), "utf8");
 const root = mkdtempSync(join(tmpdir(), "tabkyra-skill-"));
 let mcp;
 let tools;
@@ -42,7 +42,7 @@ after(async () => {
 });
 
 test("the skill has frontmatter a harness can index", () => {
-	const m = /^---\nname: polycarp-browser\ndescription: (.+)\n---\n/.exec(skill);
+	const m = /^---\nname: tychicus-browser\ndescription: (.+)\n---\n/.exec(skill);
 	assert.ok(m, "SKILL.md must start with name and description frontmatter");
 	assert.ok(m[1].length <= 1024, "description over 1024 characters");
 	assert.match(m[1], /Use when/);
@@ -121,37 +121,37 @@ test("skill install writes each detected harness and leaves the rest", () => {
 	mkdirSync(join(home, ".config", "opencode"), { recursive: true });
 	const r = run(home, "skill", "install");
 	assert.equal(r.code, 0, r.out);
-	const claude = join(home, ".claude", "skills", "polycarp-browser", "SKILL.md");
-	const opencode = join(home, ".config", "opencode", "skills", "polycarp-browser", "SKILL.md");
+	const claude = join(home, ".claude", "skills", "tychicus-browser", "SKILL.md");
+	const opencode = join(home, ".config", "opencode", "skills", "tychicus-browser", "SKILL.md");
 	assert.ok(existsSync(claude) && existsSync(opencode), r.out);
-	assert.equal(existsSync(join(home, ".codex", "skills", "polycarp-browser", "SKILL.md")), false, "Codex isn't installed here");
+	assert.equal(existsSync(join(home, ".codex", "skills", "tychicus-browser", "SKILL.md")), false, "Codex isn't installed here");
 	const written = readFileSync(claude, "utf8");
-	assert.ok(written.startsWith("---\nname: polycarp-browser\n"), "frontmatter stays first");
+	assert.ok(written.startsWith("---\nname: tychicus-browser\n"), "frontmatter stays first");
 	assert.ok(written.includes(skill.split("\n---\n")[1].slice(0, 200)), "body is the bundled skill");
 	assert.match(run(home, "skill", "install").out, /current/);
 	assert.equal(run(home, "skill", "install", "--all").code, 0);
-	assert.ok(existsSync(join(home, ".codex", "skills", "polycarp-browser", "SKILL.md")), "--all installs for every harness");
+	assert.ok(existsSync(join(home, ".codex", "skills", "tychicus-browser", "SKILL.md")), "--all installs for every harness");
 });
 
 test("skill install doesn't replace someone else's polycarp browser skill without --force", () => {
 	const home = join(root, "h2");
-	const file = join(home, ".claude", "skills", "polycarp-browser", "SKILL.md");
+	const file = join(home, ".claude", "skills", "tychicus-browser", "SKILL.md");
 	mkdirSync(dirname(file), { recursive: true });
-	writeFileSync(file, "---\nname: polycarp-browser\ndescription: my own notes\n---\nmine\n");
+	writeFileSync(file, "---\nname: tychicus-browser\ndescription: my own notes\n---\nmine\n");
 	const r = run(home, "skill", "install");
 	assert.equal(r.code, 1, r.out);
 	assert.match(r.out, /left alone/);
-	assert.equal(readFileSync(file, "utf8"), "---\nname: polycarp-browser\ndescription: my own notes\n---\nmine\n");
+	assert.equal(readFileSync(file, "utf8"), "---\nname: tychicus-browser\ndescription: my own notes\n---\nmine\n");
 	assert.equal(run(home, "skill", "install", "--force").code, 0);
-	assert.notEqual(readFileSync(file, "utf8"), "---\nname: polycarp-browser\ndescription: my own notes\n---\nmine\n");
+	assert.notEqual(readFileSync(file, "utf8"), "---\nname: tychicus-browser\ndescription: my own notes\n---\nmine\n");
 });
 
 // The browser skill was named tabkyra. Install retires the old copy only when it is the exact
 // file an earlier install wrote and recorded; an edited copy, a user's own skill and a link stay.
 const MARKER = "<!-- Installed by `tabkyra skill install`; reinstalling replaces this file. -->";
 const sha = (text) => createHash("sha256").update(text).digest("hex");
-function oldCopy(home, text, recorded) {
-	const file = join(home, ".claude", "skills", "tabkyra", "SKILL.md");
+function oldCopy(home, text, recorded, old = "tabkyra") {
+	const file = join(home, ".claude", "skills", old, "SKILL.md");
 	mkdirSync(dirname(file), { recursive: true });
 	writeFileSync(file, text);
 	const recordFile = join(home, ".config", "tychicus", "skills-installed.json");
@@ -170,7 +170,7 @@ test("skill install removes the tabkyra copy it wrote before the rename, and onl
 	assert.match(r.out, /removed .*tabkyra.*old name/);
 	assert.equal(existsSync(file), false, "the recorded, unedited old copy goes");
 	assert.equal(existsSync(dirname(file)), false, "and its empty folder");
-	assert.ok(existsSync(join(home, ".claude", "skills", "polycarp-browser", "SKILL.md")));
+	assert.ok(existsSync(join(home, ".claude", "skills", "tychicus-browser", "SKILL.md")));
 	assert.equal(JSON.parse(readFileSync(recordFile, "utf8"))[file], undefined, "the record forgets it");
 
 	const keep = (label, text, recorded) => {
@@ -201,15 +201,15 @@ test("skill install removes the tabkyra copy it wrote before the rename, and onl
 	assert.equal(readFileSync(real, "utf8"), ours);
 });
 
-test("skill refresh moves a recorded tabkyra copy to polycarp-browser", () => {
+test("skill refresh moves a recorded tabkyra copy to tychicus-browser", () => {
 	const home = join(root, "rename-refresh");
 	const ours = `---\nname: tabkyra\ndescription: old\n---\n${MARKER}\nold text\n`;
 	const { file } = oldCopy(home, ours, ours);
 	const r = run(home, "skill", "refresh", "--json");
 	assert.equal(r.code, 0, r.out);
-	const now = join(home, ".claude", "skills", "polycarp-browser", "SKILL.md");
+	const now = join(home, ".claude", "skills", "tychicus-browser", "SKILL.md");
 	assert.deepEqual(JSON.parse(r.out).refreshed, [now]);
-	assert.match(readFileSync(now, "utf8"), /^---\nname: polycarp-browser\n/);
+	assert.match(readFileSync(now, "utf8"), /^---\nname: tychicus-browser\n/);
 	assert.equal(existsSync(file), false);
 });
 
@@ -221,14 +221,42 @@ test("skill refresh reports an edited tabkyra copy instead of skipping it silent
 	assert.equal(r.code, 0, r.out);
 	const { skipped } = JSON.parse(r.out);
 	assert.deepEqual(skipped.map((s) => [s.skill, s.file]), [["tabkyra", file]]);
-	assert.match(skipped[0].reason, /old name tabkyra; polycarp-browser replaces it/);
+	assert.match(skipped[0].reason, /old name tabkyra; tychicus-browser replaces it/);
 	assert.match(readFileSync(file, "utf8"), /My own step/, "the edited copy is kept");
 });
 
-test("the old skill name still reads as polycarp-browser", () => {
-	const r = run(join(root, "rename-print"), "skill", "print", "tabkyra");
+test("the old skill names still read as tychicus-browser", () => {
+	const now = run(join(root, "rename-print"), "skill", "print", "tychicus-browser");
+	assert.equal(now.code, 0, now.out);
+	for (const old of ["tabkyra", "polycarp-browser"]) {
+		const r = run(join(root, "rename-print"), "skill", "print", old);
+		assert.equal(r.code, 0, r.out);
+		assert.equal(r.out, now.out, old);
+	}
+});
+
+test("a recorded polycarp-browser copy moves to tychicus-browser on refresh, and install retires it", () => {
+	const ours = `---\nname: polycarp-browser\ndescription: old\n---\n${MARKER}\nold text\n`;
+	const refreshed = join(root, "rename-polycarp-refresh");
+	const moved = oldCopy(refreshed, ours, ours, "polycarp-browser");
+	const r = run(refreshed, "skill", "refresh", "--json");
 	assert.equal(r.code, 0, r.out);
-	assert.equal(r.out, run(join(root, "rename-print"), "skill", "print", "polycarp-browser").out);
+	const now = join(refreshed, ".claude", "skills", "tychicus-browser", "SKILL.md");
+	assert.deepEqual(JSON.parse(r.out).refreshed, [now]);
+	assert.match(readFileSync(now, "utf8"), /^---\nname: tychicus-browser\n/);
+	assert.equal(existsSync(moved.file), false);
+
+	const installed = join(root, "rename-polycarp-install");
+	const retired = oldCopy(installed, ours, ours, "polycarp-browser");
+	assert.equal(run(installed, "skill", "install", "polycarp-browser").code, 0);
+	assert.ok(existsSync(join(installed, ".claude", "skills", "tychicus-browser", "SKILL.md")), "installed under the new name");
+	assert.equal(existsSync(retired.file), false, "the copy under the old name is gone");
+});
+
+test("skill edit polycarp-browser drafts tychicus-browser", () => {
+	const r = run(join(root, "rename-edit"), "skill", "edit", "polycarp-browser", "--draft-only");
+	assert.equal(r.code, 0, r.out);
+	assert.match(r.out, /Draft of tychicus-browser: \S*tychicus-browser\/SKILL\.md/);
 });
 
 test("skill print is the same text for AGENTS.md, nested one heading level down", () => {

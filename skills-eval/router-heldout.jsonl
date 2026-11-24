@@ -1,6 +1,6 @@
-{"task": "Log in to my utility company's portal and download last month's bill", "skill": "polycarp-browser"}
-{"task": "Click the Accept button on the cookie banner and read me the article on that page", "skill": "polycarp-browser"}
-{"task": "Fill in the RSVP form on the wedding site with two guests", "skill": "polycarp-browser"}
+{"task": "Log in to my utility company's portal and download last month's bill", "skill": "tychicus-browser"}
+{"task": "Click the Accept button on the cookie banner and read me the article on that page", "skill": "tychicus-browser"}
+{"task": "Fill in the RSVP form on the wedding site with two guests", "skill": "tychicus-browser"}
 {"task": "Find systematic reviews on vitamin D and depression and export them to BibTeX", "skill": "academic-research"}
 {"task": "Is this DOI real, and has the paper been retracted? 10.1038/nature12373", "skill": "academic-research"}
 {"task": "I need APA citations for four peer-reviewed papers on sleep deprivation", "skill": "academic-research"}

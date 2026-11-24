@@ -31,7 +31,7 @@ import { capCrawl, capJson, capOutput, fitSnapshot, MARKDOWN_CHARS, passwordHand
 import { searxSearch } from "./searx.ts";
 import { selfExec, selfPrefix } from "./self.ts";
 import { VERSION } from "./version.ts";
-import { COMPUTER_INSTRUCTION, COMPUTER_STATUS_TOOL, type ComputerClient, LOCAL_COMPUTER_INSTRUCTION, LocalComputer } from "./computer.ts";
+import { COMPUTER_INSTRUCTION, COMPUTER_STATUS_TOOL, type ComputerClient, HANDS_COMMAND, handsHowTo, LOCAL_COMPUTER_INSTRUCTION, LocalComputer } from "./computer.ts";
 import { COMMAND_NAME } from "./self.ts";
 import { envVar } from "./env.ts";
 import { hopTracer } from "./hop-trace.ts";
@@ -145,8 +145,8 @@ function harnessName(): string {
 	return "mcp";
 }
 
-/** The skill that teaches what these instructions do, for agents without them (skills/polycarp-browser). */
-const BROWSER_SKILL = "polycarp-browser";
+/** The skill that teaches what these instructions do, for agents without them (skills/tychicus-browser). */
+const BROWSER_SKILL = "tychicus-browser";
 
 /** Browser work only: coding agents read these instructions too, and a coding task on many items is not this skill. */
 const BULK_ACTIONS_INSTRUCTION = 'For one action on many items on a website (delete all), skill_read {"name":"bulk-actions"}.';
@@ -1305,7 +1305,7 @@ export function createMcpServer(options: McpServerOptions = {}): { server: McpSe
 		},
 		(args) =>
 			library(() => {
-				// polycarp-browser is this server's own instructions, written out for agents that don't have them: reading it
+				// tychicus-browser is this server's own instructions, written out for agents that don't have them: reading it
 				// here costs 8,000 characters and teaches nothing new (weak models read it on every plain page task). It is left
 				// out of the list, and a real skill below it still comes back.
 				const top = args.top ?? 3;
@@ -1369,7 +1369,7 @@ export function createMcpServer(options: McpServerOptions = {}): { server: McpSe
 			COMPUTER_STATUS_TOOL,
 			{ description: "Whether computer use is available in this session, and what to tell the user if it isn't.", inputSchema: {}, annotations: { readOnlyHint: true, openWorldHint: false } },
 			async () => ({
-				content: text(options.computer?.tools.length ? "Computer use is available: the agent workspace and apps the user has lent." : "Computer use isn't available right now: Polycarp's Mac app isn't on this computer, or it needs updating. Tell the user. Browser tools work as usual."),
+				content: text(options.computer?.tools.length ? "Computer use is available: the agent workspace and apps the user has lent." : `Computer use isn't available right now: Tychicus's computer-use helper, ${HANDS_COMMAND}, isn't on this computer or isn't answering. Tell the user. ${handsHowTo()} Browser tools work as usual.`),
 			}),
 		);
 	}

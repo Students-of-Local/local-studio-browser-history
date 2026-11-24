@@ -14,7 +14,7 @@ An assistant on the web reaches this computer through a tunnel on the person's o
 - The user asks for a tunnel, on Cloudflare or Tailscale, for Tychicus.
 - A connector stopped working.
 
-For driving the browser from an agent on this computer, use the `polycarp-browser` skill. No tunnel is needed.
+For driving the browser from an agent on this computer, use the `tychicus-browser` skill. No tunnel is needed.
 
 ## Rules
 
@@ -66,7 +66,7 @@ For driving the browser from an agent on this computer, use the `polycarp-browse
 | `waitlist` (in `localStudio.state`) | Local Studio's hosted route is on a waitlist. Give the person `waitlist.url` to sign up. If the report's own route is public (`state: on` on Funnel or Cloudflare), go on with its `next`. Only when that route can't reach web assistants (a tailnet-only route, or Cloudflare with no domain), with their yes run `waitlist.next.command`: `tychicus remote off && tychicus remote setup --tailscale --no-passcode`. It turns the saved route off first, because Funnel setup refuses while a tailnet or Cloudflare route is saved. `waitlist.next.why` says which case applies. |
 | `problem` | Read `message` and pass it on. |
 
-If an assistant says computer use isn't available, its `computer_status` tool explains why: Polycarp's Mac app isn't running here, or needs updating.
+If an assistant says computer use isn't available, its `computer_status` tool explains why: Tychicus's computer-use helper, `tychicus-hands`, isn't installed on that computer, or isn't answering.
 
 To stop everything: with their yes, `tychicus remote off`. To end one assistant: `tychicus token clients`, then `tychicus token revoke <client id>`.
 
