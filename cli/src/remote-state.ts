@@ -299,6 +299,6 @@ export function stateFromStatus(input: {
 		const lookup = failures.find((x) => x.code === "dns_lookup");
 		return { state: "problem", message: `${(lookup ?? failed).name}: ${(lookup ?? failed).detail}`, ...(lookup ? { code: "dns_lookup" } : dnsOnly ? { code: "dns" } : {}) };
 	}
-	if (input.extensionConnected === false) return { state: "no_browser_connected", message: "Remote access is on, but no browser has Tychicus's extension connected." };
+	if (input.extensionConnected === false) return { state: "no_browser_connected", message: "Remote access is on, but no browser has the Local Studio extension connected." };
 	return { state: "on", message: "Remote access is on." };
 }

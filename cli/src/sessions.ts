@@ -93,7 +93,7 @@ function printList(list: Described[]): void {
 	console.log();
 	console.log(c.dim(`${pad("NAME", 22)}${pad("AGENT", 9)}${pad("GROUP", 34)}${pad("TABS", 6)}${pad("STATE", 13)}LAST USED`));
 	for (const s of list) {
-		const group = s.group?.title ?? `Tychicus · ${s.label}`;
+		const group = s.group?.title ?? `Local Studio · ${s.label}`;
 		console.log(`${pad(c.bold(s.name), 22)}${pad(s.agent ?? (s.kind === "panel" ? "panel" : "-"), 9)}${pad(group, 34)}${pad(String(s.tabCount), 6)}${pad(state(s), 13)}${ago(s.lastUsedAt)}`);
 	}
 	console.log(c.dim(`\n${COMMAND_NAME} sessions show <name> lists a session's tabs; end, rename, focus, collapse and expand act on one.`));
