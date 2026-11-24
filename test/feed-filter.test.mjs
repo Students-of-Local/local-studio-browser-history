@@ -40,6 +40,7 @@ test("words match in any case, as whole words, and phrases across any spacing", 
 
 test("words in scripts written without spaces match mid-sentence; a side in a spaced script keeps its word edge", () => {
 	assert.ok(hits({ words: ["比特币"] }, "今天比特币大涨"), "Chinese");
+	assert.ok(hits({ words: ["サッカー"] }, "サッカーの試合"), "katakana ending in the long-vowel mark");
 	assert.ok(hits({ words: ["ビットコイン"] }, "今日はビットコインが上がった"), "Japanese");
 	assert.ok(hits({ words: ["บิตคอยน์"] }, "วันนี้บิตคอยน์ขึ้นอีกแล้ว"), "Thai");
 	assert.ok(!hits({ words: ["ai"] }, "she said so"), "ai is still not in said");
@@ -76,6 +77,10 @@ test("/regex/ terms: any case unless flags are written, and the same answer ever
 	assert.ok(match.riskyPattern("(a|a)+$"));
 	assert.ok(match.riskyPattern("(\\w|\\d)+x$"));
 	assert.ok(match.riskyPattern("(?:cat|dog){2,}"));
+	assert.ok(match.riskyPattern("(a|aa){1,100}$"), "a large count is no better than no end");
+	assert.ok(match.riskyPattern("(\\w|\\d){1,60}x"));
+	assert.ok(match.riskyPattern("((a|a))+$"), "a choice wrapped in a group");
+	assert.ok(!match.riskyPattern("(cat|dog)?s"), "an optional choice");
 	// Open-ended repeats one after another are polynomial: three .* on 10,000 characters is a trillion steps.
 	assert.ok(match.riskyPattern(".*.*.*z"));
 	assert.ok(match.riskyPattern("a+b*"));
@@ -398,10 +403,12 @@ test("a handle means the post's author: a mention, a reply or a quoted post of t
 		`<article id="m1"><div class="status__info"><a href="https://mastodon.social/@alice" class="status__display-name">Alice</a></div>
 			<div class="status__content"><p><a href="https://mastodon.social/@bob" class="u-url mention">@bob</a> hello</p></div></article>
 		<article id="m2"><a href="/@carol">carol</a><p>look at this</p><div class="quote"><a href="/@bob">Bob</a><a href="/@bob/111">quoted</a></div></article>
-		<article id="m3"><a href="/@bob">bob</a> mine</article>`,
+		<article id="m3"><a href="/@bob">bob</a> mine</article>
+		<article id="m4"><div class="status__prepend"><a href="/@bob" class="status__display-name">Bob</a> boosted</div>
+			<div class="status__info"><a href="/@dave" class="status__display-name">Dave</a></div><p>dave's post</p></article>`,
 	);
 	core.startFeedFilter(window.document, [{ words: [], handles: ["@bob"] }], { hostname: "mastodon.social", badge: false });
-	assert.deepEqual(hidden(window.document).map((e) => e.id), ["m3"]);
+	assert.deepEqual(hidden(window.document).map((e) => e.id), ["m3"], "a boost by bob is dave's post");
 	window.close();
 
 	// Generic: a header or rel=author link names the author even after a mention; a quoted post nested as its own article

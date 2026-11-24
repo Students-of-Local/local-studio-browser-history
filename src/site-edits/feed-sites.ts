@@ -147,17 +147,19 @@ const ARTICLE = '[role="article"], article';
 /**
  * Any other site: articles, and their author, read from an author-shaped link (/@name, /user/name, /u/name). Only one
  * link counts, so a mention or a quoted post in the body never makes its account the author: the first author-shaped
- * link in a `header` or with rel=author, else the first author-shaped link at all (Mastodon puts the display name before
- * the post's text). Links inside an article nested in this one belong to that article: it is an item of its own.
+ * link in a `header` inside the item or with rel=author, else the first author-shaped link at all (Mastodon puts the
+ * display name before the post's text). Links inside an article nested in this one belong to that article: it is an item
+ * of its own. Mastodon's "Alice boosted" line names who shared the post, not who wrote it, so its link never counts.
  */
 export const GENERIC: SiteProfile = {
 	items: ARTICLE,
 	handles(item) {
 		const own = (a: Element) => {
+			if (a.closest(".status__prepend")) return false;
 			const article = a.closest(ARTICLE);
 			return !article || article.contains(item);
 		};
-		const byline = firstHandle(item, 'header a[href], a[rel~="author"][href]', AUTHOR_LINK, own);
+		const byline = firstHandle(item, ':scope header a[href], a[rel~="author"][href]', AUTHOR_LINK, own);
 		return byline.length ? byline : firstHandle(item, "a[href]", AUTHOR_LINK, own);
 	},
 };

@@ -25,9 +25,11 @@ export const MAX_HANDLES = 200;
 const WORD_CHAR = "\\p{L}\\p{N}_";
 const IS_WORD_CHAR = /[\p{L}\p{N}_]/u;
 /** Scripts that don't put spaces between words: a word edge there means nothing. Hangul is spaced, but between phrases,
- * with particles written onto the word ("비트코인이"), so a word written in it matches inside a phrase too. */
+ * with particles written onto the word ("비트코인이"), so a word written in it matches inside a phrase too. Script
+ * extensions, not scripts, so the marks these scripts share count too: the long-vowel mark that ends "サッカー" is Common
+ * by script but Hiragana and Katakana by extension. */
 const UNSPACED =
-	/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}\p{Script=Hangul}]/u;
+	/[\p{Script_Extensions=Han}\p{Script_Extensions=Hiragana}\p{Script_Extensions=Katakana}\p{Script_Extensions=Thai}\p{Script_Extensions=Lao}\p{Script_Extensions=Khmer}\p{Script_Extensions=Myanmar}\p{Script_Extensions=Hangul}]/u;
 
 /** "/pattern/flags" as a regular expression's parts, or undefined for a plain word or phrase. */
 export function regexTerm(term: string): { source: string; flags: string } | undefined {
@@ -53,8 +55,9 @@ function quantifierAt(source: string, i: number): { length: number; unbounded: b
  * Why a pattern could take far too long on a long post, or undefined when it shows none of these shapes. Refused when
  * saved, since one would freeze the page on every visit:
  * - a repeated group that holds a repeat, like (a+)+ or (\w*)*: exponential;
- * - a group repeated without end whose own level is a choice, like (a|a)+ or (\w|\d)+: alternatives that overlap try every
- *   split of the text, exponential too;
+ * - a repeated group whose own level is a choice, like (a|a)+, (\w|\d)+ or (a|aa){1,100}, or holds a group that is one,
+ *   like ((a|a))+: alternatives that overlap try every split of the text, exponential too, and a large count is no
+ *   better than no end;
  * - more than one repeat without end, like .*.*.*z: each one multiplies the work by the post's length. One is fine
  *   (moon+, \bcrypto\w*).
  * Escapes and character classes are skipped whole: [a*+] holds characters, not repeats.
@@ -86,12 +89,14 @@ export function riskyPattern(source: string): string | undefined {
 			const inner = stack.pop() as { repeats: boolean; choice: boolean };
 			const q = quantifierAt(source, i + 1);
 			if (q && inner.repeats) return "nests one repeat inside another";
-			if (q?.unbounded && inner.choice) return "repeats a choice, like (a|b)+";
+			if (q && inner.choice) return "repeats a choice, like (a|b)+ or (a|b){2,9}";
 			if (q) {
 				if (q.unbounded) unbounded++;
 				i += q.length;
 			}
 			stack[stack.length - 1].repeats ||= inner.repeats || !!q;
+			// A group that wraps a choice without repeating it, as in ((a|b))+, is that choice to the level around it.
+			if (!q) stack[stack.length - 1].choice ||= inner.choice;
 			continue;
 		}
 		const q = quantifierAt(source, i);
