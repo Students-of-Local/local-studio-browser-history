@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { WebSocket } from "ws";
 import { BridgeClient } from "./client.ts";
-import { computerHelper } from "./computer.ts";
+import { computerHelper, HANDS_COMMAND, handsHowTo } from "./computer.ts";
 import { normalizeCode, REQUEST_LOCK_MS } from "./codes.ts";
 import { LockTimeoutError, readJsonFile, withFileLock, withFileLockAsync, writeJsonPrivate } from "./files.ts";
 import { launcherValid, launcherBinary } from "./harness.ts";
@@ -156,15 +156,15 @@ export const capOf = (config: Pick<LinkConfig, "scopes">): string[] => config.sc
 // use yet: a yes typed at a terminal can't show the owner gave it, because an agent can run the command in a
 // pseudo-terminal and type the yes itself, and an agent with a shell can edit link.json by hand. So the CLI
 // refuses to add a computer scope, writeCap drops any it finds, and link run serves none (servedCap), also from
-// a cap an earlier preview build wrote. Granting computer use over a link needs the owner's approval in the
-// Polycarp app, which isn't built yet.
+// a cap an earlier preview build wrote. Granting computer use over a link needs the owner's approval on this
+// computer, which Tychicus can't ask for yet.
 
 const isComputerScope = (scope: string) => scope.startsWith("computer.");
 
 /** Why a scope can't be on this device's cap, or undefined when it can be. */
 function scopeRefusal(scope: string): string | undefined {
 	if (!Object.hasOwn(SCOPES, scope)) return `Unknown scope ${scope}. Scopes: ${Object.keys(SCOPES).join(", ")}.`;
-	if (!Object.hasOwn(offeredScopes(), scope)) return `This computer can't serve ${scope}: computer use needs Polycarp's Mac app, and it isn't on this computer.`;
+	if (!Object.hasOwn(offeredScopes(), scope)) return `This computer can't serve ${scope}: computer use needs Tychicus's computer-use helper, ${HANDS_COMMAND}, and it isn't on this computer. ${handsHowTo()}`;
 	return undefined;
 }
 
@@ -177,7 +177,7 @@ export function servedCap(cap: string[]): { scopes: string[]; stripped: Array<{ 
 	const stripped: Array<{ scope: string; why: string }> = [];
 	const offered = offeredScopes();
 	for (const scope of cap) {
-		if (isComputerScope(scope)) stripped.push({ scope, why: "computer use over a link needs the owner's approval in the Polycarp app, which isn't built yet" });
+		if (isComputerScope(scope)) stripped.push({ scope, why: "computer use over a link needs the owner's approval on this computer, which Tychicus can't ask for yet" });
 		else if (!Object.hasOwn(offered, scope)) stripped.push({ scope, why: "this computer can't serve it" });
 		else scopes.push(scope);
 	}
@@ -208,7 +208,7 @@ export function liveCallCheck(liveCap: () => string[]): (tool: string, args: unk
 
 /** Why the CLI won't grant a computer scope. */
 export const computerNotGrantable = (scope: string) =>
-	`${scope} can't be turned on from the command line: granting computer use over a link needs the owner's approval in the Polycarp app, and that approval isn't built yet.`;
+	`${scope} can't be turned on from the command line: granting computer use over a link needs the owner's approval on this computer, and Tychicus can't ask for it yet.`;
 
 async function hubPost(config: { hubUrl: string }, path: string, body: unknown, credential?: string): Promise<{ status: number; body: Record<string, unknown> }> {
 	const res = await fetch(`${config.hubUrl}${path}`, {
@@ -1074,7 +1074,7 @@ export async function linkScopes(options: { add?: string; remove?: string; json:
 	}
 	console.log(`${sym.dot} This device allows: ${cap.join(", ")}`);
 	if (stripped.length) console.log(`${sym.warn} link.json also lists scopes link run doesn't serve: ${strippedWords(stripped)}.`);
-	if (computerHere) console.log(`${sym.dot} Computer use is off here. It can't be turned on from the command line: it needs the owner's approval in the Polycarp app, which isn't built yet.`);
+	if (computerHere) console.log(`${sym.dot} Computer use is off here. It can't be turned on from the command line: it needs the owner's approval on this computer, which Tychicus can't ask for yet.`);
 	return 0;
 }
 

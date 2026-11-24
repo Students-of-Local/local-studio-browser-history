@@ -31,7 +31,7 @@ import { capCrawl, capJson, capOutput, fitSnapshot, MARKDOWN_CHARS, passwordHand
 import { searxSearch } from "./searx.ts";
 import { selfExec, selfPrefix } from "./self.ts";
 import { VERSION } from "./version.ts";
-import { COMPUTER_INSTRUCTION, COMPUTER_STATUS_TOOL, type ComputerClient, LOCAL_COMPUTER_INSTRUCTION, LocalComputer } from "./computer.ts";
+import { COMPUTER_INSTRUCTION, COMPUTER_STATUS_TOOL, type ComputerClient, HANDS_COMMAND, handsHowTo, LOCAL_COMPUTER_INSTRUCTION, LocalComputer } from "./computer.ts";
 import { COMMAND_NAME } from "./self.ts";
 import { envVar } from "./env.ts";
 import { hopTracer } from "./hop-trace.ts";
@@ -1369,7 +1369,7 @@ export function createMcpServer(options: McpServerOptions = {}): { server: McpSe
 			COMPUTER_STATUS_TOOL,
 			{ description: "Whether computer use is available in this session, and what to tell the user if it isn't.", inputSchema: {}, annotations: { readOnlyHint: true, openWorldHint: false } },
 			async () => ({
-				content: text(options.computer?.tools.length ? "Computer use is available: the agent workspace and apps the user has lent." : "Computer use isn't available right now: Polycarp's Mac app isn't on this computer, or it needs updating. Tell the user. Browser tools work as usual."),
+				content: text(options.computer?.tools.length ? "Computer use is available: the agent workspace and apps the user has lent." : `Computer use isn't available right now: Tychicus's computer-use helper, ${HANDS_COMMAND}, isn't on this computer or isn't answering. Tell the user. ${handsHowTo()} Browser tools work as usual.`),
 			}),
 		);
 	}
