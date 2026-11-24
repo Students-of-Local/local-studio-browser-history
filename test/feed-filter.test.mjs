@@ -38,6 +38,18 @@ test("words match in any case, as whole words, and phrases across any spacing", 
 	assert.ok(!hits({ words: ["   "] }, "anything"), "a blank word hides nothing");
 });
 
+test("words in scripts written without spaces match mid-sentence; a side in a spaced script keeps its word edge", () => {
+	assert.ok(hits({ words: ["比特币"] }, "今天比特币大涨"), "Chinese");
+	assert.ok(hits({ words: ["ビットコイン"] }, "今日はビットコインが上がった"), "Japanese");
+	assert.ok(hits({ words: ["บิตคอยน์"] }, "วันนี้บิตคอยน์ขึ้นอีกแล้ว"), "Thai");
+	assert.ok(!hits({ words: ["ai"] }, "she said so"), "ai is still not in said");
+	// A mixed term: the English side needs an edge, the Chinese side doesn't.
+	assert.ok(hits({ words: ["AI芯片"] }, "new AI芯片发布"));
+	assert.ok(!hits({ words: ["AI芯片"] }, "SAI芯片发布"), "the leading English edge stays");
+	assert.ok(hits({ words: ["芯片AI"] }, "新芯片AI model"));
+	assert.ok(!hits({ words: ["芯片AI"] }, "新芯片AIM"), "the trailing English edge stays");
+});
+
 test("/regex/ terms: any case unless flags are written, and the same answer every time", () => {
 	assert.ok(hits({ words: ["/airdrops?/"] }, "Free AIRDROP now"));
 	assert.ok(hits({ words: ["/giveaway|raffle/"] }, "weekly Raffle"));
@@ -49,19 +61,32 @@ test("/regex/ terms: any case unless flags are written, and the same answer ever
 	assert.ok(f.test("to the moon", () => [], fakeItem));
 	assert.deepEqual(match.regexTerm("/a,b/gim"), { source: "a,b", flags: "im" });
 	assert.equal(match.regexTerm("plain"), undefined);
-	assert.ok(match.nestedQuantifier("(a+)+"));
-	assert.ok(match.nestedQuantifier("(\\w*)*$"));
-	assert.ok(match.nestedQuantifier("(x{2,})+"));
-	assert.ok(!match.nestedQuantifier("(ab)+c*"));
-	assert.ok(!match.nestedQuantifier("a+b*"));
+	assert.ok(match.riskyPattern("(a+)+"));
+	assert.ok(match.riskyPattern("(\\w*)*$"));
+	assert.ok(match.riskyPattern("(x{2,})+"));
 	// A quantifier deeper than one group, or behind extra parentheses, is still a nested repeat.
-	assert.ok(match.nestedQuantifier("((a+))+$"));
-	assert.ok(match.nestedQuantifier("((\\w+\\s?))+$"));
-	assert.ok(match.nestedQuantifier("(x(y(z*)))*"));
+	assert.ok(match.riskyPattern("((a+))+$"));
+	assert.ok(match.riskyPattern("((\\w+\\s?))+$"));
+	assert.ok(match.riskyPattern("(x(y(z*)))*"));
 	// Escaped parentheses and character classes are not groups.
-	assert.ok(!match.nestedQuantifier("\\(a+\\)+"));
-	assert.ok(!match.nestedQuantifier("[(a+)]+"));
-	assert.ok(!match.nestedQuantifier("(a)(b+)"));
+	assert.ok(!match.riskyPattern("\\(a|b\\)+"));
+	assert.ok(!match.riskyPattern("[(a+)]+"));
+	assert.ok(!match.riskyPattern("(a)(b+)"));
+	// A repeated choice whose alternatives overlap tries every split of the text.
+	assert.ok(match.riskyPattern("(a|a)+$"));
+	assert.ok(match.riskyPattern("(\\w|\\d)+x$"));
+	assert.ok(match.riskyPattern("(?:cat|dog){2,}"));
+	// Open-ended repeats one after another are polynomial: three .* on 10,000 characters is a trillion steps.
+	assert.ok(match.riskyPattern(".*.*.*z"));
+	assert.ok(match.riskyPattern("a+b*"));
+	// Common shapes with one open-ended repeat are fine, and so are bounded ones.
+	assert.ok(!match.riskyPattern("(ab)+c"));
+	assert.ok(!match.riskyPattern("colou?r"));
+	assert.ok(!match.riskyPattern("\\d{2,4}"));
+	assert.ok(!match.riskyPattern("moon+"));
+	assert.ok(!match.riskyPattern("\\bcrypto\\w*"));
+	assert.ok(!match.riskyPattern("giveaway|raffle"), "a choice that doesn't repeat");
+	assert.ok(!match.riskyPattern("[a*+]+x"), "repeat signs inside a class are characters");
 });
 
 test("handles: @name, u/name, a profile link and the bare name are one account; r/name is a subreddit", () => {
@@ -91,6 +116,8 @@ test("the store keeps a filter in one canonical form and refuses what can't work
 		[JSON.stringify({ words: [], handles: [] }), /words or handles/],
 		[JSON.stringify({ words: ["/(a+)+/"] }), /freeze/],
 		[JSON.stringify({ words: ["/((\\w+\\s?))+$/"] }), /freeze/],
+		[JSON.stringify({ words: ["/(a|a)+$/"] }), /freeze/],
+		[JSON.stringify({ words: ["/.*.*.*z/"] }), /freeze/],
 		[JSON.stringify({ words: ["/[/"] }), /can read/],
 		[JSON.stringify({ words: ["x".repeat(201)] }), /200/],
 		[JSON.stringify({ handles: ["two words"] }), /account name/],
@@ -337,6 +364,56 @@ test("Reddit, Hacker News and the generic fallback find their posts and authors;
 	window = page("example.com", `<div class="card" id="c1">crypto card</div><div class="card" id="c2">ok card</div>`);
 	core.startFeedFilter(window.document, [{ words: ["crypto"], handles: [], items: "div.card, body" }], { hostname: "example.com", badge: false });
 	assert.deepEqual(hidden(window.document).map((e) => e.id), ["c1"], "the page itself is never hidden, whatever the selector");
+	window.close();
+});
+
+test("a handle means the post's author: a mention, a reply or a quoted post of that account hides nothing", () => {
+	// Bluesky: the author is the feed item's own data-testid.
+	let window = page(
+		"bsky.app",
+		`<div data-testid="feedItem-by-alice.bsky.social" id="b1"><a href="/profile/alice.bsky.social">Alice</a>
+			<div>hey <a href="/profile/bob.bsky.social">@bob.bsky.social</a> look</div></div>
+		<div data-testid="feedItem-by-carol.bsky.social" id="b2"><a href="/profile/carol.bsky.social">Carol</a>
+			<div>Reply to <a href="/profile/bob.bsky.social">Bob</a></div>
+			<div role="link"><a href="/profile/bob.bsky.social">Bob</a><a href="/profile/bob.bsky.social/post/3k">quoted post</a></div></div>
+		<div data-testid="feedItem-by-bob.bsky.social" id="b3"><a href="/profile/bob.bsky.social">Bob</a> my own post</div>`,
+	);
+	core.startFeedFilter(window.document, [{ words: [], handles: ["@bob.bsky.social"] }], { hostname: "bsky.app", badge: false });
+	assert.deepEqual(hidden(window.document).map((e) => e.id), ["b3"]);
+	window.close();
+
+	// Bluesky with a filter's own selector and no data-testid: the first profile link, the post header's.
+	window = page(
+		"bsky.app",
+		`<div class="post" id="p1"><a href="/profile/alice.bsky.social">Alice</a> hi <a href="/profile/bob.bsky.social">@bob</a></div>
+		<div class="post" id="p2"><a href="/profile/bob.bsky.social">Bob</a> mine</div>`,
+	);
+	core.startFeedFilter(window.document, [{ words: [], handles: ["bob.bsky.social"], items: "div.post" }], { hostname: "bsky.app", badge: false });
+	assert.deepEqual(hidden(window.document).map((e) => e.id), ["p2"]);
+	window.close();
+
+	// Mastodon (the generic profile): the display name link comes first; mentions and quotes come after it.
+	window = page(
+		"mastodon.social",
+		`<article id="m1"><div class="status__info"><a href="https://mastodon.social/@alice" class="status__display-name">Alice</a></div>
+			<div class="status__content"><p><a href="https://mastodon.social/@bob" class="u-url mention">@bob</a> hello</p></div></article>
+		<article id="m2"><a href="/@carol">carol</a><p>look at this</p><div class="quote"><a href="/@bob">Bob</a><a href="/@bob/111">quoted</a></div></article>
+		<article id="m3"><a href="/@bob">bob</a> mine</article>`,
+	);
+	core.startFeedFilter(window.document, [{ words: [], handles: ["@bob"] }], { hostname: "mastodon.social", badge: false });
+	assert.deepEqual(hidden(window.document).map((e) => e.id), ["m3"]);
+	window.close();
+
+	// Generic: a header or rel=author link names the author even after a mention; a quoted post nested as its own article
+	// is its own item, so it goes and the post quoting it stays.
+	window = page(
+		"example.com",
+		`<article id="g1"><p>Thanks <a href="/user/bob">bob</a></p><header><a href="/">Home</a><a href="/user/alice">alice</a></header></article>
+		<article id="g2"><p>Post</p><a rel="author" href="/u/bob">Bob</a></article>
+		<article id="g3"><p>see <a href="/user/dave">dave</a>'s pick</p><article id="g3q"><header><a href="/user/bob">bob</a></header>quoted</article></article>`,
+	);
+	core.startFeedFilter(window.document, [{ words: [], handles: ["bob"] }], { hostname: "example.com", badge: false });
+	assert.deepEqual(hidden(window.document).map((e) => e.id), ["g2", "g3q"]);
 	window.close();
 });
 

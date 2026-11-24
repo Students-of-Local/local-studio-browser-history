@@ -4,6 +4,8 @@
  *
  * A filter holds words and handles. A word is a whole word or phrase, matched in any case at word boundaries ("ai" doesn't
  * hit "said"; "machine learning" hits "Machine  Learning"), or a regular expression written /like this/ with optional flags.
+ * Scripts written without spaces between words (Chinese, Japanese, Thai and their neighbors) have no word edges to find, so
+ * a word's side in one of them matches anywhere: "比特币" hits "今天比特币大涨".
  * A handle is an account: "@name", "u/name" and "name" are the same account; "r/name" is a subreddit.
  */
 
@@ -22,6 +24,10 @@ export const MAX_HANDLES = 200;
 
 const WORD_CHAR = "\\p{L}\\p{N}_";
 const IS_WORD_CHAR = /[\p{L}\p{N}_]/u;
+/** Scripts that don't put spaces between words: a word edge there means nothing. Hangul is spaced, but between phrases,
+ * with particles written onto the word ("비트코인이"), so a word written in it matches inside a phrase too. */
+const UNSPACED =
+	/[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Thai}\p{Script=Lao}\p{Script=Khmer}\p{Script=Myanmar}\p{Script=Hangul}]/u;
 
 /** "/pattern/flags" as a regular expression's parts, or undefined for a plain word or phrase. */
 export function regexTerm(term: string): { source: string; flags: string } | undefined {
@@ -33,14 +39,30 @@ export function regexTerm(term: string): { source: string; flags: string } | und
 	return { source: m[1], flags: m[2] === "" ? "i" : flags };
 }
 
+/** The quantifier that starts at `source[i]`, if one does: its length, and whether it repeats without end (*, +, {n,}). */
+function quantifierAt(source: string, i: number): { length: number; unbounded: boolean } | undefined {
+	const c = source[i];
+	if (c === "*" || c === "+") return { length: 1, unbounded: true };
+	if (c !== "{") return undefined;
+	const m = /^\{\d+(,\d*)?\}/.exec(source.slice(i, i + 24));
+	if (!m) return undefined; // a literal brace
+	return { length: m[0].length, unbounded: m[1] === "," };
+}
+
 /**
- * A quantified group that holds a quantifier, like (a+)+ or (\w*)*: a pattern that can take exponential time on a long post.
- * Refused, since one would freeze the page on every visit.
+ * Why a pattern could take far too long on a long post, or undefined when it shows none of these shapes. Refused when
+ * saved, since one would freeze the page on every visit:
+ * - a repeated group that holds a repeat, like (a+)+ or (\w*)*: exponential;
+ * - a group repeated without end whose own level is a choice, like (a|a)+ or (\w|\d)+: alternatives that overlap try every
+ *   split of the text, exponential too;
+ * - more than one repeat without end, like .*.*.*z: each one multiplies the work by the post's length. One is fine
+ *   (moon+, \bcrypto\w*).
+ * Escapes and character classes are skipped whole: [a*+] holds characters, not repeats.
  */
-export function nestedQuantifier(source: string): boolean {
-	// One frame per open group: whether anything inside it repeats. Escapes and character classes are skipped whole.
-	const stack: boolean[] = [false];
-	const repeats = (c: string | undefined) => c === "*" || c === "+" || c === "{";
+export function riskyPattern(source: string): string | undefined {
+	// One frame per open group: whether anything inside it repeats, and whether its own level holds a "|".
+	const stack: Array<{ repeats: boolean; choice: boolean }> = [{ repeats: false, choice: false }];
+	let unbounded = 0;
 	for (let i = 0; i < source.length; i++) {
 		const c = source[i];
 		if (c === "\\") {
@@ -52,31 +74,51 @@ export function nestedQuantifier(source: string): boolean {
 			continue;
 		}
 		if (c === "(") {
-			stack.push(false);
+			stack.push({ repeats: false, choice: false });
+			continue;
+		}
+		if (c === "|") {
+			stack[stack.length - 1].choice = true;
 			continue;
 		}
 		if (c === ")") {
 			if (stack.length < 2) continue;
-			const inner = stack.pop() as boolean;
-			const quantified = repeats(source[i + 1]);
-			if (quantified && inner) return true;
-			stack[stack.length - 1] ||= inner || quantified;
+			const inner = stack.pop() as { repeats: boolean; choice: boolean };
+			const q = quantifierAt(source, i + 1);
+			if (q && inner.repeats) return "nests one repeat inside another";
+			if (q?.unbounded && inner.choice) return "repeats a choice, like (a|b)+";
+			if (q) {
+				if (q.unbounded) unbounded++;
+				i += q.length;
+			}
+			stack[stack.length - 1].repeats ||= inner.repeats || !!q;
 			continue;
 		}
-		if (repeats(c)) stack[stack.length - 1] = true;
+		const q = quantifierAt(source, i);
+		if (q) {
+			if (q.unbounded) unbounded++;
+			stack[stack.length - 1].repeats = true;
+			i += q.length - 1;
+		}
 	}
-	return false;
+	return unbounded > 1 ? "has more than one open-ended repeat (*, + or {n,})" : undefined;
 }
 
 function escapeRegex(text: string): string {
 	return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-/** A plain word or phrase as a pattern: any run of spaces matches any run of spaces, and word edges need a boundary. */
+/**
+ * A plain word or phrase as a pattern: any run of spaces matches any run of spaces, and word edges need a boundary, except
+ * on a side whose character is in a script without spaces (a mixed "AI芯片" keeps the edge before its "A").
+ */
 export function wordSource(term: string): string {
 	const body = term.trim().split(/\s+/).map(escapeRegex).join("\\s+");
-	const head = IS_WORD_CHAR.test(term.trim()[0] ?? "") ? `(?<![${WORD_CHAR}])` : "";
-	const tail = IS_WORD_CHAR.test(term.trim().slice(-1)) ? `(?![${WORD_CHAR}])` : "";
+	const first = [...term.trim()][0] ?? "";
+	const last = [...term.trim()].at(-1) ?? "";
+	const edge = (c: string) => IS_WORD_CHAR.test(c) && !UNSPACED.test(c);
+	const head = edge(first) ? `(?<![${WORD_CHAR}])` : "";
+	const tail = edge(last) ? `(?![${WORD_CHAR}])` : "";
 	return `${head}${body}${tail}`;
 }
 

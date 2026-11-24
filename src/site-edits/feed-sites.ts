@@ -21,21 +21,36 @@ export interface SiteProfile {
 	formats?: Formats;
 }
 
-/** The first path segment of each link under `item` that `selector` finds, when `pattern` matches the link's path. */
+/** The account a link names: `pattern`'s first group in its href, normalized; undefined when the link names none. */
+function linkHandle(a: Element, pattern: RegExp): string | undefined {
+	const m = pattern.exec(a.getAttribute("href") ?? "");
+	if (!m) return undefined;
+	let h = m[1];
+	try {
+		h = decodeURIComponent(h);
+	} catch {
+		/* keep it as written */
+	}
+	return normalizeHandle(h);
+}
+
+/** The accounts the links under `item` that `selector` finds name, when `pattern` matches the link's path. */
 function linkHandles(item: Element, selector: string, pattern: RegExp): string[] {
 	const out: string[] = [];
 	for (const a of item.querySelectorAll(selector)) {
-		const m = pattern.exec(a.getAttribute("href") ?? "");
-		if (!m) continue;
-		let h = m[1];
-		try {
-			h = decodeURIComponent(h);
-		} catch {
-			/* keep it as written */
-		}
-		out.push(normalizeHandle(h));
+		const h = linkHandle(a, pattern);
+		if (h !== undefined) out.push(h);
 	}
 	return out;
+}
+
+/** The account the first link under `item` that `selector` finds and `pattern` matches names, when `keep` allows the link. */
+function firstHandle(item: Element, selector: string, pattern: RegExp, keep: (a: Element) => boolean = () => true) {
+	for (const a of item.querySelectorAll(selector)) {
+		const h = keep(a) ? linkHandle(a, pattern) : undefined;
+		if (h) return [h];
+	}
+	return [];
 }
 
 const X: SiteProfile = {
@@ -111,10 +126,13 @@ const HACKER_NEWS: SiteProfile = {
 
 const BLUESKY: SiteProfile = {
 	items: '[data-testid^="feedItem-by-"]',
+	// The author only: a post's body links the accounts it mentions, replies to and quotes, and a filter on one of them
+	// mustn't hide everyone who talks to it. Bluesky names the author on the item; without that (a filter's own selector),
+	// the first profile link, which is the post header's avatar or name.
 	handles(item) {
-		const out = [normalizeHandle(item.getAttribute("data-testid")?.slice("feedItem-by-".length) ?? "")];
-		out.push(...linkHandles(item, 'a[href^="/profile/"]', /^\/profile\/([^/?#]+)/));
-		return out;
+		const testid = item.getAttribute("data-testid") ?? "";
+		if (testid.startsWith("feedItem-by-")) return [normalizeHandle(testid.slice("feedItem-by-".length))];
+		return firstHandle(item, 'a[href^="/profile/"]', /^\/profile\/([^/?#]+)/);
 	},
 };
 
@@ -123,15 +141,25 @@ const LINKEDIN: SiteProfile = {
 	handles: (item) => linkHandles(item, 'a[href*="/in/"], a[href*="/company/"]', /\/(?:in|company)\/([^/?#]+)/),
 };
 
-/** Any other site: articles, and the accounts their links name in the common ways (/@name, /user/name, /u/name). */
+const AUTHOR_LINK = /\/(?:@|users?\/|u\/)([^/?#]+)/;
+const ARTICLE = '[role="article"], article';
+
+/**
+ * Any other site: articles, and their author, read from an author-shaped link (/@name, /user/name, /u/name). Only one
+ * link counts, so a mention or a quoted post in the body never makes its account the author: the first author-shaped
+ * link in a `header` or with rel=author, else the first author-shaped link at all (Mastodon puts the display name before
+ * the post's text). Links inside an article nested in this one belong to that article: it is an item of its own.
+ */
 export const GENERIC: SiteProfile = {
-	items: '[role="article"], article',
-	handles: (item) =>
-		linkHandles(
-			item,
-			'a[href*="/@"], a[href*="/user/"], a[href*="/u/"], a[href*="/users/"]',
-			/\/(?:@|users?\/|u\/)([^/?#]+)/,
-		),
+	items: ARTICLE,
+	handles(item) {
+		const own = (a: Element) => {
+			const article = a.closest(ARTICLE);
+			return !article || article.contains(item);
+		};
+		const byline = firstHandle(item, 'header a[href], a[rel~="author"][href]', AUTHOR_LINK, own);
+		return byline.length ? byline : firstHandle(item, "a[href]", AUTHOR_LINK, own);
+	},
 };
 
 const SITES: Array<[string, SiteProfile]> = [
