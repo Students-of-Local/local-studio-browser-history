@@ -19,7 +19,7 @@ async function connect(args, extraEnv = {}, name = "small-profile-test") {
 		new StdioClientTransport({
 			command: process.execPath,
 			args: [cli, "mcp", ...args],
-			env: { HOME: join(root, "home"), PATH: dirname(process.execPath), TABKYRA_SOCKET_DIR: join(root, "sock"), POLYCARP_SPACES_BIN: join(root, "no-helper"), ...extraEnv },
+			env: { HOME: join(root, "home"), PATH: dirname(process.execPath), TABKYRA_SOCKET_DIR: join(root, "sock"), TYCHICUS_HANDS_BIN: join(root, "no-helper"), ...extraEnv },
 			stderr: "ignore",
 		}),
 	);

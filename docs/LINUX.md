@@ -19,16 +19,9 @@ x86_64) on 2026-11-16.
 
 ## Missing
 
-- **Native app control (computer use).** The `computer_*` tools come from the Mac helper
-  `polycarp-spaces` and are switched off on any other platform (`localComputerHelper()` in
-  `cli/src/computer.ts` returns nothing unless the platform is `darwin` or `POLYCARP_SPACES_BIN` is
-  set). On Linux an agent can drive web pages but not desktop apps.
-  The plan is to use the agent hands in
-  [baney75/baneyspaces](https://github.com/baney75/baneyspaces) on Hyprland: its `baneyspaces mcp`
-  server and `agent open`, `agent snapshot`, `agent click`, `agent type` and `agent shot` verbs work
-  on a hidden agent workspace, the same model as Polycarp's agent workspace on the Mac. Wiring it
-  needs a Linux branch in `computer.ts` that starts `baneyspaces mcp` and maps its tool names, and
-  tests for it. Not built yet.
+- **Native app control (computer use) is a separate build.** The `computer_*` tools come from
+  `tychicus-hands`, built from `hands/linux` and put in `~/.local/bin` (`hands/linux/README.md`). Without it an
+  agent drives web pages only, and `computer_status` says how to get it.
 - **No GUI driver for the browser's own windows.** Helium's dialogs and windows outside a page
   (native file pickers, permission sheets) have no driver on Linux; the extension reaches page
   content only.

@@ -16,19 +16,19 @@ truth and this page is wrong: fix the page and the suite together.
 | --- | --- | --- | --- |
 | Tychicus, macOS | `tychicus-hands mcp [--connector]` | `tychicus-hands` | `tychicus-connector` |
 | Tychicus, Linux (`hands/linux`) | `tychicus-hands mcp [--connector]` | `tychicus-hands` | `tychicus-connector` |
-| Polycarp before the removal (legacy) | `polycarp-spaces mcp [--connector]` | `baneyspaces` | `polycarp-connector` |
 
 `computerHelper()` in `cli/src/computer.ts` looks in this order and takes the first that exists:
 
-1. `TYCHICUS_HANDS_BIN`, then `POLYCARP_SPACES_BIN` (tests and dev builds; a named path that doesn't exist means none).
+1. `TYCHICUS_HANDS_BIN` (tests and dev builds; a named path that doesn't exist means none).
 2. `tychicus-hands` on `PATH`.
 3. `~/.local/bin/tychicus-hands`.
 4. Inside a Tychicus app bundle: `/Applications/Tychicus.app/Contents/Resources/bin/tychicus-hands`, then the same under
    `~/Applications`.
-5. Polycarp's helper, as before: `~/.local/bin/polycarp-spaces`,
-   `/Applications/Polycarp.app/Contents/Resources/bin/polycarp-spaces`, then `polycarp-spaces` on `PATH`. Only on a Mac.
 
-`computer_status` and `tychicus doctor` name the helper that was found and whether it answered, or say there is none.
+Polycarp's `polycarp-spaces` is never used: Polycarp removed computer use (baney75/polycarp #568).
+
+`computer_status` and `tychicus doctor` name the helper that was found and whether it answered, or say there is none
+and how to get it on this OS (`handsHowTo`).
 
 A connector's helper runs with a small environment of its own (`connectorHelperEnv`): `HOME`, `PATH`, the way to the
 person's desktop (`DISPLAY`, `XAUTHORITY`, `WAYLAND_DISPLAY`, `HYPRLAND_INSTANCE_SIGNATURE`, `SWAYSOCK`,
@@ -75,7 +75,7 @@ Result:
 ```
 
 `serverInfo.name` is the helper's local name, or, when it was started with `--connector`, its connector name. Tychicus
-uses a connector helper only when the name is `tychicus-connector` or `polycarp-connector`: a helper older than the flag
+uses a connector helper only when the name is `tychicus-connector`: a helper older than the flag
 ignores it and answers with its usual name, and its calls would not be capped. A helper started without `--connector`
 never answers with a connector name.
 

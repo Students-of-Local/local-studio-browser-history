@@ -26,7 +26,7 @@ helper in connector mode (`hands.mjs`). With no task files, the runner says so a
   file, the fixture files and the answer. The System Settings pair runs alone with `--kind stub --only
   stub-settings-appearance,stub-settings-two-panes`; the real app is once per user and needs the phase 2 sandbox on the bench.
 
-The stub (`stub/hands.mjs`) stands in for `polycarp-spaces mcp`. It serves the real helper's `tools/list` and
+The stub (`stub/hands.mjs`) stands in for `tychicus-hands mcp`. It serves the real helper's `tools/list` and
 instructions (`stub/hands-tools.json`, refreshed from the helper by `stub/refresh-tools.mjs`, and held to
 `spaces/.../Hands/Tools.swift` by `test/weak-model-stub.test.mjs`), and answers with the real snapshot rows, refs,
 envelopes and error codes (`stale_ref`, `stale_bare_row`, `unverified`, a sheet on close or Command-W, a read cut at 400
@@ -42,7 +42,7 @@ Each run is `claude -p` on the owner's sign-in. The runner refuses to start whil
 variable (`lib.mjs` KEY_VARS) is set, and removes them from the child's environment. Each run has only the `polycarp` MCP server, a fresh throwaway headless
 Chromium (`cli/test/e2e-harness.mjs`), a turn cap (30) and a wall-clock cap (240 s browser, 300 s computer).
 Only a computer task's server lists the computer tools; a browser run never gets them, even with computer runs on.
-The computer tools go through `polycarp-spaces mcp --connector`, which holds the model to the agent workspace and
+The computer tools go through `tychicus-hands mcp --connector`, which holds the model to the agent workspace and
 lent apps. The runner backs up and restores the apps' preferences and closes only the app copies its own
 `computer_open` calls started (`reused: false`), read from each answer as it streams in (`transcript.mjs`).
 

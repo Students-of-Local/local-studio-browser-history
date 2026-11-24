@@ -1,6 +1,6 @@
 /**
- * Computer use: `computer_*` tools that go to a computer-use helper of their own over stdio, `tychicus-hands mcp` or, before
- * it is installed, Polycarp's `polycarp-spaces mcp`. The wire is docs/hands-protocol.md, and any helper that passes
+ * Computer use: `computer_*` tools that go to a computer-use helper of their own over stdio, `tychicus-hands mcp`. The
+ * wire is docs/hands-protocol.md, and any helper that passes
  * test/hands-conformance.test.mjs can answer. The helper, not this file, decides what each call may touch.
  *
  * Remote: a session that was granted a computer.* scope runs `<helper> mcp --connector`. `--connector` marks the caller as
@@ -8,7 +8,7 @@
  * This file only chooses which tools such a session can name, from a list written here, so a verb the helper adds (or one
  * that is the person's alone, like lend) reaches no remote caller until someone adds it below.
  *
- * Local: the stdio server runs as the user, like a `polycarp-spaces mcp` the user registered by hand, so it runs the helper
+ * Local: the stdio server runs as the user, like a `tychicus-hands mcp` the user registered by hand, so it runs the helper
  * without `--connector` and gets the access mode the user set in Settings > Agents. It offers every tool the helper lists,
  * with the helper's own descriptions and schemas, except the person's own verbs (LocalComputer below).
  */
@@ -35,10 +35,10 @@ const LOCAL_RETRY_MS = 30_000;
 const LOCAL_NEVER = new Set(["lend", "return", "status"]);
 
 /**
- * What a helper started with `--connector` answers to `initialize`: Tychicus's helper, then Polycarp's. A helper older than the
- * flag ignores it and answers with its usual name, so its calls wouldn't be capped.
+ * What a helper started with `--connector` answers to `initialize`. A helper older than the flag ignores it and answers with
+ * its usual name, so its calls wouldn't be capped.
  */
-export const CONNECTOR_SERVERS: readonly string[] = ["tychicus-connector", "polycarp-connector"];
+export const CONNECTOR_SERVERS: readonly string[] = ["tychicus-connector"];
 
 const READ = ["windows", "snapshot", "find", "get", "shot"];
 const ACT = ["click", "type", "set_value", "press", "click_at", "drag", "scroll", "select", "toggle", "menu", "run_steps", "open"];
@@ -104,40 +104,42 @@ export function connectorHelperEnv(from: NodeJS.ProcessEnv = process.env): NodeJ
 /** Tychicus's own helper's command. */
 export const HANDS_COMMAND = "tychicus-hands";
 
-/** A computer-use helper on this machine: where it is and whose it is. */
+/** The computer-use helper on this machine: where it is. */
 export interface HelperFound {
 	path: string;
-	/** `tychicus`: `tychicus-hands`. `polycarp`: Polycarp's `polycarp-spaces`, used until Tychicus's is installed. */
-	kind: "tychicus" | "polycarp";
 }
 
-/** How text names a helper: by its command and where it is. */
+/** How text names the helper: by its command and where it is. */
 export function helperName(found: HelperFound): string {
-	return found.kind === "tychicus" ? `${HANDS_COMMAND} (${found.path})` : `Polycarp's polycarp-spaces (${found.path})`;
+	return `${HANDS_COMMAND} (${found.path})`;
 }
 
 /**
- * The helper, Tychicus's first (docs/hands-protocol.md, "Helpers"). TYCHICUS_HANDS_BIN or POLYCARP_SPACES_BIN names one
- * outright (tests, a dev build), and a named path that doesn't exist means none. Otherwise `tychicus-hands` on PATH, in
- * ~/.local/bin (a service's PATH usually lacks it) or in a Tychicus app bundle; then Polycarp's helper, on a Mac only.
+ * How a person gets the helper on a computer running `platform` (process.platform, or a linked device's), as a sentence for
+ * messages that say it is missing. The install story is docs/hands-protocol.md's: Linux builds it from hands/linux.
+ */
+export function handsHowTo(platform: string | undefined = process.platform): string {
+	if (platform === "linux") return `To get it, build ${HANDS_COMMAND} from hands/linux in the Tychicus source (cargo build --release) and put it in ~/.local/bin.`;
+	if (platform === "darwin") return `To get it, put a ${HANDS_COMMAND} build on PATH or in ~/.local/bin (docs/hands-protocol.md in the Tychicus source).`;
+	if (platform) return `${HANDS_COMMAND} has no build for this OS yet.`;
+	return `How to get it: docs/hands-protocol.md in the Tychicus source.`;
+}
+
+/**
+ * The helper (docs/hands-protocol.md, "Helpers"). TYCHICUS_HANDS_BIN names one outright (tests, a dev build), and a named
+ * path that doesn't exist means none. Otherwise `tychicus-hands` on PATH, in ~/.local/bin (a service's PATH usually lacks
+ * it) or, on a Mac, in a Tychicus app bundle.
  */
 export function findHelper(): HelperFound | undefined {
-	const tychicus = process.env.TYCHICUS_HANDS_BIN;
-	if (tychicus) return existsSync(tychicus) ? { path: tychicus, kind: "tychicus" } : undefined;
-	const polycarp = process.env.POLYCARP_SPACES_BIN;
-	if (polycarp) return existsSync(polycarp) ? { path: polycarp, kind: "polycarp" } : undefined;
+	const named = process.env.TYCHICUS_HANDS_BIN;
+	if (named) return existsSync(named) ? { path: named } : undefined;
 	const onPath = which(HANDS_COMMAND);
-	if (onPath) return { path: onPath, kind: "tychicus" };
+	if (onPath) return { path: onPath };
 	const bundled = ["/Applications", join(homedir(), "Applications")].map((dir) => join(dir, "Tychicus.app", "Contents", "Resources", "bin", HANDS_COMMAND));
 	for (const path of [join(homedir(), ".local", "bin", HANDS_COMMAND), ...(process.platform === "darwin" ? bundled : [])]) {
-		if (existsSync(path)) return { path, kind: "tychicus" };
+		if (existsSync(path)) return { path };
 	}
-	if (process.platform !== "darwin") return undefined;
-	for (const path of [join(homedir(), ".local", "bin", "polycarp-spaces"), "/Applications/Polycarp.app/Contents/Resources/bin/polycarp-spaces"]) {
-		if (existsSync(path)) return { path, kind: "polycarp" };
-	}
-	const spaces = which("polycarp-spaces");
-	return spaces ? { path: spaces, kind: "polycarp" } : undefined;
+	return undefined;
 }
 
 /** The helper's path, or undefined: what decides whether computer use is offered at all. */
@@ -152,7 +154,7 @@ export interface ComputerTool {
 	readOnly: boolean;
 }
 
-/** What the local server looks for: the same helper `findHelper` finds (Polycarp's only on a Mac). */
+/** What the local server looks for: the same helper `findHelper` finds. */
 export function localComputerHelper(): string | undefined {
 	return computerHelper();
 }
@@ -205,7 +207,7 @@ export class ComputerClient {
 			// Its own small environment (connectorHelperEnv): the desktop and the settings folder, nothing else of the service's.
 			this.child = spawn(helper, ["mcp", "--connector"], { stdio: ["pipe", "pipe", "pipe"], env: connectorHelperEnv() });
 		} else {
-			// The user's own environment, as a `polycarp-spaces mcp` registered in the harness would get. No `--connector`: the
+			// The user's own environment, as a `tychicus-hands mcp` registered in the harness would get. No `--connector`: the
 			// caller is on this computer, so the access mode the user picked applies, Full Access included.
 			this.child = spawn(helper, ["mcp"], { stdio: ["pipe", "pipe", "pipe"], env: process.env });
 			// The stdio server exits when its own input ends; the helper mustn't hold it open.
@@ -404,10 +406,9 @@ export class LocalComputer {
 			return `Computer use is available: ${this.tools.length} computer_* tools for native apps, through ${helper ? helperName(helper) : "the computer-use helper"}${answered}. They work in the background on the agent workspace and apps the user lent, or more if the user chose Full Access.`;
 		}
 		if (!helper) {
-			return `Computer use isn't available: no computer-use helper is installed here (${HANDS_COMMAND}${process.platform === "darwin" ? ", or Polycarp's polycarp-spaces" : ""}). Ask the user to install Tychicus's ${HANDS_COMMAND}; the computer_* tools then appear in this server's tool list. Browser tools work as usual.`;
+			return `Computer use isn't available: Tychicus's computer-use helper, ${HANDS_COMMAND}, isn't installed here. Tell the user; once it is, the computer_* tools appear in this server's tool list. ${handsHowTo()} Browser tools work as usual.`;
 		}
-		const restart = helper.kind === "polycarp" ? "restarting Polycarp's Mac app usually fixes it" : `running ${COMMAND_NAME} doctor shows what is wrong`;
-		return `${this.reason ?? `The computer-use helper, ${helperName(helper)}, isn't running.`} Tell the user if it keeps failing; ${restart}. Browser tools work as usual.`;
+		return `${this.reason ?? `The computer-use helper, ${helperName(helper)}, isn't running.`} Tell the user if it keeps failing; running ${COMMAND_NAME} doctor shows what is wrong. Browser tools work as usual.`;
 	}
 
 	async call(name: string, args: unknown): Promise<CallResult> {

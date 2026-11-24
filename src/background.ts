@@ -1,6 +1,7 @@
 import { dropStalePolycarpTheme } from "./appearance/tokens.js";
 import { startBridge, trace } from "./bridge/native.js";
 import { startPanelPageTools } from "./bridge/panel-calls.js";
+import { startFreshInstall } from "./bridge/permissions.js";
 import { installCdpListeners, persistCdpMemory } from "./browser/cdp.js";
 import { startDialogGuard } from "./browser/dialog-guard.js";
 import { setGuardLogger, startForegroundGuard } from "./browser/foreground-guard.js";
@@ -133,6 +134,10 @@ function setGlobalPanelOptions(): void {
 }
 setGlobalPanelOptions();
 chrome.runtime.onInstalled.addListener(setGlobalPanelOptions);
+// A new install starts in Auto with no notice; an update migrates its 1.4.0 setting on first read (D67).
+chrome.runtime.onInstalled.addListener((details) => {
+	if (details.reason === "install") startFreshInstall().catch(() => undefined);
+});
 
 /**
  * Open the window's panel, in the click's user-gesture tick (Chrome requires open() there), so

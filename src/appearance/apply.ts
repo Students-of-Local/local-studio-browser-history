@@ -5,7 +5,7 @@
  */
 
 import { connectStatus } from "../connect/client.js";
-import { currentMode, mirrorMode, setMode } from "./mode.js";
+import { mirrorMode, setMode } from "./mode.js";
 import type { ThemeChoice } from "./palettes.js";
 import { APPEARANCE_KEY, appearanceVariables, parseChoice } from "./tokens.js";
 
@@ -57,7 +57,7 @@ async function seedFromHelper(): Promise<void> {
 	const { theme } = await connectStatus();
 	if ((await chrome.storage.local.get(APPEARANCE_KEY))[APPEARANCE_KEY] !== undefined) return;
 	await setAppearance(parseChoice(theme));
-	if (theme.mode && localStorage.getItem("theme") === null && currentMode() === "system") setMode(theme.mode);
+	if (theme.mode && localStorage.getItem("theme") === null) setMode(theme.mode);
 }
 
 /** Read the saved choice, apply it, and keep it applied when the light/dark switch or the system setting changes. */
