@@ -41,6 +41,7 @@
   and install steps, with the date, machine and versions. `evals/market/page.mjs` builds it from the runs kept in
   `evals/market/published/`, and `test/market-page.test.mjs` fails when the page and those runs disagree. New: a Chrome
   DevTools MCP adapter and `evals/market/rivals/install-time.mjs` (#30).
+- `tychicus remote relay run` connects this computer to a relay Worker on your own Cloudflare account. It is the relay route's service (`com.tychicus.relay`, `tychicus-relay.service`), the way `remote cloudflare run` runs cloudflared: it dials `wss://<relay>/_relay/connect` with the relay key from `remote.json` and carries serve's MCP and OAuth paths and `/v1/health` to `127.0.0.1:<port>`, nothing else. The connector is vendored from baney75/local-studio-tunnels (`cli/src/relay-client.ts`, the source commit in its header, its SHA-256 pinned by `cli/test/relay-vendor.test.mjs`). It writes its state (`connected`, `disconnected`, `unauthorized` and so on) to `relay-state.json` for `remote status`, and stays up in a state it won't retry, so the service doesn't restart it into the same refusal. serve now answers `GET /v1/health` with `{"ok":true}`. Tests: `cli/test/relay.test.mjs` (a local stand-in relay carries a request to a real serve and back).
 
 - The market eval now scores which agent actions Auto should ask about: 59 of 59 risky ones caught. Auto's rule
   list is one file, `src/bridge/risk-rules.ts`: risky actions (send, post, buy or pay, delete or cancel, change
@@ -84,6 +85,9 @@
 - The `skill-judge` CI job lets a pull request rename a skill: a base router case may carry the new name when `skills-eval/accepted-drops.json` records the rename under `renamed` (`from`, `to`, `reason`), the old skill is gone and the new one is new. The new name keeps the old accuracy floor. Any other removed or relabeled case still fails.
 
 ### Fixed
+- A request that reuses an idle connection to `serve` or the hub no longer fails now and then. Node closed an idle connection after 5 seconds,
+  while a tunnel keeps its own for about 90 and sends the next request down it, so one that went out as Node closed it came back as a 502. Both now
+  keep an idle connection for 2 minutes. Tests: `cli/test/remote.test.mjs`, `cli/test/hub-hardening.test.mjs`.
 - A hand-back an agent already gave up on no longer shows its card. A cancel or a disconnect that came before the hand-back, or while it looked its tab up, found
   nothing to end and the card waited 10 minutes for nobody. A run in the Runs view no longer says "Running" for good after its agent left in the middle of a call: the
   call's answer is logged as a step of the ended run (#52). Tests: `test/handback-worker.test.mjs`, `test/runs.test.mjs`.

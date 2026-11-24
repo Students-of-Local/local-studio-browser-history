@@ -10,7 +10,7 @@ scripts/build-store.sh "$HOME/Downloads/tychicus-store"
 ```
 
 It writes `tychicus-<version>-store.zip` (the version is `static/manifest.chrome.json`'s, which must equal
-`package.json`'s). The build refuses a zip whose manifest has a `key`, a name other than Tychicus, a missing icon, or a
+`package.json`'s). The build refuses a zip whose manifest has a `key`, a name other than Local Studio, a missing icon, or a
 permission with no row in permissions.md.
 
 ## Order of the first upload
@@ -30,7 +30,7 @@ permission with no row in permissions.md.
 
 ## Store listing tab
 
-**Title:** Tychicus
+**Title:** Local Studio
 
 **Summary** (from the manifest's `description`, 132 characters at most):
 
@@ -45,14 +45,14 @@ Lets AI agents work in your browser, in their own tab group, while you keep work
 **Description:**
 
 ```
-Tychicus lets an AI agent work in your browser while you keep working. The agent gets a tab group of its own and works there in the background: it opens pages, reads them, clicks, fills in forms and checks its own work, without taking focus from the tab you are using. Your tabs stay yours.
+Local Studio lets an AI agent work in your browser while you keep working. The agent gets a tab group of its own and works there in the background: it opens pages, reads them, clicks, fills in forms and checks its own work, without taking focus from the tab you are using. Your tabs stay yours.
 
 What it does well:
 
 • Its own tab group. Each agent works in a group of its own tabs, marked while it works, with a pointer that shows what it is doing and a "Take over" button.
 • Background tabs, no stolen focus. The agent acts in its tabs without bringing them to the front, so you can keep typing somewhere else.
-• The agents you already use. Claude Code, Codex, Cursor, OpenCode, pi and any other MCP agent drive your browser through the free Tychicus helper on your computer. With the helper and your own Tailscale or Cloudflare tunnel, claude.ai, ChatGPT and grok.com can use it too.
-• Local models through Local Studio. With Local Studio on your computer, the side panel chats on your local models and the plans you signed in to there, with no API key or sign-in in the extension.
+• The agents you already use. Claude Code, Codex, Cursor, OpenCode, pi and any other MCP agent drive your browser through the free Local Studio helper on your computer. With the helper and your own Tailscale or Cloudflare tunnel, claude.ai, ChatGPT and grok.com can use it too.
+• Local models through the Local Studio app. With the app on your computer, the side panel chats on your local models and the plans you signed in to there, with no API key or sign-in in the extension.
 • Or bring an API key from Anthropic, OpenAI, Google, OpenRouter and others, or use a free OpenRouter key.
 
 Set up the helper in one command. The welcome screen shows the one for your computer with a Copy button, and shows the helper connected as soon as it runs.
@@ -65,17 +65,17 @@ irm https://github.com/baney75/tychicus/releases/latest/download/install.ps1 | i
 
 You stay in charge:
 
-• The agent can't open a new site until you allow it. Allowed sites are listed in Settings, where you can remove them.
+• You pick when agents ask. By default, agents on frontier models open ordinary sites, small or unknown models ask first, and every agent asks before it goes straight to mail, a bank or another sensitive site. Manual asks before every new site. Allowed sites are listed in Settings, where you can remove them.
 • It stops and hands the tab to you for sign-ins and captchas.
 • Private mode sends prompts only to models that don't keep them, or to your own machines.
 
-No account, no analytics, and open source under the AGPL-3.0. Tychicus runs no servers of its own. Your chats and settings stay on your computer, and your messages, and what the agent reads, go only to the AI you picked.
+No account, no analytics, and open source under the AGPL-3.0. Local Studio runs no servers of its own. Your chats and settings stay on your computer, and your messages, and what the agent reads, go only to the AI you picked.
 
-Tychicus comes three ways: a Local Studio plugin, an app you install on its own, and this Chrome extension. The extension works with or without Local Studio.
+The browser tools come three ways: with the Local Studio app, as a helper you install on its own, and as this Chrome extension. The extension works with or without the app.
 
-A note on provider terms: using a consumer chat subscription through automation may break that provider's terms of service. Some allow it, some forbid it, and terms change. Tychicus doesn't decide this for you. Read your provider's terms before you connect a subscription; API keys under a developer agreement are the safer route where terms are unclear.
+A note on provider terms: using a consumer chat subscription through automation may break that provider's terms of service. Some allow it, some forbid it, and terms change. Local Studio doesn't decide this for you. Read your provider's terms before you connect a subscription; API keys under a developer agreement are the safer route where terms are unclear.
 
-Local Studio chats need macOS or Linux for now.
+Chats through the Local Studio app need macOS or Linux for now.
 
 Source: https://github.com/baney75/tychicus
 Built on 0xSero's agent bridge and Mario Zechner's Sitegeist.
@@ -98,7 +98,7 @@ Built on 0xSero's agent bridge and Mario Zechner's Sitegeist.
 **Single purpose:**
 
 ```
-Tychicus lets AI agents operate web pages in the user's browser on the user's behalf, from its side panel or from an AI agent the user connects.
+Local Studio lets AI agents operate web pages in the user's browser on the user's behalf, from its side panel or from an AI agent the user connects.
 ```
 
 **Permission justifications:** paste each row of [permissions.md](permissions.md) into its box.
@@ -111,7 +111,7 @@ The extension loads no script, module or WebAssembly from outside its package. T
 
 **Data usage: what the extension handles.** Tick these:
 
-- Authentication information: API keys the user adds under "Use an API key instead", stored locally and sent only to that provider; and the ChatGPT and GitHub Copilot sign-ins, whose tokens the helper keeps on this computer (the extension never holds them). Local Studio sign-ins stay in Local Studio.
+- Authentication information: API keys the user adds under "Use an API key instead", stored locally and sent only to that provider; and the ChatGPT and GitHub Copilot sign-ins, whose tokens the helper keeps on this computer (the extension never holds them). Sign-ins in the Local Studio app stay in the app.
 - Web history: the addresses of pages the agent opens.
 - User activity: the agent's clicks and typing in its own tabs.
 - Website content: text, images and form contents of pages the agent reads.
@@ -133,9 +133,9 @@ not used to determine creditworthiness or for lending.
 No account is needed.
 
 1. Click the toolbar icon to open the side panel.
-2. In the welcome, choose "Chat here" and add a key for any listed provider. A free key from openrouter.ai works with Free mode. (Local Studio, the default when it runs, needs the Local Studio app on the same computer. Without it the panel offers API keys, so the reviewer doesn't need it.)
+2. In the welcome, choose "Chat here" and add a key for any listed provider. A free key from openrouter.ai works with Free mode. (Chatting through the Local Studio app, the default when the app runs, needs that app on the same computer. Without it the panel offers API keys, so the reviewer doesn't need it.)
 3. Ask: "Open example.com and tell me what the page says."
-4. Approve example.com when asked. A new tab group opens, and the agent reads the page in it.
+4. If it asks about example.com, allow it (small and unknown models ask first). A new tab group opens, and the agent reads the page in it.
 
-Connecting a coding agent needs the free Tychicus helper. The welcome shows the command that installs it (curl -fsSL https://github.com/baney75/tychicus/releases/latest/download/install.sh | sh on macOS and Linux). It isn't required to review the side panel.
+Connecting a coding agent needs the free Local Studio helper. The welcome shows the command that installs it (curl -fsSL https://github.com/baney75/tychicus/releases/latest/download/install.sh | sh on macOS and Linux). It isn't required to review the side panel.
 ```
