@@ -49,12 +49,13 @@ if (args[0] === "login") {
 	if (whoami === "out") { console.log("You are not authenticated. Please run wrangler login."); process.exit(1); }
 	console.log(JSON.stringify(whoami));
 } else if (args[0] === "deploy") {
+	writeFileSync(${JSON.stringify(join(dir, "tag"))}, args[2]);
 	if (${JSON.stringify(deploy)} === "subdomain") { console.error("You need to register a workers.dev subdomain before publishing to workers.dev"); process.exit(1); }
-	writeFileSync(process.env.WRANGLER_OUTPUT_FILE_PATH, JSON.stringify({ type: "deploy", targets: ["https://" + args[2] + ".test-sub.workers.dev"] }) + "\\n");
+	writeFileSync(process.env.WRANGLER_OUTPUT_FILE_PATH, JSON.stringify({ type: "deploy", targets: ["https://" + args.at(-1) + ".test-sub.workers.dev"] }) + "\\n");
 } else if (args[1] === "list") {
-	if (${worker}) { console.log("[]"); process.exit(0); }
-	if (!${keyed} && !existsSync(${JSON.stringify(join(dir, "secret"))})) { console.error("This Worker does not exist on your account. [code: 10007]"); process.exit(1); }
-	console.log(JSON.stringify([{ name: "RELAY_KEY", type: "secret_text" }]));
+	const tag = existsSync(${JSON.stringify(join(dir, "tag"))}) ? readFileSync(${JSON.stringify(join(dir, "tag"))}, "utf8") : undefined;
+	if (!${keyed} && !${worker} && !tag) { console.error("This Worker does not exist on your account. [code: 10007]"); process.exit(1); }
+	console.log(JSON.stringify(args[0] === "versions" ? [{ annotations: tag ? { "workers/tag": tag } : {} }] : ${worker} ? [] : [{ name: "RELAY_KEY", type: "secret_text" }]));
 } else if (args[0] === "secret") {
 	writeFileSync(${JSON.stringify(join(dir, "secret"))}, readFileSync(0, "utf8"));
 }
