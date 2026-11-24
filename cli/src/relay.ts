@@ -82,7 +82,7 @@ const STATE_LINES: Record<RelayState, string> = {
 	connecting: "Connecting to the relay.",
 	connected: "Connected: the relay carries requests to serve.",
 	disconnected: "Disconnected; trying again with backoff.",
-	replaced: `Another computer connected with this key and took over. Run ${COMMAND_NAME} remote setup on the computer that should have it.`,
+	replaced: `Another connector with this key took over, on another computer or this one. Run ${COMMAND_NAME} remote setup where the relay should run.`,
 	unauthorized: `The relay refused the key. Run ${COMMAND_NAME} remote setup again to set a new one.`,
 	outdated: `The relay speaks another protocol version. Update ${COMMAND_NAME}, then run ${COMMAND_NAME} remote setup again.`,
 	stopped: "Stopped.",
@@ -95,7 +95,6 @@ export interface RelayRunOptions {
 	log?: (line: string) => void;
 	/** Resolves to stop the connector, in place of SIGTERM and SIGINT. */
 	until?: Promise<void>;
-	pingMs?: number;
 }
 
 /**
@@ -122,10 +121,15 @@ export async function runRelay(options: RelayRunOptions = {}): Promise<number> {
 	}
 	const file = options.stateFile ?? relayStateFile();
 	const write = (state: RelayState) => {
-		writeAtomic(file, `${JSON.stringify({ state, at: Date.now(), pid: process.pid } satisfies RelayStatus)}\n`, 0o600);
 		log(STATE_LINES[state]);
+		try {
+			writeAtomic(file, `${JSON.stringify({ state, at: Date.now(), pid: process.pid } satisfies RelayStatus)}\n`, 0o600);
+		} catch (err) {
+			// A full disk costs `remote status` its answer, never the connection.
+			log(`Couldn't save the state in ${file}: ${err instanceof Error ? err.message : String(err)}`);
+		}
 	};
-	const client = new RelayClient({ url: config.publicUrl, key: config.relay.key, routes: relayRoutes(config.port), onState: write, ...(options.pingMs ? { pingMs: options.pingMs } : {}) });
+	const client = new RelayClient({ url: config.publicUrl, key: config.relay.key, routes: relayRoutes(config.port), onState: write });
 	const stop =
 		options.until ??
 		new Promise<void>((resolve) => {
@@ -134,9 +138,12 @@ export async function runRelay(options: RelayRunOptions = {}): Promise<number> {
 	log(`Relay ${config.publicUrl} -> 127.0.0.1:${config.port}`);
 	// A client that stopped retrying holds no socket or timer, so this keeps the process (and its state) up until it is stopped.
 	const hold = setInterval(() => {}, 2 ** 30);
-	client.start();
-	await stop;
-	clearInterval(hold);
-	client.stop();
+	try {
+		client.start();
+		await stop;
+		client.stop();
+	} finally {
+		clearInterval(hold);
+	}
 	return 0;
 }
