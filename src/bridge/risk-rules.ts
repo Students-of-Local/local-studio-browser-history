@@ -518,10 +518,16 @@ export function textLimit(t: TargetFacts): HardLimit | undefined {
 	// A search box is named for what it finds; its own name is never a field's.
 	const searching = type === "search" || (t.role || "").toLowerCase() === "searchbox";
 	const name = searching ? "" : `${t.name || ""} | ${t.field || ""}`.toLowerCase().replace(/\s+/g, " ");
+	// Named for a password: not one that only speaks of it (an email to reset it, its length).
+	const secret = name.split(" | ").some((part) => {
+		const said = /.*\b(password|passcode|passphrase)\b(.*)/.exec(part);
+		if (!said || /\b(e-?mail|user ?name)\b/.test(part)) return false;
+		return !said[2].trim() || !/\b(reset|forgot(ten)?|recover(y)?|length|hint|strength)\b/.test(part);
+	});
 	if (
 		type === "password" ||
 		/\b(current-password|new-password)\b/.test(auto) ||
-		/\b(password|passcode|passphrase)\b/.test(name)
+		(secret && !/^(email|url|number|range|date|datetime-local|month|week|time)$/.test(type))
 	)
 		return "password-field";
 	// A card field by its autocomplete, or by its name when the page gave it none.
@@ -533,7 +539,11 @@ export function textLimit(t: TargetFacts): HardLimit | undefined {
 	)
 		return "payment-field";
 	// Frames that are card fields (Stripe Elements, Braintree, Adyen and the like).
-	const host = /^https?:\/\/(?:[^/?#]*@)?([^/?#:]+)/i.exec(t.frameUrl || "")?.[1]?.toLowerCase() || "";
+	const host =
+		/^https?:\/\/(?:[^/?#]*@)?([^/?#:]+)/i
+			.exec(t.frameUrl || "")?.[1]
+			?.toLowerCase()
+			.replace(/\.$/, "") || "";
 	const card =
 		/(^|\.)(js\.stripe\.com|checkout\.stripe\.com|assets\.braintreegateway\.com|checkoutshopper-live\.adyen\.com|checkoutshopper-test\.adyen\.com|pay\.google\.com|secure\.checkout\.com|js\.squareup\.com|web\.squarecdn\.com|flex\.cybersource\.com|pci-connect\.squareup\.com|checkout\.paypal\.com|www\.paypal\.com|secure\.authorize\.net|pay\.shopify\.com|checkout\.shopifycs\.com)$/;
 	return card.test(host) ? "payment-field" : undefined;
@@ -573,5 +583,8 @@ export function entersText(tool: string, key?: string): boolean {
 	// Read as pressKey reads a chord: an unknown modifier is none.
 	const parts = (key ?? "").split("+").map((p) => p.trim());
 	const main = parts.pop() ?? "";
-	return /^(.|space)$/iu.test(main) && !parts.some((m) => /^(cmd|command|meta|win|ctrl|control|option|alt)$/i.test(m));
+	const held = (names: RegExp) => parts.some((m) => names.test(m));
+	// A paste, though pressKey refuses it too. Alt with a character writes one on a Mac.
+	if (/^insert$/i.test(main)) return held(/^shift$/i);
+	return /^(.|space)$/iu.test(main) && (/^v$/i.test(main) || !held(/^(cmd|command|meta|win|ctrl|control)$/i));
 }

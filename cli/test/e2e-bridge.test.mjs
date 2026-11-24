@@ -2401,8 +2401,8 @@ test("files save_pdf: the page as a PDF file on this computer", async () => {
 // one on localhost (another site, its own process). Both are read and acted on by ref.
 const FRAME_INNER = (k) => `<!doctype html><title>inner ${k}</title>
 <button onclick="document.getElementById('r').textContent='Paid ${k}'">Pay ${k}</button>
-<input aria-label="Card name ${k}" oninput="document.getElementById('echo').textContent='Name is '+this.value">
-<input type="password" aria-label="Pin ${k}" value="pin${k}SECRET42">
+<input aria-label="Card name ${k}" oninput="document.getElementById('echo').textContent='Name is '+this.value" onkeydown="if (event.key === 'Enter' && '${k}' === 'left') parent.frames[1].document.querySelector('[type=password]').focus()">
+<input type="password" aria-label="Pin ${k}" value="pin${k}SECRET42" oninput="document.getElementById('echo').textContent='Pin changed'">
 <a href="/inner2">Next ${k}</a>
 <p id="r">unpaid ${k}</p><p id="echo"></p>`;
 
@@ -2502,6 +2502,28 @@ test("cross-origin frames: read, click and fill inside a same-site and a cross-s
 			assert.match(await failure("type", { text: "0000" }), /^bad_params: .*frame from another site/);
 			assert.match(await failure("press", { key: "0" }), /^bad_params: .*frame from another site/);
 		}
+
+		// Text for a field in one frame stops when the focus goes to another frame's password.
+		extraPages["/xo-pair"] = `<!doctype html><title>Polycarp two frames</title>
+<iframe src="http://localhost:${port}/inner?k=left" style="width:400px;height:160px;border:0"></iframe>
+<iframe src="http://localhost:${port}/inner?k=right" style="width:400px;height:160px;border:0"></iframe>`;
+		await go("xo-pair");
+		await until(async () => {
+			page = await tool("read_page", { filter: "interactive" });
+			return frameRef(page, "Card name left") && frameRef(page, "Pin right");
+		}, 10_000, "both frames of the pair");
+		assert.match(
+			await failure("type", { ref: frameRef(page, "Card name left"), text: "Ann\n0000" }),
+			/^bad_params: Stopped partway: .*frame from another site/,
+		);
+		const pair = await tool("read_page", {});
+		assert.match(pair, /Name is Ann/);
+		assert.doesNotMatch(pair, /Pin changed/, "nothing went into the other frame's password");
+		await go("xo");
+		await until(async () => {
+			page = await tool("read_page", { filter: "interactive" });
+			return frameRef(page, "Pay same") && frameRef(page, "Pay cross");
+		}, 10_000, "both frames again");
 
 		// The frame navigates away: its old refs fail, never acting elsewhere.
 		const old = frameRef(page, "Pay cross");
@@ -3264,12 +3286,13 @@ extraPages["/pw-frame"] = `<!doctype html><title>Polycarp pw frame</title><ifram
 <div id="host"></div><script>document.getElementById("host").attachShadow({ mode: "open" }).innerHTML = '<input type="password" aria-label="Deep">';</script>`;
 // Ways text asked for one element lands in a password, and things named for one that aren't.
 extraPages["/pw-odd"] = `<!doctype html><title>Polycarp pw odd</title>
-<style>input, #wrap, #closed, x-login, iframe { display: block; width: 300px; height: 30px; margin: 4px; padding: 0; border: 0 }</style>
+<style>input, #wrap, #closed, #deep, x-login, x-secret, iframe { display: block; width: 300px; height: 30px; margin: 4px; padding: 0; border: 0 }</style>
 <div id="wrap">Click here to sign in</div><x-login></x-login><iframe id="in"></iframe><div id="closed"></div>
 <input id="turns" aria-label="Word"><input id="swaps" aria-label="Phrase">
 <input id="email" aria-label="Email"><input type="password" id="pw" aria-label="Second">
 <div role="dialog" aria-label="Change your password"><input id="nick" aria-label="Nickname"></div>
 <label><input type="checkbox" id="show"> Show password</label><a id="forgot" href="#">Forgot password?</a>
+<x-secret role="textbox"></x-secret><div id="deep" tabindex="0"></div>
 <input id="card" name="card_number"><div id="note" contenteditable style="width:300px;height:40px">My password is secret</div>
 <script>
 const pw = document.getElementById("pw");
@@ -3277,6 +3300,11 @@ document.getElementById("wrap").addEventListener("click", () => pw.focus());
 const field = '<input type="password" style="display:block;width:300px;height:30px;padding:0;border:0">';
 document.querySelector("x-login").attachShadow({ mode: "open" }).innerHTML = field;
 document.getElementById("closed").attachShadow({ mode: "closed" }).innerHTML = field;
+document.querySelector("x-secret").attachShadow({ mode: "closed" }).innerHTML = field;
+let at = document.getElementById("deep");
+for (let i = 0; i < 14; i++) at = at.attachShadow({ mode: "open" }).appendChild(document.createElement("div"));
+at.innerHTML = field;
+document.getElementById("deep").addEventListener("click", () => at.firstChild.focus());
 document.getElementById("in").srcdoc = '<body style="margin:0">' + field;
 document.getElementById("turns").addEventListener("focus", (e) => { e.target.type = "password"; });
 document.getElementById("swaps").addEventListener("focus", (e) => { const p = document.createElement("input"); p.type = "password"; e.target.replaceWith(p); p.focus(); });
@@ -3318,7 +3346,9 @@ test("no password takes an agent's text the page moves there: a wrapper, a compo
 	const page = await tool("read_page", { filter: "interactive" });
 	for (const paste of [false, true])
 		for (const selector of ["#wrap", "x-login", "#in"]) await refused("type", { selector, text: "hunter22", ...(paste ? { paste } : {}) });
-	await refused("type", { selector: "#closed", text: "hunter22" }, /^bad_params: Nothing was entered: .*closed shadow root/);
+	await refused("type", { selector: "#deep", text: "hunter22" });
+	for (const selector of ["x-secret", "#closed"])
+		await refused("type", { selector, text: "hunter22" }, /^bad_params: Nothing was entered: .*closed shadow root/);
 	await refused("press", { key: "h" }, /^bad_params: Nothing was entered: .*closed shadow root/);
 	await refused("fill", { ref: refFor(page, "Word"), value: "hunter22" });
 	await refused("type", { ref: refFor(page, "Phrase"), text: "hunter22" });

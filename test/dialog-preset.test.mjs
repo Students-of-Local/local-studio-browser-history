@@ -1075,6 +1075,12 @@ test("hard limit: text that moves the focus is looked at again: after each Enter
 	assert.equal(r.error?.code, "permission_denied", JSON.stringify(r));
 	assert.match(r.error.message, /^Stopped partway: some of the text went in, and the rest did not: this field is a password field/);
 	assert.equal(sent(), "|ann\r|");
+	// A look that fails after some text went in says so, so no agent types it again.
+	looks = ["", new Error("its frame did not answer")];
+	inputs.length = 0;
+	r = await request("type", { tabId: tab, text: "ann\nbob" });
+	assert.match(r.error?.message ?? "", /^Stopped partway: .*\(its frame did not answer\)\. Call read_page/, JSON.stringify(r));
+	assert.equal(sent(), "|ann\r|");
 	looks = ["", "password-field"];
 	inputs.length = 0;
 	r = await request("type", { tabId: tab, text: "ann\thunter2" });
@@ -1139,6 +1145,8 @@ test("hard limit: text waits for a look that can tell: a failed look, another si
 	chrome.debugger.sendCommand = (target, method, params) => {
 		if (method === "Runtime.evaluate" && params.expression.startsWith("(") && !params.returnByValue)
 			return Promise.resolve({ result: { objectId: "7" } });
+		if (method === "Page.getFrameTree") return Promise.resolve({ frameTree: { frame: { id: "top" } } });
+		if (method === "Page.createIsolatedWorld") return Promise.resolve({ executionContextId: 3 });
 		return method === "DOM.describeNode" ? Promise.resolve({ node: { shadowRoots } }) : inner(target, method, params);
 	};
 	t.after(() => {

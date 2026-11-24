@@ -2312,23 +2312,24 @@ const FIELD_FACTS = String.raw`(el) => {
 	if (W !== W.top) out.frameUrl = W.location.href;
 	const root = el.getRootNode();
 	const labelled = (el.getAttribute("aria-labelledby") || "").split(/\s+/).map((id) => { const n = id && root.getElementById ? root.getElementById(id) : null; return n ? n.textContent : ""; }).join(" ").trim();
-	const label = el.labels && el.labels[0] ? el.labels[0].textContent : "";
+	const label = [...(el.labels || [])].map((l) => l.textContent.replace(el.textContent || "", "")).join(" ").trim();
 	out.name = String(el.getAttribute("aria-label") || labelled || label || el.getAttribute("placeholder") || el.getAttribute("title") || "").slice(0, 200);
 	out.field = String(el.getAttribute("name") || "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[^A-Za-z0-9]+/g, " ").slice(0, 100);
 	return out;
 }`;
 
-/** The element with the focus, through open shadow roots and same-origin frames. An IFRAME means a frame from another site holds it. Page code. */
+const FRAME_TAG = "/^(iframe|frame|object|embed|fencedframe)$/i";
+
+/** The element with the focus, through open shadow roots and same-origin frames. A frame element means a frame from another site holds it. Page code. */
 const DEEP_FOCUS = `() => {
 	let el = document.activeElement;
-	for (let d = 0; el && d < 12; d++) {
-		if (el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement;
-		else if (/^(IFRAME|FRAME)$/.test(el.tagName)) {
-			let doc = null;
-			try { doc = el.contentDocument; } catch {}
-			if (!doc) break;
-			el = doc.activeElement;
-		} else break;
+	while (el) {
+		let doc = null;
+		if (${FRAME_TAG}.test(el.tagName)) try { doc = el.contentDocument; } catch {}
+		const inner = el.shadowRoot ? el.shadowRoot.activeElement : doc ? doc.activeElement : null;
+		if (doc && !inner) return null;
+		if (!inner) break;
+		el = inner;
 	}
 	return el;
 }`;
@@ -2340,52 +2341,59 @@ const FOCUS_LIB: PageLib = {
 		const tychicusFocus = (${DEEP_FOCUS})();
 		const el = tychicusFocus;
 		if (!el) return "";
-		if (/^(IFRAME|FRAME)$/.test(el.tagName)) return "other-site";
-		const facts = (${FIELD_FACTS})(el);
-		const limit = (${textLimit.toString()})(facts);
-		if (limit || facts.takesText) return limit || "";
-		return !el.shadowRoot && (/-/.test(el.tagName) || /^(ARTICLE|ASIDE|BLOCKQUOTE|DIV|FOOTER|H[1-6]|HEADER|MAIN|NAV|P|SECTION|SPAN)$/.test(el.tagName)) ? "host" : "";
+		if (${FRAME_TAG}.test(el.tagName)) return "other-site";
+		const limit = (${textLimit.toString()})((${FIELD_FACTS})(el));
+		// Its role says nothing of what a closed root inside it holds.
+		return limit || (!el.shadowRoot && /-|^(article|aside|blockquote|body|div|footer|h[1-6]|header|main|nav|p|section|span)$/i.test(el.tagName) ? "host" : "");
 	}`,
 };
 
-/** Whether the element with the focus has a closed shadow root: the page can't say which field inside it has the focus, the debugger sees the root. */
-async function focusInClosedRoot(tabId: number, frame: PageFrame | undefined): Promise<boolean> {
-	const world = frame ? await frameWorld(tabId, frame) : undefined;
+/**
+ * What the debugger knows of the element with the focus and the page doesn't: the frame it holds, and whether its
+ * shadow root is closed (the page can't say which field inside has the focus). Asked in Tychicus's own world, where no
+ * page script changes the answer; a focus that is gone counts as closed.
+ */
+async function focusNode(tabId: number, frame: PageFrame | undefined): Promise<{ frameId?: string; closed: boolean }> {
 	const call = <T>(method: string, params: Record<string, unknown>) =>
 		cdpSendSession<T>(tabId, frame?.sessionId, method, params);
+	const at = frame ?? {
+		frameId: (await call<{ frameTree: { frame: { id: string } } }>("Page.getFrameTree", {})).frameTree.frame.id,
+	};
 	const { result } = await call<{ result: { objectId?: string } }>("Runtime.evaluate", {
 		expression: `(${DEEP_FOCUS})()`,
-		...(world !== undefined ? { contextId: world } : {}),
+		contextId: await frameWorld(tabId, at),
 	});
 	const { objectId } = result;
-	if (!objectId) return false;
-	const { node } = await call<{ node: { shadowRoots?: Array<{ shadowRootType?: string }> } }>("DOM.describeNode", {
-		objectId,
-	});
+	if (!objectId) return { closed: true };
+	const { node } = await call<{ node: { frameId?: string; shadowRoots?: Array<{ shadowRootType?: string }> } }>(
+		"DOM.describeNode",
+		{ objectId },
+	);
 	call("Runtime.releaseObject", { objectId }).catch(() => undefined);
-	return !!node.shadowRoots?.some((r) => r.shadowRootType === "closed");
+	return { frameId: node.frameId, closed: !!node.shadowRoots?.some((r) => r.shadowRootType === "closed") };
 }
 
 /**
  * Why an agent's next key may not go out, if it may not: the focus is a password or payment field, or somewhere that
  * can't be told ("other-site", "closed-root"). Looks at the live focus, whatever the call named. With a ref in a
- * cross-origin frame the focus is looked at in the page and then in that frame.
+ * cross-origin frame the focus is followed into that frame and the frames around it, and into no other.
  */
 export async function focusLimit(
 	tabId: number,
 	ref: string | undefined,
 	rule: FrameRule = FRAMES_CLOSED,
 ): Promise<HardLimit | "other-site" | "closed-root" | undefined> {
-	const code = (): LibCall => ({ lib: FOCUS_LIB, args: [] });
-	const framed = !!ref && !!splitFrameRef(ref);
-	for (const at of framed ? [undefined, ref] : [undefined]) {
-		const { value, frame } = await runForRef<HardLimit | "other-site" | "host" | "">(tabId, at, code, rule);
-		if (framed && !at && value === "other-site") continue;
-		if (value === "host") {
-			if (await focusInClosedRoot(tabId, frame)) return "closed-root";
-		} else if (value) return value;
+	const chain = (ref && (await frameForRef(tabId, ref, rule))?.frame.chain) || [];
+	const look: LibCall = { lib: FOCUS_LIB, args: [] };
+	for (let depth = 0; depth <= chain.length; depth++) {
+		const frame = depth ? chain[depth - 1] : undefined;
+		type Said = HardLimit | "other-site" | "host" | "";
+		const said = frame ? await runInFrame<Said>(tabId, frame, libCode(look)) : await runLib<Said>(tabId, look);
+		if (said === "host") return (await focusNode(tabId, frame)).closed ? "closed-root" : undefined;
+		if (said !== "other-site") return said || undefined;
+		if (!chain[depth] || (await focusNode(tabId, frame)).frameId !== chain[depth].frameId) break;
 	}
-	return undefined;
+	return "other-site";
 }
 
 /**

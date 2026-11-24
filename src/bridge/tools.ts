@@ -350,7 +350,13 @@ async function refuseLimited(
 	partway = false,
 ): Promise<void> {
 	if (!ctx.hardLimits) return;
-	const limit = await focusLimit(tabId, ref, skipFor(ctx, tabId));
+	const limit = await focusLimit(tabId, ref, skipFor(ctx, tabId)).catch((err) => {
+		if (!partway || isDetachError(err)) throw err;
+		throw new BridgeError(
+			ERR.BAD_PARAMS,
+			`Stopped partway: some of the text went in, and the rest did not, because the next field couldn't be checked (${err instanceof Error ? err.message : err}). Call read_page before typing again.`,
+		);
+	});
 	if (limit) throw limitError(limit, partway);
 }
 
