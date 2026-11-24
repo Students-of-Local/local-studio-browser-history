@@ -732,10 +732,19 @@ async function runSetup(options: SetupOptions): Promise<number> {
 		relayAccount = wanted ?? (who.accounts.length === 1 ? who.accounts[0]?.id : undefined);
 		if (!relayAccount) {
 			const list = who.accounts.map((a, i) => `  ${i + 1}  ${a.name} (${a.id})`);
-			return fail("problem", `This Cloudflare sign-in has ${who.accounts.length} accounts. Pick one with --account <id>:\n${list.join("\n")}`, {
-				code: "cloudflare_account",
-				next: { kind: "run_command", command: `${again} --account <id>` },
-			});
+			if (!input) {
+				return fail("problem", `This Cloudflare sign-in has ${who.accounts.length} accounts. Pick one with --account <id>:\n${list.join("\n")}`, {
+					code: "cloudflare_account",
+					next: { kind: "run_command", command: `${again} --account <id>` },
+				});
+			}
+			say("Which Cloudflare account should the relay go on?");
+			for (const line of list) say(line);
+			while (!relayAccount) {
+				const answer = await ask(`Type 1 to ${who.accounts.length}: `);
+				if (answer === undefined) return fail("problem", "No account was chosen, so nothing was changed.", { code: "cloudflare_account" });
+				relayAccount = who.accounts[Number(answer.trim()) - 1]?.id;
+			}
 		}
 		if (tailscaleBinary()) {
 			// Funnel on 8443 would stay public and forward to this machine, whatever else is set up.
@@ -743,16 +752,24 @@ async function runSetup(options: SetupOptions): Promise<number> {
 			if (stray.kind !== "none") return fail("port_busy", `Funnel on ${FUNNEL_PORT} is on${stray.kind === "unknown" ? ` (${stray.message})` : ""}; run ${COMMAND_NAME} remote off first. Nothing was changed.`, { code: "tailscale_port" });
 		}
 		// The relay goes live refusing every connector until RELAY_KEY is set (relay/deploy.md), so deploying before the key is safe.
-		say(`${sym.dot} Deploying the relay as ${relayName} to your Cloudflare account.`);
-		const deployed = await deployRelay(relayName, relayAccount);
-		if (!deployed.ok && deployed.subdomain) {
+		let address: string | undefined;
+		while (!address) {
+			say(`${sym.dot} Deploying the relay as ${relayName} to your Cloudflare account.`);
+			const deployed = await deployRelay(relayName, relayAccount);
+			if (deployed.ok) {
+				address = deployed.url;
+				break;
+			}
+			if (!deployed.subdomain) return fail("problem", `${deployed.message} Nothing was saved.`, { code: "relay_deploy" });
 			const page = onboardingUrl(relayAccount);
 			const pick = `Your Cloudflare account has no workers.dev subdomain yet, and the relay's address ends in one. Open ${page}, pick a subdomain`;
-			return fail("problem", `${pick}, then run ${signIn.command} again. Nothing was saved.`, { code: "workers_subdomain", next: { kind: "open_page", url: page } });
+			if (!input) return fail("problem", `${pick}, then run ${signIn.command} again. Nothing was saved.`, { code: "workers_subdomain", next: { kind: "open_page", url: page } });
+			say(`${sym.dot} ${pick}. ${openPage(page) ? "Your browser opened it." : ""}`.trim());
+			const answer = await ask("Press Enter once it's saved, or type q to stop: ");
+			if (answer === undefined || answer.trim().toLowerCase() === "q") return fail("problem", `${pick}, then run ${signIn.command} again. Nothing was saved.`, { code: "workers_subdomain", next: { kind: "open_page", url: page } });
 		}
-		if (!deployed.ok) return fail("problem", `${deployed.message} Nothing was saved.`, { code: "relay_deploy" });
-		say(`${sym.ok} Relay deployed at ${deployed.url}`);
-		publicUrl = deployed.url;
+		say(`${sym.ok} Relay deployed at ${address}`);
+		publicUrl = address;
 		route = "relay";
 	} else if (tailnet) {
 		if (previous?.route === "funnel") return fail("problem", `Funnel from an earlier setup is on. Run ${COMMAND_NAME} remote off first.`);
