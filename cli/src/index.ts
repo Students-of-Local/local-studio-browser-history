@@ -19,6 +19,7 @@ import { installCopilotSdk } from "./subscriptions/install-sdk.ts";
 import { LIBRARY_USAGE, runLibrary } from "./library.ts";
 import { cloudflareLogin, runCloudflareTunnel } from "./cloudflare.ts";
 import { asPermissionMode, MODE_TITLE, modeSummary, type PermissionMode } from "./permission-mode.ts";
+import { runRelay } from "./relay.ts";
 import { printReport } from "./remote-state.ts";
 import { createToken, loadTokens, loadUsage, offeredScopes, revokeToken, SCOPES, serve, tokenLive } from "./remote.ts";
 import { listClients, mintApprovalCode, normalizePublicUrl, type OAuthConfig, passcodeSet, revokeClient, revokeGrantById, setPasscode } from "./oauth.ts";
@@ -743,6 +744,14 @@ async function main(): Promise<void> {
 					return;
 				}
 				throw new UsageError(`Usage: ${COMMAND_NAME} remote cloudflare login [--json]`);
+			}
+			if (sub === "relay") {
+				// What the relay service runs: the connector, in the foreground.
+				if (argv.slice(1).filter((a) => !a.startsWith("-"))[1] === "run") {
+					process.exitCode = await runRelay();
+					return;
+				}
+				throw new UsageError(`Usage: ${COMMAND_NAME} remote relay run`);
 			}
 			if (sub === "setup") {
 				const rawPublic = option("--public-url");

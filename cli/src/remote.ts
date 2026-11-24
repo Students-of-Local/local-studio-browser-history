@@ -528,6 +528,13 @@ export async function serve(options: ServeOptions): Promise<{ close: () => Promi
 			if (!allowed.has(host)) return deny(res, 421, "Misdirected request.");
 			if (await handleOAuth(view, req, res, path)) return;
 		}
+		// The relay route's end-to-end check (relay.ts): a request that gets this answer went through the relay to serve and back.
+		// It says only that serve is up; no token, no session count.
+		if (path === "/v1/health" && req.method === "GET") {
+			res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+			res.end('{"ok":true}');
+			return;
+		}
 		if (path !== "/mcp") return deny(res, 404, "Not found. The MCP endpoint is /mcp.", view);
 		const token = caller(req.headers.authorization, view);
 		if (!token) return deny(res, 401, oauth ? "Connect with OAuth or a valid, unrevoked bearer token." : `A valid, unrevoked bearer token is required (${COMMAND_NAME} token create).`, view);
