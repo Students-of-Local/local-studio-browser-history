@@ -90,6 +90,41 @@ test("choosing a mode takes the notice away; a chosen mode is never migrated aga
 	assert.equal(await getPermissionMode(), "manual", "the old key no longer decides");
 });
 
+test("a migration whose first read came before a choice never overwrites it: Manual chosen meanwhile stays Manual", async () => {
+	installFakeChrome();
+	const get = chrome.storage.local.get.bind(chrome.storage.local);
+	let release;
+	const gate = new Promise((r) => {
+		release = r;
+	});
+	let paused = false;
+	// The first read sees no mode yet, then waits (a status request from the CLI, say) while the person picks Manual.
+	chrome.storage.local.get = async (keys) => {
+		const data = await get(keys);
+		if (!paused) {
+			paused = true;
+			await gate;
+		}
+		return data;
+	};
+	const reading = getPermissionMode();
+	while (!paused) await new Promise((r) => setImmediate(r));
+	await setPermissionMode("manual");
+	release();
+	assert.equal(await reading, "manual");
+	assert.equal(await stored(MODE_KEY), "manual", "the migration did not write Auto over the choice");
+	assert.equal(await getModeNotice(), undefined, "and did not bring the notice back");
+	chrome.storage.local.get = get;
+});
+
+test("the notice promises only what this build does: action asks only once the bridge asks before risky actions", async () => {
+	installFakeChrome();
+	const { MODE_NOTICE_TEXT } = await import(`../src/components/ModeNotice.ts?ctx=${Date.now()}`);
+	const bridgeAsks = /\bactionRisk\(/.test(read("src/bridge/native.ts"));
+	if (/\b(send|post|buy|delete)\b/.test(MODE_NOTICE_TEXT)) assert.ok(bridgeAsks, `the notice promises asks the bridge never makes: ${MODE_NOTICE_TEXT}`);
+	assert.match(MODE_NOTICE_TEXT, /frontier models open ordinary sites/);
+});
+
 test("mode names: the three modes, and the 1.4.0 names an older CLI sends", () => {
 	assert.deepEqual(
 		["manual", "auto", "yolo", "ask", "allow_all", "by_model"].map(asPermissionMode),
@@ -118,7 +153,6 @@ test("the side panel shows the notice once, and its button switches to Manual", 
 	const card = modeNotice();
 	assert.ok(card.strings.join("").includes("Switch to Manual"), "the card offers Manual");
 	assert.match(MODE_NOTICE_TEXT, /Auto mode/);
-	assert.match(MODE_NOTICE_TEXT, /send, post, buy, delete or change settings/);
 	const [toManual] = card.values.filter((v) => typeof v === "function");
 	await toManual();
 	assert.equal(await getPermissionMode(), "manual");

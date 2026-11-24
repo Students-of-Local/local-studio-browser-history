@@ -77,28 +77,50 @@ export function migrateLegacyMode(stored: unknown): { mode: PermissionMode; noti
 	return { mode: "auto", notice: stored === "by_model" ? "by_model" : "unset" };
 }
 
+/** The mode as stored, when it is stored under its own name; a legacy name there is migrated like no mode. */
+function storedMode(data: Record<string, unknown>): PermissionMode | undefined {
+	const stored = asPermissionMode(data[MODE_KEY]);
+	return stored && data[MODE_KEY] === stored ? stored : undefined;
+}
+
+/** Writes to the mode, one at a time in this page or worker, so a migration can't land between a read and a choice. */
+let modeWrites: Promise<unknown> = Promise.resolve();
+function oneModeWrite<T>(write: () => Promise<T>): Promise<T> {
+	const run = modeWrites.then(write, write);
+	modeWrites = run.catch(() => undefined);
+	return run;
+}
+
 /**
  * The stored mode. An install that has none yet is migrated from its 1.4.0 setting here, on first read (the
- * worker's onInstalled handler, `startFreshInstall`, takes the notice back for a new install).
+ * worker's onInstalled handler, `startFreshInstall`, takes the notice back for a new install). The migration reads
+ * again just before it writes and stops if a mode was stored meanwhile, so it never overwrites a person's choice made
+ * here or in another page.
  */
 export async function getPermissionMode(): Promise<PermissionMode> {
-	const data = await chrome.storage.local.get([MODE_KEY, LEGACY_MODE_KEY]);
-	const stored = asPermissionMode(data[MODE_KEY]);
-	if (stored && data[MODE_KEY] === stored) return stored;
-	const { mode, notice } = migrateLegacyMode(data[LEGACY_MODE_KEY]);
-	await chrome.storage.local.set({
-		[MODE_KEY]: mode,
-		...(notice ? { [MODE_NOTICE_KEY]: { from: notice, at: Date.now() } satisfies ModeNotice } : {}),
+	const first = storedMode(await chrome.storage.local.get([MODE_KEY, LEGACY_MODE_KEY]));
+	if (first) return first;
+	return oneModeWrite(async () => {
+		const data = await chrome.storage.local.get([MODE_KEY, LEGACY_MODE_KEY]);
+		const chosen = storedMode(data);
+		if (chosen) return chosen;
+		const { mode, notice } = migrateLegacyMode(data[LEGACY_MODE_KEY]);
+		await chrome.storage.local.set({
+			[MODE_KEY]: mode,
+			...(notice ? { [MODE_NOTICE_KEY]: { from: notice, at: Date.now() } satisfies ModeNotice } : {}),
+		});
+		return mode;
 	});
-	return mode;
 }
 
 /** A new install: Auto, with no notice about a change it never saw. */
-export async function startFreshInstall(): Promise<void> {
-	const data = await chrome.storage.local.get([MODE_KEY, LEGACY_MODE_KEY]);
-	if (data[LEGACY_MODE_KEY] !== undefined) return;
-	if (data[MODE_KEY] === undefined) await chrome.storage.local.set({ [MODE_KEY]: "auto" });
-	await chrome.storage.local.remove(MODE_NOTICE_KEY);
+export function startFreshInstall(): Promise<void> {
+	return oneModeWrite(async () => {
+		const data = await chrome.storage.local.get([MODE_KEY, LEGACY_MODE_KEY]);
+		if (data[LEGACY_MODE_KEY] !== undefined) return;
+		if (data[MODE_KEY] === undefined) await chrome.storage.local.set({ [MODE_KEY]: "auto" });
+		await chrome.storage.local.remove(MODE_NOTICE_KEY);
+	});
 }
 
 /** The notice to show once, if a migration left one. */
@@ -112,9 +134,11 @@ export async function dismissModeNotice(): Promise<void> {
 }
 
 /** Setting a mode is a choice, so any notice about the default goes too. */
-export async function setPermissionMode(mode: PermissionMode): Promise<void> {
-	await chrome.storage.local.set({ [MODE_KEY]: mode });
-	await chrome.storage.local.remove(MODE_NOTICE_KEY);
+export function setPermissionMode(mode: PermissionMode): Promise<void> {
+	return oneModeWrite(async () => {
+		await chrome.storage.local.set({ [MODE_KEY]: mode });
+		await chrome.storage.local.remove(MODE_NOTICE_KEY);
+	});
 }
 
 /** Whether an agent in this mode, on a model of this tier, opens a site no one allowed without asking. */
