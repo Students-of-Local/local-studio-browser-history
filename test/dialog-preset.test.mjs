@@ -49,14 +49,14 @@ const box = (tabId, type, message) =>
 /** What each tab's page does when it is clicked at (x, y) or gets an Enter: it may open boxes, one after another. */
 const programs = new Map();
 const send = chrome.debugger.sendCommand;
-/** What the page says about an action's target (src/browser/page.ts describeTarget), when a test sets it; "fail" fails the look. */
+/** What the page says about an action's target (src/browser/page.ts describeTarget), when a test sets it; { fails } fails the look with that error. */
 let targetFacts;
 /** Every input event a test's tabs got, for "nothing went to the page". */
 const inputs = [];
 chrome.debugger.sendCommand = async (target, method, params) => {
 	const tabId = target.tabId;
 	if (targetFacts && method === "Runtime.evaluate" && String(params?.expression).includes("(ref, sel, x, y) =>"))
-		return { result: { value: targetFacts === "fail" ? { ok: false, error: "the look's script crashed" } : { ok: true, value: targetFacts } } };
+		return { result: { value: targetFacts.fails ? { ok: false, error: targetFacts.fails } : { ok: true, value: targetFacts } } };
 	if (method.startsWith("Input.")) inputs.push({ tabId, method, params });
 	if (method === "Page.handleJavaScriptDialog") {
 		await holdAnswer;
@@ -1075,7 +1075,7 @@ test("Auto lets an ordinary click go with no question, and Manual asks before a 
 });
 
 test("Auto fails closed: a click whose look at the page failed asks, and nothing goes out until the person answers", async (t) => {
-	await modeTest(t, "auto", "fail");
+	await modeTest(t, "auto", { fails: "the look's script crashed" });
 	const tab = await agentTab(async () => undefined);
 	const call = deliver("c1", "click", { tabId: tab, x: 10, y: 10 });
 	const ask = await actionAsk("c1");
@@ -1086,6 +1086,22 @@ test("Auto fails closed: a click whose look at the page failed asks, and nothing
 	assert.equal((await reply(call)).error, undefined);
 	assert.ok(inputs.some((i) => i.tabId === tab), "the click went out after Allow once");
 });
+
+for (const [what, fails, code] of [
+	["gone", "Ref e5 not found: its frame is gone or changed. Call read_page for fresh refs.", "stale_ref"],
+	["covered", "Ref e5 is covered by <div>, which would take the click. Close or dismiss it, then call read_page.", "not_actionable"],
+])
+	test(`Auto: a look that finds the target ${what} refuses the click, asks nothing, and sends nothing even when the page has changed back`, async (t) => {
+		await modeTest(t, "auto", { fails });
+		const tab = await agentTab(async () => undefined);
+		const asked = actionAsks("c1").length;
+		// The point itself takes a click, so only the look's refusal stops it.
+		const r = await request("click", { tabId: tab, x: 10, y: 10 });
+		assert.equal(r.error?.code, code, JSON.stringify(r));
+		assert.equal(r.error.message, fails);
+		assert.equal(actionAsks("c1").length, asked, "no question");
+		assert.equal(inputs.filter((i) => i.tabId === tab).length, 0, "nothing went to the page");
+	});
 
 test("Yolo: the same Delete click asks nothing", async (t) => {
 	await modeTest(t, "yolo", { role: "button", name: "Delete record" });

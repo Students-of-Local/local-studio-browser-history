@@ -454,7 +454,10 @@ async function guardAction(
 ): Promise<boolean> {
 	const key = typeof params.key === "string" ? params.key : undefined;
 	if (!needsTarget(tool, key, params.submit === true, mode === "yolo")) return false;
-	const f: ActionFacts = (await facts().catch(() => undefined)) ?? { tool, unchecked: true };
+	const f: ActionFacts = await facts().catch((err) => {
+		if (err instanceof BridgeError) throw err;
+		return { tool, unchecked: true };
+	});
 	const limit = hardLimit(f);
 	if (limit)
 		throw new BridgeError(

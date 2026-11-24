@@ -325,8 +325,8 @@ async function changesBefore(ctx: HandlerContext, tabId: number, params?: Params
 	);
 }
 
-/** The failed looks an input refuses on its own, so they need no question first. */
-const INPUT_REFUSES: ReadonlySet<string> = new Set([
+/** The failed looks that refuse the input: what it names can't be reached, so there is nothing to ask about. */
+const LOOK_REFUSES: ReadonlySet<string> = new Set([
 	ERR.STALE_REF,
 	ERR.NOT_FOUND,
 	ERR.NOT_ACTIONABLE,
@@ -350,14 +350,17 @@ async function actionFacts(ctx: HandlerContext, tool: string, tabId: number, par
 		(value) => ({ value }),
 		(err: unknown) => ({ err }),
 	);
-	// A ref that is gone, covered or never given out is refused by the input itself; any other failed look is unchecked,
-	// and Auto and Manual ask about it instead of letting it through (D67).
-	const refused = "err" in found && INPUT_REFUSES.has(classify(found.err, tool).error.code);
+	// A ref that is gone, covered or never given out is refused here, not left to the input: the page can change before
+	// the input looks again. Any other failed look is unchecked, and Auto and Manual ask about it (D67).
+	if ("err" in found) {
+		const { error } = classify(found.err, tool);
+		if (LOOK_REFUSES.has(error.code)) throw error;
+	}
 	return {
 		tool,
 		url: tab?.pendingUrl || tab?.url,
 		...("value" in found ? { target: found.value as TargetFacts } : {}),
-		...("err" in found && !refused ? { unchecked: true } : {}),
+		...("err" in found ? { unchecked: true } : {}),
 		...(str(params, "key") ? { key: str(params, "key") } : {}),
 		...(params.submit === true ? { submit: true } : {}),
 	};
