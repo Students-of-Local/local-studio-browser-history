@@ -305,7 +305,7 @@ export const COMMANDS: CommandSpec[] = [
 		defaultSubcommand: "list",
 		subcommands: [
 			{ name: "list", what: "Each guest and whether it runs", flags: ["--json"] },
-			{ name: "up", args: "<name>", max: 1, what: "Start a guest: resume its saved session, else its ready point, else boot (the first boot downloads Debian 13 and saves the ready point); checks power, RAM, disk and load first", flags: ["--cold", "--force", "--json"] },
+			{ name: "up", args: "<name>", max: 1, what: "Start a guest: resume its saved session, else boot its disk as it stands (the first boot downloads Debian 13 and saves the ready point; after a reset of a stopped guest, start from that); checks power, RAM, disk and load first", flags: ["--cold", "--from-ready", "--force", "--json"] },
 			{ name: "down", args: "<name>", max: 1, what: "Save the guest's session and stop it", flags: ["--json"] },
 			{ name: "reset", args: "<name>", max: 1, what: "Back to the ready point; whatever the guest wrote since is gone", flags: ["--json"] },
 			{ name: "shot", args: "<name>", max: 1, what: "Save a PNG of the guest's display", flags: ["--out"] },

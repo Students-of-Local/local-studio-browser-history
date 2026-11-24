@@ -2211,8 +2211,11 @@ Linux guest on this Mac.
   from the saved state and stops the old one afterwards, because a stop takes 0.1 to 2 s. Each VM gets its own clone of
   `efi.vars`, since a VM that is still stopping keeps its store locked. Where saved state isn't supported, reset cold
   boots the clean disk and says so.
-- *up and down keep the session.* `down` saves the session state and stops; `up` resumes that session, else restores the
-  ready point, else boots. `up --cold` boots the disk as it stands. `reset` on a stopped guest drops the saved session.
+- *up and down keep the session, and only reset discards a disk.* `down`, and SIGTERM or SIGINT to the helper, save the
+  session state and stop. `up` resumes that session, else cold boots the disk as it stands, so a guest that powered off
+  or crashed keeps what it wrote. `up --cold` drops a saved session. `reset` on a stopped guest deletes its session and
+  disk; the next `up` makes a new disk from the ready point and restores it. `up --from-ready` asks for that start and
+  refuses while the guest has a disk.
 - *The gate.* Before `up`: under 5 GB free disk, or less free RAM than the guest's 1 GB plus 1 GB, refuses always. Battery
   power, or a 1-minute load above the core count, refuses unless `--force`.
 - *Screenshots come from the guest's framebuffer* (`/dev/fb0`, read through the agent and written as PNG): the console,

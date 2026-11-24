@@ -3,22 +3,24 @@
 // does that on a Mac.
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { Readable } from "node:stream";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { gateProblems, MIN_FREE_DISK, parsePmset, parseVmArgs, parseVmStat, RAM_HEADROOM, userData, writeSparse } from "../src/vm.ts";
+import { gateProblems, MIN_FREE_DISK, parsePmset, parseVmArgs, parseVmStat, RAM_HEADROOM, startFlags, userData, writeSparse } from "../src/vm.ts";
 
 const cli = join(dirname(fileURLToPath(import.meta.url)), "..", "dist", "index.js");
 const GiB = 1024 ** 3;
 
 test("vm arguments parse strictly", () => {
-	assert.deepEqual(parseVmArgs(["list"]), { sub: "list", cold: false, force: false, json: false });
-	assert.deepEqual(parseVmArgs(["list", "--json"]), { sub: "list", cold: false, force: false, json: true });
-	assert.deepEqual(parseVmArgs(["up", "linux", "--cold", "--force"]), { sub: "up", name: "linux", cold: true, force: true, json: false });
-	assert.deepEqual(parseVmArgs(["reset", "linux", "--json"]), { sub: "reset", name: "linux", cold: false, force: false, json: true });
+	assert.deepEqual(parseVmArgs(["list"]), { sub: "list", cold: false, fromReady: false, force: false, json: false });
+	assert.deepEqual(parseVmArgs(["list", "--json"]), { sub: "list", cold: false, fromReady: false, force: false, json: true });
+	assert.deepEqual(parseVmArgs(["up", "linux", "--cold", "--force"]), { sub: "up", name: "linux", cold: true, fromReady: false, force: true, json: false });
+	assert.deepEqual(parseVmArgs(["up", "linux", "--from-ready"]), { sub: "up", name: "linux", cold: false, fromReady: true, force: false, json: false });
+	assert.deepEqual(parseVmArgs(["reset", "linux", "--json"]), { sub: "reset", name: "linux", cold: false, fromReady: false, force: false, json: true });
 	assert.equal(parseVmArgs(["shot", "linux", "--out", "a.png"]).out, "a.png");
 	assert.equal(parseVmArgs(["shot", "linux", "--out=b.png"]).out, "b.png");
 	assert.equal(parseVmArgs(["exec", "linux", "--", "ls", "-la", "/root"]).cmd, "ls -la /root");
@@ -36,6 +38,8 @@ test("vm refuses what it would otherwise misread", () => {
 		[["up", "../x"], /not a guest name/],
 		[["up", "a".repeat(33)], /not a guest name/],
 		[["reset", "linux", "--cold"], /takes no option "--cold"/],
+		[["up", "linux", "--cold", "--from-ready"], /exclude each other/],
+		[["reset", "linux", "--from-ready"], /takes no option "--from-ready"/],
 		[["down", "linux", "--force"], /takes no option "--force"/],
 		[["up", "linux", "--json=1"], /takes no value/],
 		[["shot", "linux", "--out"], /--out needs a file name/],
@@ -130,6 +134,43 @@ test("the seed has no users, no SSH and the vsock agent", () => {
 	// The agent's Python sits inside a YAML block: every line indented by six spaces.
 	const agent = seed.slice(seed.indexOf("#!/usr/bin/python3"), seed.indexOf("  - path: /etc/systemd"));
 	for (const line of agent.split("\n").slice(1, -1)) if (line) assert.match(line, /^ {6}/, line);
+});
+
+test("up starts from the ready point only when the guest has no disk", () => {
+	assert.deepEqual(startFlags({ cold: false }, true), [], "a disk is booted as it stands");
+	assert.deepEqual(startFlags({ cold: true }, true), ["--cold"]);
+	assert.deepEqual(startFlags({ cold: false }, false), ["--from-ready"]);
+});
+
+const mac = process.platform === "darwin" && process.arch === "arm64";
+test("only reset discards a stopped guest's disk", { skip: mac ? false : "vm runs on Apple silicon" }, async () => {
+	const root = mkdtempSync(join(tmpdir(), "tvm-"));
+	const guest = join(root, "guests", "g");
+	mkdirSync(guest, { recursive: true });
+	for (const name of ["disk.raw", "ready.raw", "session.vzvmsave"]) writeFileSync(join(guest, name), name);
+	const vm = (...args) => spawnSync(process.execPath, [cli, "vm", ...args], { encoding: "utf8", env: { ...process.env, TYCHICUS_VM_DIR: root } });
+	const has = (name) => existsSync(join(guest, name));
+	// A helper that listens but never answers (spawnSync blocks this process) is slow, not gone.
+	const silent = createServer();
+	try {
+		const up = vm("up", "g", "--from-ready", "--force");
+		assert.equal(up.status, 1);
+		assert.match(up.stderr, /--from-ready never overwrites one/);
+		assert.equal(readFileSync(join(guest, "disk.raw"), "utf8"), "disk.raw");
+		assert.ok(has("session.vzvmsave"));
+
+		await new Promise((done) => silent.listen(join(guest, "control.sock"), done));
+		assert.notEqual(vm("reset", "g").status, 0);
+		assert.ok(has("disk.raw") && has("session.vzvmsave"), "a guest whose helper is slow keeps its disk");
+		await new Promise((done) => silent.close(done));
+
+		const reset = vm("reset", "g");
+		assert.equal(reset.status, 0, reset.stderr);
+		assert.ok(!has("disk.raw") && !has("session.vzvmsave") && has("ready.raw"));
+	} finally {
+		silent.close();
+		rmSync(root, { recursive: true, force: true });
+	}
 });
 
 test("the CLI refuses a bad vm command with exit 2 and lists vm in help", () => {
