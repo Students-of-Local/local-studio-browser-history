@@ -79,7 +79,6 @@ for sig in TERM INT; do
 	[ "$how" = cold ] || fail "start before SIG$sig: $how"
 	kill "-$sig" "$pid"
 	gone
-	# Then at once in the next start, which restores that session.
 	if [ -s "$dir/session.vzvmsave" ]; then
 		start
 		kill "-$sig" "$pid"
@@ -93,8 +92,7 @@ for sig in TERM INT; do
 	fi
 done
 
-# A ready point: a session saved as early as it can be, so the restored firmware has its few seconds left, and
-# the disk it was saved with.
+# A ready point: a session saved as early as it can be (the firmware has a few seconds), and its disk.
 rm -f "$dir/session.vzvmsave"
 start
 kill -TERM "$pid"
