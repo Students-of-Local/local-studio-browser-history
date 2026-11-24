@@ -13,7 +13,7 @@
  * Only `reset` discards a guest's disk.raw. `up` without a saved session boots disk.raw as it stands.
  */
 
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { execFileSync, spawn } from "node:child_process";
 import {
 	chmodSync,
@@ -22,10 +22,12 @@ import {
 	createWriteStream,
 	existsSync,
 	ftruncateSync,
+	linkSync,
 	mkdirSync,
 	mkdtempSync,
 	openSync,
 	readdirSync,
+	readFileSync,
 	renameSync,
 	rmSync,
 	statfsSync,
@@ -354,6 +356,61 @@ runcmd:
 `;
 }
 
+function alive(pid: number): boolean {
+	try {
+		process.kill(pid, 0);
+		return true;
+	} catch (err) {
+		return (err as NodeJS.ErrnoException).code === "EPERM";
+	}
+}
+
+/**
+ * Wait for the guest's lock. One command at a time may create, start or reset a guest, so a second `up` during the
+ * first one's download never builds a disk over it. A command that died leaves its lock and the next one takes it
+ * over. Returns the unlock.
+ */
+export async function lockGuest(root: string, name: string, deadline: number, log: (line: string) => void): Promise<() => void> {
+	const lock = join(root, `${name}.lock`);
+	const mine = `${lock}.${randomUUID()}`;
+	const text = `${process.pid} ${mine}`;
+	writeFileSync(mine, text, { mode: 0o600 });
+	let said = false;
+	try {
+		for (;;) {
+			try {
+				// A link lands whole or not at all, and never over another.
+				linkSync(mine, lock);
+				return () => rmSync(lock, { force: true });
+			} catch (err) {
+				if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+			}
+			try {
+				const held = readFileSync(lock, "utf8");
+				const pid = Number(held.split(" ")[0]);
+				if (pid !== process.pid && !alive(pid)) {
+					const stale = `${mine}.stale`;
+					renameSync(lock, stale);
+					// Another command took the dead one's place in between: put its lock back.
+					if (readFileSync(stale, "utf8") !== held) linkSync(stale, lock);
+					rmSync(stale);
+					continue;
+				}
+				if (Date.now() >= deadline) throw new Error(`another \`vm\` command (process ${pid}) is still working on ${name}. If there is none, delete ${lock}`);
+				if (!said) log(`Waiting for another \`vm\` command on ${name} (process ${pid}).`);
+				said = true;
+			} catch (err) {
+				// The lock went while this looked at it.
+				if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
+				throw err;
+			}
+			await sleep(50);
+		}
+	} finally {
+		rmSync(mine, { force: true });
+	}
+}
+
 /** A new guest: an APFS clone of the base grown to GUEST.diskGiB, the seed ISO and machine.json. */
 async function ensureGuest(name: string, log: (line: string) => void): Promise<string> {
 	const dir = join(vmRoot(), "guests", name);
@@ -505,6 +562,16 @@ export async function runVm(args: VmArgs, out: { log: (line: string) => void; er
 				out.log(`${row.name}  ${row.state}${row.session ? "  (saved session)" : ""}${row.readyPoint ? "" : "  (no ready point yet)"}`);
 		return 0;
 	}
+	const unlock = args.sub === "up" || args.sub === "reset" ? await lockGuest(root, args.name!, Date.now() + UP_WAIT_MS, out.err) : undefined;
+	try {
+		return await guestCommand(args, root, out);
+	} finally {
+		unlock?.();
+	}
+}
+
+/** Every command on one guest. `up` and `reset` hold its lock throughout, so what they check stays true. */
+async function guestCommand(args: VmArgs, root: string, out: { log: (line: string) => void; err: (line: string) => void }): Promise<number> {
 	const name = args.name!;
 	const dir = join(root, "guests", name);
 	const report = (status: Status, line: string) => out.log(args.json ? JSON.stringify(status) : line);

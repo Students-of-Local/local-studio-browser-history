@@ -2,15 +2,15 @@
 // image writer and the cloud-init seed. Booting a guest needs Virtualization.framework; scripts/vm-bench.mjs
 // does that on a Mac.
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { Readable } from "node:stream";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { existingHelper, gateProblems, MIN_FREE_DISK, parsePmset, parseVmArgs, parseVmStat, RAM_HEADROOM, request, startFlags, userData, writeSparse } from "../src/vm.ts";
+import { existingHelper, gateProblems, lockGuest, MIN_FREE_DISK, parsePmset, parseVmArgs, parseVmStat, RAM_HEADROOM, request, startFlags, userData, writeSparse } from "../src/vm.ts";
 
 const cli = join(dirname(fileURLToPath(import.meta.url)), "..", "dist", "index.js");
 const GiB = 1024 ** 3;
@@ -180,6 +180,55 @@ test("up waits for a start or stop already under way instead of calling the gues
 test("a helper that closes the connection without an answer fails the request at once", async (t) => {
 	const dir = await fakeHelper(t, [null]);
 	await assert.rejects(request(dir, { op: "exec" }, 600_000), /closed without answering exec/);
+});
+
+test("one command at a time creates, starts or resets a guest; the next one waits, and a dead one's lock is taken over", async (t) => {
+	const root = mkdtempSync(join(tmpdir(), "tvm-"));
+	t.after(() => rmSync(root, { recursive: true, force: true }));
+	const said = [];
+	const lock = (ms) => lockGuest(root, "g", Date.now() + ms, (line) => said.push(line));
+	const unlock = await lock(0);
+	await assert.rejects(lock(0), /another `vm` command \(process \d+\) is still working on g/);
+	assert.equal(said.length, 0);
+	await (await lockGuest(root, "h", Date.now(), () => {}))(); // another guest has its own lock
+
+	// Two wait; each gets it only after the one before lets go.
+	const order = [];
+	const waiting = ["second", "third"].map(async () => {
+		const un = await lock(10_000);
+		order.push("in");
+		await new Promise((done) => setTimeout(done, 80));
+		order.push("out");
+		un();
+	});
+	await new Promise((done) => setTimeout(done, 150));
+	assert.deepEqual(order, [], "nothing runs while the first holds it");
+	assert.equal(said.length, 2, "each says once that it waits");
+	unlock();
+	await Promise.all(waiting);
+	assert.deepEqual(order, ["in", "out", "in", "out"]);
+
+	// Killed while it held the lock: the lock file stays, and the next command takes it over.
+	const child = spawn(process.execPath, ["-e", ""]);
+	await new Promise((done) => child.on("exit", done));
+	writeFileSync(join(root, "g.lock"), `${child.pid} gone`);
+	const all = [];
+	let held = 0;
+	for (let i = 0; i < 5; i++)
+		all.push(
+			lock(10_000).then(async (un) => {
+				assert.equal(++held, 1, "one holder");
+				await new Promise((done) => setTimeout(done, 10));
+				held--;
+				un();
+			}),
+		);
+	await Promise.all(all);
+	assert.deepEqual(readdirSync(root), [], "no lock files are left");
+	// The commands that change a stopped guest run inside it, before they read its folder.
+	const source = readFileSync(join(dirname(cli), "..", "src", "vm.ts"), "utf8");
+	assert.match(source, /const unlock = args\.sub === "up" \|\| args\.sub === "reset" \? await lockGuest\([^;]+;\s*try \{\s*return await guestCommand\(/);
+	assert.equal(source.match(/ensureGuest\(/g).length, 2, "only the locked `up` makes a guest");
 });
 
 const mac = process.platform === "darwin" && process.arch === "arm64";
