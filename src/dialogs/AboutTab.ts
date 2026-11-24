@@ -22,13 +22,13 @@ export class AboutTab extends SettingsTab {
 				<div class="flex items-center gap-3">
 					${tychicusMark(44, "tile", "rounded-[10px]")}
 					<div>
-						<h3 class="text-lg font-semibold tracking-tight text-foreground leading-tight">Tychicus</h3>
+						<h3 class="text-lg font-semibold tracking-tight text-foreground leading-tight">Local Studio</h3>
 						<p class="text-sm text-muted-foreground">${i18n("Version:")} ${version}</p>
 					</div>
 				</div>
 
 				<div class="text-sm text-muted-foreground space-y-1">
-					<p class="text-foreground">${i18n("You steer. Tychicus works the tabs.")}</p>
+					<p class="text-foreground">${i18n("You steer. Local Studio works the tabs.")}</p>
 					<p>${i18n("An AI agent in your side panel, and a browser your coding agents can drive.")}</p>
 				</div>
 

@@ -198,7 +198,7 @@ test("the UI says API use is billed and offers only the sanctioned subscription 
 	const section = readFileSync(join(repo, "src", "subscriptions", "SubscriptionsSection.ts"), "utf8");
 	assert.match(section, /Continue with ChatGPT/, "OpenAI's UI guidelines name the button Continue with ChatGPT");
 	assert.match(section, /Sign in with GitHub Copilot/);
-	assert.match(section, /Use your Claude Code or Gemini CLI subscription by running it with Tychicus's MCP server/);
+	assert.match(section, /Use your Claude Code or Gemini CLI subscription by running it with Local Studio's MCP server/);
 	assert.doesNotMatch(section, /Sign in with Claude|Continue with Claude|Sign in with Gemini|Sign in with Google/);
 });
 
