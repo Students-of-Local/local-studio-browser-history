@@ -140,4 +140,53 @@ export function agentBrowserDriver(ctx) {
 	};
 }
 
-export const drivers = { "playwright-mcp": playwrightDriver, browse: browseDriver, "agent-browser": agentBrowserDriver };
+/** Parse `uid=1_5 textbox "Full name"` lines (Chrome DevTools MCP's take_snapshot), in document order. A line with no role is static text. */
+export function parseUids(text) {
+	const nodes = [];
+	for (const line of String(text).split("\n")) {
+		const m = /^\s*uid=(\S+)(?: ([A-Za-z]+))?(?: "((?:[^"\\]|\\.)*)")?/.exec(line);
+		if (m) nodes.push({ ref: m[1], role: m[2] ?? "StaticText", name: (m[3] ?? "").replace(/\\"/g, '"'), line });
+	}
+	return nodes;
+}
+
+const plainSnapshot = (t) => String(t).replace(/^\s*uid=\S+ (?:[A-Za-z]+ )?/gm, "");
+
+/** Chrome DevTools MCP routes each call by page id; the driver keeps the page it opened and the one a click opened. */
+export function chromeDevtoolsDriver(ctx) {
+	const s = counter(ctx.call);
+	let page;
+	const on = (args) => ({ pageId: page, ...args });
+	return {
+		s,
+		async open(url) {
+			ctx.first ??= Number(/^(\d+):/m.exec(await s.tool("list_pages", {}))?.[1] ?? 1);
+			page = ctx.first;
+			return s.tool("navigate_page", on({ url }));
+		},
+		async nodes() {
+			return parseUids(await s.tool("take_snapshot", on({})));
+		},
+		// Page text is the snapshot without its uid and role markup, as solves.mjs's flat() drops other tools' refs.
+		text: async () => plainSnapshot(await s.tool("take_snapshot", on({}))),
+		search: async () => plainSnapshot(await s.tool("take_snapshot", on({}))),
+		click: (n) => s.tool("click", on({ uid: n.ref })),
+		fill: (n, value) => s.tool("fill", on({ uid: n.ref, value })),
+		check: (n) => s.tool("click", on({ uid: n.ref })),
+		select: (n, value) => s.tool("fill", on({ uid: n.ref, value })),
+		upload: (n, path) => s.tool("upload_file", on({ uid: n.ref, filePaths: [path] })),
+		dialog: (accept, promptText) => s.tool("handle_dialog", on({ action: accept ? "accept" : "dismiss", ...(promptText !== undefined ? { promptText } : {}) })),
+		// The click's result lists the pages it opened ("## Opened pages", then "2: title (url)").
+		async clickNewTab(n) {
+			const r = await s.tool("click", on({ uid: n.ref }));
+			const id = /## Opened pages\n(\d+):/.exec(r)?.[1];
+			if (id === undefined) throw new Error(`click reported no new page: ${r.slice(0, 300)}`);
+			page = Number(id);
+		},
+		backToFirst() {
+			page = ctx.first;
+		},
+	};
+}
+
+export const drivers = { "playwright-mcp": playwrightDriver, browse: browseDriver, "agent-browser": agentBrowserDriver, "chrome-devtools-mcp": chromeDevtoolsDriver };

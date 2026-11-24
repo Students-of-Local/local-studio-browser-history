@@ -55,20 +55,39 @@ has cases.
 
 ## Rivals, by hand
 
-[`rivals/`](rivals/) runs the same task set and speed check against Playwright MCP, agent-browser and browse, the
-versions the 2026-11-17 study measured. They never run in CI: CI scores Tychicus only.
+[`rivals/`](rivals/) runs the same task set and speed check against Playwright MCP, agent-browser, browse and Chrome
+DevTools MCP, at the versions `rivals/install.sh` pins. They never run in CI: CI scores Tychicus only. Each runs in a
+throwaway profile, headless, on Playwright's Chromium.
 
 ```sh
 evals/market/rivals/install.sh                                     # into evals/market/rivals/tools (gitignored)
-node evals/market/rivals/run.mjs --tool playwright-mcp --repeat 3  # or agent-browser, browse, tychicus
+node evals/market/rivals/run.mjs --tool playwright-mcp --repeat 3  # or agent-browser, browse, chrome-devtools-mcp, tychicus
+node evals/market/rivals/install-time.mjs                          # install time from nothing, and install steps
 ```
 
-Each writes `results/rival-<tool>.json` in the format above, plus `startMs`: from nothing running to the first page's
+Each run writes `results/rival-<tool>.json` in the format above, plus `startMs`: from nothing running to the first page's
 text (`t01-read`), in a session of its own, the same way for every tool (`detail.start.launchMs` is the tool's start
-alone; agent-browser launches its browser on its first command, so start alone read 0). `--no-start` skips it.
-`MARKET_RIVALS_DIR` points at another install, and
-`MARKET_CHROMIUM` at another Chromium. Model-driven runs (a local model given each tool's own MCP tools) and Browser
-Use's own agent are the weak-model track in #30 and still live in the study's runner.
+alone; agent-browser launches its browser on its first command, so start alone read 0). `--no-start` skips it. `env`
+holds the tool's version, the machine, Node, Chromium and the 1-minute load average at the start and end.
+`install-time.mjs` writes `results/install.json`: each tool installed 3 times into a new folder with an empty npm cache
+(Tychicus by its release's one command, with a throwaway home folder), and the install steps each README gives.
+`MARKET_RIVALS_DIR` points at another install, and `MARKET_CHROMIUM` at another Chromium. Model-driven runs (a local
+model given each tool's own MCP tools), Browser Use's own agent and Stagehand are the weak-model track in #30 and have
+no adapter here.
+
+## Results page
+
+[`docs/market.md`](../../docs/market.md) is the published comparison, built by `page.mjs` from the runs kept in
+[`published/`](published/), one folder per date with one small file per tool and `install.json`. A kept run holds
+numbers, versions and the machine; never task rows, page text or a host name.
+
+```sh
+node evals/market/page.mjs --add 2026-11-24 evals/market/results/rival-*.json evals/market/results/install.json
+node evals/market/page.mjs --check                                  # exits 1 when the page and published/ disagree
+```
+
+`--add` keeps the runs and rewrites the page. Never edit the page by hand: `test/market-page.test.mjs` (in CI's extension
+tests) fails when it is not exactly what `published/` gives.
 
 ## Risky actions
 
