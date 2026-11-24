@@ -32,14 +32,15 @@ export interface RemoteStepCopy {
 	waits?: boolean;
 }
 
-export const REMOTE_TITLE = "Use Tychicus from Claude, ChatGPT and Grok";
+export const REMOTE_TITLE = "Use Local Studio from Claude, ChatGPT and Grok";
 
 /** What a stopped Repair's step ends with in place of "this page moves on by itself": nothing polls there. */
 export const REPAIR_AGAIN = "Then press Repair again.";
 
 export const ROUTE_COPY = {
 	chooseTitle: "How should assistants reach this computer?",
-	chooseBody: "Both ways are free and run on your own account. Tychicus never sees the account or makes one for you.",
+	chooseBody:
+		"Both ways are free and run on your own account. Local Studio never sees the account or makes one for you.",
 	tailscale: { name: "Tailscale", detail: "No domain needed.", use: "Use Tailscale" },
 	cloudflare: { name: "Cloudflare", detail: "Uses a domain on your Cloudflare account.", use: "Use Cloudflare" },
 	recommended: "Recommended",
@@ -81,8 +82,8 @@ export const STEP_COPY = {
 		action: { kind: "use_cloudflare", label: "Use Cloudflare" },
 	},
 	local_port: {
-		title: "Another program is using Tychicus's port",
-		body: "A program on this computer already listens on the port Tychicus needs, so nothing was changed. Quit it, then check again.",
+		title: "Another program is using the connector's port",
+		body: "A program on this computer already listens on the port the connector needs, so nothing was changed. Quit it, then check again.",
 		action: { kind: "check_again", label: "Check again" },
 	},
 	tailscale_port: {
@@ -118,7 +119,7 @@ export const STEP_COPY = {
 	},
 	tailscale_operator: {
 		title: "Let your user control Tailscale",
-		body: "Tailscale refused because your user isn't its operator. Run this command once in a terminal; Tychicus never runs sudo. This page moves on by itself.",
+		body: "Tailscale refused because your user isn't its operator. Run this command once in a terminal; the extension never runs sudo. This page moves on by itself.",
 		action: { kind: "copy_command", label: "Copy the command" },
 		waits: true,
 	},
@@ -128,17 +129,17 @@ export const STEP_COPY = {
 	 */
 	tailscale_operator_check: {
 		title: "Let your user control Tailscale",
-		body: "Tailscale refused because your user isn't its operator. Run this command once in a terminal; Tychicus never runs sudo. Then press Check again.",
+		body: "Tailscale refused because your user isn't its operator. Run this command once in a terminal; the extension never runs sudo. Then press Check again.",
 		action: { kind: "open_funnel", label: "Check again" },
 	},
 	launcher: {
-		title: "Finish installing Tychicus",
-		body: "Tychicus's launcher isn't set up on this computer, so the background service would have nothing to start. Run this command once in a terminal, then try again.",
+		title: "Finish installing the Local Studio helper",
+		body: "The helper's launcher isn't set up on this computer, so the background service would have nothing to start. Run this command once in a terminal, then try again.",
 		action: { kind: "copy_command", label: "Copy the command" },
 	},
 	launcher_app: {
 		title: "Connect a browser first",
-		body: "Tychicus needs a browser connected before an assistant can use it. Use Connect in the Browsers section above, then press Check again.",
+		body: "Local Studio needs a browser connected before an assistant can use it. Use Connect in the Browsers section above, then press Check again.",
 		action: { kind: "check_again", label: "Check again" },
 	},
 	hub: {
@@ -148,12 +149,12 @@ export const STEP_COPY = {
 	},
 	service: {
 		title: "The background service didn't start",
-		body: "Tychicus couldn't start the service that keeps the connector running. Your settings are kept. Details has the reason.",
+		body: "Local Studio couldn't start the service that keeps the connector running. Your settings are kept. Details has the reason.",
 		action: { kind: "try_again", label: "Try again" },
 	},
 	serve: {
 		title: "The connector didn't answer on this computer",
-		body: "The service started, but nothing answered on Tychicus's local port, so nothing was opened to the internet. Details has the reason.",
+		body: "The service started, but nothing answered on the connector's local port, so nothing was opened to the internet. Details has the reason.",
 		action: { kind: "try_again", label: "Try again" },
 	},
 	funnel: {
@@ -163,7 +164,7 @@ export const STEP_COPY = {
 	},
 	config: {
 		title: "A settings file couldn't be saved",
-		body: "Tychicus couldn't read or write its connector settings. Details names the file. Fix it, then try again.",
+		body: "Local Studio couldn't read or write its connector settings. Details names the file. Fix it, then try again.",
 		action: { kind: "try_again", label: "Try again" },
 	},
 	dns: {
@@ -187,7 +188,7 @@ export const STEP_COPY = {
 	},
 	cloudflared_missing: {
 		title: "Get cloudflared",
-		body: "cloudflared is Cloudflare's free program for tunnels. Tychicus can download Cloudflare's own release and check its fingerprint before using it.",
+		body: "cloudflared is Cloudflare's free program for tunnels. Local Studio can download Cloudflare's own release and check its fingerprint before using it.",
 		action: { kind: "download", label: "Get it for me" },
 	},
 	cloudflared_manual: {
@@ -204,12 +205,12 @@ export const STEP_COPY = {
 	},
 	cloudflare_name: {
 		title: "Pick this computer's address",
-		body: "Any name on a domain in your Cloudflare account, like tychicus.yourdomain.com. Tychicus makes the tunnel and its DNS record there.",
+		body: "Any name on a domain in your Cloudflare account, like tychicus.yourdomain.com. Local Studio makes the tunnel and its DNS record there.",
 		action: { kind: "turn_on", label: "Turn on" },
 	},
 	cloudflare_name_refused: {
 		title: "Pick another name",
-		body: "Cloudflare can't use that name for a new tunnel: it's taken, or it isn't a valid name. Tychicus never replaces a record.",
+		body: "Cloudflare can't use that name for a new tunnel: it's taken, or it isn't a valid name. It never replaces a record.",
 		action: { kind: "turn_on", label: "Turn on" },
 	},
 	cloudflare_dns: {
@@ -243,12 +244,12 @@ export const STEP_COPY = {
 		body: "A new address takes a few minutes to reach the internet. This page checks again by itself; add the assistant once it passes.",
 	},
 	on: {
-		title: "On: add Tychicus to an assistant",
+		title: "On: add Local Studio to an assistant",
 		body: "Assistants you approve can use this browser. Only approve a connection you just started.",
 	},
 	no_browser_connected: {
 		title: "On, but no browser is connected",
-		body: "Open your browser with Tychicus's extension, and assistants can use it.",
+		body: "Open your browser with the Local Studio browser extension loaded, and assistants can use it.",
 	},
 	not_set_up: {
 		title: "Nothing is set up yet",
@@ -408,13 +409,13 @@ export const ASSISTANT_STEPS = [
 
 /** The line `remote setup` prints after the three assistants. */
 export const APPROVAL_STEP =
-	"Each opens Tychicus's approval page: check the name, tick what it may do, type the connect code and press Allow.";
+	"Each opens Local Studio's approval page: check the name, tick what it may do, type the connect code and press Allow.";
 
 /** The result screen, in the order a person acts. */
 export const RESULT_COPY = {
 	assistantsStep: "1. In your assistant, add a custom connector",
 	addressStep: "2. Paste this address",
-	codeStep: "3. On Tychicus's approval page, type this code",
+	codeStep: "3. On Local Studio's approval page, type this code",
 	addressLabel: "Connector URL",
 	codeLabel: "Connect code",
 	expiresIn: "Expires in",
@@ -423,7 +424,7 @@ export const RESULT_COPY = {
 	codeNote: "It works once, for 10 minutes. Each new assistant needs its own code.",
 	passcodeLabel: "Passcode, for re-approving",
 	passcodeNote:
-		"Shown once. Use it when an assistant you already approved asks again. Keep it in a password manager, but not one the browser Tychicus drives can fill.",
+		"Shown once. Use it when an assistant you already approved asks again. Keep it in a password manager, but not one the browser Local Studio drives can fill.",
 	noPasscode: "No passcode was made here. To approve an assistant again later, make a new connect code.",
 	codeNone: "Press New code to make the code for your assistant.",
 	checksWaiting: "Waiting for the address to answer.",

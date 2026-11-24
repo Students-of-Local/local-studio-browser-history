@@ -45,7 +45,7 @@ async function answer(act: () => Promise<void>): Promise<void> {
 
 /** The text of the notice, for the card and its test. */
 export const MODE_NOTICE_TEXT =
-	"Tychicus is now in Auto mode: agents on frontier models open any site on their own, and small or unknown models ask you first.";
+	"Local Studio is now in Auto mode: agents on frontier models open any site on their own, and small or unknown models ask you first.";
 
 export function modeNotice(): TemplateResult | typeof nothing {
 	if (!notice) return nothing;

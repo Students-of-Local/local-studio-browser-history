@@ -69,12 +69,12 @@ test("the setup prompt refuses to install without a version to pin", () => {
 	// A working install elsewhere skips only the helper install, never connecting this harness.
 	assert.match(prompt, /go to step 3\./);
 	assert.doesNotMatch(prompt, /skip to step [4-9]/);
-	assert.match(prompt, /4\. Connect this harness, even if Tychicus already works in another one/);
+	assert.match(prompt, /4\. Connect this harness, even if Local Studio's browser use already works in another one/);
 });
 
 test("the setup prompt appends skills to the user's project AGENTS.md, not the checkout's", () => {
 	const line = prompt.split("\n").find((l) => l.includes(">> AGENTS.md"));
-	assert.match(line, /cd back to the directory step 1 printed \(my project, not a Tychicus folder\); if you aren't sure it's my project's root, ask me\. If its AGENTS\.md already has a "## Browser: Tychicus" section, leave it as it is\. Otherwise run tychicus skill print >> AGENTS\.md$/);
+	assert.match(line, /cd back to the directory step 1 printed \(my project, not a Local Studio folder\); if you aren't sure it's my project's root, ask me\. If its AGENTS\.md already has a "## Browser: Tychicus" section, leave it as it is\. Otherwise run tychicus skill print >> AGENTS\.md$/);
 	assert.match(prompt, /1\. Note the directory you started in[^\n]*pwd && git --version/);
 	// The version checkout runs only on a clean tree.
 	assert.match(prompt, /If git status shows any local change, stop and ask me\. With a clean checkout, run git fetch --depth 1 origin tag v1\.2\.3/);

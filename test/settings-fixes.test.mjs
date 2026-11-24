@@ -60,7 +60,7 @@ test("screens that give a helper command also say how to get the helper", () => 
 	assert.match(subscriptions, /this\.noHost \? html`[^`]*\$\{helperInstallHint\(\)\}/);
 	const skills = read("src/dialogs/SkillsTab.ts");
 	assert.match(skills, /doctor\. \$\{helperInstallHint\(\)\}/);
-	assert.match(skills, /once you have Tychicus's helper \(see Settings > Agents\)/);
+	assert.match(skills, /once you have Local Studio's helper \(see Settings > Agents\)/);
 });
 
 test("the hidden userScripts API never sends a store copy to reload", () => {
@@ -104,7 +104,7 @@ test("Allowed sites stores a hostname, because permissions compare hostnames onl
 test("Always allow names what stays refused", () => {
 	const bridge = read("src/dialogs/BridgeTab.ts");
 	assert.doesNotMatch(bridge, /agents can open any site\n/);
-	assert.match(bridge, /any site except Tychicus's own pages, its approval page and its local services/);
+	assert.match(bridge, /any site except Local Studio's own pages, its approval page and its local services/);
 });
 
 test("a costs load failure shows an error, not an empty range", () => {
