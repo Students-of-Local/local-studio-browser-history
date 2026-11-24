@@ -27,6 +27,7 @@ const NOT_CONTACTED = new Map([
 	["claude.ai", ["a sign-in redirect the browser follows", ["cli/src/oauth.ts"]]],
 	["claude.com", ["a sign-in redirect the browser follows", ["cli/src/oauth.ts"]]],
 	["cli.github.com", [LINK, ["cli/src/skill-submit.ts"]]],
+	["dash.cloudflare.com", [LINK, ["cli/src/relay-setup.ts"]]],
 	["developers.cloudflare.com", [LINK, ["cli/src/remote-state.ts"]]],
 	["developers.openai.com", [LINK, ["src/subscriptions/constants.ts"]]],
 	["docs.github.com", [LINK, ["src/subscriptions/constants.ts"]]],
