@@ -6,14 +6,14 @@
  */
 
 import { parentBrowserName } from "./parent-browser.ts";
-import { chmodSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
+import { chmodSync, lstatSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { createServer, type Socket } from "node:net";
 import { join } from "node:path";
 import type { ClientToHost, ExtToHost, HostClientConnected, HostToClient, HostToExt, TraceMark } from "../../src/bridge/protocol.ts";
 import { ERR, MAX_FRAME_FROM_EXTENSION, MAX_FRAME_TO_EXTENSION, traceNow } from "../../src/bridge/protocol.ts";
 import { encodeFrame, FrameParser } from "./framing.ts";
 import { guardedHosts } from "./guarded-hosts.ts";
-import { socketDir, socketPath } from "./paths.ts";
+import { assertOwnDir, socketDir, socketPath } from "./paths.ts";
 import { ConnectService } from "./connect-host.ts";
 import { CHUNK_PIECE_BYTES, chunkFrame, MAX_CHUNKED_FRAME_BYTES } from "../../src/bridge/chunks.ts";
 import { EukheRelay } from "./eukhe.ts";
@@ -271,7 +271,7 @@ export function callerRefusal(args: readonly string[], allowed: readonly string[
 	const origin = args.find((a) => !a.startsWith("--parent-window"));
 	if (origin === undefined) return undefined;
 	if (allowed.includes(origin)) return undefined;
-	return `${origin} is not the Tychicus extension (expected ${allowed.join(" or ")}); refusing to start`;
+	return `${origin} is not the Local Studio extension (expected ${allowed.join(" or ")}); refusing to start`;
 }
 
 export function runNativeHost(args: readonly string[] = []): void {
@@ -286,13 +286,14 @@ export function runNativeHost(args: readonly string[] = []): void {
 	process.stdout.on("error", () => undefined);
 	const dir = socketDir();
 	if (process.platform !== "win32") {
-		if (!existsSync(dir)) mkdirSync(dir, { mode: 0o700 });
-		chmodSync(dir, 0o700);
-		const st = statSync(dir);
-		if (st.uid !== process.getuid?.()) {
-			process.stderr.write(`[tychicus-host] ${dir} is owned by another user; refusing to start\n`);
+		if (!lstatSync(dir, { throwIfNoEntry: false })) mkdirSync(dir, { mode: 0o700 });
+		try {
+			assertOwnDir(dir);
+		} catch (err) {
+			process.stderr.write(`[tychicus-host] ${err instanceof Error ? err.message : String(err)}; refusing to start\n`);
 			process.exit(1);
 		}
+		chmodSync(dir, 0o700);
 		sweepStaleSockets(dir);
 	}
 	const path = socketPath(process.pid);
@@ -387,7 +388,7 @@ export function runNativeHost(args: readonly string[] = []): void {
 	process.stdin.on("end", () => {
 		eukhe?.closeAll();
 		stopping = true;
-		failOutstanding("the browser connection dropped while this ran (the Tychicus extension reloaded or restarted)");
+		failOutstanding("the browser connection dropped while this ran (the Local Studio extension reloaded or restarted)");
 		shutdown();
 	});
 	const killed = () => {

@@ -376,21 +376,59 @@ test("an agent session stores who and what it serves, and when it began", async 
 	assert.equal(s.record.project, "shop");
 	assert.equal(s.record.name, "shop-1a2b");
 	assert.ok(s.record.createdAt >= before);
-	assert.equal(s.groupName, "Tychicus · claude · shop");
+	assert.equal(s.groupName, "Local Studio · claude · shop");
 	await s.createTab("https://example.com/");
 	assert.equal(s.record.createdAt, (await BrowserSession.open("bridge-claude-shop-1a2b", "claude · shop")).record.createdAt, "a resumed session keeps its start time");
 });
 
-test("labels an agent picks are plain text: no controls, no bidi, no Tychicus prefix, 32 characters", async () => {
+test("orphan groups from this and earlier names are tidied; a live session's, Polycarp's and the user's stay", async () => {
+	const fake = installFakeChrome();
+	const { BrowserSession, cleanupOrphanGroups } = await load("worker");
+	const grouped = async (title) => {
+		const tab = fake.addTab({});
+		const id = await chrome.tabs.group({ tabIds: tab });
+		await chrome.tabGroups.update(id, { title });
+		return tab;
+	};
+	const ours = [];
+	for (const name of ["Local Studio", "Tychicus", "Tabkyra"]) ours.push(await grouped(`${name} · claude · bank`)); // product-name allowlist: legacy tab group titles
+	const theirs = [];
+	for (const title of ["Polycarp · claude · bank", "Local Studio", "Tychicus notes"]) theirs.push(await grouped(title)); // product-name allowlist: Polycarp's own groups
+	const s = await BrowserSession.open("bridge-claude-live", "claude · live", 1);
+	const live = await s.createTab("https://example.com/");
+	const liveGroup = (await chrome.tabs.get(live.id ?? live)).groupId;
+	assert.equal(await cleanupOrphanGroups(), 3);
+	for (const id of ours) assert.equal((await chrome.tabs.get(id)).groupId, -1);
+	for (const id of theirs) assert.notEqual((await chrome.tabs.get(id)).groupId, -1);
+	assert.notEqual(liveGroup, -1);
+	assert.equal((await chrome.tabs.get(live.id ?? live)).groupId, liveGroup);
+});
+
+test("a live group an earlier version named is renamed on resume; a title the user wrote stays", async () => {
+	installFakeChrome();
+	const { BrowserSession } = await load("worker");
+	const s = await BrowserSession.open("bridge-claude-shop", "claude · shop", 1);
+	const tab = await s.createTab("https://example.com/");
+	const { groupId } = await chrome.tabs.get(tab.id ?? tab);
+	const resumed = async (title) => {
+		await chrome.tabGroups.update(groupId, { title });
+		await (await BrowserSession.open("bridge-claude-shop", "claude · shop", 1)).reconcile();
+		return (await chrome.tabGroups.get(groupId)).title;
+	};
+	for (const name of ["Tychicus", "Tabkyra"]) assert.equal(await resumed(`${name} · claude · shop`), s.groupName); // product-name allowlist: legacy tab group titles
+	for (const title of ["My shopping", "Tychicus · mine"]) assert.equal(await resumed(title), title);
+});
+
+test("labels an agent picks are plain text: no controls, no bidi, no Local Studio prefix, 32 characters", async () => {
 	installFakeChrome();
 	const { sanitizeLabel, BrowserSession } = await load("worker");
 	assert.equal(sanitizeLabel("  Flight\n\tsearch  "), "Flight search");
-	assert.equal(sanitizeLabel("Tychicus · claude · bank"), "claude · bank");
+	for (const name of ["Local Studio", "Tychicus"]) assert.equal(sanitizeLabel(`${name} · claude · bank`), "claude · bank");
 	assert.equal(sanitizeLabel("evil‮gnp.exe"), "evilgnp.exe");
 	assert.equal(sanitizeLabel("x".repeat(80)).length, 32);
 	const s = await BrowserSession.open("bridge-claude-x", "claude · x", 1);
 	await s.createTab("https://example.com/");
-	assert.equal(await s.setAgentLabel("Tychicus: \u0007Shop"), "Tychicus · claude · x · Shop");
+	assert.equal(await s.setAgentLabel("Local Studio: \u0007Shop"), "Local Studio · claude · x · Shop");
 });
 
 test("an agent session holds at most 15 tabs, and the 16th is refused with what to do", async () => {

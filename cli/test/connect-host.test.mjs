@@ -1426,7 +1426,7 @@ test("first-F2: link off stops the service outside the lock; held, it keeps link
 			console.log = realLog;
 		}
 		assert.equal(code, 1);
-		assert.match(errors.join("\n"), /locked by another Tychicus window/);
+		assert.match(errors.join("\n"), /locked by another Local Studio window/);
 		assert.equal(readFileSync(join(dir, "link.json"), "utf8"), before);
 		assert.equal(readFileSync(join(dir, "link.json.lock"), "utf8"), "1", "link off removed a lock it did not own");
 	});

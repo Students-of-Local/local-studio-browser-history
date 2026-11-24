@@ -261,7 +261,7 @@ for (const theme of ["light", "dark"]) {
 			await shot(page, `09-dns-waiting-${theme}`);
 			// The first test still waits; the panel tests again 30 seconds on by itself, the name answers, and the line clears.
 			await page.locator("[data-checks] summary", { hasText: "Every check passed" }).waitFor({ timeout: 45_000 });
-			assert.match(await page.locator("[data-result-title]").textContent(), /On: add Tychicus to an assistant/);
+			assert.match(await page.locator("[data-result-title]").textContent(), /On: add Local Studio to an assistant/);
 			assert.equal(await page.locator("[data-remote-result] [data-remote-wait]").count(), 0);
 			assert.equal(await page.locator("[data-connect-code]").textContent(), CODE);
 			await shot(page, `10-dns-cleared-${theme}`);

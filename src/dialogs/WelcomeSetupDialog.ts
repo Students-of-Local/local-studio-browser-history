@@ -68,7 +68,7 @@ export class WelcomeSetupDialog extends DialogBase {
 					children: "Chat here",
 				})}
 				<p class="text-xs text-muted-foreground">
-					Runs on Local Studio, with its local models and the plans you signed in to there. No key needed.
+					Runs on the Local Studio app, with its local models and the plans you signed in to there. No key needed.
 				</p>
 				<button
 					type="button"
@@ -93,7 +93,7 @@ export class WelcomeSetupDialog extends DialogBase {
 				children: html`
 					<div class="flex items-center gap-3">
 						${tychicusMark(40, "tile", "rounded-[9px]")}
-						${DialogHeader({ title: "Welcome to Tychicus" })}
+						${DialogHeader({ title: "Welcome to Local Studio" })}
 					</div>
 					<p class="text-sm text-foreground">How do you want to use it?</p>
 					${this.mode === "local-studio" ? this.renderLocalStudio() : this.renderKeys()}

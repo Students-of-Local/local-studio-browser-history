@@ -128,7 +128,7 @@ export async function linkOnPath(options: { dryRun?: boolean; log?: (line: strin
 			}
 		}
 	} else {
-		const what = state.found === state.link ? "is a file Tychicus didn't make" : `runs ${state.found}, which isn't Tychicus`;
+		const what = state.found === state.link ? "is a file this helper didn't make" : `runs ${state.found}, which isn't this helper`;
 		if (options.dryRun) log(`${sym.warn} Would ask before replacing ${state.link}: it ${what}.`);
 		else if (process.stdin.isTTY && (await confirm(`${sym.dot} ${state.link} ${what}. Point it at ${state.target}?`, { assumeYes: false, defaultYes: false }))) {
 			writeLink(state);

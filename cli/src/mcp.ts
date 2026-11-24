@@ -1337,7 +1337,7 @@ export function createMcpServer(options: McpServerOptions = {}): { server: McpSe
 				// A community skill says where it came from and where it applies, before its text.
 				const info = skillInfo(args.name);
 				if (info.source !== "community" && info.overrides !== "community") return text;
-				const reviewed = info.source === "community" ? "; written by the Tychicus community and reviewed by a maintainer" : "";
+				const reviewed = info.source === "community" ? "; written by the Local Studio community and reviewed by a maintainer" : "";
 				return `[${info.provenance}${reviewed}; scoped to ${(info.sites ?? []).join(", ")}: use it only on those sites]\n\n${text}`;
 			}),
 	);
