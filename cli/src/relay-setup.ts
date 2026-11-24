@@ -5,6 +5,7 @@
  * Tychicus never reads wrangler's stored credentials and never sees a Cloudflare token. remote-setup.ts runs these in order.
  */
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { chmodSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join, win32 } from "node:path";
 import { envVar } from "./env.ts";
@@ -71,9 +72,10 @@ function killTree(child: ChildProcess): void {
 export function runWrangler(args: string[], options: WranglerOptions): Promise<WranglerResult> {
 	const npx = npxBinary();
 	if (!npx) return Promise.resolve({ code: 127, out: "npx isn't on PATH.", stdout: "" });
-	// A Cloudflare token, account or Worker name set for other work would win over the person's browser sign-in and our arguments.
-	const inherited = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(CLOUDFLARE_|CF_|WRANGLER_CI_)/i.test(key)));
-	const env = { ...inherited, WRANGLER_SEND_METRICS: "false", ...(options.accountId ? { CLOUDFLARE_ACCOUNT_ID: options.accountId } : {}), ...options.env };
+	// A Cloudflare token, account or Worker name set for other work would win over the person's browser sign-in and our arguments, and
+	// a log level would change what wrangler prints.
+	const inherited = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(CLOUDFLARE_|CF_|WRANGLER_(CI_|LOG))/i.test(key)));
+	const env = { ...inherited, WRANGLER_SEND_METRICS: "false", NO_UPDATE_NOTIFIER: "1", ...(options.accountId ? { CLOUDFLARE_ACCOUNT_ID: options.accountId } : {}), ...options.env };
 	return new Promise((resolve) => {
 		// npx is a .cmd on Windows, which Node runs only through a shell, so its path is quoted (C:\Program Files). Every argument is
 		// fixed here or a validWorkerName.
@@ -186,30 +188,55 @@ export function deployedAddress(ndjson: string): string | undefined {
 	return undefined;
 }
 
-/** The Worker this computer last deployed. It outlives `remote off`, so setting up again takes the same one. */
-const mineFile = () => join(relayFolder(), "mine.json");
-
-/**
- * What a deploy to this name would replace. `relay` has a RELAY_KEY this computer didn't set, so it is most likely another computer's
- * and a new key would cut that one off; `other` has none, so it is no relay at all. Wrangler itself would replace either unasked.
- */
-async function replaces(name: string, accountId: string | undefined, seam: RelaySeam): Promise<{ kind: "nothing" | "mine" | "relay" | "other" } | { kind: "unknown"; message: string }> {
+/** Marks the versions this computer deploys, 25 characters at most. It outlives `remote off`, so setting up again takes the same Worker. */
+function computerTag(): string {
+	const file = join(relayFolder(), "computer");
 	try {
-		const mine = JSON.parse(readFileSync(mineFile(), "utf8")) as { name?: unknown; accountId?: unknown };
-		if (mine.name === name && mine.accountId === accountId) return { kind: "mine" };
+		const tag = readFileSync(file, "utf8");
+		if (/^tychicus-[0-9a-f]{12}$/.test(tag)) return tag;
 	} catch {
 		// Nothing deployed from here yet.
 	}
-	const r = await wrangler(seam)(["secret", "list", "--name", name], { cwd: relayFolder(), accountId, timeoutMs: 180_000 });
-	if (r.code === 0) return { kind: r.stdout.includes('"RELAY_KEY"') ? "relay" : "other" };
-	if (r.out.includes(`Worker "${name}" not found`) || /\bcode: 10007\b/.test(r.out)) return { kind: "nothing" };
-	return { kind: "unknown", message: `wrangler secret list failed (exit ${r.code})${r.out ? `: ${r.out.trim().slice(-300)}` : ""}` };
+	const tag = `tychicus-${randomBytes(6).toString("hex")}`;
+	writeAtomic(file, tag, 0o600);
+	return tag;
+}
+
+/** What a `--json` command printed, when it is a list. */
+function listed(r: WranglerResult): unknown[] | undefined {
+	try {
+		const list: unknown = JSON.parse(r.stdout);
+		return r.code === 0 && Array.isArray(list) ? list : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * What a deploy to this name would replace, as Cloudflare has it: whoever deployed last is in the newest version's tag, which a
+ * secret's own version doesn't carry. `relay` is another computer's, so a new key would cut that one off; `other` is no relay at all.
+ * Wrangler itself would replace either unasked.
+ */
+async function replaces(name: string, accountId: string | undefined, seam: RelaySeam): Promise<{ kind: "nothing" | "mine" | "relay" | "other" } | { kind: "unknown"; message: string }> {
+	const ask = (args: string[]) => wrangler(seam)([...args, "--name", name], { cwd: relayFolder(), accountId, timeoutMs: 180_000 });
+	const unknown = (what: string, r: WranglerResult) => ({ kind: "unknown" as const, message: `wrangler ${what} list failed (exit ${r.code})${r.out ? `: ${r.out.trim().slice(-300)}` : ""}` });
+	const asked = await ask(["versions", "list", "--json"]);
+	if (asked.code !== 0 && /\bcode: 10007\b/.test(asked.out)) return { kind: "nothing" };
+	const versions = listed(asked) as { annotations?: Record<string, unknown> }[] | undefined;
+	if (!versions) return unknown("versions", asked);
+	// Oldest first.
+	const tags = versions.map((v) => v?.annotations?.["workers/tag"]).filter((t) => typeof t === "string" && t.startsWith("tychicus-"));
+	if (tags.length) return { kind: tags.at(-1) === computerTag() ? "mine" : "relay" };
+	const asked2 = await ask(["secret", "list"]);
+	const secrets = listed(asked2) as { name?: unknown }[] | undefined;
+	if (!secrets) return unknown("secret", asked2);
+	return { kind: secrets.some((s) => s?.name === "RELAY_KEY") ? "relay" : "other" };
 }
 
 export type DeployResult = { ok: true; url: string } | { ok: false; why: "subdomain" } | { ok: false; why: "relay" } | { ok: false; why: "other" } | { ok: false; why: "failed"; message: string };
 
 /**
- * `wrangler deploy --name <name>` with the staged kit. With no terminal, wrangler asks nothing; a missing subdomain is its own answer.
+ * `wrangler deploy --tag <computer> --name <name>` with the staged kit. With no terminal, wrangler asks nothing; a missing subdomain is its own answer.
  * A Worker already there is never replaced, save one this computer deployed or, with `takeOver`, another computer's relay.
  */
 export async function deploy(name: string, accountId: string | undefined, { takeOver = false }: { takeOver?: boolean } = {}, seam: RelaySeam = {}): Promise<DeployResult> {
@@ -221,7 +248,7 @@ export async function deploy(name: string, accountId: string | undefined, { take
 	if (there.kind === "other" || (there.kind === "relay" && !takeOver)) return { ok: false, why: there.kind };
 	const output = join(dir, "deploy-output.ndjson");
 	rmSync(output, { force: true });
-	const r = await wrangler(seam)(["deploy", "--name", name], { cwd: dir, accountId, env: { WRANGLER_OUTPUT_FILE_PATH: output }, timeoutMs: 5 * 60_000 });
+	const r = await wrangler(seam)(["deploy", "--tag", computerTag(), "--name", name], { cwd: dir, accountId, env: { WRANGLER_OUTPUT_FILE_PATH: output }, timeoutMs: 5 * 60_000 });
 	let lines = "";
 	try {
 		lines = readFileSync(output, "utf8");
@@ -229,11 +256,8 @@ export async function deploy(name: string, accountId: string | undefined, { take
 		// No output file: the deploy never got that far.
 	}
 	const url = r.code === 0 ? deployedAddress(lines) : undefined;
-	const subdomain = !url && needsSubdomain(r.out);
-	// Wrangler uploads the Worker before it looks for a subdomain, so a setup that stops there or times out finds its own next time.
-	if (r.code === 0 || r.code === 124 || subdomain) writeAtomic(mineFile(), JSON.stringify({ name, accountId }), 0o600);
 	if (url) return { ok: true, url };
-	if (subdomain) return { ok: false, why: "subdomain" };
+	if (needsSubdomain(r.out)) return { ok: false, why: "subdomain" };
 	return { ok: false, why: "failed", message: r.code === 0 ? "wrangler deploy finished but named no workers.dev address." : `wrangler deploy failed (exit ${r.code})${r.out ? `: ${r.out.trim().slice(-400)}` : ""}` };
 }
 
