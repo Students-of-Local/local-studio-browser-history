@@ -58,7 +58,6 @@ import {
 	asModelTier,
 	asPermissionMode,
 	DECISION_KEY_PREFIX,
-	getPermissionMode,
 	hostOf,
 	isBridgeEnabled,
 	isGuardedUrl,
@@ -66,7 +65,6 @@ import {
 	isRemoteClient,
 	isUrlAllowed,
 	modeFor,
-	opensAnySite,
 	type PermissionDecision,
 	type PermissionMode,
 	peekPermissionMode,
@@ -579,15 +577,11 @@ async function runRequest(state: ClientState, req: HostForwardedRequest, answer?
 			checkUrl: async (url: string) => {
 				if (isGuardedUrl(url, req.guardedHosts)) throw guardedError(url);
 				if (!(await askPermission(state, url))) {
-					const asks = !opensAnySite(modeFor(await getPermissionMode(), state.remote), state.tier);
 					throw new BridgeError(
 						ERR.PERMISSION_DENIED,
 						isOwnExtensionUrl(url)
 							? "Not allowed to open Tychicus's own pages."
-							: `Not allowed to open ${hostOf(url) || url}. ` +
-									(asks
-										? "The user can allow it in the Tychicus side panel under Settings > Agents, or answer the permission prompt."
-										: "Bridge navigation is blocked."),
+							: `Not allowed to open ${hostOf(url) || url}. The user can allow it in the Tychicus side panel under Settings > Agents, or answer the permission prompt.`,
 					);
 				}
 			},

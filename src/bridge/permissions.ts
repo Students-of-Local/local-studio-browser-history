@@ -3,14 +3,17 @@
  * Tychicus, set in Settings > Agents or with `tychicus mode`:
  *
  * - "manual": every new site asks first (the old "ask").
- * - "auto" (the default): an agent on a frontier model opens any site without asking, and one on a small or
+ * - "auto" (the default): an agent on a frontier model opens ordinary sites without asking, and one on a small or
  *   unknown model asks (D60's "Match the model"; the CLI says which in its hello, cli/src/model-tier.ts).
  * - "yolo": nothing asks; agents may open any site (the old "allow_all").
+ *
+ * Auto asks before a sensitive site (mail, a bank, a password manager: risk-rules.ts) even for a frontier model.
  *
  * Unknown hosts raise a permission request that the harness shows (MCP elicitation) or that the user answers in
  * Settings > Agents. What no mode opens (Tychicus's own pages, guarded hosts) is checked before the mode.
  */
 import type { ModelTier } from "./protocol.js";
+import { sensitiveSite } from "./risk-rules.js";
 
 const ENABLED_KEY = "bridge_enabled";
 /** The mode, one store for every surface (D67). */
@@ -277,14 +280,18 @@ export function isOwnExtensionUrl(url: string): boolean {
 
 /**
  * `tier` is the calling client's (its hello); without one the client counts as unknown. `remote` is set for a remote
- * connector session, which is never in Yolo.
+ * connector session, which is never in Yolo. In Auto a sensitive site (mail, a bank, a password manager, a cloud
+ * console, a government or health site, account settings: risk-rules.ts) asks even a frontier model, until the person allows it.
  */
 export async function isUrlAllowed(url: string, tier?: ModelTier, remote?: boolean): Promise<boolean> {
 	if (isOwnExtensionUrl(url)) return false;
-	if (opensAnySite(modeFor(await getPermissionMode(), remote), tier)) return true;
+	const mode = modeFor(await getPermissionMode(), remote);
+	if (mode === "yolo") return true;
 	const host = hostOf(url);
-	if (!host) return url === "about:blank";
-	return hostAllowed(host, await getAllowedHosts());
+	if (host && hostAllowed(host, await getAllowedHosts())) return true;
+	// view-source:, blob: and filesystem: URLs carry the page's own address after the scheme.
+	if (opensAnySite(mode, tier)) return !sensitiveSite(url.replace(/^\s*(?:(?:view-source|blob|filesystem):)+/i, ""));
+	return !host && url === "about:blank";
 }
 
 // ---- pending requests (visible to the sidepanel settings tab) -----------------

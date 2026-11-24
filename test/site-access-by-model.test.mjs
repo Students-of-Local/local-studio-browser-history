@@ -90,5 +90,5 @@ test("Settings > Agents offers Manual, Auto and Yolo, and Auto is the default", 
 	assert.match(tab, /@state\(\) private mode: PermissionMode = "auto";/);
 	const modes = [...tab.matchAll(/\{\s*mode: "([a-z]+)",\s*title: "([^"]+)"/g)].map((m) => [m[1], m[2]]);
 	assert.deepEqual(modes, [["manual", "Manual"], ["auto", "Auto (default)"], ["yolo", "Yolo"]]);
-	assert.match(tab, /agents on frontier models open any site on their own; small or unknown models ask first/);
+	assert.match(tab, /agents on frontier models open ordinary sites; small or unknown models ask first\. Every agent asks before it goes straight to mail, a bank or another sensitive site you haven't allowed \(a link it clicks there isn't checked\)/);
 });
