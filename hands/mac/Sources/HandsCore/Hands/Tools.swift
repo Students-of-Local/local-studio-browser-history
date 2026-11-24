@@ -194,11 +194,11 @@ public enum HandsParse {
                           retry: .never)
     }
 
-    /// The session a command line request carries (second-F7): `$BANEYSPACES_SESSION` when set, else the terminal, else
+    /// The session a command line request carries (second-F7): `$TYCHICUS_HANDS_SESSION` when set, else the terminal, else
     /// "default", which every caller without a terminal shares. What `close`, `new_window: false` and dialog attribution
     /// count as "yours" is this session's.
     public static func cliSession(environment: [String: String], tty: String) -> String {
-        if let s = environment["BANEYSPACES_SESSION"], !s.isEmpty { return s }
+        if let s = environment["TYCHICUS_HANDS_SESSION"], !s.isEmpty { return s }
         return tty.isEmpty ? "default" : tty
     }
 

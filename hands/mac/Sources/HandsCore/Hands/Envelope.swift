@@ -1,11 +1,11 @@
 import Foundation
 
-/// Why an agent command failed. Every error carries one of these, whether it came from BaneySpaces'
+/// Why an agent command failed. Every error carries one of these, whether it came from the hands'
 /// own checks or from the engine, so an agent can branch on `code` without reading prose.
 public enum HandsErrorCode: String, Codable, CaseIterable, Sendable {
     /// The window isn't on the agent workspace and its app isn't lent.
     case outsideAgentWorkspace = "outside_agent_workspace"
-    /// `baneyspaces agent on` hasn't been run, so there is no agent workspace.
+    /// The agent workspace hasn't been turned on, so there is no agent workspace.
     case agentWorkspaceOff = "agent_workspace_off"
     /// No such app running, or none by that name.
     case appNotFound = "app_not_found"
@@ -42,11 +42,11 @@ public enum HandsErrorCode: String, Codable, CaseIterable, Sendable {
     case unverified = "unverified"
     /// The app didn't answer in time.
     case timeout = "timeout"
-    /// BaneySpaces isn't allowed to read or act (Accessibility, Screen Recording).
+    /// The helper isn't allowed to read or act (Accessibility, Screen Recording).
     case permissionDenied = "permission_denied"
     /// Arguments are missing or wrong.
     case badArguments = "bad_arguments"
-    /// BaneySpaces isn't running.
+    /// The host isn't running.
     case notRunning = "not_running"
     /// The engine failed in a way none of the above covers.
     case engineError = "engine_error"
@@ -105,7 +105,7 @@ public struct HandsError: Codable, Equatable, Error, Sendable {
     }
 }
 
-/// What every `baneyspaces agent` command prints, and every MCP tool returns: one JSON object.
+/// What every `agent` command prints, and every MCP tool returns: one JSON object.
 /// `{"ok":true,"data":{…}}` or `{"ok":false,"error":{"code","message","retry","suggestion"}}`.
 public struct HandsEnvelope: Codable, Equatable, Sendable {
     public var ok: Bool

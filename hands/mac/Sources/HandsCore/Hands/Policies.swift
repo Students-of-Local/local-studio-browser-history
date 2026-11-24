@@ -13,8 +13,8 @@ public enum AgentAppPolicy {
     public static let documentRequired: Set<String> = ["com.apple.TextEdit", "com.apple.Preview"]
     // Finder is not on the list: it runs once per user and shows his folders, and agents use files directly.
 
-    /// BaneySpaces' own test app for the pointer probe: a window that draws where the mouse is dragged and reads no
-    /// files. It ships inside BaneySpaces.app (Resources/probe), signed with the app's own identity, and starts only
+    /// The host's own test app for the pointer probe: a window that draws where the mouse is dragged and reads no
+    /// files. It ships inside the host app (Resources/probe), signed with the app's own identity, and starts only
     /// from there and only when its signature checks out (`ProbeAppTrust` in the app). A user-writable folder, or a
     /// copy that claims the bundle id, is refused like any unlisted app.
     public static let canvasProbeBundle = "com.baney.polycarp.canvasprobe"

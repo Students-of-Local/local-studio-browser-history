@@ -6,7 +6,7 @@ public enum ChildWindowKind: String, Codable, Sendable {
     case dialog, alert, sheet, floating
 }
 
-/// What accessibility says about one window BaneySpaces does not place (a dialog, an alert, a sheet, a palette).
+/// What accessibility says about one window the host does not place (a dialog, an alert, a sheet, a palette).
 public struct ChildWindowFacts: Equatable, Sendable {
     public var id: UInt32
     public var pid: Int32
@@ -34,11 +34,11 @@ public struct ChildWindowFacts: Equatable, Sendable {
     /// Whether it waits on an answer: the app is blocked until someone answers it.
     public var waiting: Bool { ChildWindowRule.waits(subrole: subrole, modal: modal) || kind == .sheet }
 
-    /// The window as the scope guard and the engine see it: no workspace, since BaneySpaces does not place it.
+    /// The window as the scope guard and the engine see it: no workspace, since the host does not place it.
     public var window: HandsWindow { HandsWindow(id: id, pid: pid, app: app, bundle: bundle, title: title, workspace: nil) }
 }
 
-/// Which windows BaneySpaces does not place an agent may still use (Donovan, 2026-11-10: "if a window pops up and it
+/// Which windows the host does not place an agent may still use (Donovan, 2026-11-10: "if a window pops up and it
 /// needs to press something on that window it should be able too"). A child window W is usable, with the scope of its
 /// parent, only when all of these hold:
 ///
@@ -153,7 +153,7 @@ public enum ChildWindowRule {
         public var allowed: Bool { if case .usable = self { return true }; return false }
     }
 
-    /// The one decision. `placed` is every window BaneySpaces places for W's process, each with the agent's scope decision
+    /// The one decision. `placed` is every window the host places for W's process, each with the agent's scope decision
     /// for it; `attributed` is whether W appeared within 10 s after this session acted on that process.
     public static func decide(_ c: ChildWindowFacts, placed: [(window: HandsWindow, scope: ScopeDecision)], attributed: Bool,
                               selfPid: Int32? = nil) -> Decision {
@@ -682,7 +682,7 @@ public enum WorkspaceList {
 public enum ChildCollect {
     public struct Listed: Equatable, Sendable {
         public var id: UInt32
-        /// Placed by BaneySpaces (a document window), so it can be a parent.
+        /// Placed by the host (a document window), so it can be a parent.
         public var placed: Bool
         /// The sheets attached to it that have a window number of their own.
         public var sheets: [UInt32]

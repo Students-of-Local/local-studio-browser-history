@@ -40,9 +40,9 @@ public enum HandsCaller {
 public enum AgentAccessMode: String, CaseIterable, Codable, Sendable {
     /// Agents may list, read and capture the windows Default allows, and change nothing.
     case readOnly = "read_only"
-    /// The agent workspace, apps BaneySpaces starts for agents from its short list, and windows he lends.
+    /// The agent workspace, apps the hands start for agents from its short list, and windows he lends.
     case standard = "default"
-    /// Every window BaneySpaces places, on every workspace, and any app.
+    /// Every window the host places, on every workspace, and any app.
     case full
 
     public static let defaultsKey = "agentAccessMode"

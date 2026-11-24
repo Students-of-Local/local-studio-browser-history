@@ -7,7 +7,7 @@ public struct HandsWindow: Equatable, Codable, Sendable {
     public var app: String
     public var bundle: String
     public var title: String
-    /// The BaneySpaces workspace it lives on; nil for a window BaneySpaces doesn't place
+    /// The workspace it lives on; nil for a window the host doesn't place
     /// (a menu, a panel, a window it hasn't seen).
     public var workspace: Int?
 
@@ -120,13 +120,13 @@ public enum ScopeDecision: Equatable, Sendable {
 
 /// The one rule that keeps agents off the user's screen: an agent may read or act only on a window
 /// on the agent workspace, or on a window that is lent right now. Under Full Access (`mode`, Donovan's to set)
-/// every window BaneySpaces places is open too. A window BaneySpaces doesn't place (a menu, a panel) is refused in
+/// every window the host places is open too. A window the host doesn't place (a menu, a panel) is refused in
 /// every mode. Whether he is using the app is not part of scope: reads never look at it, and actions wait for it
 /// (`InUseRule`, `InUseWait`).
 public enum ScopeGuard {
     public static func check(_ w: HandsWindow, agentWorkspace: Int?, lends: LendBook, now: Date,
                              mode: AgentAccessMode = .standard, selfPid: Int32? = nil) -> ScopeDecision {
-        // BaneySpaces' own windows (Settings, the consent sheets) are never an agent's, in any mode.
+        // The host's own windows (Settings, the consent sheets) are never an agent's, in any mode.
         if let me = selfPid, w.pid == me {
             return .denied(HandsError(.permissionDenied, "window \(w.id) is Tychicus's own",
                                       suggestion: "Agents never use Tychicus's windows; its settings are the person's.", retry: .never))
@@ -145,7 +145,7 @@ public enum ScopeGuard {
                                   suggestion: "Open a window of it on the agent workspace with `computer_open \(w.app)`, or ask the person to lend this one (you can't lend: he runs `computer_lend \(w.app)` or uses the Tychicus menu)."))
     }
 
-    /// A window BaneySpaces doesn't place, given what a fresh look at its app's children decided (`child`). With no
+    /// A window the host doesn't place, given what a fresh look at its app's children decided (`child`). With no
     /// decision the look missed it (a 0.25 s timeout, a busy app, the window list leaving it out for a moment), and it is
     /// refused: `check` would call a dialog of a lent app `lent`, and the gate skips its panel checks for windows that
     /// aren't placed, so an Open panel of Donovan's would be acted on unchecked.
