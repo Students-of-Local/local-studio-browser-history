@@ -2224,3 +2224,11 @@ Linux guest on this Mac.
   framebuffer, `vm shot` says it shows no display.
 - *No telemetry.* The helper opens no network socket. The CLI's only network use is the pinned image download.
 - *Left out:* macOS guests, input into the guest, a desktop, and the hub link.
+
+**Results.** `node scripts/vm-bench.mjs --runs 5 --force` on a MacBook Pro (Mac17,2), the `generic` image, wall clock
+through the CLI, with the 1-minute load between 21 and 27 from other builds: cold start 5.00 s median, warm start from
+the ready point 0.79 s, from a saved session 0.82 s, reset 0.73 s with the guest's file gone each time, helper idle CPU
+0.00% over 30 s (the guest's VM process 0.50%), 0 network sockets in the helper, 0 focus changes. The first boot of a new
+guest took 15.9 s. On `genericcloud` at load 5 to 9 the same bench gave cold start 4.02 s, warm starts 0.69 s and
+0.65 s, reset 0.61 s. The bench appends each run to `vm-bench.jsonl` in Tychicus's state folder and exits 1 on a missed
+target.

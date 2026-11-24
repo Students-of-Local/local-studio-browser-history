@@ -3,13 +3,16 @@
 //   tychicus-vm serve <guest-dir> [--cold | --from-ready]
 //       start the guest, then answer on <guest-dir>/control.sock: resume the saved session, else cold boot disk.raw.
 //       --cold drops the session; --from-ready makes a missing disk.raw from the reset point and starts there.
+//   tychicus-vm focus-watch
+//       print one line per app activation on the host until stopped
 //   tychicus-vm version
 //
 // The tychicus CLI (cli/src/vm.ts) prepares the guest folder and talks to the control socket.
 
+import AppKit
 import Foundation
 
-let version = "0.1.1"
+let version = "0.2.1"
 
 func fail(_ message: String, code: Int32 = 1) -> Never {
 	FileHandle.standardError.write("tychicus-vm: \(message)\n".data(using: .utf8)!)
@@ -44,8 +47,25 @@ case "serve":
 	server.run()
 	Task { @MainActor in await guest.boot(cold: cold, fromReady: fromReady) }
 	withExtendedLifetime(signals) { dispatchMain() }
+case "focus-watch":
+	// Counts host focus changes during a bench run. Each activation prints the app's bundle id.
+	setvbuf(stdout, nil, _IOLBF, 0)
+	let center = NSWorkspace.shared.notificationCenter
+	let token = center.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { note in
+		let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+		print("activated \(app?.bundleIdentifier ?? "unknown")")
+	}
+	signal(SIGTERM, SIG_IGN)
+	let term = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+	term.setEventHandler {
+		center.removeObserver(token)
+		exit(0)
+	}
+	term.resume()
+	print("watching")
+	RunLoop.main.run()
 case "version", "--version":
 	print(version)
 default:
-	fail("usage: tychicus-vm serve <guest-dir> [--cold | --from-ready] | version", code: 2)
+	fail("usage: tychicus-vm serve <guest-dir> [--cold | --from-ready] | focus-watch | version", code: 2)
 }
