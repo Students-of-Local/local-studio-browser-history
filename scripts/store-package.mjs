@@ -9,7 +9,7 @@ import { importMap, libraryProblems, packSandboxLibraries } from "./sandbox-libr
 const here = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 /** The store listing's name; the zip's manifest must say the same. */
-export const STORE_NAME = "Tychicus";
+export const STORE_NAME = "Local Studio";
 
 /**
  * The CDNs the release build's sandbox may load code from. No file in the store zip may name one: the store build loads
@@ -65,7 +65,7 @@ export function storeSandboxCsp(csp) {
 		.join("; ");
 }
 
-const NOTICE = `Tychicus browser extension. AGPL-3.0: see LICENSE.
+const NOTICE = `Local Studio browser extension. AGPL-3.0: see LICENSE.
 Source: https://github.com/baney75/tychicus
 Built on 0xSero's agent bridge (https://github.com/0xSero/sitegeist) and Mario Zechner's Sitegeist
 (https://github.com/badlogic/sitegeist).

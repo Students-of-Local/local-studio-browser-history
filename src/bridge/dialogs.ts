@@ -255,7 +255,7 @@ function presetFailedError(tabId: number, dialog: PageDialog, cancelled: boolean
 	if (cancelled)
 		return new BridgeError(
 			ERR.INTERRUPTED,
-			`${box}, but on_dialog's ${asked} did not reach it, so Tychicus answered Cancel and the page saw Cancel. ` +
+			`${box}, but on_dialog's ${asked} did not reach it, so Local Studio answered Cancel and the page saw Cancel. ` +
 				"Read the page (read_page) to see what happened before you do it again.",
 			"extension",
 		);
@@ -268,7 +268,7 @@ function presetFailedError(tabId: number, dialog: PageDialog, cancelled: boolean
 	}
 	return new BridgeError(
 		ERR.INTERRUPTED,
-		`${box}, but on_dialog's ${asked} did not reach it, and it closed without an answer Tychicus saw. ` +
+		`${box}, but on_dialog's ${asked} did not reach it, and it closed without an answer Local Studio saw. ` +
 			"Read the page (read_page) to see what happened before you act again.",
 		"extension",
 	);

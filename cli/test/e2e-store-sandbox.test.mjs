@@ -47,7 +47,7 @@ before(async () => {
 					returnByValue: true,
 				});
 				const m = JSON.parse(r.result?.value ?? "{}");
-				if (m.name === "Tychicus" && !("key" in m) && m.sandbox) return t;
+				if (m.name === "Local Studio" && !("key" in m) && m.sandbox) return t;
 			}
 		},
 		20_000,

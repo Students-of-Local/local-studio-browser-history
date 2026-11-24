@@ -125,9 +125,9 @@ test("the page tools open no site and send no file", async () => {
 	assert.equal(await runPanelCall(deps, "type", { text: "x" }), false);
 });
 
-test("the page tools never act on a Tychicus page", async () => {
+test("the page tools never act on a Local Studio page", async () => {
 	const { deps, calls } = fakeDeps({ url: `chrome-extension://${chrome.runtime.id}/sidepanel.html` });
-	await assert.rejects(runPanelCall(deps, "click", { ref: "e1" }), (err) => err.code === "permission_denied" && /Tychicus page/.test(err.message));
+	await assert.rejects(runPanelCall(deps, "click", { ref: "e1" }), (err) => err.code === "permission_denied" && /Local Studio page/.test(err.message));
 	await assert.rejects(runPanelCall(deps, "snapshot", {}), (err) => err.code === "permission_denied");
 	assert.equal(calls.length, 0);
 });

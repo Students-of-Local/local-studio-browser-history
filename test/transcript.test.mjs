@@ -49,6 +49,52 @@ test("host and path globs, and only web pages", () => {
 	assert.equal(matchesDomainPatterns("https://example.com/", ["", "  "]), false);
 });
 
+test("path globs: what each wildcard stands for", () => {
+	const cases = [
+		["/a/**", ["/a/", "/a/b", "/a/b/c"], ["/a", "/ab", "/a/.b"]],
+		["/a/**/b", ["/a/b", "/a/x/b", "/a/x/y/b"], ["/ab", "/a/b/c"]],
+		["/**/b", ["/b", "/x/b"], ["/b/x"]],
+		["/**", ["/", "/a", "/a/b"], ["/.a/b"]],
+		["/*", ["/a", "/a/"], ["/", "/.a", "/a/b"]],
+		["/*/issues", ["/org/issues"], ["/org/repo/issues", "/issues"]],
+		["/a*", ["/a", "/abc", "/a/"], ["/a/b", "/b"]],
+		["/a**", ["/ab"], ["/a/b"]],
+		["/*a*b", ["/ab", "/xaab", "/aXbYb"], ["/aXbY", "/ba"]],
+		["/?x", ["/ax"], ["/x", "/aax"]],
+		["/a/", ["/a/"], ["/a"]],
+		["/A.b", ["/a.B"], ["/axb"]],
+		["/{a,b}", [], ["/a", "/b"]],
+		["/%7Ba,b%7D", ["/{a,b}"], ["/a"]],
+		["/a/*", ["/a/b", "/a//b"], ["/a/b/c"]],
+		["/a//b", ["/a/b"], ["/a"]],
+		["/a", ["//a"], []],
+		["/[ab]", ["/[ab]"], ["/a"]],
+		["/!(a)", ["/!(a)"], ["/b"]],
+	];
+	for (const [glob, yes, no] of cases) {
+		for (const path of yes) assert.equal(matchesDomainPatterns(`https://x.test${path}`, [`x.test${glob}`]), true, `${glob} ${path}`);
+		for (const path of no) assert.equal(matchesDomainPatterns(`https://x.test${path}`, [`x.test${glob}`]), false, `${glob} ${path}`);
+	}
+});
+
+test("a lookup stays quick whatever the pattern, and one past the limits matches nothing", () => {
+	const path = `/${"a".repeat(1000)}`;
+	for (const glob of ["{a,b}".repeat(40), "*a".repeat(100), `${"**/".repeat(70)}b`, `${"*".repeat(200)}b`, "{{{{{{,},},},},},}".repeat(12)]) {
+		const start = performance.now();
+		const patterns = Array(100).fill(`x.test/${glob}`);
+		assert.equal(matchesDomainPatterns(`https://x.test${path}${"/a".repeat(200)}z`, patterns), false, glob.slice(0, 20));
+		assert.ok(performance.now() - start < 2000, `${glob.slice(0, 20)} took ${performance.now() - start} ms`);
+	}
+	assert.equal(matchesDomainPatterns("https://x.test/a", [`x.test/a${"*".repeat(300)}`]), false, "an overlong pattern");
+	assert.equal(matchesDomainPatterns("https://x.test/a", [...Array(100).fill("y.test"), "x.test"]), false, "past the first hundred");
+	assert.equal(matchesDomainPatterns("https://x.test/a", [...Array(99).fill("y.test"), "x.test"]), true);
+	assert.equal(matchesDomainPatterns(`https://x.test/a/${"b/".repeat(2000)}`, ["x.test/a/**"]), true, "a long path still matches by its start");
+	for (const glob of ["/*", "/a*", "/**/a*", "/**/admin"]) assert.equal(matchesDomainPatterns(`https://x.test/${"a".repeat(1023)}/admin`, [`x.test${glob}`]), false, `a cut path is not the whole path: ${glob}`);
+	const start = performance.now();
+	assert.equal(matchesDomainPatterns(`https://${"a".repeat(1e6)}/`, Array(100).fill(`*${"a".repeat(200)}b`)), false);
+	assert.ok(performance.now() - start < 2000, `a long host took ${performance.now() - start} ms`);
+});
+
 test("an unedited stored copy of the old calendar skill is replaced; an edited one is kept", () => {
 	const old = { name: "google-calendar-events", lastUpdated: SUPERSEDED_DEFAULTS["google-calendar-events"][0] };
 	assert.equal(shouldReplaceDefault(old, calendar), true);

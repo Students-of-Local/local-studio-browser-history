@@ -3,7 +3,6 @@ import { type CustomProvider, SettingsTab } from "@mariozechner/pi-web-ui";
 import { html, nothing, type TemplateResult } from "lit";
 import { Toast } from "../components/Toast.js";
 import { getTabkyraStorage } from "../storage/app-storage.js";
-import { syncCustomProviderCorsRules } from "../utils/custom-provider-cors.js";
 import { CustomProviderEditDialog } from "./CustomProviderEditDialog.js";
 
 /**
@@ -46,7 +45,6 @@ export class CustomProvidersTab extends SettingsTab {
 			await storage.customProviders.delete(provider.id);
 			// Remove the mirrored key entry created on save.
 			await storage.providerKeys.delete(provider.name);
-			await syncCustomProviderCorsRules();
 			await this.loadProviders();
 			Toast.success("Provider deleted");
 		} catch (error) {

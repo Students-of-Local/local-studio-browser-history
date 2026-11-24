@@ -11,7 +11,6 @@ import { state } from "lit/decorators.js";
 import { PageBase } from "../components/PageBase.js";
 import { Toast } from "../components/Toast.js";
 import { getTabkyraStorage } from "../storage/app-storage.js";
-import { syncCustomProviderCorsRules } from "../utils/custom-provider-cors.js";
 
 /** Manual (model-list) custom provider types supported by the editor. */
 const MANUAL_TYPES: { value: CustomProviderType; label: string }[] = [
@@ -174,8 +173,6 @@ export class CustomProviderEditDialog extends PageBase {
 			if (this.provider && this.provider.name !== name) {
 				await storage.providerKeys.delete(this.provider.name);
 			}
-
-			await syncCustomProviderCorsRules();
 
 			Toast.success(i18n("Provider saved"));
 			this.onSaveCallback?.();
