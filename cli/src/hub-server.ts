@@ -17,6 +17,7 @@ import type { Duplex } from "node:stream";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { type RawData, WebSocket, WebSocketServer } from "ws";
 import { CodeLimitError, REQUEST_LOCK_MS } from "./codes.ts";
+import { HANDS_COMMAND, handsHowTo } from "./computer.ts";
 import { LockTimeoutError } from "./files.ts";
 import {
 	authenticateDevice,
@@ -827,7 +828,7 @@ export async function startHub(options: HubOptions): Promise<HubHandle> {
 			return toolError(res, call.id, `${name} doesn't allow ${scope} (allows: ${target.status.scopes.join(", ") || "nothing"}). Only its owner can add it, on ${name}.`);
 		}
 		if (scope && !who.scopes.includes(scope)) return toolError(res, call.id, `This connection doesn't allow ${scope}, so ${call.name} can't run on any device through it.`);
-		if (scope?.startsWith("computer.") && target.status.computer === false) return toolError(res, call.id, `${name} has no computer use: Polycarp's Mac app isn't on it. Nothing was sent.`);
+		if (scope?.startsWith("computer.") && target.status.computer === false) return toolError(res, call.id, `${name} has no computer use: Tychicus's computer-use helper, ${HANDS_COMMAND}, isn't on it. Nothing was sent. ${handsHowTo(target.status.platform)}`);
 		if (target.calls + target.reserved >= MAX_INFLIGHT_PER_DEVICE) return toolError(res, call.id, `${name} is handling too many requests. Nothing was sent. Try again in a moment.`);
 		// A request slot on the target while its session opens.
 		target.reserved++;

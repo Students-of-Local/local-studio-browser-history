@@ -8,7 +8,7 @@ version: 1.4.0
 
 The computer tools read a desktop app's window through the system's accessibility interface and act on its
 controls by label or ref. They work in the background on the agent workspace and never take focus from the
-user. Today they run on a Mac with Polycarp's Mac helper; elsewhere `computer_status` says they aren't available.
+user. They run where Tychicus's helper, `tychicus-hands`, is installed; elsewhere `computer_status` says how to get it.
 
 ## When to use
 

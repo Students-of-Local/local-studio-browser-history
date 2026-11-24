@@ -134,7 +134,7 @@ export function refsForModel(text: string, refs: ComposerRefs): string {
 			`<skill name="${refs.skill.name}" source="${refs.skill.source}">
 The user chose this skill with /${refs.skill.name}. Follow its instructions for the task below.${
 				refs.skill.source === "library"
-					? " It was written for Tychicus's MCP tools; do the same steps with your own tools (navigate to open pages, repl with browserjs() to read and act on them)."
+					? " It was written for Local Studio's MCP tools; do the same steps with your own tools (navigate to open pages, repl with browserjs() to read and act on them)."
 					: ""
 			}
 

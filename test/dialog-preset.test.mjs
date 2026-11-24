@@ -302,7 +302,7 @@ test("first-F3 (review of PR 200): on_dialog's OK fails: Tychicus cancels the bo
 	const r = await reply(deliver("c1", "click", { tabId: tab, x: 10, y: 10, on_dialog: "ok" }), 2_000);
 	assert.ok(performance.now() - t0 < 2_000);
 	assert.equal(r.error?.code, "interrupted", JSON.stringify(r));
-	assert.match(r.error.message, /on_dialog's OK did not reach it, so Tychicus answered Cancel and the page saw Cancel/);
+	assert.match(r.error.message, /on_dialog's OK did not reach it, so Local Studio answered Cancel and the page saw Cancel/);
 	assert.doesNotMatch(r.error.message, /That worked|went through/);
 	assert.deepEqual(answers.map((a) => [a.message, a.accept]), [["Delete the record?", false]]);
 	assert.equal(openDialog(tab), undefined, "the box is still open");
@@ -352,7 +352,7 @@ test("second-S2: a box no click or press opened (a page timer, a hover): the not
 	void box(tab, "confirm", "Leave this page?");
 	await pastGrace();
 	const said = await notice(tab);
-	assert.match(said, /Tychicus does not know which action opened it/);
+	assert.match(said, /Local Studio does not know which action opened it/);
 	assert.match(said, /Read the page \(read_page\)/);
 	assert.doesNotMatch(said, /call \w+ with|on_dialog": "ok"/);
 	// A hover is no cause either.
@@ -607,7 +607,7 @@ test("sol-F1 (review of PR 216): a box a page timer opens after the click return
 	await pastGrace();
 	// The click's input had all gone out: nothing says the click opened it, or that it may be repeated.
 	const said = await notice(tab);
-	assert.match(said, /Tychicus does not know which action opened it/);
+	assert.match(said, /Local Studio does not know which action opened it/);
 	assert.doesNotMatch(said, /call \w+ with|on_dialog": "ok"|click/);
 });
 
@@ -973,6 +973,38 @@ test("second-S1 (round 2 of the review of PR 230): on_dialog ok never answers a 
 	assert.equal(openDialog(tab)?.type, "beforeunload");
 	await pastGrace();
 	assert.deepEqual(answers.map((x) => x.accept), [false]);
+});
+
+// ---- The permission mode at the bridge (docs/decisions.md, D67).
+
+for (const [cli, id, hello] of [
+	["the current CLI", "r1", { name: "claude", session: "remote-1", remote: true }],
+	["a CLI from before `remote`", "r2", { name: "remote-web", session: "remote-tok-1" }],
+])
+test(`a remote connector session in Yolo still asks before a site, and can't answer its own question or change the mode: ${cli}`, async (t) => {
+	setup(t);
+	await chrome.storage.local.set({ permission_mode: "yolo" });
+	t.after(() => chrome.storage.local.set({ permission_mode: "auto" }));
+	port.deliver({ type: "client_connected", clientId: id, client: hello });
+	const tab = (await request("tabs.create", {}, id)).result.tabId;
+	t.after(() => void request("tabs.close", { tabId: tab }, id).catch(() => undefined));
+	const call = deliver(id, "navigate", { tabId: tab, url: "https://news.example.net/" });
+	let ask;
+	for (let i = 0; i < 400 && !ask; i++) {
+		ask = port.sent.find((m) => m.type === "event" && m.clientId === id && m.event === "permission_request")?.data;
+		if (!ask) await wait(5);
+	}
+	assert.equal(ask?.host, "news.example.net", "Yolo asks nothing of a local agent; a remote one gets Auto's question");
+	for (const [method, params] of [
+		["permission.respond", { requestId: ask.requestId, decision: "allow_once" }],
+		["permission.setMode", { mode: "yolo" }],
+		["permission.allow", { host: "evil.example" }],
+	])
+		assert.equal((await request(method, params, id)).error?.code, "permission_denied", method);
+	assert.deepEqual((await chrome.storage.local.get("bridge_allowed_hosts")).bridge_allowed_hosts ?? [], []);
+	// The person says no, through another client or the side panel.
+	assert.equal((await request("permission.respond", { requestId: ask.requestId, decision: "deny" })).result?.accepted, true);
+	assert.equal((await reply(call)).error?.code, "permission_denied");
 });
 
 // Last: it takes the native host away, and nothing after it could reach the bridge.

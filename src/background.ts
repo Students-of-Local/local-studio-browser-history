@@ -1,6 +1,7 @@
 import { dropStalePolycarpTheme } from "./appearance/tokens.js";
 import { startBridge, trace } from "./bridge/native.js";
 import { startPanelPageTools } from "./bridge/panel-calls.js";
+import { startFreshInstall } from "./bridge/permissions.js";
 import { installCdpListeners, persistCdpMemory } from "./browser/cdp.js";
 import { startDialogGuard } from "./browser/dialog-guard.js";
 import { setGuardLogger, startForegroundGuard } from "./browser/foreground-guard.js";
@@ -16,6 +17,7 @@ import { startSiteEdits } from "./site-edits/apply.js";
 import { startSubscriptionRelay } from "./subscriptions/relay.js";
 import { runningFromStore } from "./update/store-install.js";
 import { setPanelsOpening, startUpdateWorker } from "./update/worker.js";
+import { removeProviderCorsRules } from "./utils/provider-cors.js";
 
 // Debugger events reach a worker only if its listeners exist when it starts (detaches, page crashes).
 installCdpListeners();
@@ -133,6 +135,11 @@ function setGlobalPanelOptions(): void {
 }
 setGlobalPanelOptions();
 chrome.runtime.onInstalled.addListener(setGlobalPanelOptions);
+removeProviderCorsRules().catch((err) => console.warn("[Background] removing old provider rules:", err));
+// A new install starts in Auto with no notice; an update migrates its 1.4.0 setting on first read (D67).
+chrome.runtime.onInstalled.addListener((details) => {
+	if (details.reason === "install") startFreshInstall().catch(() => undefined);
+});
 
 /**
  * Open the window's panel, in the click's user-gesture tick (Chrome requires open() there), so

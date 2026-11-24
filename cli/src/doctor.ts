@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { NATIVE_HOST_NAME, type UserScriptsStatus } from "../../src/bridge/protocol.ts";
 import { BridgeClient, listSockets } from "./client.ts";
 import { aliasFile, knownAliases, liveAlias, planMigration } from "./agent-migration.ts";
-import { ComputerClient, findHelper, HANDS_COMMAND, helperName } from "./computer.ts";
+import { ComputerClient, findHelper, HANDS_COMMAND, handsHowTo, helperName } from "./computer.ts";
 import { harnesses, launcherBinary, launcherValid, MCP_NAME, shellJoin } from "./harness.ts";
 import { cliLauncherPath, extensionOrigins, hostTarget, installedBrowserDirs, launcherPath, launcherRunsOlder, manifestLauncherRuns, originsCurrent } from "./install.ts";
 import { EXTENSION_FILES, extensionDir, repoRoot } from "./paths.ts";
@@ -357,9 +357,9 @@ function harnessChecks(): Check[] {
 			if (h.configured === true) {
 				return { id, status: "ok", label: `${h.name}: Tychicus MCP server configured` };
 			}
-			// Moved from Polycarp: Tychicus runs under the old name until `setup --agents --finish`.
+			// Tychicus runs under an old name until `setup --agents` renames it; agents:aliases below says so once.
 			const alias = h.configured === false ? liveAlias(h.id) : undefined;
-			if (alias) return { id, status: "ok", label: `${h.name}: Tychicus MCP server configured as "${alias.name}", a temporary alias` };
+			if (alias) return { id, status: "ok", label: `${h.name}: Tychicus MCP server configured under the old name "${alias.name}"` };
 			const replace = h.configured === "stale" || h.configured === "other";
 			let fix: string;
 			if (h.addCommand) fix = replace && h.removeCommand ? `${shellJoin(h.removeCommand)} && ${shellJoin(h.addCommand)}` : shellJoin(h.addCommand);
@@ -426,9 +426,10 @@ function polycarpAgentChecks(): Check[] {
 		const list = aliases.map((a) => `"${a.name}" in ${a.harness}`).join(", ");
 		checks.push({
 			id: "agents:aliases",
-			status: "ok",
-			label: `Temporary aliases that run Tychicus: ${list} (${aliasFile()})`,
-			fix: `Once nothing names them: ${COMMAND_NAME} setup --agents --finish`,
+			status: "warn",
+			label: `Agents run Tychicus under an old name: ${list}`,
+			detail: `${aliasFile()} lists them. The command below renames each to ${MCP_NAME} where that is safe; it backs up each file and asks first.`,
+			fix: `${COMMAND_NAME} setup --agents`,
 		});
 	}
 	return checks;
@@ -442,7 +443,7 @@ export async function computerCheck(timeout = 3000): Promise<Check> {
 			id: "computer",
 			status: "warn",
 			label: "Computer use: no helper installed",
-			detail: `No ${HANDS_COMMAND}${process.platform === "darwin" ? " and no Polycarp polycarp-spaces" : ""} here, so agents get no computer_* tools. Browser tools work without it.`,
+			detail: `No ${HANDS_COMMAND} here, so agents get no computer_* tools. Browser tools work without it. ${handsHowTo()}`,
 		};
 	}
 	const client = new ComputerClient(found.path, "local");

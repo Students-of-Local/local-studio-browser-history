@@ -241,11 +241,11 @@ export class SubscriptionsSection extends LitElement {
 								<p class="text-xs text-foreground">
 									${
 										this.noHost
-											? "Subscription sign-ins run in Tychicus's helper on this computer, which isn't connected. If you have it, run this in a terminal, then reopen Settings."
+											? "Subscription sign-ins run in Local Studio's helper on this computer, which isn't connected. If you have it, run this in a terminal, then reopen Settings."
 											: html`Subscription sign-ins aren't available: ${this.error?.replace(/\.?$/, ".")} Running this in a terminal usually fixes it.`
 									}
 								</p>
-								${this.command("Set up Tychicus", `${hostCommand()} setup`)}
+								${this.command("Set up the Local Studio helper", `${hostCommand()} setup`)}
 								${this.noHost ? html`<p class="text-xs text-muted-foreground" data-helper-install>${helperInstallHint()}</p>` : nothing}
 							</div>`
 						: nothing
@@ -295,8 +295,8 @@ export class SubscriptionsSection extends LitElement {
 				<div class="flex flex-col gap-2 rounded-md border border-border p-3" data-subscription="cli">
 					<span class="text-sm font-medium text-foreground">Claude and Gemini</span>
 					<p class="text-xs text-muted-foreground">
-						Use your Claude Code or Gemini CLI subscription by running it with Tychicus's MCP server. Anthropic's and Google's
-						terms don't allow other apps to sign in with those plans, so Tychicus doesn't.
+						Use your Claude Code or Gemini CLI subscription by running it with Local Studio's MCP server. Anthropic's and Google's
+						terms don't allow other apps to sign in with those plans, so the extension doesn't.
 					</p>
 					${this.command("Claude Code", cliMcpSetup("claude", hostCommand()))}
 					${this.command("Gemini CLI", cliMcpSetup("gemini", hostCommand()))}

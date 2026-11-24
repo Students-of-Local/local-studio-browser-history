@@ -31,7 +31,7 @@ import { capCrawl, capJson, capOutput, fitSnapshot, MARKDOWN_CHARS, passwordHand
 import { searxSearch } from "./searx.ts";
 import { selfExec, selfPrefix } from "./self.ts";
 import { VERSION } from "./version.ts";
-import { COMPUTER_INSTRUCTION, COMPUTER_STATUS_TOOL, type ComputerClient, LOCAL_COMPUTER_INSTRUCTION, LocalComputer } from "./computer.ts";
+import { COMPUTER_INSTRUCTION, COMPUTER_STATUS_TOOL, type ComputerClient, HANDS_COMMAND, handsHowTo, LOCAL_COMPUTER_INSTRUCTION, LocalComputer } from "./computer.ts";
 import { COMMAND_NAME } from "./self.ts";
 import { envVar } from "./env.ts";
 import { hopTracer } from "./hop-trace.ts";
@@ -403,6 +403,7 @@ export function createMcpServer(options: McpServerOptions = {}): { server: McpSe
 	const addMoreTools = small ? hideOutsideCore(server) : undefined;
 	const choice = options.session ? { name: options.session, auto: false } : chooseSession({ flag: options.sessionFlag });
 	const tracer = hopTracer();
+	const remote = Boolean(options.remote || allowedTools);
 	const client = new BridgeClient({
 		name: options.name ?? harnessName(),
 		session: choice.name,
@@ -411,6 +412,8 @@ export function createMcpServer(options: McpServerOptions = {}): { server: McpSe
 		named: !options.session && choice.named === true,
 		project: "project" in choice ? choice.project : undefined,
 		...(options.model ? { tier: options.model.tier, ...(options.model.model ? { model: options.model.model } : {}) } : {}),
+		// A scoped session counts as remote here too (as for skills and files): Yolo never widens it (D67).
+		...(remote ? { remote: true } : {}),
 		...tracer?.client,
 		onEvent: (event, data) => {
 			if (event === "permission_request") void handlePermission(data);
@@ -421,7 +424,8 @@ export function createMcpServer(options: McpServerOptions = {}): { server: McpSe
 	let files: FilesTool | undefined;
 
 	async function handlePermission(data: Record<string, unknown>): Promise<void> {
-		if (options.remote) return;
+		// The extension takes no answer from a remote or scoped session: the question waits in the side panel.
+		if (remote) return;
 		const requestId = String(data.requestId);
 		const host = String(data.host);
 		if (data.kind === "upload") return handleUploadQuestion(requestId, host, data);
@@ -546,7 +550,7 @@ export function createMcpServer(options: McpServerOptions = {}): { server: McpSe
 		"status",
 		{
 			title: "Tychicus status",
-			description: "Connection check: is the browser connected, the site permission mode (\"ask\": new sites need the user's approval; \"allow_all\"), allowed sites, your group and tabs. Never fails: when not connected it says how the user fixes it. Example: {}",
+			description: "Connection check: is the browser connected, the permission mode (mode: manual, auto or yolo), allowed sites, your group and tabs. Never fails: when not connected it says how the user fixes it. Example: {}",
 			inputSchema: {},
 		},
 		async () => {
@@ -1369,7 +1373,7 @@ export function createMcpServer(options: McpServerOptions = {}): { server: McpSe
 			COMPUTER_STATUS_TOOL,
 			{ description: "Whether computer use is available in this session, and what to tell the user if it isn't.", inputSchema: {}, annotations: { readOnlyHint: true, openWorldHint: false } },
 			async () => ({
-				content: text(options.computer?.tools.length ? "Computer use is available: the agent workspace and apps the user has lent." : "Computer use isn't available right now: Polycarp's Mac app isn't on this computer, or it needs updating. Tell the user. Browser tools work as usual."),
+				content: text(options.computer?.tools.length ? "Computer use is available: the agent workspace and apps the user has lent." : `Computer use isn't available right now: Tychicus's computer-use helper, ${HANDS_COMMAND}, isn't on this computer or isn't answering. Tell the user. ${handsHowTo()} Browser tools work as usual.`),
 			}),
 		);
 	}

@@ -117,12 +117,13 @@ import { panelPageTools, registerPageToolRenderers } from "./tools/page-tools.js
 import { createReplTool } from "./tools/repl/repl.js";
 import { BrowserJsRuntimeProvider, NavigateRuntimeProvider } from "./tools/repl/runtime-providers.js";
 import { seedDefaultSkills, seedStamp } from "./tools/seed-skills.js";
-import { syncCustomProviderCorsRules } from "./utils/custom-provider-cors.js";
 import { chatToMarkdown } from "./utils/export-chat.js";
 import * as port from "./utils/port.js";
 import "./utils/i18n-extension.js";
 import { createArtifactViewer } from "./artifacts/viewers.js";
 import { bridgeQuestions, watchBridgeQuestions } from "./ask/bridge-panel.js";
+import { agentAsks, watchAgentAsks } from "./components/AgentAsks.js";
+import { modeNotice, watchModeNotice } from "./components/ModeNotice.js";
 import { updateNotice, watchUpdateStatus } from "./components/UpdateNotice.js";
 import { handbackCards, watchHandbacks } from "./handback/panel.js";
 import { takeHandoff, watchHandoff } from "./handoff/panel.js";
@@ -507,7 +508,9 @@ async function copyCurrentChat() {
 		return;
 	}
 	try {
-		await navigator.clipboard.writeText(chatToMarkdown(messages, currentTitle || "Tychicus chat", agent.state.model));
+		await navigator.clipboard.writeText(
+			chatToMarkdown(messages, currentTitle || "Local Studio chat", agent.state.model),
+		);
 		Toast.success("Chat copied as Markdown");
 	} catch {
 		Toast.error("Couldn't copy the chat");
@@ -1092,7 +1095,7 @@ const createAgent = async (initialState?: Partial<AgentState>, shouldSave = true
 			if (isLocalStudioProvider(provider)) {
 				if (await probeLocalStudio()) return true;
 				Toast.error(
-					"Local Studio isn't running. Start Local Studio, or run eukhe in a terminal, then send again.",
+					"The Local Studio app isn't running. Start it, or run eukhe in a terminal, then send again.",
 					8000,
 				);
 				return false;
@@ -1168,7 +1171,7 @@ const createAgent = async (initialState?: Partial<AgentState>, shouldSave = true
 			const reserved = await reserveRun(markBusyForSend);
 			if (!reserved) {
 				throw new Error(
-					"Tychicus is installing an update and reloads in a moment. Send it again after the reload.",
+					"The extension is installing an update and reloads in a moment. Send it again after the reload.",
 				);
 			}
 			if (note && agent) agent.appendMessage(note);
@@ -1405,7 +1408,7 @@ async function saveTitle(value: string) {
 }
 
 function titleArea() {
-	if (!currentTitle) return html`<span class="text-sm font-semibold tracking-tight select-none">Tychicus</span>`;
+	if (!currentTitle) return html`<span class="text-sm font-semibold tracking-tight select-none">Local Studio</span>`;
 	if (isEditingTitle)
 		return html`<div class="flex-1 min-w-0" data-title-input>
 			${Input({
@@ -1479,7 +1482,9 @@ const renderApp = () => {
 				</div>
 			</div>
 
+			${agentAsks()}
 			${updateNotice()}
+			${modeNotice()}
 			${handbackCards()}
 			${bridgeQuestions()}
 			${planBadge(agent?.state.model?.provider)}
@@ -1629,10 +1634,6 @@ async function initApp() {
 	const showJsonModeEnabled = (stored.showJsonMode as boolean) || false;
 	setShowJsonMode(showJsonModeEnabled);
 
-	// Reconcile CORS rules for any configured custom providers (dynamic DNR rules
-	// don't ship in the static manifest, so make sure they exist after a reload).
-	syncCustomProviderCorsRules().catch((err) => console.error("Failed to sync custom provider CORS rules:", err));
-
 	// Get current window ID for filtering tab events
 	const currentWindow = await chrome.windows.getCurrent();
 	if (!currentWindow.id) {
@@ -1652,7 +1653,7 @@ async function initApp() {
 	}
 	watchHandoff(currentWindowId, (tabId) => {
 		// A reload would end the run under way; the user stops it first.
-		if (agent?.state.isStreaming) Toast.info("Tychicus is working. Stop this run, then give the tab again.");
+		if (agent?.state.isStreaming) Toast.info("Local Studio is working. Stop this run, then give the tab again.");
 		else newTaskOnTab(tabId);
 	});
 
@@ -1778,6 +1779,8 @@ async function initApp() {
 			});
 
 			renderApp();
+			void watchModeNotice(renderApp).catch(() => {});
+			void watchAgentAsks(renderApp).catch(() => {});
 			void watchBridgeQuestions(renderApp).catch(() => {});
 			void watchHandbacks(renderApp).catch(() => {});
 			void watchRuns(renderApp).catch(() => {});
@@ -1805,6 +1808,8 @@ async function initApp() {
 	renderApp();
 	performance.mark("panel:rendered");
 	void watchUpdateStatus(renderApp).catch(() => {});
+	void watchModeNotice(renderApp).catch(() => {});
+	void watchAgentAsks(renderApp).catch(() => {});
 	// External agents' questions (ask_user over the bridge) show above the chat.
 	void watchBridgeQuestions(renderApp).catch(() => {});
 	void watchHandbacks(renderApp).catch(() => {});

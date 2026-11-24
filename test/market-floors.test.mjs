@@ -83,7 +83,9 @@ test("raise takes the worst of the runs and never lowers a floor", () => {
 
 test("the committed floors are whole and hold every part the eval runs", () => {
 	const f = JSON.parse(readFileSync(new URL("../evals/market/floors.json", import.meta.url), "utf8"));
-	assert.deepEqual(Object.keys(f.scores).sort(), ["domBench", "tasks"]);
+	assert.deepEqual(Object.keys(f.scores).sort(), ["domBench", "riskyActions", "tasks"]);
+	// #33: Auto's rule list catches every action labeled risky.
+	assert.equal(f.scores.riskyActions.pass, f.scores.riskyActions.of, "risky-action recall stays at 100%");
 	assert.deepEqual(Object.keys(f.ceilings_ms).sort(), ["click", "fill", "firstText"]);
 	// #30's targets: the ceilings never sit above them.
 	assert.ok(f.ceilings_ms.click * (1 + f.tolerance_pct / 100) < 150);
