@@ -90,9 +90,11 @@ export function parseVmArgs(args: string[]): VmArgs | string {
 	const [sub, ...rest] = args;
 	if (!sub || !(sub in SUBS)) return sub ? `Unknown vm command "${sub}".` : "vm needs a command.";
 	const out: VmArgs = { sub: sub as VmSub, cold: false, fromReady: false, force: false, json: false };
+	// A guest command's own `--` stays in it: exec's comes right after the name.
 	const dash = rest.indexOf("--");
-	const own = dash >= 0 ? rest.slice(0, dash) : rest;
-	const tail = dash >= 0 ? rest.slice(dash + 1) : [];
+	const split = out.sub === "exec" ? dash === 1 : dash >= 0;
+	const own = split ? rest.slice(0, dash) : rest;
+	const tail = split ? rest.slice(dash + 1) : [];
 	const positional: string[] = [];
 	for (let i = 0; i < own.length; i++) {
 		const arg = own[i];
@@ -413,6 +415,11 @@ export function request(dir: string, body: Record<string, unknown>, timeoutMs = 
 			clearTimeout(timer);
 			fail(err);
 		});
+		// After an answer or an error this changes nothing.
+		socket.on("close", () => {
+			clearTimeout(timer);
+			fail(new Error(`the helper closed without answering ${String(body.op)}`));
+		});
 	});
 }
 
@@ -440,6 +447,21 @@ async function helperGone(dir: string): Promise<boolean> {
 	}
 }
 
+/**
+ * What `up` finds of a helper that is already there. A start, reset or stop under way finishes first: another `up`
+ * began it, or an earlier one that was interrupted. undefined when no helper is left.
+ */
+export async function existingHelper(dir: string, deadline: number): Promise<Status | undefined> {
+	for (;;) {
+		const status = await running(dir);
+		if (status?.state === "running" || status?.state === "failed") return status;
+		if (!status && (await helperGone(dir))) return undefined;
+		if (Date.now() >= deadline) return status ?? { ok: false, error: "its helper does not answer" };
+		await sleep(50);
+	}
+}
+
+const UP_WAIT_MS = 300_000;
 const seconds = (ms: number | undefined) => (ms === undefined ? "?" : `${(ms / 1000).toFixed(2)} s`);
 const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
 
@@ -485,13 +507,21 @@ export async function runVm(args: VmArgs, out: { log: (line: string) => void; er
 	}
 	const name = args.name!;
 	const dir = join(root, "guests", name);
-	const current = await running(dir);
 	const report = (status: Status, line: string) => out.log(args.json ? JSON.stringify(status) : line);
 
 	if (args.sub === "up") {
-		if (current) {
-			report(current, `${name} is already ${current.state}.`);
+		const there = await existingHelper(dir, Date.now() + UP_WAIT_MS);
+		if (there?.state === "running") {
+			if (args.cold || args.fromReady) {
+				out.err(`${name} is running, and ${args.cold ? "--cold" : "--from-ready"} starts a stopped guest. Run \`${COMMAND_NAME} vm ${args.cold ? "down" : "reset"} ${name}\`${args.cold ? " first" : " instead"}.`);
+				return 1;
+			}
+			report(there, `${name} is already running.`);
 			return 0;
+		}
+		if (there) {
+			out.err(`Not starting ${name}: ${there.error ?? `it is still ${there.state}`}. See ${join(dir, "helper.log")}, then run this again.`);
+			return 1;
 		}
 		const disk = join(dir, "disk.raw");
 		if (args.fromReady && existsSync(disk)) {
@@ -518,7 +548,7 @@ export async function runVm(args: VmArgs, out: { log: (line: string) => void; er
 			exited = code;
 		});
 		child.unref();
-		const deadline = Date.now() + 300_000;
+		const deadline = Date.now() + UP_WAIT_MS;
 		while (Date.now() < deadline) {
 			const status = await running(dir);
 			if (status?.state === "running") {
@@ -536,12 +566,13 @@ export async function runVm(args: VmArgs, out: { log: (line: string) => void; er
 		return 1;
 	}
 
+	const current = await running(dir);
+	if (!current && !(await helperGone(dir))) throw new Error(`${name}'s helper did not answer; try again when it does`);
 	if (args.sub === "reset" && !current) {
 		if (!existsSync(join(dir, "ready.raw"))) {
 			out.err(`${name} has no ready point yet: run \`${COMMAND_NAME} vm up ${name}\` once.`);
 			return 1;
 		}
-		if (!(await helperGone(dir))) throw new Error(`${name}'s helper did not answer; try again when it does`);
 		// The session goes first: without its disk it must never be resumed.
 		rmSync(join(dir, "session.vzvmsave"), { force: true });
 		rmSync(join(dir, "disk.raw"), { force: true });

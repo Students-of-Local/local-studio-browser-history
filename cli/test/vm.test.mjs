@@ -10,7 +10,7 @@ import { dirname, join } from "node:path";
 import { Readable } from "node:stream";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { gateProblems, MIN_FREE_DISK, parsePmset, parseVmArgs, parseVmStat, RAM_HEADROOM, startFlags, userData, writeSparse } from "../src/vm.ts";
+import { existingHelper, gateProblems, MIN_FREE_DISK, parsePmset, parseVmArgs, parseVmStat, RAM_HEADROOM, request, startFlags, userData, writeSparse } from "../src/vm.ts";
 
 const cli = join(dirname(fileURLToPath(import.meta.url)), "..", "dist", "index.js");
 const GiB = 1024 ** 3;
@@ -27,6 +27,9 @@ test("vm arguments parse strictly", () => {
 	assert.equal(parseVmArgs(["exec", "linux", "uname -a"]).cmd, "uname -a");
 	// Flags after the name belong to the guest command, not to vm.
 	assert.equal(parseVmArgs(["exec", "linux", "--json"]).cmd, "--json");
+	// So does a -- of the guest command's own.
+	assert.equal(parseVmArgs(["exec", "linux", "git", "checkout", "--", "file"]).cmd, "git checkout -- file");
+	assert.equal(parseVmArgs(["exec", "linux", "--", "rm", "--", "-f"]).cmd, "rm -- -f");
 });
 
 test("vm refuses what it would otherwise misread", () => {
@@ -140,6 +143,43 @@ test("up starts from the ready point only when the guest has no disk", () => {
 	assert.deepEqual(startFlags({ cold: false }, true), [], "a disk is booted as it stands");
 	assert.deepEqual(startFlags({ cold: true }, true), ["--cold"]);
 	assert.deepEqual(startFlags({ cold: false }, false), ["--from-ready"]);
+});
+
+/** A guest directory whose helper answers status with `states` in order, the last one from then on. */
+async function fakeHelper(t, states) {
+	const dir = mkdtempSync(join(tmpdir(), "tvm-"));
+	const server = createServer((socket) =>
+		socket.once("data", () => {
+			const state = states.length > 1 ? states.shift() : states[0];
+			socket.end(state === null ? "" : `${JSON.stringify({ ok: true, state, ...(state === "failed" && { error: "no reset point" }) })}\n`);
+			if (state === "stopping" && states.length === 1 && states[0] === "gone") server.close();
+		}),
+	);
+	await new Promise((done) => server.listen(join(dir, "control.sock"), done));
+	t.after(() => {
+		server.close();
+		rmSync(dir, { recursive: true, force: true });
+	});
+	return dir;
+}
+
+test("up waits for a start or stop already under way instead of calling the guest up", async (t) => {
+	const soon = () => Date.now() + 10_000;
+	assert.equal((await existingHelper(await fakeHelper(t, ["starting", "starting", "running"]), soon())).state, "running");
+	assert.equal((await existingHelper(await fakeHelper(t, ["resetting", "running"]), soon())).state, "running");
+	const failed = await existingHelper(await fakeHelper(t, ["starting", "failed"]), soon());
+	assert.deepEqual([failed.state, failed.error], ["failed", "no reset point"]);
+	assert.equal(await existingHelper(await fakeHelper(t, ["stopping", "gone"]), soon()), undefined, "an old helper that left makes room for a new start");
+	assert.equal((await existingHelper(await fakeHelper(t, ["starting"]), Date.now() + 100)).state, "starting", "not up when the wait ends");
+	assert.equal((await existingHelper(await fakeHelper(t, [null]), Date.now() + 100)).ok, false, "a helper that closes without an answer is not gone");
+	const none = mkdtempSync(join(tmpdir(), "tvm-"));
+	t.after(() => rmSync(none, { recursive: true, force: true }));
+	assert.equal(await existingHelper(none, soon()), undefined);
+});
+
+test("a helper that closes the connection without an answer fails the request at once", async (t) => {
+	const dir = await fakeHelper(t, [null]);
+	await assert.rejects(request(dir, { op: "exec" }, 600_000), /closed without answering exec/);
 });
 
 const mac = process.platform === "darwin" && process.arch === "arm64";

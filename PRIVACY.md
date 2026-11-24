@@ -69,6 +69,9 @@ Every host named below sees the computer's IP address, as any site does.
 - **Code the agent writes in the panel** can load libraries from `esm.run`, `esm.sh`, `cdn.jsdelivr.net`, `unpkg.com`,
   `cdnjs.cloudflare.com`, `cdn.skypack.dev` and `cdn.tailwindcss.com`, data from those and `t1.gstatic.com`, and pictures
   from any https site. The Chrome Web Store build can't.
+- **Linux guests.** The first `tychicus vm up` on a Mac downloads the Debian image (about 300 MB) from `cloud.debian.org`,
+  which sends the download to one of Debian's mirrors. The image is checked against a fixed SHA-512. Nothing is sent
+  beyond the request. What runs inside a guest reaches the network as it would on any computer. Without `vm`, none of it.
 - **Installing or sharing.** The install command downloads from `github.com` and `release-assets.githubusercontent.com`.
   `tychicus skill submit` shows what it would post, and once the user confirms, posts that skill, its test cases and the
   note as a public pull request from the user's GitHub account, through `git` and the GitHub CLI.
