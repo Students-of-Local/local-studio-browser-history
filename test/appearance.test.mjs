@@ -342,3 +342,32 @@ test("the guide says an open approval or hub page takes a new theme only on relo
 		assert.match(text, /<style>\$\{pageCss\(\)\}<\/style>/, `${page} still inlines the CSS when it serves the page`);
 	}
 });
+
+test("Tychicus opens dark until the person picks light or Match system", () => {
+	const loader = readFileSync(new URL("../static/theme-loader.js", import.meta.url), "utf8");
+	const run = (saved, systemDark) => {
+		const classes = new Set();
+		const store = new Map(saved === undefined ? [] : [["theme", saved]]);
+		const env = {
+			localStorage: { getItem: (k) => store.get(k) ?? null, removeItem: (k) => store.delete(k) },
+			window: { matchMedia: () => ({ matches: systemDark }) },
+			document: {
+				documentElement: {
+					classList: { add: (c) => classes.add(c), contains: (c) => classes.has(c) },
+					style: { setProperty() {} },
+				},
+			},
+		};
+		new Function("localStorage", "window", "document", loader)(env.localStorage, env.window, env.document);
+		return classes.has("dark");
+	};
+	assert.equal(run(undefined, false), true, "nothing saved: dark, even when the system is light");
+	assert.equal(run("light", true), false);
+	assert.equal(run("dark", false), true);
+	assert.equal(run("system", false), false);
+	assert.equal(run("system", true), true);
+	const mode = readFileSync(new URL("../src/appearance/mode.ts", import.meta.url), "utf8");
+	assert.match(mode, /saved === "light" \|\| saved === "system" \? saved : "dark"/);
+	const veil = readFileSync(new URL("../src/browser/veil.ts", import.meta.url), "utf8");
+	assert.match(veil, /mirrored === "light" \? "light" : mirrored === "system" \? "auto" : "dark"/);
+});
