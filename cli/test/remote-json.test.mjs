@@ -1381,7 +1381,7 @@ test("two zones on Cloudflare and no zone remembered: the record lands in the si
 		assert.equal(report.code, "cloudflare_zone", r.stdout);
 		assert.match(report.message, new RegExp(`made the DNS record ${CF_HOST.replace(/\./g, "\\.")}\\.other\\.example`));
 		assert.match(report.message, /delete it in the Cloudflare dashboard/);
-		assert.match(report.message, /Tychicus never deletes DNS records/);
+		assert.match(report.message, /Local Studio never deletes DNS records/);
 		assert.equal(s.remoteJsonExists(), false);
 		assert.ok(!cfCalls(s).some((x) => /delete/.test(x)), "nothing on the account is deleted");
 		// The zone is known now: another name outside it is refused before any record.
