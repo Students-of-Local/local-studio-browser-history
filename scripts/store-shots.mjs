@@ -364,7 +364,7 @@ try {
 	agent.close();
 	console.log(raw.agents ? "agents" : "agents refused");
 
-	// Settings > Agents, at Site access: the sites an agent may open, each one approved by the person.
+	// Settings > Agents, at Permission mode: when an agent asks, and the sites it may open.
 	await h.cdp(browserWs, "Target.activateTarget", { targetId: panelTarget });
 	await panel.eval(`(() => {
 		const find = (root) => {
@@ -394,7 +394,8 @@ try {
 			}
 		};
 		const heading = walk(document);
-		heading?.scrollIntoView({ block: "start" });
+		if (!heading) throw new Error("Permission mode not found");
+		heading.scrollIntoView({ block: "start" });
 		// The settings tabs stay pinned over the top of the scroller; leave the heading clear of them.
 		for (let el = heading; el; el = el.parentElement ?? el.getRootNode().host)
 			if (el.scrollHeight > el.clientHeight && /auto|scroll/.test(getComputedStyle(el).overflowY)) {
