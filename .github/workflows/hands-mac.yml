@@ -1,15 +1,28 @@
-# The Mac computer-use helper's core (hands/mac): `swift test` on a Mac. No secrets, no write token.
+# The Mac computer-use helper (hands/mac), built and signed the way a release does it (hands/mac/scripts/package.sh: the
+# engine as a static library, `swift build -c release`, ad hoc signature with the hardened runtime, then a check that the
+# signed copy runs), the core's tests (`swift test`), and the hands conformance suite
+# (cli/test/hands-conformance.test.mjs) against that signed binary at the person's Default and Read Only modes.
+# The runner gives the helper no Accessibility grant; the suite passes without one (window verbs answer
+# permission_denied, which it accepts). No secrets, no write token.
 name: Hands (Mac)
 
 on:
   pull_request:
     paths:
       - "hands/mac/**"
+      - "cli/src/computer.ts"
+      - "cli/test/hands-*.mjs"
+      - "cli/test/helpers/hands-conformance.mjs"
+      - "docs/hands-protocol.md"
       - ".github/workflows/hands-mac.yml"
   push:
     branches: [main]
     paths:
       - "hands/mac/**"
+      - "cli/src/computer.ts"
+      - "cli/test/hands-*.mjs"
+      - "cli/test/helpers/hands-conformance.mjs"
+      - "docs/hands-protocol.md"
       - ".github/workflows/hands-mac.yml"
   workflow_dispatch:
 
@@ -30,6 +43,35 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      - name: Build and sign the helper (arm64, ad hoc, hardened runtime)
+        run: |
+          hands/mac/scripts/package.sh "$RUNNER_TEMP/hands"
+          echo "HANDS_BIN=$RUNNER_TEMP/hands/tychicus-hands" >> "$GITHUB_ENV"
+
+      # After the build above: the test build links the helper too, and that needs engine/lib.
       - name: Core tests
         working-directory: hands/mac
         run: swift test
+
+      - name: Conformance against the signed helper, at Default and Read Only
+        working-directory: cli
+        run: |
+          for mode in default read_only; do
+            if [ "$mode" = read_only ]; then defaults write tychicus-hands agentAccessMode read_only; else defaults delete tychicus-hands agentAccessMode 2>/dev/null || true; fi
+            echo "::group::conformance, $mode"
+            TYCHICUS_HANDS_CONFORMANCE_BIN="$HANDS_BIN" node --test test/hands-conformance.test.mjs
+            echo "::endgroup::"
+          done
+          defaults delete tychicus-hands agentAccessMode 2>/dev/null || true
+
+      - name: Keep the signed binary
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: tychicus-hands-darwin-arm64
+          path: ${{ runner.temp }}/hands/tychicus-hands
+          if-no-files-found: error
