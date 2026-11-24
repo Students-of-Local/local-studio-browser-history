@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Added
+- Settings > Privacy has a switch that stops the model detail lookup on models.dev. The lookup (the public
+  table at `https://models.dev/api.json`, when the copy is a day old, only while a key is saved for a provider that lists
+  its models) had no off switch. Off, `loadMetadata` in `src/models/registry.ts` never fetches it. Test: `test/models-dev-switch.test.mjs`.
 - Agents can now filter a site's feed for you, by topic or account, on every visit. Ask "hide every post about crypto
   on x.com" and the new `site_filter` MCP tool saves words, phrases, `/regex/` terms and account handles for a site; posts that match are hidden
   with a class and a stylesheet (never removed), new ones too as you scroll, and a count on the page ("12 hidden by your
