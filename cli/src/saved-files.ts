@@ -247,7 +247,7 @@ export class SavedFiles {
 		if (files.length + this.pending.files >= MAX_SESSION_FILES) return `This session already keeps ${files.length} files. Remove some first (action "remove").`;
 		const held = files.reduce((a, f) => a + f.bytes, 0) + this.pending.bytes;
 		if (held + bytes > MAX_SESSION_BYTES) return `This session's saved files would pass ${MAX_SESSION_BYTES} bytes. Remove some first (action "remove").`;
-		if (savedBytesElsewhere(this.dir) + held + bytes > MAX_ALL_BYTES) return `Tychicus's saved files would pass ${byteSize(MAX_ALL_BYTES)} across all sessions. End sessions that are done (session_end removes their files), or remove files.`;
+		if (savedBytesElsewhere(this.dir) + held + bytes > MAX_ALL_BYTES) return `Saved files would pass ${byteSize(MAX_ALL_BYTES)} across all sessions. End sessions that are done (session_end removes their files), or remove files.`;
 		return undefined;
 	}
 

@@ -5,7 +5,7 @@ import extensionId from "../../src/bridge/extension-id.json" with { type: "json"
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -219,7 +219,7 @@ test("update --yes installs the signed release and registers the host from it", 
 	assert.equal(r.code, 0, r.out);
 	assert.match(r.out, /Signature verified/);
 	assert.match(r.out, /Checksum verified/);
-	assert.match(r.out, /Reload Tychicus/);
+	assert.match(r.out, /Reload the extension/);
 	assert.equal(appVersion(), "9.1.1");
 	const launcher = readFileSync(join(home, ".config", "tychicus", "tychicus-host"), "utf8");
 	assert.ok(launcher.includes(appCli()), `launcher points at the release: ${launcher}`);
@@ -315,10 +315,10 @@ test("a release with only release.yml's attested archives: the check finds it, t
 		const check = await run(appCli(), "update", "--check", "--json");
 		assert.equal(check.code, 100, check.out);
 		assert.equal(JSON.parse(check.out).latest, "9.2.1");
-		assert.match(JSON.parse(check.out).unsigned, /Tychicus 9\.2\.1 has no signed update archive/);
+		assert.match(JSON.parse(check.out).unsigned, /Release 9\.2\.1 has no signed update archive/);
 		const r = await run(appCli(), "update");
 		assert.equal(r.code, 1, r.out);
-		assert.match(r.out, /Tychicus 9\.2\.1 has no signed update archive \(tychicus-9\.2\.1\.zip and SHA256SUMS\.minisig\)/);
+		assert.match(r.out, /Release 9\.2\.1 has no signed update archive \(tychicus-9\.2\.1\.zip and SHA256SUMS\.minisig\)/);
 		const command = process.platform === "win32" ? "install.ps1 | iex" : "install.sh | sh";
 		assert.ok(r.out.includes(`https://github.com/baney75/tychicus/releases/latest/download/${command}`), r.out);
 		assert.equal(appVersion(), "9.1.2");
@@ -373,6 +373,28 @@ test("nightly channel sees prereleases; stable does not", async () => {
 	await run(appCli(), "update", "--channel", "stable");
 	assert.equal(JSON.parse(readFileSync(settings, "utf8")).channel, "stable");
 	releases.delete("v9.2.0-nightly.20261025");
+});
+
+test("settings are saved whole and private, and a save that fails leaves them as they were", { skip: process.platform === "win32" && "ulimit" }, async () => {
+	const dir = join(home, ".config", "failed-save");
+	const settings = join(dir, "update.json");
+	const extra = { TYCHICUS_CONFIG_DIR: dir };
+	assert.equal((await runWith(extra, cli, "update", "--auto-check", "off")).code, 0);
+	assert.deepEqual(JSON.parse(readFileSync(settings, "utf8")), { channel: "stable", autoCheck: false, policy: "off" });
+	assert.equal(statSync(settings).mode & 0o777, 0o600);
+	const saved = readFileSync(settings, "utf8");
+	// No file may grow past 0 bytes, as on a full disk.
+	const failed = await new Promise((resolve) => {
+		const child = spawn("sh", ["-c", 'ulimit -f 0; exec "$@"', "sh", process.execPath, cli, "update", "--auto-check", "on"], { env: env(extra), stdio: ["ignore", "ignore", "pipe"] });
+		let err = "";
+		child.stderr.on("data", (d) => {
+			err += d;
+		});
+		child.on("close", (code) => resolve({ code, err }));
+	});
+	assert.equal(failed.code, 1, failed.err);
+	assert.match(failed.err, /EFBIG/);
+	assert.equal(readFileSync(settings, "utf8"), saved);
 });
 
 test("an update interrupted between the two renames is undone", async () => {
@@ -510,6 +532,8 @@ test("release mode from the side panel: the same signed install, streamed as ste
 	const phases = r.events.map((e) => e.phase);
 	for (const p of ["checking", "downloading", "verifying", "installing", "done"]) assert.ok(phases.includes(p), `${p} in ${phases}`);
 	assert.equal(r.last.staged, true, "verified and unpacked, waiting to be activated");
+	assert.equal(JSON.parse(readFileSync(join(tabkyraHome, "staged", ".pending.json"), "utf8")).to, "9.5.0");
+	if (process.platform !== "win32") assert.equal(statSync(join(tabkyraHome, "staged", ".pending.json")).mode & 0o777, 0o600);
 	assert.equal(appVersion(), from, "nothing live changes before activation");
 	const a = await runHostUpdate("--activate");
 	assert.equal(a.code, 0, a.out);

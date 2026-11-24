@@ -2187,6 +2187,57 @@ changes.
 took 16.1 ms, a 2,000-post scroll batch 14.7 ms, and a recheck of 4,000 posts after the filters changed 16.4 ms. The
 test fails over 50 ms per batch.
 
+## D66. Linux guests on the Mac: a windowless Virtualization.framework helper, APFS clones and a saved ready point (Claude, 2026-11-24)
+
+**Context.** Issue #28 asks for guests an agent can wreck and reset, with targets set against Cua: Linux cold start 8 s or
+less, warm start and reset 1 s or less, idle CPU 5% or less, no telemetry, no focus changes on the host. Phase 1 is a
+Linux guest on this Mac.
+
+**Decision.**
+- *A helper per guest, with no window.* `tychicus-vm` (`vm/mac`, Swift) runs one guest on Virtualization.framework and
+  never starts an NSApplication, so it has no Dock icon and cannot take focus. `vm/mac/build.sh` signs it ad hoc with
+  `com.apple.security.virtualization`; the CLI builds it once per helper version from a checkout and keeps it in
+  `~/.local/share/tychicus/vm/bin`. It answers one JSON line per connection on `<guest>/control.sock` (mode 0600) and
+  blocks in `accept` and `read` between requests.
+- *The image.* Debian 13 `generic` for arm64, pinned to release 20261123-2671 by URL and SHA-512, extracted with holes
+  (about 1.4 GB of a 3 GB disk) and kept read-only under `base/`. A guest runs on an APFS clone (`cp -c`) grown to 8 GB.
+  cloud-init reads a NoCloud seed ISO (`hdiutil makehybrid`, label `cidata`) that creates no user, turns SSH off and
+  installs the guest agent. There are no shared folders. The guest gets NAT networking.
+- *The guest agent.* A short Python service on vsock port 1024, as root: one JSON command in, its exit code and output
+  out. Only this guest's helper can reach it. `vm exec` and `vm shot` go through it.
+- *The ready point.* The first boot waits for the agent, then for cloud-init and systemd to finish, syncs, pauses, saves
+  the machine state (`saveMachineStateTo`) and clones the paused disk. `ready.vzvmsave` and `ready.raw` are the pair a
+  reset restores. Reset pauses the running VM, renames a fresh clone of `ready.raw` over `disk.raw`, restores a new VM
+  from the saved state and stops the old one afterwards, because a stop takes 0.1 to 2 s. Each VM gets its own clone of
+  `efi.vars`, since a VM that is still stopping keeps its store locked. Where saved state isn't supported, reset cold
+  boots the clean disk and says so.
+- *up and down keep the session, and only reset discards a disk.* `down`, and SIGTERM or SIGINT to the helper, save the
+  session state and stop. `up` resumes that session, else cold boots the disk as it stands, so a guest that powered off
+  or crashed keeps what it wrote. `up --cold` drops a saved session. `reset` on a stopped guest deletes its session and
+  disk; the next `up` makes a new disk from the ready point and restores it. `up --from-ready` asks for that start and
+  refuses while the guest has a disk.
+- *The gate.* Before `up`: under 5 GB free disk, or less free RAM than the guest's 1 GB plus 1 GB, refuses always. Battery
+  power, or a 1-minute load above the core count, refuses unless `--force`.
+- *Screenshots come from the guest's framebuffer* (`/dev/fb0`, read through the agent and written as PNG): the console,
+  until a desktop draws with its own buffers. That is why the image is `generic` and not `genericcloud`, whose kernel has
+  no virtio-gpu driver and so no framebuffer; the cost is about 90 MB more to download. Where a guest has no
+  framebuffer, `vm shot` says it shows no display.
+- *No telemetry.* The helper opens no network socket. The CLI's only network use is the pinned image download.
+- *Left out:* macOS guests, input into the guest, a desktop, and the hub link.
+
+**Results, measured before 7de55cc; a rerun on a Mac is owed.** These ran on the old head 67c588a of #100
+(2026-11-24T13:10Z). 7de55cc then changed how a guest starts and stops: a start with no session cold boots `disk.raw`,
+the ready point is reached with `--from-ready`, and `down` waits for a start under way. The ready-point time below is
+the plain `up` of then, with the saved session deleted.
+
+`node scripts/vm-bench.mjs --runs 5 --force` on a MacBook Pro (Mac17,2), the `generic` image, wall clock
+through the CLI, with the 1-minute load between 21 and 27 from other builds: cold start 5.00 s median, warm start from
+the ready point 0.79 s, from a saved session 0.82 s, reset 0.73 s with the guest's file gone each time, helper idle CPU
+0.00% over 30 s (the guest's VM process 0.50%), 0 network sockets in the helper, 0 focus changes. The first boot of a new
+guest took 15.9 s. On `genericcloud` at load 5 to 9, earlier the same day, the same bench gave cold start 4.02 s, warm
+starts 0.69 s and 0.65 s, reset 0.61 s. The bench appends each run to `vm-bench.jsonl` in Tychicus's state folder and
+exits 1 on a missed target.
+
 ## D65. `setup --agents` renames an old name for Tychicus to `tychicus` in the same run (Claude, 2026-11-24)
 
 **Context.** The move from Polycarp (`cli/src/agent-migration.ts`) kept each moved entry's old name, `polycarp` or
@@ -2243,11 +2294,17 @@ The rules read only what `read_page` shows and what a page can't hide from the e
 autocomplete, a link's href, a control's form and dialog). They are a net for an agent's mistakes, not a sandbox:
 a page can name its Send button something else. Manual is the mode for a person who wants every new site asked.
 
-The ask is the one Manual uses for a site: MCP elicitation in the agent's harness, and "Waiting for your answer" in
-Settings > Agents. For an action it offers allow once, allow on this site (risky actions there stop asking; a
+The ask is the one Manual uses for a site: MCP elicitation in the agent's harness, a card above the side panel's chat,
+and the same card under "Waiting for your answer" in Settings > Agents. For an action it offers allow once, allow on this site (risky actions there stop asking; a
 separate list from the sites an agent may open) and deny. The answer has 60 seconds, inside the bridge's 90-second
 limit for a call; no answer is a no, and the tool result says what was not done and how the person can allow it.
 `TYCHICUS_AUTO_ALLOW` answers site questions only, never an action question, as it never answered an upload.
+
+A remote session says so in its hello (`remote`, set by the CLI for a session through `tychicus serve` and for a scoped
+one). The bridge runs it in Auto when the mode is Yolo, and refuses `permission.respond`, `permission.allow` and
+`permission.setMode` from it, so it can't answer its own question or widen its own reach. A CLI from before `remote` can't say it, but `serve` has
+always named its sessions `remote-<caller>`, so the bridge goes by that name too. The MCP server puts no site question
+to a remote or scoped session's caller: it waits in the side panel.
 
 Migration: a stored `ask` is Manual, `allow_all` is Yolo. Nothing stored on an existing install is Auto with a
 one-time side panel notice naming the change and a one-click way back to Manual, since that person never chose
@@ -2255,7 +2312,7 @@ what Auto adds; 1.4.0's stored `by_model` gets the same. A fresh install (`onIns
 Auto with no notice.
 
 The upload question (D38) is still asked in every mode, Yolo included: it is about files leaving the computer, not
-about what an agent does in a page. Every step in the Runs log carries the mode it ran under.
+about what an agent does in a page. Every bridge step in the Runs log carries the mode it started under.
 
 **Why these defaults.** Auto keeps what 1.4.0 got right (frontier agents are not stopped at every new site) and adds
 the asks the competitors make, at the actions that act as the person. Recall is the floor because a missed risky
@@ -2263,4 +2320,5 @@ action is one the person never saw; a false flag costs one click and "allow on t
 
 **Proof.** `test/permission-modes.test.mjs` (each migration, the notice, a fresh install), `test/risk-rules.test.mjs`
 (each rule) and `evals/market/risky-actions`: 86 labeled actions, 59 risky, recall 100% held as the `riskyActions`
-floor in `evals/market/floors.json`; 0 of 27 safe actions flagged.
+floor in `evals/market/floors.json`; 0 of 27 safe actions flagged. `test/permission-guard.test.mjs`,
+`test/dialog-preset.test.mjs` and `cli/test/model-tier.test.mjs` (the remote cap, the mode on every Runs step).

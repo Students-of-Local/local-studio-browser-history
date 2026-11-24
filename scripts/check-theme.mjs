@@ -62,9 +62,9 @@ export const ALLOWLIST = {
 		max: 2,
 		why: "Tailwind green for a done or online mark: a theme has no success role (themes/README.md), so none can reach it.",
 	},
-	"src/dialogs/BridgeTab.ts": {
+	"src/components/AgentAsks.ts": {
 		max: 2,
-		why: "Tailwind orange for a warning box: a theme has no warning role, and urgent is for errors.",
+		why: "Tailwind orange for an agent's question (the side panel and Settings > Agents): a theme has no warning role, and urgent is for errors.",
 	},
 	"src/artifacts/MediaArtifact.ts": { max: 1, why: "Black behind a video or image, as a player draws it." },
 	"src/artifacts/NotebookArtifact.ts": {

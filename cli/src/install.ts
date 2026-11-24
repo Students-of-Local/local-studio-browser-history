@@ -301,7 +301,7 @@ export function manifestFor(launcher: string, host: string = NATIVE_HOST_NAME): 
 	return `${JSON.stringify(
 		{
 			name: host,
-			description: "Tychicus browser bridge",
+			description: "Local Studio browser bridge",
 			path: launcher,
 			type: "stdio",
 			allowed_origins: extensionOrigins(),

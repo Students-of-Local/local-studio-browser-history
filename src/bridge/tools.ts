@@ -70,7 +70,15 @@ import {
 	waitFor,
 } from "../browser/page.js";
 import { type BrowserSession, TabLimitError, takeNotices } from "../browser/session.js";
-import { IDLE_MS, LOADED_QUIET_MS, settle, settleStart, unsettledNote, WAIT_SETTLE } from "../browser/settle.js";
+import {
+	IDLE_MS,
+	LOADED_QUIET_MS,
+	newTabJoins,
+	settle,
+	settleStart,
+	unsettledNote,
+	WAIT_SETTLE,
+} from "../browser/settle.js";
 import { isPdfTab, pdfText } from "../offscreen/pdf-client.js";
 import { parseFilterValue } from "../site-edits/feed-match.js";
 import {
@@ -126,6 +134,8 @@ export interface HandlerContext {
 	guardedHosts?: readonly string[];
 	/** How capable the calling client's model is (its hello, D60); unset counts as unknown. */
 	tier?: ModelTier;
+	/** Set for a remote connector session: never in Yolo (D67). */
+	remote?: boolean;
 	/**
 	 * Whether a frame at `url` on a page at `topUrl` may be read and acted in: its host is the page's or one the
 	 * person allowed for agents. Unset (the side panel): every frame that isn't guarded.
@@ -223,6 +233,8 @@ async function settleAfter(
 			...(options.idle && !inFrame ? { idleMs: IDLE_MS } : {}),
 			...(options.loaded ? { loadedQuietMs: LOADED_QUIET_MS } : {}),
 		}).catch(() => undefined);
+		const had = options.before?.tabs;
+		if (had) await newTabJoins(tabId, since, () => ctx.session.tabIds.some((t) => !had.includes(t)), ctx.aborted);
 		ctx.mark?.("settle");
 		const out: Record<string, unknown> = settled ? unsettledNote(settled) : {};
 		const kinds = new Set<EffectKind>();
@@ -455,7 +467,7 @@ async function refuseGuardedLanding<T extends { url: string }>(
 }
 
 const GUARDED_LANDING =
-	"That page led to this computer's Tychicus approval address, which an agent never opens. The tab was reset to a blank page.";
+	"That page led to this computer's Local Studio approval address, which an agent never opens. The tab was reset to a blank page.";
 
 /** How long after a navigation starts a late redirect is still caught. */
 const GUARD_WATCH_MS = 120000;
@@ -1407,7 +1419,7 @@ export const handlers: Record<string, Handler> = {
 			if (heard.pending)
 				throw new BridgeError(
 					ERR.TIMEOUT,
-					"Tychicus's Cancel for this dialog has not come back from the page in 5 s, so it may already be cancelled. Call handle_dialog again in a moment, or read_page to see the page.",
+					"Local Studio's Cancel for this dialog has not come back from the page in 5 s, so it may already be cancelled. Call handle_dialog again in a moment, or read_page to see the page.",
 				);
 			// The box fixed when the call arrived, and no other (sol-F3 of the review of PR 200): a box that opened since is
 			// one this call never saw, so it is never answered in its place.

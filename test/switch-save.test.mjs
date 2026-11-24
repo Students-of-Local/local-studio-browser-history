@@ -25,9 +25,9 @@ const src = (f) => readFileSync(new URL(`../src/dialogs/${f}`, import.meta.url),
 
 test("every Privacy switch saves through it and is drawn with live()", () => {
 	const p = src("PrivacyTab.ts");
-	for (const k of ["privateMode", "mirror", "shareOlder", "bugReports"]) assert.match(p, new RegExp(`\\.checked=\\$\\{live\\(this\\.${k}\\)\\}`), k);
+	for (const k of ["privateMode", "mirror", "shareOlder", "bugReports", "modelsDev"]) assert.match(p, new RegExp(`\\.checked=\\$\\{live\\(this\\.${k}\\)\\}`), k);
 	assert.match(p, /if \(await this\.save\(\(\) => getTabkyraStorage\(\)\.settings\.set\(PRIVATE_MODE_KEY, on\), "Private mode"\)\)\s*this\.privateMode = on;/);
-	assert.equal(p.match(/await this\.save\(/g)?.length, 4, "share older, mirror, private mode, bug reports");
+	assert.equal(p.match(/await this\.save\(/g)?.length, 5, "share older, mirror, models.dev, private mode, bug reports");
 	assert.doesNotMatch(p, /\n\t\tawait (chrome\.storage\.local\.set|getTabkyraStorage\(\)\.settings\.set\(PRIVATE)/, "no bare write left");
 });
 

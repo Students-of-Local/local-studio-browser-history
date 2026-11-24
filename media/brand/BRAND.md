@@ -1,12 +1,11 @@
-# Tychicus brand
+# Local Studio browser and computer tools: brand
 
-**Tychicus** is Paul's courier in the New Testament (Ephesians 6:21-22, Colossians 4:7-8): the
-trusted one who carries the letters and does the errands. You send the work and it carries it out
-on your computer and in your browser. The brand should feel calm and capable, with the human in
-command. It is not an "autonomous AI agent".
+These are Local Studio's hands: you send the work and it carries it out on your computer and in
+your browser. The brand should feel calm and capable, with the human in command. It is not an
+"autonomous AI agent".
 
-Tychicus is part of the Local Studio family, so it uses Local Studio's colors and draws its mark the
-way Local Studio draws its own: a disc built from circles, with a shape cut out of it.
+The extension and helper are part of Local Studio, so they use its colors and draw their mark the
+way the desktop app draws its own: a disc built from circles, with a shape cut out of it.
 
 ## Mark
 
@@ -40,7 +39,7 @@ Rules:
 - Keep the mark one shape: no outlines, shadows or added symbols on it.
 - Don't rotate it. The pointer always points up and to the left.
 - Don't put it in Polycarp's olive or the old helm's brass. Never pair it with the Sitegeist orb,
-  badlogic's marks or Polycarp's helm; Tychicus credits them in words, not in pictures.
+  badlogic's marks or Polycarp's helm; Local Studio credits them in words, not in pictures.
 
 ## Palette
 
@@ -74,8 +73,8 @@ use these values; `tokens.ts` lifts accent text to 4.5:1 when a user picks anoth
 
 Both fonts are OFL-licensed and come from `@fontsource` packages in `site/`.
 
-The wordmark is "Tychicus" with a capital T, set in Instrument Sans semibold at -0.035em
-tracking. Write the name as Tychicus in prose and as `tychicus` for the command.
+The wordmark is "Local Studio", two words, set in Instrument Sans semibold at -0.035em
+tracking. Write the name as Local Studio in prose; the command is `tychicus` until it is renamed.
 
 ## Still to redo
 

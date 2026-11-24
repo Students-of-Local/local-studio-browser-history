@@ -58,6 +58,8 @@ export interface ClientOptions {
 	project?: string;
 	/** How capable the agent's model is (model-tier.ts), sent in the hello for the "Match the model" site access mode. */
 	tier?: ModelTier;
+	/** A remote or scoped session, sent in the hello: the extension never runs it in Yolo (D67). */
+	remote?: boolean;
 	/** The model's name, when known. */
 	model?: string;
 	/** Fires for permission prompts and other pushed events. */
@@ -331,6 +333,7 @@ export class BridgeClient {
 					...(this.options.project ? { project: this.options.project } : {}),
 					version: VERSION,
 					...(this.options.tier ? { tier: this.options.tier } : {}),
+					...(this.options.remote ? { remote: true } : {}),
 					...(this.options.model ? { model: this.options.model } : {}),
 				},
 			};

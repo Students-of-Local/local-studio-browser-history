@@ -87,7 +87,7 @@ export const JOIN_WARNING =
 
 /** Said when the helper's status has no scope list (a helper from before the list): joining is not offered. */
 export const helperOutOfDateMessage = (): string =>
-	`Tychicus's helper is out of date. Run ${hostCommandText("update")}, then try again.`;
+	`Local Studio's helper is out of date. Run ${hostCommandText("update")}, then try again.`;
 
 /** The scopes a join would grant, as the helper listed them; undefined when it listed none in the shape this panel reads. */
 export function joinScopesOf(status: Pick<ConnectStatus, "joinScopes">): JoinScope[] | undefined {

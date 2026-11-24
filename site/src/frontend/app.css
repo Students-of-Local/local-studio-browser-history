@@ -1,4 +1,4 @@
-/* Tychicus site. Palette and type: media/brand/BRAND.md. */
+/* Local Studio site. Palette and type: media/brand/BRAND.md. */
 :root {
 	--ink: #0f1b24;
 	--ink-2: #142430;
@@ -457,11 +457,6 @@ footer {
 	color: var(--paper);
 	font-weight: 600;
 	margin-bottom: 10px;
-}
-
-.foot-brand span {
-	font-weight: 400;
-	color: var(--slate);
 }
 
 footer p {
