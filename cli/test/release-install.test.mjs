@@ -43,9 +43,9 @@ function run(home, args, extra = {}) {
 
 /**
  * A release folder as a user downloads it: the platform archive (a stand-in `tychicus` that records how it was run,
- * the extension and the plugins) and SHA256SUMS.
+ * the extension and the plugins) and SHA256SUMS. `hands` is the Mac computer-use helper's bytes, put in bin/ as a release does.
  */
-function makeRelease(version = "9.9.9", program = `#!/bin/sh\necho "$@" > "$(dirname "$0")/ran-with"\n`) {
+function makeRelease(version = "9.9.9", program = `#!/bin/sh\necho "$@" > "$(dirname "$0")/ran-with"\n`, { hands } = {}) {
 	const dir = join(scratch, `release-${++n}`);
 	const top = `tychicus-${version}-${tag}`;
 	const stage = join(dir, "stage", top);
@@ -53,6 +53,11 @@ function makeRelease(version = "9.9.9", program = `#!/bin/sh\necho "$@" > "$(dir
 	writeFileSync(join(stage, "extension", "manifest.json"), JSON.stringify({ name: "Tychicus", version }));
 	writeFileSync(join(stage, "tychicus"), program);
 	chmodSync(join(stage, "tychicus"), 0o755);
+	if (hands !== undefined) {
+		mkdirSync(join(stage, "bin"));
+		writeFileSync(join(stage, "bin", "tychicus-hands"), hands);
+		chmodSync(join(stage, "bin", "tychicus-hands"), 0o755);
+	}
 	const archive = `${top}.tar.gz`;
 	const tar = spawnSync("tar", ["-czf", join(dir, archive), "-C", join(dir, "stage"), top]);
 	assert.equal(tar.status, 0, String(tar.stderr));
@@ -95,6 +100,64 @@ test("a second run of the same release unpacks nothing again", { skip: process.p
 	assert.equal(again.status, 0, again.out);
 	assert.ok(existsSync(join(releaseRoot(home), "sentinel")), "the second run re-extracted the release");
 	assert.match(again.out, /already installed|Current/i);
+});
+
+// A stand-in for tychicus-hands: answers initialize as the Mac helper does, so doctor can name it.
+const fakeHands = (version) => `#!/usr/bin/env node
+require("node:readline").createInterface({ input: process.stdin }).on("line", (line) => {
+	const m = JSON.parse(line);
+	if (m.method === "initialize") process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: m.id, result: { serverInfo: { name: "tychicus-hands", version: "${version}" } } }) + "\\n");
+});
+`;
+const handsPath = (home) => join(home, ".local", "bin", "tychicus-hands");
+const noHelperEnv = { TYCHICUS_HANDS_BIN: "", POLYCARP_SPACES_BIN: "", PATH: `${dirname(process.execPath)}:/usr/bin:/bin` };
+
+test("on a Mac, install puts the release's tychicus-hands in ~/.local/bin, says to re-allow it, and doctor names it", { skip: process.platform !== "darwin" }, () => {
+	const home = freshHome();
+	const { dir } = makeRelease("9.9.9", undefined, { hands: fakeHands("1.0.0") });
+	const r = run(home, ["install", "--release", dir], noHelperEnv);
+	assert.equal(r.status, 0, r.out);
+	const installed = handsPath(home);
+	assert.equal(readFileSync(installed, "utf8"), fakeHands("1.0.0"), "the same bytes as the archive's bin/tychicus-hands");
+	assert.ok(lstatSync(installed).isFile() && !lstatSync(installed).isSymbolicLink(), "a copy at one fixed path, not a link into versions/");
+	assert.equal(statSync(installed).mode & 0o111, 0o111, "executable");
+	assert.ok(r.out.includes(`Computer-use helper ${installed}`), r.out);
+	assert.match(r.out, /Privacy & Security > Accessibility/);
+	assert.match(r.out, /signed ad hoc/);
+	const doctor = spawnSync(process.execPath, [cli, "doctor", "--json"], {
+		env: { ...process.env, HOME: home, TABKYRA_SOCKET_DIR: join(home, "sock"), TYCHICUS_GH: "none", ...noHelperEnv },
+		encoding: "utf8",
+		timeout: 60_000,
+	});
+	const computer = JSON.parse(doctor.stdout).checks.find((c) => c.id === "computer");
+	assert.equal(computer.status, "ok", JSON.stringify(computer));
+	assert.ok(computer.label.includes(`tychicus-hands (${installed})`), computer.label);
+	assert.match(computer.label, /answered as tychicus-hands 1\.0\.0/);
+});
+
+test("on a Mac, the same helper again is left alone, and a new one replaces it", { skip: process.platform !== "darwin" }, () => {
+	const home = freshHome();
+	const first = makeRelease("9.9.9", undefined, { hands: fakeHands("1.0.0") });
+	assert.equal(run(home, ["install", "--release", first.dir], noHelperEnv).status, 0);
+	const before = statSync(handsPath(home)).ino;
+	const again = run(home, ["install", "--release", first.dir], noHelperEnv);
+	assert.equal(again.status, 0, again.out);
+	assert.match(again.out, /is already this version/);
+	assert.doesNotMatch(again.out, /signed ad hoc/, "no re-allow note when nothing changed");
+	assert.equal(statSync(handsPath(home)).ino, before, "the same file: macOS keeps its grant");
+	const next = makeRelease("9.9.10", undefined, { hands: fakeHands("1.0.1") });
+	const upgraded = run(home, ["install", "--release", next.dir], noHelperEnv);
+	assert.equal(upgraded.status, 0, upgraded.out);
+	assert.equal(readFileSync(handsPath(home), "utf8"), fakeHands("1.0.1"));
+	assert.match(upgraded.out, /signed ad hoc/);
+});
+
+test("off a Mac, a release's tychicus-hands is not put in ~/.local/bin", { skip: process.platform === "darwin" || process.platform === "win32" }, () => {
+	const home = freshHome();
+	const { dir } = makeRelease("9.9.9", undefined, { hands: fakeHands("1.0.0") });
+	const r = run(home, ["install", "--release", dir], noHelperEnv);
+	assert.equal(r.status, 0, r.out);
+	assert.ok(!existsSync(handsPath(home)), r.out);
 });
 
 for (const [name, tamper, why] of [

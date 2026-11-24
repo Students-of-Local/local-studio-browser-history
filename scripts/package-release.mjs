@@ -1,15 +1,18 @@
 // Packages a Tychicus release from a built checkout (`npm run build` at the root and in cli/, with TABKYRA_NO_BUMP=1):
 //   tychicus-<version>-<os>-<arch>.tar.gz (.zip for Windows): the `tychicus` executable (the CLI, MCP server and native
-//     host in one, compiled by Bun, cli/scripts/compile.mjs), with extension/ and plugins/ beside it
+//     host in one, compiled by Bun, cli/scripts/compile.mjs), with extension/ and plugins/ beside it, and for a target
+//     named in --hands, the computer-use helper in bin/ (`tychicus install --release` copies it to ~/.local/bin on a Mac)
 //   tychicus-<version>-extension.zip: the unpacked extension (dist-chrome), the same folder as extension/ above
 //   install.sh, install.ps1: the one-command installers (scripts/), which fetch the archive above and SHA256SUMS
 //   SHA256SUMS: one line per artifact, what `tychicus install --release` and both installers check
 // The release workflow (.github/workflows/release.yml) runs this for every target and attests each artifact; CI's
 // clean-install job runs it for linux-x64 and installs the result the way a user would.
-//   node scripts/package-release.mjs --out <dir> [--targets linux-x64,darwin-arm64,win-x64]
+//   node scripts/package-release.mjs --out <dir> [--targets linux-x64,darwin-arm64,win-x64] [--hands <target>=<file>]...
+// --hands takes a built tychicus-hands (hands/mac/scripts/package.sh signs the Mac one) for one target; it may repeat.
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
+	chmodSync,
 	copyFileSync,
 	cpSync,
 	existsSync,
@@ -31,8 +34,23 @@ const arg = (name, fallback) => {
 };
 const out = arg("--out");
 const targets = arg("--targets", "linux-x64,darwin-arm64,win-x64").split(",");
+// --hands <target>=<file>, any number of times: the helper each of those targets carries in bin/.
+const hands = new Map();
+for (let i = 0; i < process.argv.length; i++) {
+	if (process.argv[i] !== "--hands") continue;
+	const [target, file] = (process.argv[i + 1] ?? "").split(/=(.*)/s);
+	if (!targets.includes(target) || !file || !existsSync(file)) {
+		console.error(
+			`package-release: --hands ${process.argv[i + 1] ?? ""}: name a packaged target and an existing file, as darwin-arm64=<path>`,
+		);
+		process.exit(2);
+	}
+	hands.set(target, resolve(file));
+}
 if (!out) {
-	console.error("usage: node scripts/package-release.mjs --out <dir> [--targets linux-x64,darwin-arm64,win-x64]");
+	console.error(
+		"usage: node scripts/package-release.mjs --out <dir> [--targets linux-x64,darwin-arm64,win-x64] [--hands <target>=<file>]...",
+	);
 	process.exit(2);
 }
 const OS = { linux: "linux", darwin: "darwin", win: "windows" };
@@ -90,6 +108,13 @@ try {
 		cpSync(extension, join(stage, "extension"), { recursive: true });
 		cpSync(join(root, "plugins"), join(stage, "plugins"), { recursive: true });
 		copyFileSync(join(root, "LICENSE"), join(stage, "LICENSE"));
+		if (hands.has(target)) {
+			// The helper as it was signed: copyFileSync keeps the bytes, so the signature stays valid.
+			mkdirSync(join(stage, "bin"));
+			const helper = join(stage, "bin", os === "win" ? "tychicus-hands.exe" : "tychicus-hands");
+			copyFileSync(hands.get(target), helper);
+			chmodSync(helper, 0o755);
+		}
 		const name = os === "win" ? `${top}.zip` : `${top}.tar.gz`;
 		rmSync(join(outDir, name), { force: true });
 		if (os === "win") run("zip", ["-qrX", join(outDir, name), top], { cwd: join(work, target) });
