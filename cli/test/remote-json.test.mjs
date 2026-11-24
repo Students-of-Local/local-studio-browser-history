@@ -1097,7 +1097,7 @@ test("text-mode setup gives a connect code for a new assistant and never says th
 		const r = await s.runAsync(["remote", "setup", "--tailscale", "--no-service", "--port", String(local.port)], { TABKYRA_ASSUME_TTY: "1" });
 		assert.equal(r.code, 0, r.stdout + r.stderr);
 		assert.match(r.stdout, /Connect code: TK-[A-Z0-9]{4}-[A-Z0-9]{4}/);
-		assert.match(r.stdout, /Type it on the approval page when you add Tychicus to an assistant for the first time/);
+		assert.match(r.stdout, /Type it on the approval page when you add Local Studio to an assistant for the first time/);
 		assert.match(r.stdout, /Passcode: /, "the run that made the passcode shows it");
 		assert.match(r.stdout, /re-approving an assistant you already approved/);
 		assert.doesNotMatch(r.stdout, /Approve with your Polycarp pass[c]ode/);
