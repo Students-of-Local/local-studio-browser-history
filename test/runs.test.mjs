@@ -13,12 +13,14 @@ import {
 	panelRunName,
 	parseLog,
 	REPORT_MAX,
+	RUNS_KEY,
 	renameRun,
 	runName,
 	STATUS_LABEL,
 	setWaiting,
 	stepReport,
 } from "../src/runs/log.ts";
+import { installFakeChrome } from "./fake-chrome.mjs";
 
 const step = (extra = {}) => ({ who: "Agent · claude", tool: "click", params: { ref: "e12" }, tabId: 7, ok: true, ms: 41.6, ...extra });
 
@@ -82,13 +84,43 @@ test("a run ends done, or failed when told so or when its last step failed, and 
 
 test("a call still open when its run ended is logged and doesn't start the run again; a later call does", () => {
 	const ended = endRun(addStep(EMPTY_LOG, "r", step({ ms: 10 }), 100), "r", 1_000);
-	const late = addStep(ended, "r", step({ tool: "handback", ok: false, ms: 500 }), 1_004);
+	const late = addStep(ended, "r", step({ tool: "handback", ok: false, ms: 500 }), 1_004, 1_000);
 	assert.equal(late.runs[0].status, "done");
 	assert.equal(late.runs[0].steps.length, 2);
-	assert.equal(addStep(late, "r", step({ ms: 900 }), 1_200).runs[0].status, "done", "a second one");
+	assert.equal(addStep(late, "r", step({ ms: 900 }), 1_200, 1_000).runs[0].status, "done", "a second one");
+	assert.equal(addStep(late, "r", step({ ms: 2 }), 1_006, 1_000).runs[0].status, "running", "one begun right after the end");
 	const failed = endRun(addStep(EMPTY_LOG, "r", step({ ok: false, error: "x" }), 100), "r", 1_000);
-	assert.equal(addStep(failed, "r", step({ ms: 500 }), 1_004).runs[0].status, "failed");
-	assert.equal(addStep(late, "r", step({ ms: 2 }), 1_006).runs[0].status, "running", "one begun right after the end");
+	assert.equal(addStep(failed, "r", step({ ms: 500 }), 1_004, 1_000).runs[0].status, "failed");
+	// The agent left during its first call, so the log has no run yet.
+	assert.equal(addStep(EMPTY_LOG, "r", step({ ms: 500 }), 1_004, 1_000).runs[0].status, "done");
+	assert.equal(addStep(EMPTY_LOG, "r", step({ ok: false, error: "x", ms: 500 }), 1_004, 1_000).runs[0].status, "failed");
+});
+
+test("the worker knows when a run ended: an open call's answer and a wait it began leave it ended", async () => {
+	installFakeChrome();
+	const worker = await import("../src/runs/worker.ts?ctx=runs-ended");
+	const status = async (want) => {
+		let runs = [];
+		for (let i = 0; i < 100 && !want(runs); i++) {
+			await new Promise((r) => setTimeout(r, 20));
+			runs = (await chrome.storage.local.get(RUNS_KEY))[RUNS_KEY]?.runs ?? [];
+		}
+		return Object.fromEntries(runs.map((r) => [r.id, r.status]));
+	};
+	// One agent leaves during its first call, another during a later one that goes on to wait on the user.
+	worker.recordStep("b", step({ ms: 1 }));
+	const began = Date.now();
+	worker.runEnded("a");
+	worker.runEnded("b");
+	worker.recordStep("a", step({ ms: Date.now() - began + 50 }));
+	worker.runWaiting("b", true, began - 50);
+	worker.runWaiting("b", false);
+	worker.recordStep("b", step({ tool: "handback", ok: false, ms: Date.now() - began + 50 }));
+	assert.deepEqual(await status((runs) => runs.length === 2), { a: "done", b: "done" });
+	// A new call starts it again.
+	await new Promise((r) => setTimeout(r, 30));
+	worker.recordStep("b", step({ ms: 1 }));
+	assert.deepEqual(await status((runs) => runs.some((r) => r.status === "running")), { a: "done", b: "running" });
 });
 
 test("a panel chat's run follows its session to the saved id", () => {

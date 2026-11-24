@@ -84,8 +84,8 @@
 - The `skill-judge` CI job lets a pull request rename a skill: a base router case may carry the new name when `skills-eval/accepted-drops.json` records the rename under `renamed` (`from`, `to`, `reason`), the old skill is gone and the new one is new. The new name keeps the old accuracy floor. Any other removed or relabeled case still fails.
 
 ### Fixed
-- A hand-back an agent already gave up on no longer shows its card. A cancel that came before the hand-back, or while it looked its tab up, found nothing to
-  end and the card waited 10 minutes for nobody. A run in the Runs view no longer says "Running" for good after its agent left in the middle of a call: the
+- A hand-back an agent already gave up on no longer shows its card. A cancel or a disconnect that came before the hand-back, or while it looked its tab up, found
+  nothing to end and the card waited 10 minutes for nobody. A run in the Runs view no longer says "Running" for good after its agent left in the middle of a call: the
   call's answer is logged as a step of the ended run (#52). Tests: `test/handback-worker.test.mjs`, `test/runs.test.mjs`.
 - `read_page` right after a page opens now holds a cross-site frame (a payment form) that arrives a moment later. It waits for a frame it
   first saw under a second ago, and starts no new look after a second; a frame that still hasn't arrived is listed as "not loaded yet". The market

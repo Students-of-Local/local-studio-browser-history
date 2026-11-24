@@ -45,13 +45,30 @@ test("a cancel that beats its hand-back in ends it unseen, for that client and c
 	assert.equal((await after).status, "disconnected");
 });
 
-test("a cancel that lands while the hand-back looks its tab up ends it unseen", async () => {
-	const b = await start();
+/** Runs `then` once, while the worker looks the next hand-back's tab up. */
+function whileLookingUp(then) {
 	const get = chrome.tabs.get;
 	chrome.tabs.get = async (id) => {
-		b.worker.cancelHandback("c1", "w");
+		chrome.tabs.get = get;
+		then();
 		return get(id);
 	};
+}
+
+test("a cancel, its client leaving, or both while the hand-back looks its tab up end it unseen", async () => {
+	const b = await start();
+	const first = b.ask("c0", "first");
+	await new Promise((r) => setTimeout(r, 100));
+	whileLookingUp(() => b.worker.cancelHandback("c1", "w"));
 	assert.equal((await b.ask("c1", "w")).status, "aborted");
-	assert.deepEqual(await pending(), []);
+	whileLookingUp(() => b.worker.cancelHandbacksFor("c1"));
+	assert.equal((await b.ask("c1", "w2")).status, "disconnected");
+	whileLookingUp(() => {
+		b.worker.cancelHandback("c1", "w3");
+		b.worker.cancelHandbacksFor("c1");
+	});
+	assert.equal((await b.ask("c1", "w3")).status, "aborted");
+	assert.deepEqual((await pending()).map((p) => p.clientId), ["c0"], "none took the place of the one that waits");
+	b.worker.cancelHandback("c0", "first");
+	assert.equal((await first).status, "aborted");
 });

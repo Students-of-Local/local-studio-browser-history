@@ -41,9 +41,17 @@ interface Waiting {
 
 const waiting = new Map<string, Waiting>();
 
+/** Calls still looking their tab up: one that ends first (a cancel, its client gone) never shows. */
+interface Arriving {
+	clientId: string;
+	waitId?: string;
+	end?: HandbackEnd;
+}
+const arriving = new Set<Arriving>();
+
 /**
- * Cancels that found no wait (`clientId waitId` -> when): handback.cancel skips the checks handback waits on, so it can
- * come first. A call that finds its own cancel here never shows. Entries go after CANCEL_MEMORY_MS or a disconnect.
+ * Cancels that came before their call (`clientId waitId` -> when): handback.cancel skips the checks handback waits on.
+ * Entries go after CANCEL_MEMORY_MS or a disconnect.
  */
 const cancelledEarly = new Map<string, number>();
 const CANCEL_MEMORY_MS = 10 * 60 * 1000;
@@ -91,11 +99,19 @@ export async function handleHandback(
 	const reason = cleanReason(params.reason);
 	const limit = timeoutMs();
 	const waitId = typeof params.waitId === "string" ? params.waitId.slice(0, 80) : undefined;
-	const gaveUp = () => waitId !== undefined && cancelledEarly.delete(cancelKey(client.clientId, waitId));
-	if (gaveUp()) return handbackOutcome("aborted", tabId, reason, limit);
-	// One wait per tab: a second call replaces the first, which hears it was stopped.
-	for (const w of waiting.values()) if (w.pending.tabId === tabId) w.settle("aborted");
-	const tab = await chrome.tabs.get(tabId).catch(() => undefined);
+	const t0 = Date.now();
+	if (waitId && takeEarlyCancel(client.clientId, waitId)) return handbackOutcome("aborted", tabId, reason, limit);
+	const call: Arriving = { clientId: client.clientId, waitId };
+	arriving.add(call);
+	let tab: chrome.tabs.Tab | undefined;
+	try {
+		tab = await chrome.tabs.get(tabId).catch(() => undefined);
+		// The page draws at its real size when the user looks at it, not the agent's background viewport.
+		if (tab && !call.end) await releaseAgentViewport(tabId).catch(() => undefined);
+	} finally {
+		arriving.delete(call);
+	}
+	if (call.end) return handbackOutcome(call.end, tabId, reason, limit);
 	if (!tab) throw new BridgeError(ERR.NO_TAB, `Tab ${tabId} is closed.`);
 	const view = veilViewFor(session.record);
 	const now = Date.now();
@@ -112,9 +128,6 @@ export async function handleHandback(
 		createdAt: now,
 		expiresAt: now + limit,
 	};
-	// The page draws at its real size when the user looks at it, not the agent's background viewport.
-	await releaseAgentViewport(tabId).catch(() => undefined);
-	if (gaveUp()) return handbackOutcome("aborted", tabId, reason, limit);
 	let settle: (end: HandbackEnd) => void = () => undefined;
 	const ended = new Promise<HandbackEnd>((resolve) => {
 		const timer = setTimeout(() => settle("timeout"), limit);
@@ -123,11 +136,12 @@ export async function handleHandback(
 			resolve(end);
 		};
 	});
+	// One wait per tab: a second call replaces the first, which hears it was stopped.
+	for (const w of waiting.values()) if (w.pending.tabId === tabId) w.settle("aborted");
 	waiting.set(pending.id, { pending, session, waitId, settle });
 	await editPending((list) => [...list.filter((p) => p.id !== pending.id), pending]);
 	void veilWait(session, tabId, reason);
-	runWaiting(session.id, true);
-	const t0 = Date.now();
+	runWaiting(session.id, true, t0);
 	let outcome: HandbackOutcome | undefined;
 	try {
 		outcome = handbackOutcome(await ended, tabId, reason, limit);
@@ -161,11 +175,30 @@ function endWhere(match: (w: Waiting) => boolean, end: HandbackEnd): number {
 	return n;
 }
 
+/** The same for the calls that show nothing yet. */
+function endArriving(match: (c: Arriving) => boolean, end: HandbackEnd): number {
+	let n = 0;
+	for (const c of arriving)
+		if (!c.end && match(c)) {
+			c.end = end;
+			n++;
+		}
+	return n;
+}
+
+function takeEarlyCancel(clientId: string, waitId: string): boolean {
+	const key = cancelKey(clientId, waitId);
+	const at = cancelledEarly.get(key);
+	return cancelledEarly.delete(key) && at !== undefined && Date.now() - at <= CANCEL_MEMORY_MS;
+}
+
 /** The client's own cancel (its call was aborted). */
 export function cancelHandback(clientId: string, waitId: unknown): number {
 	if (typeof waitId !== "string") return 0;
 	const id = waitId.slice(0, 80);
-	const ended = endWhere((w) => w.pending.clientId === clientId && w.waitId === id, "aborted");
+	const ended =
+		endWhere((w) => w.pending.clientId === clientId && w.waitId === id, "aborted") +
+		endArriving((c) => c.clientId === clientId && c.waitId === id, "aborted");
 	if (ended || !id) return ended;
 	const now = Date.now();
 	for (const [key, at] of cancelledEarly) if (now - at > CANCEL_MEMORY_MS) cancelledEarly.delete(key);
@@ -177,7 +210,10 @@ export function cancelHandback(clientId: string, waitId: unknown): number {
 export function cancelHandbacksFor(clientId: string | undefined): number {
 	for (const key of [...cancelledEarly.keys()])
 		if (clientId === undefined || key.startsWith(`${clientId} `)) cancelledEarly.delete(key);
-	return endWhere((w) => clientId === undefined || w.pending.clientId === clientId, "disconnected");
+	return (
+		endWhere((w) => clientId === undefined || w.pending.clientId === clientId, "disconnected") +
+		endArriving((c) => clientId === undefined || c.clientId === clientId, "disconnected")
+	);
 }
 
 /** Continue on a tab (the veil's pill). */
