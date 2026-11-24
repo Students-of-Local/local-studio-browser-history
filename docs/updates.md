@@ -1,7 +1,7 @@
 # Updates
 
-Tychicus updates from the side panel. The native host checks once a day; the panel shows
-"Update available" with an **Update now** button; the update runs, and Tychicus reloads
+Local Studio updates from the side panel. The native host checks once a day; the panel shows
+"Update available" with an **Update now** button; the update runs, and the extension reloads
 itself once no agent is running. Settings > About (Updates) shows what runs and offers Check now,
 Update now and Roll back. `tychicus update` does the release install from a terminal.
 
@@ -20,9 +20,9 @@ upgrade a release install yet: the updater below still reads the archived Tabkyr
 
 **Beside the Polycarp app.** Polycarp keeps its own copy of the helper and the extension and updates them with
 `polycarp update`, with the rest of Polycarp. On Linux it copies them to `~/.local/share/polycarp/browser/source`.
-That copy is Polycarp's, not Tychicus's, and nothing here changes it.
+That copy is Polycarp's, not Local Studio's, and nothing here changes it.
 
-What "update" does depends on how Tychicus runs (the install mode):
+What "update" does depends on how the helper runs (the install mode):
 
 | Mode | When | Update now does | Roll back does |
 | --- | --- | --- | --- |
@@ -42,7 +42,7 @@ What "update" does depends on how Tychicus runs (the install mode):
   builds a checkout, aside; nothing the browser loads changes, so you can keep working. The
   panel then shows "Update ready". The second step (`--host --activate`) swaps the new files
   in, refreshes skills and records What's new. The service worker sends it only when no
-  agent is running, and reloads Tychicus right after, so the browser never runs a mix of old
+  agent is running, and reloads the extension right after, so the browser never runs a mix of old
   and new files for more than that moment. Roll back also runs only when idle. **Install
   now** in the panel asks for the second step (it still waits for idle).
 - **The reload.** The extension reloads itself with `chrome.runtime.reload()`, never while an
@@ -62,7 +62,7 @@ What "update" does depends on how Tychicus runs (the install mode):
   fence still holds panels off and the next worker takes the gate back before it lets a
   bridge request through. An install or rollback that fails, or doesn't answer, still ends
   in a reload, since files may have changed. While the worker holds the gate, a
-  side panel send is refused with "Tychicus is installing an update and reloads in a moment"
+  side panel send is refused with "The extension is installing an update and reloads in a moment"
   (the text goes back into the editor) and a bridge request gets an error saying to repeat
   it after the bridge reconnects; a bridge request counts as running from the moment it
   arrives. After an install the gate stays held until the reload. One update operation runs
@@ -79,14 +79,14 @@ What "update" does depends on how Tychicus runs (the install mode):
   title, at most 20, with a link to compare on GitHub). The ✕ hides it.
 - **Bundled skills.** After an update the new CLI refreshes the skills installed in Claude
   Code, Codex and OpenCode that you haven't edited (`tychicus skill refresh`). A copy is
-  refreshed only when it is exactly what Tychicus wrote (`~/.config/tychicus/skills-installed.json`
+  refreshed only when it is exactly what Local Studio wrote (`~/.config/tychicus/skills-installed.json`
   records the hash of every file install writes, and the updater records the unedited copies
   right before it swaps). Edited copies are left alone and listed in What's new.
 - **Version mismatch.** Each build writes `build-info.json` (a build id, the commit and the
   version) and compiles the same record in. If the installed extension and CLI come from
   different commits (an update stopped partway), the panel offers **Re-run install**. If the
   browser or the native host still runs an older build than the one installed, it offers
-  **Reload Tychicus**.
+  **Reload the extension**.
 - **Settings > About (Updates)** shows the running build, the installed one, the mode, the folder,
   the channel (`main` in a checkout), the last and next check, why an update would refuse,
   and the updates choice:
@@ -154,7 +154,7 @@ else; a frame with any other field, or an unknown name, is refused before anythi
 
 The command lines are constants (`UPDATE_COMMANDS` in `cli/src/update-host.ts`) passed as
 argv without a shell, and the updater's own commands (`git`, `npm run build`,
-`scripts/setup-siblings.sh`) are fixed too. Only Tychicus's own pages can ask the service
+`scripts/setup-siblings.sh`) are fixed too. Only Local Studio's own pages can ask the service
 worker for an action; a content script can't.
 
 ## Commands
@@ -194,10 +194,10 @@ The browser loads `~/.local/share/tychicus/app/dist-chrome`, and the agent launc
 (`~/.config/tychicus/tychicus`) and native host run `app/cli/dist/index.js`. Both paths stay
 the same across updates, so harness configs never change.
 
-**From a git checkout** (how Tychicus is developed), `tychicus update` in a terminal doesn't
+**From a git checkout** (how this repository is developed), `tychicus update` in a terminal doesn't
 touch the checkout; Update now in the side panel updates the checkout itself (see Checkout
 mode above). It offers to install the release into `~/.local/share/tychicus/app` and points the
-native host and launcher there. After that first install, remove the old Tychicus on
+native host and launcher there. After that first install, remove the old extension on
 `chrome://extensions` and load the new folder once. To keep running from the checkout,
 answer no and use `git pull`, `./scripts/setup-siblings.sh`, `npm run build` and
 `cd cli && npm run build`.
@@ -241,7 +241,7 @@ crash left, without deleting a release:
 - unused staging folders are removed.
 
 After the swap, the new CLI runs `install`, which rewrites the launcher and every browser's
-native host manifest if they changed. Then it tells you to reload Tychicus
+native host manifest if they changed. Then it tells you to reload the extension
 (`tychicus reload`, or the reload button on `chrome://extensions`). The browser keeps
 running the old files until you reload.
 
@@ -257,7 +257,7 @@ the next version.
 ## Starting with an older build
 
 A build from before the update system has no Update now button, and its native host can't
-run updates. Update a checkout once by hand, then reload Tychicus:
+run updates. Update a checkout once by hand, then reload the extension:
 
 ```sh
 git pull --ff-only && ./scripts/setup-siblings.sh
@@ -357,7 +357,7 @@ against the one key committed at that tag. So there is no clean rotation today:
   `release.yml`'s own verify step, which checks against the key in that commit.
 
 Until the CLI and the workflow accept a list of trusted keys (issue #33),
-replacing the key means every user reinstalls Tychicus from a trusted channel. Keep the
+replacing the key means every user reinstalls Local Studio from a trusted channel. Keep the
 current secret in both places; don't replace either unless you mean to make users reinstall.
 
 **If the key leaks:** delete every copy of the secret so you stop signing with it, and publish
