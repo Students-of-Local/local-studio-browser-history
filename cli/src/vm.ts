@@ -43,12 +43,15 @@ import { COMMAND_NAME } from "./self.ts";
 /** Must match `version` in vm/mac/Sources/tychicus-vm/main.swift; a different helper is rebuilt. */
 export const HELPER_VERSION = "0.1.0";
 
-/** Debian 13 genericcloud for arm64, pinned by release and SHA-512 from Debian's SHA512SUMS. */
+/**
+ * Debian 13 generic for arm64, pinned by release and SHA-512 from Debian's SHA512SUMS. Not genericcloud: its kernel
+ * leaves out virtio-gpu, so the guest would have no framebuffer for `vm shot`.
+ */
 export const IMAGE = {
-	url: "https://cloud.debian.org/images/cloud/trixie/20261123-2671/debian-13-genericcloud-arm64-20261123-2671.tar.xz",
-	sha512: "04b5d50a965ab917f444dba839a38056558c51409c473202f5ea746131d361888da3859821db4c55fe92a0122d0ebe20699f5b3e507f7af9435e7378e855e658",
+	url: "https://cloud.debian.org/images/cloud/trixie/20261123-2671/debian-13-generic-arm64-20261123-2671.tar.xz",
+	sha512: "800e63be2901b32689ea00a4a6eaab0df5b7ef43eb543cf59627b575cd9c279d93d791be96ba9306617d28e1973f9222d3ab490138117ee41eb7432f61e5f55f",
 	member: "disk.raw",
-	file: "debian-13-arm64-20261123-2671.raw",
+	file: "debian-13-generic-arm64-20261123-2671.raw",
 };
 
 export const GUEST = { cpus: 2, memoryMiB: 1024, diskGiB: 8, width: 1280, height: 800 };
@@ -249,7 +252,7 @@ async function ensureBase(log: (line: string) => void): Promise<string> {
 	const work = mkdtempSync(join(vmRoot(), "download-"));
 	try {
 		const archive = join(work, "image.tar.xz");
-		log(`Downloading the Debian 13 arm64 cloud image (about 210 MB) from cloud.debian.org...`);
+		log(`Downloading the Debian 13 arm64 image (about 300 MB) from cloud.debian.org...`);
 		const res = await fetch(IMAGE.url);
 		if (!res.ok || !res.body) throw new Error(`download failed: HTTP ${res.status} for ${IMAGE.url}`);
 		const hash = createHash("sha512");

@@ -2199,8 +2199,8 @@ Linux guest on this Mac.
   `com.apple.security.virtualization`; the CLI builds it once per helper version from a checkout and keeps it in
   `~/.local/share/tychicus/vm/bin`. It answers one JSON line per connection on `<guest>/control.sock` (mode 0600) and
   blocks in `accept` and `read` between requests.
-- *The image.* Debian 13 genericcloud for arm64, pinned to release 20261123-2671 by URL and SHA-512, extracted with holes
-  (about 1 GB of a 3 GB disk) and kept read-only under `base/`. A guest runs on an APFS clone (`cp -c`) grown to 8 GB.
+- *The image.* Debian 13 `generic` for arm64, pinned to release 20261123-2671 by URL and SHA-512, extracted with holes
+  (about 1.4 GB of a 3 GB disk) and kept read-only under `base/`. A guest runs on an APFS clone (`cp -c`) grown to 8 GB.
   cloud-init reads a NoCloud seed ISO (`hdiutil makehybrid`, label `cidata`) that creates no user, turns SSH off and
   installs the guest agent. There are no shared folders. The guest gets NAT networking.
 - *The guest agent.* A short Python service on vsock port 1024, as root: one JSON command in, its exit code and output
@@ -2215,8 +2215,9 @@ Linux guest on this Mac.
   ready point, else boots. `up --cold` boots the disk as it stands. `reset` on a stopped guest drops the saved session.
 - *The gate.* Before `up`: under 5 GB free disk, or less free RAM than the guest's 1 GB plus 1 GB, refuses always. Battery
   power, or a 1-minute load above the core count, refuses unless `--force`.
-- *Screenshots come from the guest's framebuffer* (`/dev/fb0`, read through the agent and written as PNG). Debian's cloud
-  kernel has no virtio-gpu driver, so on this image `vm shot` says the guest shows no display. The `generic` image's
-  kernel has one; a desktop guest will need it.
+- *Screenshots come from the guest's framebuffer* (`/dev/fb0`, read through the agent and written as PNG): the console,
+  until a desktop draws with its own buffers. That is why the image is `generic` and not `genericcloud`, whose kernel has
+  no virtio-gpu driver and so no framebuffer; the cost is about 90 MB more to download. Where a guest has no
+  framebuffer, `vm shot` says it shows no display.
 - *No telemetry.* The helper opens no network socket. The CLI's only network use is the pinned image download.
 - *Left out:* macOS guests, input into the guest, a desktop, and the hub link.
