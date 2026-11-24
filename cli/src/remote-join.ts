@@ -285,7 +285,7 @@ export type Standalone = { standalone: true; localStudio?: Record<string, unknow
  * For an agent, when an older Local Studio gates tunnel setup: its `channel`, and the one command that gives claude.ai, ChatGPT and
  * grok.com a free public route with no domain (Tailscale Funnel). `next.why` says how to share Local Studio's tunnel once it is
  * updated: on a Cloudflare route `local-studio tunnel adopt`, on a tailnet route `remote off` and setup again. `remote setup --json`
- * puts it beside `localStudio`, which keeps only Local Studio's `state`, `channel` and `message`; its own `next` is unchanged. There
+ * puts it beside `localStudio`, which keeps only Local Studio's `state` and `channel`; its own `next` is unchanged. There
  * is no signup address: no Local Studio tunnel has a waitlist now.
  */
 export interface WaitlistAdvice {
@@ -392,9 +392,9 @@ export async function setupThroughLocalStudio(options: SetupOptions): Promise<nu
 		if (r.answer?.state === "waitlist") {
 			const { lines, advice } = waitlistAdvice(r.answer, options.tailnet ? "tailnet" : "cloudflare");
 			if (!json) console.log(lines.join("\n"));
-			// Only what an agent needs: an older build's `url` and `next` point at its signup page.
-			const { state, channel, message } = r.answer;
-			const localStudio = Object.fromEntries(Object.entries({ state, channel, message }).filter(([, v]) => v !== undefined));
+			// Only what an agent needs: an older build's `url`, `next` and `message` point at its signup page.
+			const { state, channel } = r.answer;
+			const localStudio = Object.fromEntries(Object.entries({ state, channel }).filter(([, v]) => v !== undefined));
 			return { standalone: true, localStudio, waitlist: advice };
 		}
 		// A Local Studio from before tunnel setup doesn't know the command and answers no JSON: it runs no tunnel, so Tychicus does.

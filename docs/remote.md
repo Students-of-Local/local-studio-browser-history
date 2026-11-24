@@ -232,7 +232,7 @@ Tychicus only reads it and never creates Local Studio's folder. The route carrie
   command for claude.ai, ChatGPT and grok.com with no domain (free: `tychicus remote setup --tailscale`), and sets up the
   route that was asked for, its own. It never passes on a signup address. Asked for `--tailnet`, it says first that web
   assistants can't use a tailnet-only address, and the Funnel command starts with `tychicus remote off`. `--json` puts
-  Local Studio's `state`, `channel` and `message` in `localStudio` (never its `url` or `next`), and adds `waitlist` (the name stays for agents): `channel`, and `next`
+  Local Studio's `state` and `channel` in `localStudio` (never its `url`, `next` or `message`), and adds `waitlist` (the name stays for agents): `channel`, and `next`
   (`{ "kind": "run_command", "command", "why" }`), the Funnel command an agent runs with the person's yes; `why` carries
   the update advice. The report's own `next` is unchanged. A `local-studio` that answers no JSON (a build from before tunnel setup) also
   leaves Tychicus its own route. One that answers JSON and fails is a refusal with code `local_studio`.

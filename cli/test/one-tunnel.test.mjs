@@ -675,7 +675,7 @@ function assertUpdateAdvice(text, route) {
 
 test("an older Local Studio that gates tunnel setup: setup says to update it, gives no signup address and sets up Tychicus's own route", { skip: unixOnly }, async () => {
 	const s = scenario("defer-waitlist");
-	const answer = { state: "waitlist", next: { kind: "open_page", url: WAITLIST }, url: WAITLIST, channel: "stable" };
+	const answer = { state: "waitlist", next: { kind: "open_page", url: WAITLIST }, url: WAITLIST, channel: "stable", message: `Join the waitlist at ${WAITLIST}` };
 	localStudioStub(s, { answer, exit: 3 });
 	const local = await localServe(`https://${DNS}/mcp`);
 	try {
