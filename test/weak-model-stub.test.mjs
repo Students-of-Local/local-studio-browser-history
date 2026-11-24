@@ -72,7 +72,7 @@ test("the stub lists the real helper's verbs and arguments (spaces Tools.swift),
 	const s = startStub("list");
 	try {
 		const init = await s.rpc("initialize", { protocolVersion: "2025-06-18" });
-		assert.equal(init.result.serverInfo.name, "polycarp-connector");
+		assert.equal(init.result.serverInfo.name, "tychicus-connector");
 		const { tools } = (await s.rpc("tools/list", {})).result;
 		assert.deepEqual(tools.map((t) => t.name).sort(), [...want.keys()].sort());
 		for (const t of tools) {

@@ -66,7 +66,7 @@ export const SCOPES: Record<string, { tools: string[]; what: string }> = {
 	"computer.act": {
 		tools: COMPUTER_ACT_TOOLS,
 		// The app holds a connector to these windows whatever else is on (Hands router's cap, SECURITY.md).
-		what: "See those windows, click and type in them, and start apps from the short list in Polycarp's Mac app. Never your other windows, even with Full Access on",
+		what: "See those windows, click and type in them, and start apps from your short list for the helper. Never your other windows, even with Full Access on",
 	},
 	"library.read": { tools: ["library_search", "library_cite"], what: "Search and cite the source library" },
 	"library.write": { tools: ["library_add"], what: "Add sources to the library (fetches from doi.org, OpenAlex, Crossref)" },
@@ -83,7 +83,7 @@ export const SCOPES: Record<string, { tools: string[]; what: string }> = {
 	},
 };
 
-/** What this machine can grant: computer use needs Polycarp's Mac app, so elsewhere it isn't offered. */
+/** What this machine can grant: computer use needs the computer-use helper (tychicus-hands), so without it it isn't offered. */
 export function offeredScopes(): typeof SCOPES {
 	if (computerHelper()) return SCOPES;
 	return Object.fromEntries(Object.entries(SCOPES).filter(([name]) => !name.startsWith("computer."))) as typeof SCOPES;
