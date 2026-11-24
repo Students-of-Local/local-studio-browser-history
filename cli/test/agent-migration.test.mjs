@@ -187,7 +187,7 @@ test("five harnesses: dry run, then the old entries run Tychicus under their old
 		assert.equal(by.codex.status, "unchanged", "an unrelated MCP and the Polycarp app's own server are left alone");
 		assert.equal(by.cursor.status, "change");
 		assert.deepEqual(by.cursor.repointed, [{ name: "tabkyra", from: "tabkyra mcp" }]);
-		assert.match(by.cursor.notes.join("\n"), /two Tychicus servers until the rename removes the old name/);
+		assert.match(by.cursor.notes.join("\n"), /two Local Studio browser servers until the rename removes the old name/);
 		assert.equal(by.omp.status, "refused");
 		assert.equal(by.omp.blocking, true, "a file naming polycarp that doesn't parse is a failure");
 		assert.match(by.omp.reason, /isn't valid JSON/);
@@ -585,6 +585,28 @@ test("sol-F4 (round 2): adjacent aliases beside tychicus are removed together an
 		applyMigration(plans, new Date("2026-11-17T21:00:00Z"));
 		assert.deepEqual(Object.keys(JSON.parse(readFileSync(claude, "utf8")).mcpServers), ["tychicus"]);
 		assert.deepEqual(aliasList(), []);
+	});
+});
+
+test("the alias list is written whole and private, and stays as it was when the write fails", () => {
+	inHome("alias-whole", (home) => {
+		const bin = join(home, ".config", "tychicus", "tychicus");
+		put(join(home, ".claude.json"), CLAUDE, 0o600);
+		const file = recordAlias(home, ["cursor", join(home, "elsewhere.json"), "polycarp"]);
+		const before = readFileSync(file, "utf8");
+		// A folder where the temporary file goes: writing it fails (EISDIR), for root too.
+		mkdirSync(`${file}.${process.pid}.tmp`);
+		const plans = planMigration(bin);
+		applyMigration(plans, new Date("2026-11-17T20:00:00Z"));
+		assert.match(plans.find((p) => p.harness === "claude").aliasWarning, /agent-aliases\.json couldn't be updated/);
+		assert.equal(readFileSync(file, "utf8"), before);
+	});
+	inHome("alias-private", (home) => {
+		put(join(home, ".claude.json"), CLAUDE, 0o600);
+		applyMigration(planMigration(join(home, ".config", "tychicus", "tychicus")), new Date("2026-11-17T20:00:00Z"));
+		const file = join(process.env.TYCHICUS_CONFIG_DIR, "agent-aliases.json");
+		assert.deepEqual(JSON.parse(readFileSync(file, "utf8")).aliases.map((a) => a.name), ["polycarp"]);
+		if (process.platform !== "win32") assert.equal(statSync(file).mode & 0o777, 0o600);
 	});
 });
 

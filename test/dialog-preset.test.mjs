@@ -292,7 +292,7 @@ test("sol-F2, first-F2: one armed answer per tab across the session's clients; a
 	assert.ok((await reply(slow)).result && c.result?.dialog?.answered === "ok", JSON.stringify(c));
 });
 
-test("first-F3 (review of PR 200): on_dialog's OK fails: Tychicus cancels the box at once and the call fails, with no wait for the guard", async (t) => {
+test("first-F3 (review of PR 200): on_dialog's OK fails: Local Studio cancels the box at once and the call fails, with no wait for the guard", async (t) => {
 	setup(t);
 	records.deleted = 0;
 	const tab = await agentTab(deletePage);
@@ -302,7 +302,7 @@ test("first-F3 (review of PR 200): on_dialog's OK fails: Tychicus cancels the bo
 	const r = await reply(deliver("c1", "click", { tabId: tab, x: 10, y: 10, on_dialog: "ok" }), 2_000);
 	assert.ok(performance.now() - t0 < 2_000);
 	assert.equal(r.error?.code, "interrupted", JSON.stringify(r));
-	assert.match(r.error.message, /on_dialog's OK did not reach it, so Tychicus answered Cancel and the page saw Cancel/);
+	assert.match(r.error.message, /on_dialog's OK did not reach it, so Local Studio answered Cancel and the page saw Cancel/);
 	assert.doesNotMatch(r.error.message, /That worked|went through/);
 	assert.deepEqual(answers.map((a) => [a.message, a.accept]), [["Delete the record?", false]]);
 	assert.equal(openDialog(tab), undefined, "the box is still open");
@@ -352,7 +352,7 @@ test("second-S2: a box no click or press opened (a page timer, a hover): the not
 	void box(tab, "confirm", "Leave this page?");
 	await pastGrace();
 	const said = await notice(tab);
-	assert.match(said, /Tychicus does not know which action opened it/);
+	assert.match(said, /Local Studio does not know which action opened it/);
 	assert.match(said, /Read the page \(read_page\)/);
 	assert.doesNotMatch(said, /call \w+ with|on_dialog": "ok"/);
 	// A hover is no cause either.
@@ -607,7 +607,7 @@ test("sol-F1 (review of PR 216): a box a page timer opens after the click return
 	await pastGrace();
 	// The click's input had all gone out: nothing says the click opened it, or that it may be repeated.
 	const said = await notice(tab);
-	assert.match(said, /Tychicus does not know which action opened it/);
+	assert.match(said, /Local Studio does not know which action opened it/);
 	assert.doesNotMatch(said, /call \w+ with|on_dialog": "ok"|click/);
 });
 

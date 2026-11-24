@@ -97,7 +97,7 @@ test("someone else's tychicus is left alone without a terminal, with the one com
 		await linkOnPath({ log });
 		assert.equal(readlinkSync(join(bin, "tychicus")), "/usr/bin/true", "it is not replaced");
 		const out = lines.join("\n");
-		assert.match(out, /runs \/usr\/bin\/true, which isn't Tychicus, so it was left alone/);
+		assert.match(out, /runs \/usr\/bin\/true, which isn't this helper, so it was left alone/);
 		assert.ok(out.includes(`ln -sf '${target}' '${join(bin, "tychicus")}'`), out);
 	});
 	await inHome("file", onPath, async ({ bin, lines, log }) => {
@@ -105,7 +105,7 @@ test("someone else's tychicus is left alone without a terminal, with the one com
 		writeFileSync(join(bin, "tychicus"), "#!/bin/sh\necho mine\n");
 		await linkOnPath({ log });
 		assert.equal(lstatSync(join(bin, "tychicus")).isSymbolicLink(), false);
-		assert.match(lines.join("\n"), /is a file Tychicus didn't make, so it was left alone/);
+		assert.match(lines.join("\n"), /is a file this helper didn't make, so it was left alone/);
 	});
 });
 

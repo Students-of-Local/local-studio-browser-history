@@ -219,7 +219,7 @@ test("two agents in one project at once get separate sessions, titled with the a
 	const ctx = await request("c2", "tabs.context");
 	assert.deepEqual(ctx.result.tabs.map((x) => x.tabId), [two.result.tabId], "an agent saw another agent's tab");
 	assert.equal(ctx.result.session.name, "shop-1a2b-2");
-	assert.equal(ctx.result.session.group.title, "Tychicus · claude · shop 2");
+	assert.equal(ctx.result.session.group.title, "Local Studio · claude · shop 2");
 });
 
 test("a name the user chose is shared, not split", async () => {

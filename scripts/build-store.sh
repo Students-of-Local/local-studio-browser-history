@@ -2,7 +2,7 @@
 # Builds the zip for the Chrome Web Store: scripts/build-store.sh <out dir>
 # The normal build, minus the debug page, the source maps and the dev `key` (Google assigns the store
 # id). scripts/store-package.mjs checks the result and fails the build if any of it came back, if the name
-# is not Tychicus, if an icon is missing, if the version is not package.json's, or if a permission has no
+# is not Local Studio, if an icon is missing, if the version is not package.json's, or if a permission has no
 # reason in store/permissions.md. Writes <out dir>/tychicus-<version>-store.zip.
 # It also loads no code from outside the package: TYCHICUS_STORE_BUILD=1 gives the prompts that name only the libraries
 # the zip packs for sandbox.html (scripts/build.mjs), `prepare` packs them and takes every remote source out of the

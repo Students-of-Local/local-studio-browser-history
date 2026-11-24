@@ -62,7 +62,7 @@ export function menuItems(sessions: MenuSession[], now: number): MenuItem[] {
 		.sort((a, b) => b.used - a.used)
 		.slice(0, MAX_AGENT_ITEMS);
 	return [
-		{ id: PANEL_ITEM_ID, title: "Give this tab to Tychicus" },
+		{ id: PANEL_ITEM_ID, title: "Give this tab to Local Studio" },
 		...agents.map(({ s }) => {
 			const view = veilViewFor(s);
 			const who = [view.agent, view.detail].filter(Boolean).join(" · ");

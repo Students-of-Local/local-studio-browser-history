@@ -144,7 +144,7 @@ test("first run on Local Studio: no key asked, and 'read this page' answers from
 	// The welcome, in its Local Studio form: chat now, keys one link away.
 	await waitFor(async () => (await watch(), panel(`!!document.querySelector("welcome-setup-dialog")`)), 30_000, "the welcome");
 	const welcome = await panel(`document.querySelector("welcome-setup-dialog").innerText`);
-	assert.match(welcome, /Runs on Local Studio/);
+	assert.match(welcome, /Runs on the Local Studio app/);
 	assert.match(welcome, /Use an API key instead/);
 	await panel(`[...document.querySelector("welcome-setup-dialog").querySelectorAll("button")].find((b) => b.innerText.trim() === "Chat here").click(), true`);
 	await waitFor(async () => (await watch(), panel(`!document.querySelector("welcome-setup-dialog")`)), 10_000, "the welcome to close");

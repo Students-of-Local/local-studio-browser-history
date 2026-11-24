@@ -17,6 +17,7 @@ import { startSiteEdits } from "./site-edits/apply.js";
 import { startSubscriptionRelay } from "./subscriptions/relay.js";
 import { runningFromStore } from "./update/store-install.js";
 import { setPanelsOpening, startUpdateWorker } from "./update/worker.js";
+import { removeProviderCorsRules } from "./utils/provider-cors.js";
 
 // Debugger events reach a worker only if its listeners exist when it starts (detaches, page crashes).
 installCdpListeners();
@@ -134,6 +135,7 @@ function setGlobalPanelOptions(): void {
 }
 setGlobalPanelOptions();
 chrome.runtime.onInstalled.addListener(setGlobalPanelOptions);
+removeProviderCorsRules().catch((err) => console.warn("[Background] removing old provider rules:", err));
 // A new install starts in Auto with no notice; an update migrates its 1.4.0 setting on first read (D67).
 chrome.runtime.onInstalled.addListener((details) => {
 	if (details.reason === "install") startFreshInstall().catch(() => undefined);
