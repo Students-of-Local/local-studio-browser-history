@@ -852,7 +852,7 @@ createInterface({ input: process.stdin, crlfDelay: Number.POSITIVE_INFINITY }).o
 		return reply(m.id, {
 			protocolVersion: m.params?.protocolVersion ?? "2025-06-18",
 			capabilities: { tools: { listChanged: false } },
-			serverInfo: { name: "polycarp-connector", version: "stub" },
+			serverInfo: { name: "tychicus-connector", version: "stub" },
 			instructions: SPEC.instructions,
 		});
 	if (m.method === "ping") return reply(m.id, {});

@@ -185,7 +185,7 @@ connector, see [Remote MCP and tunnels](#remote-mcp-and-tunnels).
 | `ask_user` | Ask you 1 to 4 multiple-choice questions in the side panel and wait for your answer (you can always type your own). The toolbar icon shows a badge while one waits; it gives up after 5 minutes, or sooner if your harness's tool timeout is shorter (Claude Code: `MCP_TOOL_TIMEOUT`, in ms; Codex: `tool_timeout_sec` on the server). Giving up takes the question off the panel |
 | `library_add`, `library_search`, `library_cite` | Save verified sources and cite them (see [Library](#library)) |
 | `site_edit`, `site_filter`, `site_script` | Change a site for you on every visit: hide parts of it, block its requests, turn on ad blocking, filter its feed by topic or account, or propose a script you turn on yourself (see [Site edits and feed filters](#site-edits-and-feed-filters)) |
-| `computer_status`, `computer_*` | On a Mac with Polycarp's app: native apps on the agent workspace, in the background, never taking focus (below) |
+| `computer_status`, `computer_*` | Where `tychicus-hands` is installed: native apps on the agent workspace, in the background, never taking focus (below) |
 
 **How much a read returns.** Each read tool answers with a bounded part and says when it cut, with the call that reads on, so one page can't fill an agent's context: `get_page_text` and `get_page_html` 50,000 characters (a PDF tab by pages), `run_js` values 50,000 (an `offset` reads on from the value kept, without running the code again) and `page_markdown` 40,000, all with `offset`; `read_page` 300 elements and 3,000 characters of text; `read_console` and `read_network` the newest 100 entries at 2,000 characters each, older ones by `offset` (after `clear` they are gone, and the note says so); `crawl` 3,000 characters a page; `files` `read` 50 KB of text (up to 200 KB with `max_bytes`) and `offset`, cut on a character boundary. No tool result is longer than 100,000 characters.
 
@@ -193,14 +193,14 @@ Every tool's description documents its parameters and includes an example. `acti
 batches up to 40 input steps (keys, clicks, drags, typing) in one call, which is what
 canvas apps need.
 
-**Computer use on this Mac.** When Polycarp's Mac app is installed, the same stdio server also offers
+**Computer use.** When Tychicus's computer-use helper, `tychicus-hands`, is installed, the same stdio server also offers
 `computer_windows`, `computer_snapshot`, `computer_click`, `computer_shot`, `computer_open` and the rest of
-the helper's tools, with the helper's own descriptions: it runs `polycarp-spaces mcp` (without
+the helper's tools, with the helper's own descriptions: it runs `tychicus-hands mcp` (without
 `--connector`) the first time the agent lists its tools, so one MCP entry gives an agent the browser and the
-computer. They act on the agent workspace and apps you lend, or more if you chose Full Access in the Polycarp
-app's Settings > Agents, and never take focus. Browser tools are for web pages; computer tools are for native apps.
+computer. They act on the agent workspace and apps you lend, or more if you chose Full Access, and never take focus. Browser tools are for web pages; computer tools are for native apps.
 A helper that is missing, slow (over 2 seconds) or stopped never holds up the browser tools, and
-`computer_status` says why the computer tools aren't there. On Linux and Windows they are absent.
+`computer_status` says why the computer tools aren't there and how to get the helper (on Linux, build it from
+`hands/linux`; see `docs/hands-protocol.md`). Windows has no helper yet.
 
 ## Site edits and feed filters
 

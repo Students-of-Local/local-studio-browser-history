@@ -31,7 +31,7 @@ before(async () => {
 			command: process.execPath,
 			args: [cli, "mcp"],
 			// No computer-use helper, even on a Mac with Polycarp installed: computer.test.mjs covers it.
-			env: { HOME: join(root, "home"), PATH: dirname(process.execPath), TABKYRA_SOCKET_DIR: join(root, "sock"), POLYCARP_SPACES_BIN: join(root, "no-helper") },
+			env: { HOME: join(root, "home"), PATH: dirname(process.execPath), TABKYRA_SOCKET_DIR: join(root, "sock"), TYCHICUS_HANDS_BIN: join(root, "no-helper") },
 			stderr: "ignore",
 		}),
 	);
@@ -750,7 +750,7 @@ async function filesClient(host, fx, { capabilities, env = {} } = {}) {
 				command: process.execPath,
 				args: [cli, "mcp"],
 				cwd: fx.proj,
-				env: { HOME: join(root, "home"), PATH: dirname(process.execPath), TABKYRA_SOCKET_DIR: host.dir, TABKYRA_CONFIG_DIR: fx.config, POLYCARP_SPACES_BIN: join(root, "no-helper"), ...env },
+				env: { HOME: join(root, "home"), PATH: dirname(process.execPath), TABKYRA_SOCKET_DIR: host.dir, TABKYRA_CONFIG_DIR: fx.config, TYCHICUS_HANDS_BIN: join(root, "no-helper"), ...env },
 				stderr: "ignore",
 			}),
 		);
@@ -955,7 +955,7 @@ test("read tools cap what they hand an agent, say when they cut, and page with o
 			command: process.execPath,
 			args: [cli, "mcp"],
 			cwd: fx.proj,
-			env: { HOME: join(root, "home"), PATH: dirname(process.execPath), TABKYRA_SOCKET_DIR: host.dir, TABKYRA_CONFIG_DIR: fx.config, POLYCARP_SPACES_BIN: join(root, "no-helper"), FIRECRAWL_API_URL: `http://127.0.0.1:${firecrawl.address().port}` },
+			env: { HOME: join(root, "home"), PATH: dirname(process.execPath), TABKYRA_SOCKET_DIR: host.dir, TABKYRA_CONFIG_DIR: fx.config, TYCHICUS_HANDS_BIN: join(root, "no-helper"), FIRECRAWL_API_URL: `http://127.0.0.1:${firecrawl.address().port}` },
 			stderr: "ignore",
 		}),
 	);
@@ -1419,7 +1419,7 @@ test("second-S1 (review of PR 216), F4 (review of PR 227), first-F3, second-S2 (
 			new StdioClientTransport({
 				command: process.execPath,
 				args: [cli, "mcp"],
-				env: { HOME: join(root, "home"), PATH: dirname(process.execPath), TABKYRA_SOCKET_DIR: dir, POLYCARP_SPACES_BIN: join(root, "no-helper") },
+				env: { HOME: join(root, "home"), PATH: dirname(process.execPath), TABKYRA_SOCKET_DIR: dir, TYCHICUS_HANDS_BIN: join(root, "no-helper") },
 				stderr: "ignore",
 			}),
 		);
