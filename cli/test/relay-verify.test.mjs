@@ -45,3 +45,15 @@ test("a connector that drops after it was seen is the relay's report, not serve'
 	assert.equal(gone.code, "relay_connector");
 	assert.ok(asked > 1);
 });
+
+test("it keeps trying through a name that doesn't resolve yet and a connector that isn't there yet, and says what stopped it", async () => {
+	const down = async () => {
+		throw new TypeError("fetch failed", { cause: Object.assign(new Error("getaddrinfo ENOTFOUND relay.test"), { code: "ENOTFOUND" }) });
+	};
+	const answers = [down, async () => Response.json({ connected: true }, { status: 503 }), async () => Response.json({ connected: false }), async () => Response.json({ connected: true }), async () => Response.json({ page: 1 }), async () => Response.json({ connected: true }), async () => Response.json({ ok: true })];
+	assert.deepEqual(await mod.verify("https://relay.test", Date.now() + 5_000, 1, { fetch: () => answers.shift()() }), { ok: true });
+	assert.equal(answers.length, 0);
+	const never = await mod.verify("https://relay.test", Date.now() + 20, 10, { fetch: down });
+	assert.equal(never.code, "relay_connector");
+	assert.match(never.message, /ENOTFOUND/);
+});
