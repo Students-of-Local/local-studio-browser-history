@@ -162,14 +162,17 @@ export interface StepInput {
 
 /** Record one step: the run starts if it is new, and is running again if it had ended. */
 export function addStep(log: RunsLog, id: string, s: StepInput, now: number): RunsLog {
+	const old = log.runs.find((r) => r.id === id);
+	// A call still open when its agent left answers after the run ended: one more step of that run, not a new start.
+	const late = old && (old.status === "done" || old.status === "failed") && now - s.ms <= old.updatedAt;
 	return withRun(
 		log,
 		id,
-		now,
+		late ? old.updatedAt : now,
 		() => ({ id, who: s.who, status: "running", startedAt: now, updatedAt: now, steps: [], dropped: 0 }),
 		(run) => {
 			run.who = s.who || run.who;
-			if (run.status !== "waiting") run.status = "running";
+			if (run.status !== "waiting" && !late) run.status = "running";
 			if (s.tabId !== undefined) run.tabId = s.tabId;
 			if (s.tabTitle) run.tabTitle = clip(oneLine(s.tabTitle), 120);
 			const report = s.ok ? stepReport(s.result) : undefined;

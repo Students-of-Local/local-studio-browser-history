@@ -80,6 +80,17 @@ test("a run ends done, or failed when told so or when its last step failed, and 
 	assert.equal(endRun(ok, "r", 3, true), ok);
 });
 
+test("a call still open when its run ended is logged and doesn't start the run again; a later call does", () => {
+	const ended = endRun(addStep(EMPTY_LOG, "r", step({ ms: 10 }), 100), "r", 1_000);
+	const late = addStep(ended, "r", step({ tool: "handback", ok: false, ms: 500 }), 1_004);
+	assert.equal(late.runs[0].status, "done");
+	assert.equal(late.runs[0].steps.length, 2);
+	assert.equal(addStep(late, "r", step({ ms: 900 }), 1_200).runs[0].status, "done", "a second one");
+	const failed = endRun(addStep(EMPTY_LOG, "r", step({ ok: false, error: "x" }), 100), "r", 1_000);
+	assert.equal(addStep(failed, "r", step({ ms: 500 }), 1_004).runs[0].status, "failed");
+	assert.equal(addStep(late, "r", step({ ms: 2 }), 1_006).runs[0].status, "running", "one begun right after the end");
+});
+
 test("a panel chat's run follows its session to the saved id", () => {
 	let log = addStep(EMPTY_LOG, "tab-4", step(), 1);
 	log = renameRun(log, "tab-4", "saved-1");

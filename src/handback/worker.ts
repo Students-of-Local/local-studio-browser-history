@@ -41,6 +41,17 @@ interface Waiting {
 
 const waiting = new Map<string, Waiting>();
 
+/**
+ * Cancels that found no wait (`clientId waitId` -> when): handback.cancel skips the checks handback waits on, so it can
+ * come first. A call that finds its own cancel here never shows. Entries go after CANCEL_MEMORY_MS or a disconnect.
+ */
+const cancelledEarly = new Map<string, number>();
+const CANCEL_MEMORY_MS = 10 * 60 * 1000;
+
+function cancelKey(clientId: string, waitId: string): string {
+	return `${clientId} ${waitId}`;
+}
+
 /** Tests shorten the wait through the worker's global. */
 function timeoutMs(): number {
 	const override = (globalThis as { __TYCHICUS_HANDBACK_MS?: number }).__TYCHICUS_HANDBACK_MS;
@@ -78,13 +89,16 @@ export async function handleHandback(
 				: `Tab ${tabId} is not one of your tabs (tabs_context lists yours).`,
 		);
 	const reason = cleanReason(params.reason);
+	const limit = timeoutMs();
+	const waitId = typeof params.waitId === "string" ? params.waitId.slice(0, 80) : undefined;
+	const gaveUp = () => waitId !== undefined && cancelledEarly.delete(cancelKey(client.clientId, waitId));
+	if (gaveUp()) return handbackOutcome("aborted", tabId, reason, limit);
 	// One wait per tab: a second call replaces the first, which hears it was stopped.
 	for (const w of waiting.values()) if (w.pending.tabId === tabId) w.settle("aborted");
 	const tab = await chrome.tabs.get(tabId).catch(() => undefined);
 	if (!tab) throw new BridgeError(ERR.NO_TAB, `Tab ${tabId} is closed.`);
 	const view = veilViewFor(session.record);
 	const now = Date.now();
-	const limit = timeoutMs();
 	const pending: PendingHandback = {
 		id: crypto.randomUUID(),
 		clientId: client.clientId,
@@ -100,6 +114,7 @@ export async function handleHandback(
 	};
 	// The page draws at its real size when the user looks at it, not the agent's background viewport.
 	await releaseAgentViewport(tabId).catch(() => undefined);
+	if (gaveUp()) return handbackOutcome("aborted", tabId, reason, limit);
 	let settle: (end: HandbackEnd) => void = () => undefined;
 	const ended = new Promise<HandbackEnd>((resolve) => {
 		const timer = setTimeout(() => settle("timeout"), limit);
@@ -108,7 +123,6 @@ export async function handleHandback(
 			resolve(end);
 		};
 	});
-	const waitId = typeof params.waitId === "string" ? params.waitId.slice(0, 80) : undefined;
 	waiting.set(pending.id, { pending, session, waitId, settle });
 	await editPending((list) => [...list.filter((p) => p.id !== pending.id), pending]);
 	void veilWait(session, tabId, reason);
@@ -150,11 +164,19 @@ function endWhere(match: (w: Waiting) => boolean, end: HandbackEnd): number {
 /** The client's own cancel (its call was aborted). */
 export function cancelHandback(clientId: string, waitId: unknown): number {
 	if (typeof waitId !== "string") return 0;
-	return endWhere((w) => w.pending.clientId === clientId && w.waitId === waitId, "aborted");
+	const id = waitId.slice(0, 80);
+	const ended = endWhere((w) => w.pending.clientId === clientId && w.waitId === id, "aborted");
+	if (ended || !id) return ended;
+	const now = Date.now();
+	for (const [key, at] of cancelledEarly) if (now - at > CANCEL_MEMORY_MS) cancelledEarly.delete(key);
+	cancelledEarly.set(cancelKey(clientId, id), now);
+	return 0;
 }
 
 /** The client left (or every client, `undefined`): nobody hears a Continue any more. */
 export function cancelHandbacksFor(clientId: string | undefined): number {
+	for (const key of [...cancelledEarly.keys()])
+		if (clientId === undefined || key.startsWith(`${clientId} `)) cancelledEarly.delete(key);
 	return endWhere((w) => clientId === undefined || w.pending.clientId === clientId, "disconnected");
 }
 
