@@ -187,7 +187,7 @@ test("five harnesses: dry run, then the old entries run Tychicus under their old
 		assert.equal(by.codex.status, "unchanged", "an unrelated MCP and the Polycarp app's own server are left alone");
 		assert.equal(by.cursor.status, "change");
 		assert.deepEqual(by.cursor.repointed, [{ name: "tabkyra", from: "tabkyra mcp" }]);
-		assert.match(by.cursor.notes.join("\n"), /two Tychicus servers until the rename removes the old name/);
+		assert.match(by.cursor.notes.join("\n"), /two Local Studio browser servers until the rename removes the old name/);
 		assert.equal(by.omp.status, "refused");
 		assert.equal(by.omp.blocking, true, "a file naming polycarp that doesn't parse is a failure");
 		assert.match(by.omp.reason, /isn't valid JSON/);
