@@ -380,7 +380,8 @@ test("tychicus status, which names no session, is answered without storing a ses
 	port.deliver({ type: "client_connected", clientId: "s1", client: { name: "status" } });
 	const reply = await request("s1", "status");
 	assert.equal(reply.error, undefined, JSON.stringify(reply.error));
-	// Nothing stored is "Match the model" (D60).
+	// Nothing stored is Auto (D67), which an older CLI reads by its 1.4.0 name.
+	assert.equal(reply.result.mode, "auto");
 	assert.equal(reply.result.permissionMode, "by_model");
 	assert.deepEqual(reply.result.allowedHosts, []);
 	assert.equal(typeof reply.result.extensionVersion, "string");

@@ -148,7 +148,7 @@ export function freeChains(list: FreeList, privateMode: boolean, attempts = 2): 
 		if (chain.length > 0) chains.push(chain);
 	}
 	for (const chain of chains) assertFreeChain(chain, list.models);
-	if (chains.length === 0) throw new FreeModeError("No free OpenRouter model can run Tychicus's tools right now.");
+	if (chains.length === 0) throw new FreeModeError("No free OpenRouter model can run Local Studio's tools right now.");
 	return chains;
 }
 

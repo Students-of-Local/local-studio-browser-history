@@ -1,4 +1,8 @@
-/** Light, dark or follow the system: the same setting mini-lit's theme toggle keeps (localStorage "theme", the `dark` class). */
+/**
+ * Light, dark or follow the system: the same setting mini-lit's theme toggle keeps (localStorage "theme", the `dark` class).
+ * Dark unless the person chose otherwise: Tychicus's look is the dark one in media/brand/hero.png, so "Match system" is
+ * stored by name like the other two.
+ */
 
 import { MODE_MIRROR_KEY } from "../browser/veil-shared.js";
 
@@ -6,7 +10,7 @@ export type Mode = "light" | "dark" | "system";
 
 export function currentMode(): Mode {
 	const saved = localStorage.getItem("theme");
-	return saved === "light" || saved === "dark" ? saved : "system";
+	return saved === "light" || saved === "system" ? saved : "dark";
 }
 
 const systemDark = () => window.matchMedia("(prefers-color-scheme: dark)").matches;
@@ -18,8 +22,7 @@ function showMode(): void {
 }
 
 export function setMode(mode: Mode): void {
-	if (mode === "system") localStorage.removeItem("theme");
-	else localStorage.setItem("theme", mode);
+	localStorage.setItem("theme", mode);
 	showMode();
 	mirrorMode();
 }

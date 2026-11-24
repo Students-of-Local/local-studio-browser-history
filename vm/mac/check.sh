@@ -1,12 +1,8 @@
 #!/bin/bash
-# Checks for tychicus-vm that need no guest image. Builds the helper, then runs it on a blank disk, which never
-# reaches the agent. The firmware powers a blank disk off after a few seconds, so each step acts at once.
-#
-# 1. A reset before the guest is ready is refused and leaves it starting, not failed (a failed helper exits
-#    3 s later and takes the guest with it).
+# Checks for tychicus-vm on a blank disk, which its firmware powers off after a few seconds, so each step acts at once.
+# 1. A reset before the guest is ready is refused and leaves it starting, not failed.
 # 2. SIGTERM and SIGINT save the session, as `down` does, also while a saved session is still being restored.
-# 3. Only a reset replaces disk.raw: after kill -9, a plain start boots the disk as it was left, although the
-#    guest has a ready point; --from-ready refuses to overwrite it, and works once disk.raw is gone.
+# 3. Only a reset replaces disk.raw: kill -9 and a plain start keep it, and --from-ready never overwrites it.
 set -euo pipefail
 cd "$(dirname "$0")"
 bin="$(./build.sh)"
@@ -30,7 +26,6 @@ start() {
 	for _ in $(seq 1 100); do [ -S "$dir/control.sock" ] && return; sleep 0.1; done
 	fail "the helper opened no socket"
 }
-# Wait until the VM runs, and print how it started: cold, ready or session.
 booted() {
 	for _ in $(seq 1 200); do
 		status="$(ask '{"op":"status"}')"
@@ -44,7 +39,6 @@ booted() {
 	done
 	echo "not started: ${status:-no answer}"
 }
-# The process exits with the helper, or the VM process that holds the disk goes a moment after it.
 gone() {
 	wait "$pid" 2>/dev/null || true
 	pid=""
@@ -79,7 +73,6 @@ for sig in TERM INT; do
 	[ "$how" = cold ] || fail "start before SIG$sig: $how"
 	kill "-$sig" "$pid"
 	gone
-	# Then at once in the next start, which restores that session.
 	if [ -s "$dir/session.vzvmsave" ]; then
 		start
 		kill "-$sig" "$pid"
@@ -93,15 +86,12 @@ for sig in TERM INT; do
 	fi
 done
 
-# A ready point: a session saved as early as it can be, so the restored firmware has its few seconds left, and
-# the disk it was saved with.
 rm -f "$dir/session.vzvmsave"
 start
 kill -TERM "$pid"
 gone
 [ -s "$dir/session.vzvmsave" ] || saved=0
-if [ "$saved" = 1 ]; then mv "$dir/session.vzvmsave" "$dir/ready.vzvmsave"; else echo none > "$dir/ready.vzvmsave"; fi
-rm -f "$dir/session.vzvmsave"
+mv "$dir/session.vzvmsave" "$dir/ready.vzvmsave" || echo none > "$dir/ready.vzvmsave"
 cp -c "$dir/disk.raw" "$dir/ready.raw"
 printf MARKER | dd of="$dir/disk.raw" bs=1 seek=33554432 conv=notrunc 2>/dev/null
 start

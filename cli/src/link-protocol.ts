@@ -59,7 +59,7 @@ export interface StatusFrame {
 	sessionCap: number;
 	/** The scopes this device allows at most (its link token's cap). */
 	scopes: string[];
-	/** Polycarp's computer-use helper is on this device. Absent from devices older than the roster. */
+	/** Tychicus's computer-use helper (tychicus-hands) is on this device. Absent from devices older than the roster. */
 	computer?: boolean;
 	/** process.platform: darwin, linux, win32. Absent from devices older than the roster. */
 	platform?: string;

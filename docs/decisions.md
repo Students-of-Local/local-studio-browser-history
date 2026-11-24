@@ -2237,3 +2237,88 @@ the ready point 0.79 s, from a saved session 0.82 s, reset 0.73 s with the guest
 guest took 15.9 s. On `genericcloud` at load 5 to 9, earlier the same day, the same bench gave cold start 4.02 s, warm
 starts 0.69 s and 0.65 s, reset 0.61 s. The bench appends each run to `vm-bench.jsonl` in Tychicus's state folder and
 exits 1 on a missed target.
+
+## D65. `setup --agents` renames an old name for Tychicus to `tychicus` in the same run (Claude, 2026-11-24)
+
+**Context.** The move from Polycarp (`cli/src/agent-migration.ts`) kept each moved entry's old name, `polycarp` or
+`tabkyra`, as a temporary alias, so fleet rules naming "the polycarp MCP server" kept working, and left the rename to a
+separate `setup --agents --finish` to run "once nothing names them". Nothing ever prompted it: on the owner's Mac every
+agent (Claude Code, Codex, OpenCode, Cursor, OMP) still reached Tychicus as `polycarp`, `tychicus doctor` marked that
+"ok", and `setup --agents` said each agent was fine. Tychicus no longer depends on Polycarp and should be reached under
+its own name.
+
+**Decision.** `setup --agents`, and the agent step of `setup`, run the move and then the finish, each with its own
+plan, diff and question (`--yes` answers both). The finish's rules are unchanged: an alias is renamed when no `tychicus`
+entry is there; removed when a `tychicus` entry matches it in every field; otherwise both are left, the fields named,
+and the step exits 1. `--agents --finish` still runs the rename alone. `tychicus doctor` warns about any alias with the
+one fix `tychicus setup --agents`. After a rename, setup says that rules, hooks and prompts naming the old server (a
+Claude Code permission rule for `mcp__polycarp`) need the new name. Tychicus does not read or edit those rules: per the
+names section of AGENTS.md they are not its files.
+
+**Why.** A rename that waits for the user to decide when "nothing names" an alias never happens. A permission rule
+that names the old server stops matching after the rename; setup names that cost at the moment it happens.
+
+## D67. One permission mode for all of Tychicus: Manual, Auto (default), Yolo (Claude, 2026-11-24)
+
+**Context.** The owner asked for three modes across browser, computer use and VMs: "Auto by default, they can select
+Yolo and they can select manual" (#33, 2026-11-18). 1.4.0's default, "Match the model" (D60), lets an agent on a
+frontier model open any site with no ask and has no rule for a risky action once it is there. Claude in Chrome asks per
+site and lets a person allow all actions on one; ChatGPT agent confirms high-impact actions.
+
+**Decision.** One mode, one store (`permission_mode` in the extension's storage), read by every surface; the CLI
+writes it through the bridge (`permission.setMode`, which also takes the 1.4.0 names from an older CLI).
+
+- **Manual**: every new site asks, and so does every risky action. 1.4.0's `ask`.
+- **Auto** (the default): D60 for opening sites, kept whole (a frontier model opens ordinary sites, a small or unknown
+  model asks), plus asks for what a frontier model may not do alone: opening a sensitive site and a risky action.
+- **Yolo**: nothing asks. 1.4.0's `allow_all`. A one-time warning when it is first turned on.
+
+The rule list is one file, `src/bridge/risk-rules.ts`, pure, with a test per rule (`test/risk-rules.test.mjs`):
+
+- Risky actions (`actionRisk`): a commit (a click on a control, Enter or Cmd+Enter in a field, type with submit) that
+  sends, posts, buys or pays, deletes or cancels, changes account settings or who can reach the account, grants an
+  app OAuth access, or downloads a program to run. A control's name decides first; a generic yes ("OK", "Continue")
+  takes its meaning from the dialog it sits in, the form it submits (its submit button, its action URL) and whether
+  the page is an account settings page. A back-out name ("Cancel", "Close") is never risky. Reading, scrolling,
+  hovering and typing without Enter never are.
+- Sensitive sites (`sensitiveSite`): mail, banks and payments, password managers, cloud consoles and DNS,
+  government, health, and the person's own account settings pages on any site.
+- Sensitive apps (`sensitiveApp`), for computer use when it reads the mode: Keychain Access, System Settings,
+  terminals and shells, password managers.
+- Hard limits (`hardLimit`), refused in every mode, Yolo included: typing into a password field (by type,
+  autocomplete or name) or a payment field (card autocomplete, a card field's name, a payment provider's frame).
+  With the never-reachable pages (guarded hosts and the extension's own pages, as before), and a remote connector
+  session, which is never in Yolo: Yolo widens what a local agent may do, never what a remote caller may reach.
+
+The rules read only what `read_page` shows and what a page can't hide from the extension (an input's type and
+autocomplete, a link's href, a control's form and dialog). They are a net for an agent's mistakes, not a sandbox:
+a page can name its Send button something else. Manual is the mode for a person who wants every new site asked.
+
+The ask is the one Manual uses for a site: MCP elicitation in the agent's harness, a card above the side panel's chat,
+and the same card under "Waiting for your answer" in Settings > Agents. For an action it offers allow once, allow on this site (risky actions there stop asking; a
+separate list from the sites an agent may open) and deny. The answer has 60 seconds, inside the bridge's 90-second
+limit for a call; no answer is a no, and the tool result says what was not done and how the person can allow it.
+`TYCHICUS_AUTO_ALLOW` answers site questions only, never an action question, as it never answered an upload.
+
+A remote session says so in its hello (`remote`, set by the CLI for a session through `tychicus serve` and for a scoped
+one). The bridge runs it in Auto when the mode is Yolo, and refuses `permission.respond`, `permission.allow` and
+`permission.setMode` from it, so it can't answer its own question or widen its own reach. A CLI from before `remote` can't say it, but `serve` has
+always named its sessions `remote-<caller>`, so the bridge goes by that name too. The MCP server puts no site question
+to a remote or scoped session's caller: it waits in the side panel.
+
+Migration: a stored `ask` is Manual, `allow_all` is Yolo. Nothing stored on an existing install is Auto with a
+one-time side panel notice naming the change and a one-click way back to Manual, since that person never chose
+what Auto adds; 1.4.0's stored `by_model` gets the same. A fresh install (`onInstalled` with reason `install`) is
+Auto with no notice.
+
+The upload question (D38) is still asked in every mode, Yolo included: it is about files leaving the computer, not
+about what an agent does in a page. Every bridge step in the Runs log carries the mode it started under.
+
+**Why these defaults.** Auto keeps what 1.4.0 got right (frontier agents are not stopped at every new site) and adds
+the asks the competitors make, at the actions that act as the person. Recall is the floor because a missed risky
+action is one the person never saw; a false flag costs one click and "allow on this site" ends it for that site.
+
+**Proof.** `test/permission-modes.test.mjs` (each migration, the notice, a fresh install), `test/risk-rules.test.mjs`
+(each rule) and `evals/market/risky-actions`: 86 labeled actions, 59 risky, recall 100% held as the `riskyActions`
+floor in `evals/market/floors.json`; 0 of 27 safe actions flagged. `test/permission-guard.test.mjs`,
+`test/dialog-preset.test.mjs` and `cli/test/model-tier.test.mjs` (the remote cap, the mode on every Runs step).

@@ -230,7 +230,7 @@ export async function injectScript<T = unknown>(tabId: number, code: string, opt
 		`chrome.runtime.sendMessage({ type: ${JSON.stringify(RUN_MESSAGE)}, mark: ${JSON.stringify(mark)}, ${fields} })`;
 	const marked = `(async () => {
 	if ((await ${send('step: "start"')}.catch(() => false)) !== true)
-		throw new Error("Not run: Tychicus could not record that this script started. Try again.");
+		throw new Error("Not run: Local Studio could not record that this script started. Try again.");
 	const v = await (${code});
 	let size = 0;
 	let kept;

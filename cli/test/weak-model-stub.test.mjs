@@ -1,4 +1,4 @@
-// The weak-model eval's stub computer through the real server: `polycarp mcp` with POLYCARP_SPACES_BIN set to a stub
+// The weak-model eval's stub computer through the real server: `tychicus mcp` with TYCHICUS_HANDS_BIN set to a stub
 // run's wrapper lists the computer_* tools a stub run's model sees, and its calls reach the stub (evals/weak-model/stub).
 import assert from "node:assert/strict";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -33,7 +33,7 @@ test("through `polycarp mcp`, a stub run's model sees the computer tools and its
 		new StdioClientTransport({
 			command: process.execPath,
 			args: [cli, "mcp", "--session", "stub-test"],
-			env: { PATH: process.env.PATH, HOME: home, TABKYRA_SOCKET_DIR: sock, TABKYRA_NO_UPDATE_CHECK: "1", POLYCARP_SPACES_BIN: bin },
+			env: { PATH: process.env.PATH, HOME: home, TABKYRA_SOCKET_DIR: sock, TABKYRA_NO_UPDATE_CHECK: "1", TYCHICUS_HANDS_BIN: bin },
 		}),
 	);
 	try {

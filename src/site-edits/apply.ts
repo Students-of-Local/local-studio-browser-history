@@ -1,7 +1,7 @@
 /**
  * Makes the browser follow the site edits (site-edits/store.ts). Runs in the service worker:
  * - hide: a stylesheet put into each matching page as it commits, and into open tabs when an edit changes;
- * - block: dynamic network rules, ids SITE_RULE_BASE and up (the custom-provider CORS rules use 2000-2999);
+ * - block: dynamic network rules, ids SITE_RULE_BASE and up (2000-2999 are removed at each worker start, utils/provider-cors.ts);
  * - script: user scripts registered for the site, only when the person turned them on and user scripts are allowed;
  * - filter: the extension's own content script (feed-filter.js) registered for every site with a filter on, and put into
  *   tabs already open there. It asks for its page's filters, and every tab is sent its filters again after a change

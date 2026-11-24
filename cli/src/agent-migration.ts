@@ -3,10 +3,10 @@
  * Polycarp's browser server (`polycarp browser mcp`, `polycarp-browser mcp`, Polycarp's old browser launcher or
  * `tabkyra mcp`). When Polycarp drops its browser, those agents would lose their browser tools.
  *
- * The move points each such entry at Tychicus's launcher with `mcp` and keeps its old name, so one server runs and
- * fleet rules that say "the polycarp MCP server" keep working. That name is a temporary alias, listed in
- * agent-aliases.json in Tychicus's config folder. The finish step (`setup --agents --finish`) renames each alias to
- * `tychicus` once nothing names it, and takes it off the list.
+ * The move points each such entry at Tychicus's launcher with `mcp` and keeps its old name, so one server runs. That
+ * name is a temporary alias, listed in agent-aliases.json in Tychicus's config folder. The finish step, which
+ * `setup --agents` runs right after the move (and `setup --agents --finish` runs alone), renames each alias to
+ * `tychicus` where that is safe, and takes it off the list.
  *
  * Only the harness config files are written, each after a timestamped backup beside it, and only the entries that move
  * change: the rest of each file is kept byte for byte, and the result must parse to exactly the intended config. A file
@@ -15,11 +15,11 @@
  * nothing to do and changes nothing.
  */
 
-import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { parse as parseToml } from "smol-toml";
-import { configDir } from "./files.ts";
+import { configDir, writeJsonPrivate } from "./files.ts";
 import { MCP_NAME } from "./harness.ts";
 import { blankComments, dropTrailingCommas, skipSpace, stringEnd } from "./jsonc.ts";
 import { COMMAND_NAME } from "./self.ts";
@@ -355,7 +355,7 @@ function noteProjects(plan: FilePlan, data: Record<string, unknown>): void {
 
 function twoServersNote(plan: FilePlan, servers: Record<string, unknown>): void {
 	if (Object.hasOwn(servers, MCP_NAME) && plan.repointed.some((r) => r.name !== MCP_NAME)) {
-		plan.notes.push(`a ${MCP_NAME} entry is there too, so this agent runs two Tychicus servers until ${COMMAND_NAME} setup --agents --finish removes the old name.`);
+		plan.notes.push(`a ${MCP_NAME} entry is there too, so this agent runs two Tychicus servers until the rename removes the old name (only when the two match in every field).`);
 	}
 }
 
@@ -443,14 +443,14 @@ function finishAction(plan: FilePlan, alias: string, entry: unknown, cmd: Comman
 	if (!tychicus) return "rename";
 	if (!sameCommand(tychicus.cmd, cmd)) {
 		plan.leftAlone.push(
-			`"${alias}" runs ${commandLine(cmd.command, cmd.args)}, but the ${MCP_NAME} entry runs ${commandLine(tychicus.cmd.command, tychicus.cmd.args)}. Remove one of the two by hand, then run ${COMMAND_NAME} setup --agents --finish again.`,
+			`"${alias}" runs ${commandLine(cmd.command, cmd.args)}, but the ${MCP_NAME} entry runs ${commandLine(tychicus.cmd.command, tychicus.cmd.args)}. Remove one of the two by hand, then run ${COMMAND_NAME} setup --agents again.`,
 		);
 		return undefined;
 	}
 	const fields = differingFields(entry, tychicus.entry);
 	if (fields.length === 0) return "remove";
 	plan.leftAlone.push(
-		`"${alias}" runs the same command as the ${MCP_NAME} entry but differs in ${fields.map((f) => `"${f}"`).join(", ")}, so both were left as they are. Keep the settings you want under ${MCP_NAME} and remove "${alias}" by hand, then run ${COMMAND_NAME} setup --agents --finish again.`,
+		`"${alias}" runs the same command as the ${MCP_NAME} entry but differs in ${fields.map((f) => `"${f}"`).join(", ")}, so both were left as they are. Keep the settings you want under ${MCP_NAME} and remove "${alias}" by hand, then run ${COMMAND_NAME} setup --agents again.`,
 	);
 	return undefined;
 }
@@ -809,12 +809,11 @@ function writeAliases(aliases: AliasRecord[]): void {
 		rmSync(file, { force: true });
 		return;
 	}
-	mkdirSync(dirname(file), { recursive: true });
 	const record = {
-		note: `Temporary: these entries keep their old names but run Tychicus, so rules that name the polycarp MCP server still work. Once nothing names them, ${COMMAND_NAME} setup --agents --finish renames each to ${MCP_NAME}.`,
+		note: `Temporary: these entries keep their old names but run Tychicus. ${COMMAND_NAME} setup --agents renames each to ${MCP_NAME} where that is safe.`,
 		aliases,
 	};
-	writeFileSync(file, `${JSON.stringify(record, null, 2)}\n`);
+	writeJsonPrivate(file, record);
 }
 
 function recordAliases(plan: FilePlan, now: Date): void {
@@ -899,7 +898,7 @@ export function liveAlias(harness: string): AliasRecord | undefined {
 // ---- Writing ----
 
 function changedWhileDeciding(plan: FilePlan): void {
-	refuse(plan, `it changed while you were deciding; run ${COMMAND_NAME} setup --agents${plan.kind === "finish" ? " --finish" : ""} again. Nothing was written to it.`, true);
+	refuse(plan, `it changed while you were deciding; run ${COMMAND_NAME} setup --agents again. Nothing was written to it.`, true);
 }
 
 /**
@@ -912,7 +911,7 @@ function updateAliasList(plan: FilePlan, update: () => void): void {
 	} catch (err) {
 		const unnamed = plan.kind === "move" ? plan.repointed.map((r) => r.name).filter((n) => n !== MCP_NAME && !couldHoldEntry(n)) : [];
 		const byHand = unnamed.length > 0 ? ` Rename ${unnamed.map((n) => `"${n}"`).join(", ")} to ${MCP_NAME} by hand once nothing names ${unnamed.length === 1 ? "it" : "them"}.` : "";
-		plan.aliasWarning = `${aliasFile()} couldn't be updated (${message(err)}). ${COMMAND_NAME} setup --agents --finish and ${COMMAND_NAME} doctor still find entries named polycarp or tabkyra that run Tychicus.${byHand}`;
+		plan.aliasWarning = `${aliasFile()} couldn't be updated (${message(err)}). ${COMMAND_NAME} setup --agents and ${COMMAND_NAME} doctor still find entries named polycarp or tabkyra that run Tychicus.${byHand}`;
 	}
 }
 
