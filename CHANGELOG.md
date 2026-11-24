@@ -3,6 +3,16 @@
 ## [Unreleased]
 
 ### Added
+- In Auto and Manual, agents now ask before they send, post, buy, delete or change settings as you. The question
+  shows in the agent's own prompt and as a card above the side panel chat: Allow once, Allow on this site, or Deny,
+  with 60 seconds to answer and a clear result for the agent either way. Auto also asks before mail, banks and other
+  sensitive sites, even for a frontier model. In every mode, Yolo included, an agent can't type into a password or
+  card field (it's told to hand the tab to you), and a remote session is never in Yolo and can't answer its own
+  question. A click or Enter whose page couldn't be read first asks too, rather than going ahead.
+  `tychicus mode manual|auto|yolo` shows or sets the mode (`ask` and `allow-all` still work), Yolo needs a
+  person at a terminal and warns once, as Settings > Agents does, and `tychicus doctor` has a mode row. Every Runs
+  step records its mode. Decision D67. Issue #33. Docs: `docs/permissions.md`. Tests: `test/dialog-preset.test.mjs`,
+  `test/permission-guard.test.mjs`, `cli/test/mode.test.mjs`.
 - Agents can now filter a site's feed for you, by topic or account, on every visit. Ask "hide every post about crypto
   on x.com" and the new `site_filter` MCP tool saves words, phrases, `/regex/` terms and account handles for a site; posts that match are hidden
   with a class and a stylesheet (never removed), new ones too as you scroll, and a count on the page ("12 hidden by your

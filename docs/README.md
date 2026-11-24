@@ -7,6 +7,7 @@ panel's internals correctly, but they call the product Sitegeist.
 ## Using Tychicus
 
 - [../cli/README.md](../cli/README.md): every `tychicus` command, harness setup and site permissions.
+- [permissions.md](permissions.md): the permission modes (Manual, Auto, Yolo), what asks in each, and what no mode allows.
 - [updates.md](updates.md): how `tychicus update` verifies signed releases, rollback, and the one-time signing key setup.
 - [auth-policy.md](auth-policy.md): why the side panel takes API keys only, with each provider's terms and the date they were checked.
 

@@ -76,10 +76,10 @@ test("a hello's tier is trusted only as frontier or small; anything else is unkn
 test("the bridge checks each site against the calling client's tier, and guarded hosts before that", () => {
 	const native = read("src/bridge/native.ts");
 	assert.match(native, /tier: asModelTier\(msg\.client\.tier\)/, "the hello's tier is kept for the client");
-	assert.match(native, /async function askPermission\([^)]*\): Promise<boolean> \{\s*if \(isOwnExtensionUrl\(url\)\) return false;\s*if \(await isUrlAllowed\(url, state\.tier\)\) return true;/);
+	assert.match(native, /async function askPermission\([^)]*\): Promise<boolean> \{\s*if \(isOwnExtensionUrl\(url\)\) return false;\s*if \(await isUrlAllowed\(url, state\.tier, state\.remote\)\) return true;/);
 	assert.match(native, /if \(isGuardedUrl\(url, req\.guardedHosts\)\) throw guardedError\(url\);\s*if \(!\(await askPermission\(state, url\)\)\)/);
-	assert.match(native, /isUrlAllowed\(url, state\.tier\)\),\s*askUpload/, "frames use the client's tier");
-	assert.match(read("src/bridge/files.ts"), /isUrlAllowed\(url, ctx\.tier\)/, "an upload's page uses the client's tier");
+	assert.match(native, /isUrlAllowed\(url, state\.tier, state\.remote\)\),\s*askUpload/, "frames use the client's tier");
+	assert.match(read("src/bridge/files.ts"), /isUrlAllowed\(url, ctx\.tier, ctx\.remote\)/, "an upload's page uses the client's tier");
 	// The upload question is asked in every mode: askUpload never reads the permission mode.
 	const askUpload = native.slice(native.indexOf("async function askUpload("), native.indexOf("async function askUpload(") + 1500);
 	assert.doesNotMatch(askUpload, /getPermissionMode|isUrlAllowed|opensAnySite/);

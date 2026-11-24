@@ -7,10 +7,14 @@
  *   unknown model asks (D60's "Match the model"; the CLI says which in its hello, cli/src/model-tier.ts).
  * - "yolo": nothing asks; agents may open any site (the old "allow_all").
  *
+ * Manual and Auto also ask before a risky action under the person's sign-in (send, post, pay, delete, change
+ * settings: risk-rules.ts), and Auto asks before a sensitive site even for a frontier model.
+ *
  * Unknown hosts raise a permission request that the harness shows (MCP elicitation) or that the user answers in
  * Settings > Agents. What no mode opens (Tychicus's own pages, guarded hosts) is checked before the mode.
  */
 import type { ModelTier } from "./protocol.js";
+import { sensitiveSite } from "./risk-rules.js";
 
 const ENABLED_KEY = "bridge_enabled";
 /** The mode, one store for every surface (D67). */
@@ -22,7 +26,9 @@ export const MODE_NOTICE_KEY = "permission_mode_notice";
 /** Set once the person has seen the Yolo warning. */
 export const YOLO_WARNED_KEY = "permission_yolo_warned";
 const HOSTS_KEY = "bridge_allowed_hosts";
-const PENDING_KEY = "bridge_pending_requests";
+/** Sites where the person said yes to an agent's risky actions from now on ("Allow on this site", D67). */
+export const ACTION_HOSTS_KEY = "bridge_action_hosts";
+export const PENDING_KEY = "bridge_pending_requests";
 
 export type PermissionMode = "manual" | "auto" | "yolo";
 export const PERMISSION_MODES: readonly PermissionMode[] = ["manual", "auto", "yolo"];
@@ -47,6 +53,21 @@ export interface PendingRequest {
 	 * (docs/decisions.md, D38). The answer covers this one upload and is never remembered.
 	 */
 	upload?: { files: Array<{ name: string; bytes: number }> };
+	/**
+	 * Set when the question is about one risky action under the person's sign-in (D67): what the agent is about to do,
+	 * the rule that caught it and why. "Allow on this site" adds the host to the action list, not the site list.
+	 */
+	action?: PendingAction;
+}
+
+export interface PendingAction {
+	/** The tool: click, type, press or fill. */
+	tool: string;
+	/** What it acts on, as the page names it ("Send", "Delete repository"). */
+	target: string;
+	rule: string;
+	/** Why it asks: "sends a message as you". */
+	why: string;
 }
 
 export async function isBridgeEnabled(): Promise<boolean> {
@@ -120,6 +141,12 @@ export async function getPermissionMode(): Promise<PermissionMode> {
 	});
 }
 
+/** The mode as getPermissionMode would give it, without migrating or writing anything (the runs log reads it). */
+export async function peekPermissionMode(): Promise<PermissionMode> {
+	const data = await chrome.storage.local.get([MODE_KEY, LEGACY_MODE_KEY]);
+	return asPermissionMode(data[MODE_KEY]) ?? migrateLegacyMode(data[LEGACY_MODE_KEY]).mode;
+}
+
 /** A new install: Auto, with no notice about a change it never saw. */
 export function startFreshInstall(): Promise<void> {
 	return oneModeWrite(async () => {
@@ -148,10 +175,29 @@ export function setPermissionMode(mode: PermissionMode): Promise<void> {
 	});
 }
 
+/** Whether the person has seen the Yolo warning: Settings > Agents shows it once, before Yolo is first turned on. */
+export async function yoloWarned(): Promise<boolean> {
+	return Boolean((await chrome.storage.local.get(YOLO_WARNED_KEY))[YOLO_WARNED_KEY]);
+}
+
+/** Yolo, after the person said yes to its warning (in Settings, or in a terminal for `tychicus mode yolo`). */
+export async function turnOnYolo(): Promise<void> {
+	await chrome.storage.local.set({ [YOLO_WARNED_KEY]: Date.now() });
+	await setPermissionMode("yolo");
+}
+
 /** Whether an agent in this mode, on a model of this tier, opens a site no one allowed without asking. */
 export function opensAnySite(mode: PermissionMode, tier: ModelTier | undefined): boolean {
 	if (mode === "yolo") return true;
 	return mode === "auto" && tier === "frontier";
+}
+
+/**
+ * The mode a client works under: a remote connector session is never in Yolo (D67). Yolo widens what a local agent
+ * may do, never what a remote caller may reach, so a remote client in Yolo gets Auto's asks.
+ */
+export function modeFor(mode: PermissionMode, remote: boolean | undefined): PermissionMode {
+	return remote && mode === "yolo" ? "auto" : mode;
 }
 
 /** A hello's tier as the extension trusts it: anything but a known value, or none (older CLIs), is unknown. */
@@ -173,6 +219,23 @@ export async function allowHost(host: string): Promise<void> {
 export async function revokeHost(host: string): Promise<void> {
 	const hosts = await getAllowedHosts();
 	await chrome.storage.local.set({ [HOSTS_KEY]: hosts.filter((h) => h !== host.toLowerCase()) });
+}
+
+export async function getActionHosts(): Promise<string[]> {
+	const data = await chrome.storage.local.get(ACTION_HOSTS_KEY);
+	return (data[ACTION_HOSTS_KEY] as string[] | undefined) ?? [];
+}
+
+/** "Allow on this site" for an action ask: risky actions there go ahead without asking from now on. */
+export async function allowActionsOn(host: string): Promise<void> {
+	const hosts = await getActionHosts();
+	const normalized = host.toLowerCase();
+	if (!hosts.includes(normalized)) await chrome.storage.local.set({ [ACTION_HOSTS_KEY]: [...hosts, normalized] });
+}
+
+export async function revokeActionsOn(host: string): Promise<void> {
+	const hosts = await getActionHosts();
+	await chrome.storage.local.set({ [ACTION_HOSTS_KEY]: hosts.filter((h) => h !== host.toLowerCase()) });
 }
 
 export function hostOf(url: string): string {
@@ -253,13 +316,19 @@ export function isOwnExtensionUrl(url: string): boolean {
 	}
 }
 
-/** `tier` is the calling client's (its hello); without one the client counts as unknown. */
-export async function isUrlAllowed(url: string, tier?: ModelTier): Promise<boolean> {
+/**
+ * `tier` is the calling client's (its hello); without one the client counts as unknown. `remote` is set for a remote
+ * connector session, which is never in Yolo. In Auto a sensitive site (mail, a bank, a password manager, a cloud
+ * console, a government or health account: risk-rules.ts) asks even a frontier model, until the person allows it.
+ */
+export async function isUrlAllowed(url: string, tier?: ModelTier, remote?: boolean): Promise<boolean> {
 	if (isOwnExtensionUrl(url)) return false;
-	if (opensAnySite(await getPermissionMode(), tier)) return true;
+	const mode = modeFor(await getPermissionMode(), remote);
+	if (mode === "yolo") return true;
 	const host = hostOf(url);
-	if (!host) return url === "about:blank";
-	return hostAllowed(host, await getAllowedHosts());
+	if (host && hostAllowed(host, await getAllowedHosts())) return true;
+	if (opensAnySite(mode, tier)) return !sensitiveSite(url);
+	return !host && url === "about:blank";
 }
 
 // ---- pending requests (visible to the sidepanel settings tab) -----------------

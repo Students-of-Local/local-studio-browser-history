@@ -53,6 +53,7 @@ import type { FrameRule } from "../browser/frames.js";
 import { injectScript } from "../browser/inject.js";
 import {
 	type Aim,
+	describeTarget,
 	fillElement,
 	goBack,
 	goForward,
@@ -103,6 +104,7 @@ import {
 import { getAllowedHosts, getPermissionMode } from "./permissions.js";
 import { ERR, type ModelTier } from "./protocol.js";
 import { cleanRef, lookUpName, nodeLine, REF_RE } from "./ref-lookup.js";
+import type { ActionFacts, TargetFacts } from "./risk-rules.js";
 
 export { BridgeError, detachedError };
 
@@ -126,6 +128,8 @@ export interface HandlerContext {
 	guardedHosts?: readonly string[];
 	/** How capable the calling client's model is (its hello, D60); unset counts as unknown. */
 	tier?: ModelTier;
+	/** Set for a remote connector session: never in Yolo (D67). */
+	remote?: boolean;
 	/**
 	 * Whether a frame at `url` on a page at `topUrl` may be read and acted in: its host is the page's or one the
 	 * person allowed for agents. Unset (the side panel): every frame that isn't guarded.
@@ -176,6 +180,13 @@ export interface HandlerContext {
 	batch?: boolean;
 	/** Set only when the client traces its calls (TYCHICUS_TRACE): note that this phase of the call ended now. */
 	mark?(label: string): void;
+	/**
+	 * The permission mode's check before an input that could act under the person's sign-in (D67, risk-rules.ts): it
+	 * refuses a hard limit (a password or payment field) by throwing, asks the person about a risky action and waits,
+	 * or lets the input go. `facts` looks at the target and is called only when the rules need it. Resolves true when
+	 * the person was asked, so the page may have changed meanwhile. Unset (the side panel's own agent): no check.
+	 */
+	guard?(tool: string, params: Record<string, unknown>, facts: () => Promise<ActionFacts>): Promise<boolean>;
 }
 
 /**
@@ -312,6 +323,68 @@ async function changesBefore(ctx: HandlerContext, tabId: number, params?: Params
 		ctx.guardedHosts ?? [],
 		skipFor(ctx, tabId),
 	);
+}
+
+/** The failed looks an input refuses on its own, so they need no question first. */
+const INPUT_REFUSES: ReadonlySet<string> = new Set([
+	ERR.STALE_REF,
+	ERR.NOT_FOUND,
+	ERR.NOT_ACTIONABLE,
+	ERR.NO_TAB,
+	ERR.BAD_PARAMS,
+]);
+
+/** What Auto's rules read about an input before it goes out: the tab's URL and the element it will reach. */
+async function actionFacts(ctx: HandlerContext, tool: string, tabId: number, params: Params): Promise<ActionFacts> {
+	const tab = await chrome.tabs.get(tabId).catch(() => undefined);
+	const t = target(params);
+	const x = num(params, "x");
+	const y = num(params, "y");
+	// A click at x and y goes to the point even when a ref came with it (pointFor).
+	const at = tool === "click" && x !== undefined && y !== undefined;
+	const found = await describeTarget(
+		tabId,
+		at ? { point: screenshotToCss(tabId, { x, y }) } : t,
+		skipFor(ctx, tabId),
+	).then(
+		(value) => ({ value }),
+		(err: unknown) => ({ err }),
+	);
+	// A ref that is gone, covered or never given out is refused by the input itself; any other failed look is unchecked,
+	// and Auto and Manual ask about it instead of letting it through (D67).
+	const refused = "err" in found && INPUT_REFUSES.has(classify(found.err, tool).error.code);
+	return {
+		tool,
+		url: tab?.pendingUrl || tab?.url,
+		...("value" in found ? { target: found.value as TargetFacts } : {}),
+		...("err" in found && !refused ? { unchecked: true } : {}),
+		...(str(params, "key") ? { key: str(params, "key") } : {}),
+		...(params.submit === true ? { submit: true } : {}),
+	};
+}
+
+/**
+ * The mode's check (HandlerContext.guard) for this input, run beside the page look that comes before it. True when
+ * the person was asked: the look is then taken again, since the page may have changed during the wait.
+ */
+async function guardInput(ctx: HandlerContext, tool: string, tabId: number, params: Params): Promise<boolean> {
+	if (!ctx.guard) return false;
+	return ctx.guard(tool, params, () => actionFacts(ctx, tool, tabId, params));
+}
+
+/** changesBefore and the mode's check together: the check's page look costs no time of its own. */
+async function beforeInput(
+	ctx: HandlerContext,
+	tool: string,
+	tabId: number,
+	params: Params,
+	withRef: boolean,
+): Promise<Before | undefined> {
+	const [before, asked] = await Promise.all([
+		changesBefore(ctx, tabId, withRef ? params : undefined),
+		guardInput(ctx, tool, tabId, params),
+	]);
+	return asked ? changesBefore(ctx, tabId, withRef ? params : undefined) : before;
 }
 
 function stopIfAborted(ctx: HandlerContext): void {
@@ -562,7 +635,7 @@ const pasteText: Handler = async (ctx, params) => {
 	const t = target(params);
 	/** Set once the paste goes to the page: from then on the field may hold the text. */
 	let handed = false;
-	const before = await changesBefore(ctx, tabId, params);
+	const before = await beforeInput(ctx, "type", tabId, params, true);
 	const since = await actionStart(ctx, tabId);
 	const attempt = async (): Promise<"page" | "inserted"> => {
 		if (t.ref || t.selector) {
@@ -1091,7 +1164,7 @@ export const handlers: Record<string, Handler> = {
 		ctx.mark?.("resolve");
 		// The look first: the point is found right before the input goes out, so a layout that
 		// moved during the look can't misplace the click.
-		const before = await changesBefore(ctx, tabId, params);
+		const before = await beforeInput(ctx, "click", tabId, params, true);
 		ctx.mark?.("before");
 		const { aim, ...p } = await pointFor(ctx, params, tabId, "click", before);
 		ctx.mark?.("point");
@@ -1182,7 +1255,7 @@ export const handlers: Record<string, Handler> = {
 		const t = target(params);
 		/** Set just before the first key event goes out: after that the page may hold some of the text. */
 		let keysStarted = false;
-		const before = await changesBefore(ctx, tabId, params);
+		const before = await beforeInput(ctx, "type", tabId, params, true);
 		const since = await actionStart(ctx, tabId);
 		const attempt = async () => {
 			if (t.ref || t.selector) {
@@ -1234,7 +1307,7 @@ export const handlers: Record<string, Handler> = {
 		const key = requireStr(params, "key");
 		const tabId = await resolveTab(ctx, params, true);
 		const repeat = num(params, "repeat") ?? 1;
-		const before = await changesBefore(ctx, tabId);
+		const before = await beforeInput(ctx, "press", tabId, params, false);
 		const since = await actionStart(ctx, tabId);
 		try {
 			for (let i = 0; i < repeat; i++) {
@@ -1295,7 +1368,7 @@ export const handlers: Record<string, Handler> = {
 		const t = target(params);
 		if (!t.ref && !t.selector)
 			throw new BridgeError(ERR.BAD_PARAMS, "fill needs a ref from read_page, or a selector.");
-		const before = await changesBefore(ctx, tabId, params);
+		const before = await beforeInput(ctx, "fill", tabId, params, true);
 		ctx.mark?.("before");
 		const since = await actionStart(ctx, tabId);
 		ctx.mark?.("start");

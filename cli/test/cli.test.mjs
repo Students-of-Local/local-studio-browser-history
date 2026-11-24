@@ -54,7 +54,7 @@ test("the CLI's version is the extension manifest's", async () => {
 
 test("help lists every command the CLI dispatches, grouped, with the exit codes", () => {
 	const help = run("--help").out;
-	for (const name of ["setup", "status", "mcp", "skill", "serve", "token", "tunnel", "library", "allow", "ask", "allow-all", "doctor", "update", "install", "reload", "debug", "completion", "version"]) {
+	for (const name of ["setup", "status", "mcp", "skill", "serve", "token", "tunnel", "library", "allow", "mode", "ask", "allow-all", "doctor", "update", "install", "reload", "debug", "completion", "version"]) {
 		assert.match(help, new RegExp(`tychicus ${name}\\b`), `help lacks ${name}`);
 		// A listed command is one the dispatcher knows: it never says "Unknown command".
 		const r = run(name, "--definitely-not-a-flag");

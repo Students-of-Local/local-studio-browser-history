@@ -188,6 +188,19 @@ from `tychicus-hands` ([hands/linux/README.md](hands/linux/README.md)), a static
 `~/.local/bin`; it works through AT-SPI in the background and never sends physical input. The
 release archive does not carry it yet. [docs/LINUX.md](docs/LINUX.md) covers the rest of Linux.
 
+## Permission modes
+
+One mode decides what agents may do in your browser without asking. Set it in Settings > Agents or with
+`tychicus mode manual|auto|yolo`.
+
+- **Manual**: agents ask before any site you haven't allowed and before any risky action.
+- **Auto** (the default): agents on frontier models open ordinary sites on their own. Every agent asks before mail,
+  banks and other sensitive sites, and before it sends, posts, buys, deletes or changes settings as you.
+- **Yolo**: nothing asks. A one-time warning comes first.
+
+In every mode agents can't type passwords or card numbers, never open Tychicus's own pages, and a remote session is
+never in Yolo. [docs/permissions.md](docs/permissions.md) has the details.
+
 ## More
 
 - [GUIDE.md](GUIDE.md): the full user guide (sessions, skills, library, remote MCP, safety model).
