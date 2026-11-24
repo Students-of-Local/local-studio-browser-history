@@ -27,8 +27,10 @@ extension HandsRouter {
         case .success(let c): chords = c
         }
         // The key's character in the Mac's layouts too: cmd+i is copy on Dvorak.
-        if let c = chords.first(where: { SessionClipboard.usesPasteboard($0, characters: KeyLayout.characters($0.keyCode)) }) {
-            return .failure(SessionClipboard.pasteboardRefusal(c.label))
+        for c in chords {
+            let typed = KeyLayout.characters(c)
+            if SessionClipboard.usesPasteboard(c, characters: typed) { return .failure(SessionClipboard.pasteboardRefusal(c.label)) }
+            if let e = KeyParse.refusal(c, characters: typed) { return .failure(e) }
         }
         switch resolve(req.string("ref"), session: req.session ?? "") {
         case .failure(let e): return .failure(e)
@@ -111,8 +113,8 @@ extension HandsRouter {
 
     /// What a span's front app means for `w`: nil when nothing changed. An app that came forward by itself is shut out of
     /// the route for `kind`; one Donovan brought forward is not blamed.
-    private func frontVerdict(_ w: HandsWindow, kind: InputKind, _ span: FrontChange, hardware: Bool?) -> HandsError? {
-        switch PostGuard.verdict(span, hardware: hardware) {
+    private func frontVerdict(_ w: HandsWindow, kind: InputKind, _ span: FrontChange, events: [SessionEvent]?) -> HandsError? {
+        switch PostGuard.verdict(span, events: events) {
         case .same: return nil
         case .userActivated: return BackgroundRefusal.userActivated(w.app)
         case .selfActivated:
@@ -134,7 +136,7 @@ extension HandsRouter {
         guard let start = frontPid() else { activations.stop(); _ = tap.stop(); return nil }
         let span = { PostGuard.span(activations: activations.activated, start: start, now: self.frontPid(), target: w.pid) }
         let failure = { [self] () -> HandsError? in
-            frontVerdict(w, kind: kind, span(), hardware: tap.snapshot.map { $0.contains { $0.sourcePid == 0 } })
+            frontVerdict(w, kind: kind, span(), events: tap.snapshot)
         }
         let stop = {
             let tailMark = AgentActivity.shared.begin(pid: w.pid, window: w.id), since = Date()
@@ -159,15 +161,13 @@ extension HandsRouter {
         defer { if !watchHandedOff { activations.stop(); _ = tap.stop() } }
         guard let frontStart = frontPid() else { return .failed(BackgroundRefusal.frontUnknown(w.app)) }
 
-        /// Hardware events in the span, as far as anything is listening (nil: nothing is, so nobody can be blamed or excused).
-        func hardware() -> Bool? { tap.snapshot.map { $0.contains { $0.sourcePid == 0 } } }
         /// The front app, from the notifications and from a look right now. Either seeing a change is a change.
         func spanFront() -> FrontChange {
             PostGuard.span(activations: activations.activated, start: frontStart, now: frontPid(), target: w.pid)
         }
         /// What the span so far means: nil when nothing changed. An app that came forward by itself is shut out of the
         /// route; one Donovan brought forward is not blamed.
-        func frontFailure() -> HandsError? { frontVerdict(w, kind: kind, spanFront(), hardware: hardware()) }
+        func frontFailure() -> HandsError? { frontVerdict(w, kind: kind, spanFront(), events: tap.snapshot) }
         let stop: () -> HandsError? = {
             if cancelled() { return HandsError(.timeout, "the caller stopped waiting", suggestion: "Read the element back before trying again.", retry: .never) }
             return frontFailure()

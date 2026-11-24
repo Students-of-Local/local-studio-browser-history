@@ -125,16 +125,9 @@ enum BackgroundAX {
         return (matches(kAXFocusedWindowAttribute), matches(kAXMainWindowAttribute))
     }
 
-    /// A reading of one element: what it is (role and frame), what it holds (hashed), what is selected.
+    /// A reading of one element: what it is (role and the element's own hash), what it holds (hashed), what is selected.
     static func reading(of e: AXUIElement) -> ElementReading {
         let role = (copy(e, kAXRoleAttribute) as? String) ?? ""
-        var frame = ""
-        if let p = copy(e, kAXPositionAttribute), let s = copy(e, kAXSizeAttribute) {
-            var pt = CGPoint.zero, sz = CGSize.zero
-            AXValueGetValue(p as! AXValue, .cgPoint, &pt)
-            AXValueGetValue(s as! AXValue, .cgSize, &sz)
-            frame = "\(Int(pt.x)),\(Int(pt.y)),\(Int(sz.width)),\(Int(sz.height))"
-        }
         var value: String?
         // Only a string or a number: other value types print with addresses and would differ on every read.
         if let v = copy(e, kAXValueAttribute) { value = (v as? String) ?? (v as? NSNumber).map { "\($0)" } }
@@ -143,7 +136,7 @@ enum BackgroundAX {
             var range = CFRange()
             if AXValueGetValue(r as! AXValue, .cfRange, &range) { selection = (range.location, range.length) }
         }
-        return ElementReading.text(window: placedWindow(of: e), identity: "\(role)|\(frame)", value: value, selection: selection,
+        return ElementReading.text(window: placedWindow(of: e), identity: ElementReading.identity(role: role, element: CFHash(e)), value: value, selection: selection,
                                    attributes: value.flatMap { attributesDescription(e, length: $0.utf16.count) })
     }
 

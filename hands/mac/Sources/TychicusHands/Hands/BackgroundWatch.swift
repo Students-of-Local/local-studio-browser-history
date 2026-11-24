@@ -47,8 +47,8 @@ final class SessionTap {
         let thread = Thread { [self] in
             let info = Unmanaged.passUnretained(self).toOpaque()
             guard let tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .listenOnly, eventsOfInterest: mask,
-                                              callback: { _, _, event, info in
-                                                  if let info { Unmanaged<SessionTap>.fromOpaque(info).takeUnretainedValue().record(Int64(event.getIntegerValueField(.eventSourceUnixProcessID))) }
+                                              callback: { _, type, event, info in
+                                                  if let info { Unmanaged<SessionTap>.fromOpaque(info).takeUnretainedValue().record(type, event) }
                                                   return Unmanaged.passUnretained(event)
                                               }, userInfo: info) else { ready.signal(); return }
             port = tap
@@ -63,7 +63,13 @@ final class SessionTap {
         ready.wait()
     }
 
-    fileprivate func record(_ pid: Int64) { lock.lock(); seen.append(SessionEvent(sourcePid: pid)); lock.unlock() }
+    fileprivate func record(_ type: CGEventType, _ event: CGEvent) {
+        let passive: [CGEventType] = [.mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged, .scrollWheel]
+        let key = type == .keyDown || type == .keyUp
+        let activates = key ? event.flags.contains(.maskCommand) : !passive.contains(type)
+        lock.lock(); defer { lock.unlock() }
+        seen.append(SessionEvent(sourcePid: event.getIntegerValueField(.eventSourceUnixProcessID), canActivate: activates))
+    }
 
     /// What the tap has seen so far (nil without a tap).
     var snapshot: [SessionEvent]? {
@@ -92,7 +98,7 @@ struct IdleWatch {
     /// Events as the audit wants them: one hardware event if the clock was reset since the start, none otherwise.
     var events: [SessionEvent] {
         let elapsed = Date().timeIntervalSince(startedAt)
-        return IdleWatch.idle() < idleAtStart + elapsed - 0.25 ? [SessionEvent(sourcePid: 0)] : []
+        return IdleWatch.idle() < idleAtStart + elapsed - 0.25 ? [SessionEvent(sourcePid: 0, canActivate: false)] : []
     }
     /// Whether a hardware event happened since the start.
     var hardwareSeen: Bool { !events.isEmpty }
