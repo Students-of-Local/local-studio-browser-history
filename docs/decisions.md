@@ -2186,3 +2186,37 @@ changes.
 **Results.** In Chromium (`cli/test/e2e-feed-filter.test.mjs`, macOS, Apple silicon): the first pass over 2,000 posts
 took 16.1 ms, a 2,000-post scroll batch 14.7 ms, and a recheck of 4,000 posts after the filters changed 16.4 ms. The
 test fails over 50 ms per batch.
+
+## D66. Linux guests on the Mac: a windowless Virtualization.framework helper, APFS clones and a saved ready point (Claude, 2026-11-24)
+
+**Context.** Issue #28 asks for guests an agent can wreck and reset, with targets set against Cua: Linux cold start 8 s or
+less, warm start and reset 1 s or less, idle CPU 5% or less, no telemetry, no focus changes on the host. Phase 1 is a
+Linux guest on this Mac.
+
+**Decision.**
+- *A helper per guest, with no window.* `tychicus-vm` (`vm/mac`, Swift) runs one guest on Virtualization.framework and
+  never starts an NSApplication, so it has no Dock icon and cannot take focus. `vm/mac/build.sh` signs it ad hoc with
+  `com.apple.security.virtualization`; the CLI builds it once per helper version from a checkout and keeps it in
+  `~/.local/share/tychicus/vm/bin`. It answers one JSON line per connection on `<guest>/control.sock` (mode 0600) and
+  blocks in `accept` and `read` between requests.
+- *The image.* Debian 13 genericcloud for arm64, pinned to release 20261123-2671 by URL and SHA-512, extracted with holes
+  (about 1 GB of a 3 GB disk) and kept read-only under `base/`. A guest runs on an APFS clone (`cp -c`) grown to 8 GB.
+  cloud-init reads a NoCloud seed ISO (`hdiutil makehybrid`, label `cidata`) that creates no user, turns SSH off and
+  installs the guest agent. There are no shared folders. The guest gets NAT networking.
+- *The guest agent.* A short Python service on vsock port 1024, as root: one JSON command in, its exit code and output
+  out. Only this guest's helper can reach it. `vm exec` and `vm shot` go through it.
+- *The ready point.* The first boot waits for the agent, then for cloud-init and systemd to finish, syncs, pauses, saves
+  the machine state (`saveMachineStateTo`) and clones the paused disk. `ready.vzvmsave` and `ready.raw` are the pair a
+  reset restores. Reset pauses the running VM, renames a fresh clone of `ready.raw` over `disk.raw`, restores a new VM
+  from the saved state and stops the old one afterwards, because a stop takes 0.1 to 2 s. Each VM gets its own clone of
+  `efi.vars`, since a VM that is still stopping keeps its store locked. Where saved state isn't supported, reset cold
+  boots the clean disk and says so.
+- *up and down keep the session.* `down` saves the session state and stops; `up` resumes that session, else restores the
+  ready point, else boots. `up --cold` boots the disk as it stands. `reset` on a stopped guest drops the saved session.
+- *The gate.* Before `up`: under 5 GB free disk, or less free RAM than the guest's 1 GB plus 1 GB, refuses always. Battery
+  power, or a 1-minute load above the core count, refuses unless `--force`.
+- *Screenshots come from the guest's framebuffer* (`/dev/fb0`, read through the agent and written as PNG). Debian's cloud
+  kernel has no virtio-gpu driver, so on this image `vm shot` says the guest shows no display. The `generic` image's
+  kernel has one; a desktop guest will need it.
+- *No telemetry.* The helper opens no network socket. The CLI's only network use is the pinned image download.
+- *Left out:* macOS guests, input into the guest, a desktop, and the hub link.
