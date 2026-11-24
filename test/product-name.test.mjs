@@ -71,7 +71,7 @@ test("no user-visible text says Tabkyra", () => {
 				});
 		}
 	}
-	assert.deepEqual(found, [], `say Tychicus, or \`tychicus <command>\`:\n${found.slice(0, 20).join("\n")}`);
+	assert.deepEqual(found, [], `say Local Studio, or \`tychicus <command>\` for a command:\n${found.slice(0, 20).join("\n")}`);
 });
 
 /**
@@ -137,7 +137,7 @@ function scanPolycarp() {
 
 test("no user-visible text says Polycarp, except about the Polycarp app", () => {
 	const { found } = scanPolycarp();
-	assert.deepEqual(found, [], `say Tychicus, or \`tychicus <command>\` (${found.length} lines):\n${found.slice(0, 40).join("\n")}`);
+	assert.deepEqual(found, [], `say Local Studio, or \`tychicus <command>\` for a command (${found.length} lines):\n${found.slice(0, 40).join("\n")}`);
 });
 
 test("every Polycarp exception still excuses a line: an exception can't outlive its code", () => {
@@ -165,17 +165,17 @@ function manifests() {
 	return list;
 }
 
-test("the manifest and every locale file name the product Tychicus", () => {
+test("the manifest and every locale file name the product Local Studio", () => {
 	for (const file of manifests()) {
 		const m = JSON.parse(readFileSync(file, "utf8"));
-		assert.equal(m.name, "Tychicus", file);
-		assert.doesNotMatch(String(m.description), /tabkyra/i, file);
-		assert.doesNotMatch(String(m.action?.default_title), /tabkyra/i, file);
+		assert.equal(m.name, "Local Studio", file);
+		assert.doesNotMatch(String(m.description), /tabkyra|polycarp|tychicus/i, file);
+		assert.equal(m.action?.default_title, "Open Local Studio", file);
 		assert.equal(m.default_locale, undefined, "a locale would need scanning too");
 	}
 	for (const base of [join(root, "static/_locales"), join(root, "_locales")]) {
 		if (!existsSync(base)) continue;
-		for (const file of walk(base)) assert.doesNotMatch(readFileSync(file, "utf8"), /tabkyra/i, file);
+		for (const file of walk(base)) assert.doesNotMatch(readFileSync(file, "utf8"), /tabkyra|polycarp|tychicus/i, file);
 	}
 });
 

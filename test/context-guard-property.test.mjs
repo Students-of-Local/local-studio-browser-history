@@ -154,7 +154,7 @@ function pairsIntact(messages) {
 }
 
 const PLAIN_ERRORS =
-	/too small for Tychicus's tools|This turn is too large for the model's context window|This chat is too long for the model|The provider refused this request/;
+	/too small for Local Studio's tools|This turn is too large for the model's context window|This chat is too long for the model|The provider refused this request/;
 
 // ---- the property ----------------------------------------------------------------------------
 
@@ -217,7 +217,7 @@ test("the guard either sends a request that fits, paired and with the latest mes
 							continue;
 						}
 						assert.match(text, PLAIN_ERRORS, text);
-						if (/too small for Tychicus's tools/.test(text)) {
+						if (/too small for Local Studio's tools/.test(text)) {
 							assert.equal(sent.length, before, "nothing sent");
 							assert.ok(claimed < minimumWindow(fixed) + 1, `claimed ${claimed}, needs ${minimumWindow(fixed)}`);
 							done = true;
@@ -345,7 +345,7 @@ test("first-F3: a 200 KB artifact in an earlier tool call's arguments gives way;
 	assert.ok(fitted.fits && fitted.estimate <= budget.inputTokens);
 	const call = fitted.context.messages.find((m) => m.role === "assistant").content[0];
 	assert.equal(call.id, "art");
-	assert.match(call.arguments.left_out, /Tychicus left out these arguments \([\d,]+ characters\)/);
+	assert.match(call.arguments.left_out, /Local Studio left out these arguments \([\d,]+ characters\)/);
 	assert.ok(pairsIntact(fitted.context.messages));
 	assert.equal(messages[1].content[0].arguments.command, "create", "stored history untouched");
 });

@@ -23,6 +23,7 @@ import { join } from "node:path";
 import type { LastUpdate, UpdatePhase } from "../../src/bridge/protocol.ts";
 import { describeBuild } from "../../src/update/build.ts";
 import { activateCheckout, detectMode, readBuildInfo, recoverCheckoutQuietly, rollbackCheckout, updateCheckout } from "./checkout.ts";
+import { writeJsonPrivate } from "./files.ts";
 import { noteUneditedSkills } from "./skill.ts";
 import { type HostRunAction, type ProgressEvent, type ProgressRecord, progressFile } from "./update-progress.ts";
 import {
@@ -145,7 +146,7 @@ async function releaseUpdate(): Promise<void> {
 		rmSync(stagedDir(), { recursive: true, force: true });
 		renameSync(stage(zip, release.version), stagedDir());
 		const pending: ReleasePending = { from: status.current, to: release.version, notes: release.notes, url: release.url };
-		writeFileSync(pendingFile(), `${JSON.stringify(pending, null, 2)}\n`);
+		writeJsonPrivate(pendingFile(), pending);
 	});
 	emit({ phase: "done", message: `Downloaded and verified ${release.version}. ${WHEN_IDLE}`, staged: true });
 }

@@ -1008,7 +1008,7 @@ Add it to an assistant (paste the connector URL):
   claude.ai   Settings > Connectors > Add custom connector.
   ChatGPT     Settings > Apps & Connectors (turn on developer mode) > Create. Choose OAuth.
   grok.com    grok.com/connectors > New Connector > Custom.
-Each opens Tychicus's approval page: check the name, tick what it may do, type the connect code and press Allow.
+Each opens the approval page: check the name, tick what it may do, type the connect code and press Allow.
 
 Check it with: ${COMMAND_NAME} remote status`);
 		return options.connectCode && !connect ? 1 : 0;

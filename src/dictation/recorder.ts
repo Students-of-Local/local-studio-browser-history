@@ -10,7 +10,7 @@ export const MAX_SECONDS = 300;
 
 export class MicPermissionError extends Error {
 	constructor() {
-		super("Tychicus doesn't have microphone access yet.");
+		super("Local Studio doesn't have microphone access yet.");
 		this.name = "MicPermissionError";
 	}
 }
