@@ -404,6 +404,21 @@ test("orphan groups from this and earlier names are tidied; a live session's, Po
 	assert.equal((await chrome.tabs.get(live.id ?? live)).groupId, liveGroup);
 });
 
+test("a live group an earlier version named is renamed on resume; a title the user wrote stays", async () => {
+	installFakeChrome();
+	const { BrowserSession } = await load("worker");
+	const s = await BrowserSession.open("bridge-claude-shop", "claude · shop", 1);
+	const tab = await s.createTab("https://example.com/");
+	const { groupId } = await chrome.tabs.get(tab.id ?? tab);
+	const resumed = async (title) => {
+		await chrome.tabGroups.update(groupId, { title });
+		await (await BrowserSession.open("bridge-claude-shop", "claude · shop", 1)).reconcile();
+		return (await chrome.tabGroups.get(groupId)).title;
+	};
+	for (const name of ["Tychicus", "Tabkyra"]) assert.equal(await resumed(`${name} · claude · shop`), s.groupName); // product-name allowlist: legacy tab group titles
+	for (const title of ["My shopping", "Tychicus · mine"]) assert.equal(await resumed(title), title);
+});
+
 test("labels an agent picks are plain text: no controls, no bidi, no Local Studio prefix, 32 characters", async () => {
 	installFakeChrome();
 	const { sanitizeLabel, BrowserSession } = await load("worker");

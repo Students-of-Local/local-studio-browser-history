@@ -735,6 +735,10 @@ export class BrowserSession {
 		const claimedElsewhere =
 			seen.groupId !== undefined && Object.values(table).some((s) => s.id !== seen.id && s.groupId === seen.groupId);
 		const group = claimedElsewhere ? undefined : await this.liveGroup();
+		// A group an earlier version named takes the name this one tells the agent; a title the user wrote stays.
+		const title = this.groupTitle();
+		if (group && LEGACY_GROUP_PREFIXES.some((p) => group.title === title.replace(GROUP_PREFIX, p)))
+			await chrome.tabGroups.update(group.id, { title }).catch(() => {});
 		const lostGroup = seen.groupId !== undefined && !group ? seen.groupId : undefined;
 		// Chrome puts tabs opened from a grouped tab into that group; those are this agent's.
 		const found: number[] = [];
