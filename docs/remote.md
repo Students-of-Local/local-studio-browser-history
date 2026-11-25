@@ -46,11 +46,11 @@ tychicus remote fix    # repairs what test or status found, asking before each s
 
 ## Mac, Linux and Windows
 
-**Mac.** Install Tailscale from the App Store or tailscale.com and sign in; setup finds the app's own `tailscale` at
+**Mac.** For the Tailscale routes, install Tailscale from the App Store or tailscale.com and sign in; setup finds the app's own `tailscale` at
 `/Applications/Tailscale.app/Contents/MacOS/Tailscale` when it isn't on PATH. Services run under launchd
 (`~/Library/LaunchAgents/com.tychicus.serve.plist`), and the Mac must stay on and awake.
 
-**Linux.** Two one-time steps that Tychicus prints and never runs for you, because both need root or a session change:
+**Linux.** One-time steps (the first only for the Tailscale routes) that Tychicus prints and never runs for you, because both need root or a session change:
 
 ```bash
 sudo tailscale set --operator=$USER   # lets your user open Funnel
@@ -160,7 +160,7 @@ npx comes with Node.js 22 or later) in your terminal:
 refused (`unauthorized`), another computer took over with this key (`replaced`), or the relay speaks another protocol
 version (`outdated`). Each of those says to run `tychicus remote setup` again. `remote fix` restarts a connector that
 isn't running. `remote off` removes the connector's service and `remote.json`; the Worker stays on your account and
-refuses every connector. `npx wrangler@4.163.0 delete tychicus-relay` deletes it.
+a computer that still has its key can connect until `npx wrangler@4.163.0 delete tychicus-relay` deletes it.
 
 ## Tailscale or Cloudflare with your own domain
 
@@ -444,7 +444,7 @@ you serve on 443 stays private.
 
 ## If Funnel won't work
 
-`tychicus remote setup` stops, without changing anything, when:
+`tychicus remote setup --tailscale` stops, without changing anything, when:
 
 - Tailscale isn't installed (in a terminal it waits for you to install it instead).
 - The tailnet has Tailnet Lock on. Funnel doesn't work on a Tailnet Lock tailnet.

@@ -56,7 +56,7 @@ export const RELAY_COPY = {
 	name: "Your own relay",
 	detail: "Free, on your Cloudflare account. No domain needed.",
 	use: "Set up my relay",
-	chooseBody: "Each way is free and runs on your own account. Tychicus never sees the account or makes one for you.",
+	chooseBody: "Each way is free and runs on your own account. Local Studio never sees the account or makes one for you.",
 	title: "Set up your relay",
 	body: "Run this in a terminal. It opens Cloudflare's sign-in in your browser (make a free account there if you have none), puts the relay on your account and checks it works. This page moves on by itself.",
 	commandLabel: "Command",
@@ -68,7 +68,7 @@ export const RELAY_COPY = {
 		disconnected: "Disconnected. It tries again by itself; check this computer's internet connection.",
 		unauthorized: "The relay refused this computer's key. Run the command to set a new one.",
 		replaced: "Another computer took over this relay. Run the command on the computer that should have it.",
-		outdated: "The relay is a different version. Update Tychicus, then run the command.",
+		outdated: "The relay is a different version. Update the Local Studio helper, then run the command.",
 		stopped: "The connector isn't running on this computer. Run the command to start it.",
 	},
 } as const;

@@ -433,11 +433,11 @@ export async function waitForServe(port: number, publicUrl: string, totalMs: num
 // ---------- remote setup ----------
 
 export interface SetupOptions {
-	/** A normalized origin, or undefined for the Tailscale Funnel route. */
+	/** A normalized origin: the person's own HTTPS front door. With no route here, setup repeats the saved one, or takes the relay. */
 	publicUrl?: string;
 	/** A name on a domain in the person's Cloudflare account: the named-tunnel route. "" asks for the name (a terminal only). */
 	cloudflare?: string;
-	/** --tailscale: the Funnel route, chosen outright, so nothing asks which route. */
+	/** --tailscale: the Funnel route. A caller that means Funnel sets it (remote-panel.ts does). */
 	tailscale?: boolean;
 	/** --tailnet: `tailscale serve` on 443 for this tailnet only, never Funnel (issue #31). */
 	tailnet?: boolean;
@@ -650,10 +650,13 @@ async function runSetup(options: SetupOptions): Promise<number> {
 	// `remote setup` again on this route picks up where a failed run stopped, with the name it already has.
 	let cloudflareName = tailnet ? undefined : (options.cloudflare ?? (previous?.route === "cloudflare" && !options.publicUrl && !options.tailscale ? new URL(previous.publicUrl).hostname : undefined));
 	// The relay is the route when it is asked for, or when nothing else is asked for and no other route is set up: it needs no domain.
-	const otherRoute = tailnet || cloudflareName !== undefined || Boolean(options.publicUrl) || options.tailscale === true;
+	const customUrl = options.publicUrl ?? (previous?.route === "custom" && !options.tailscale && !tailnet && cloudflareName === undefined && options.relay === undefined ? previous.publicUrl : undefined);
+	const otherRoute = tailnet || cloudflareName !== undefined || Boolean(customUrl) || options.tailscale === true;
 	const relay = options.relay !== undefined || (!otherRoute && (!previous || previous.route === "relay"));
 	if (relay && previous && previous.route !== "relay") return fail("problem", `The ${previous.route} route from an earlier setup is on. Run ${COMMAND_NAME} remote off first.`);
 	if (!relay && previous?.route === "relay") return fail("problem", `The relay route from an earlier setup is on. Run ${COMMAND_NAME} remote off first.`);
+	// What a command to run again carries besides the route, so following it makes no passcode the person declined and uses the same port.
+	const flags = `${options.passcode === false ? " --no-passcode" : ""}${options.port !== undefined ? ` --port ${options.port}` : ""}`;
 	if (!relay && options.account !== undefined) return fail("problem", "--account is for the relay route. Nothing was changed.");
 	let relayName = "";
 	let relayAccount: string | undefined;
@@ -668,14 +671,19 @@ async function runSetup(options: SetupOptions): Promise<number> {
 		}
 		cloudflareName = typed;
 	}
+	// And the route this run was given: until remote.json is saved, plain setup would take the relay instead.
+	const routeFlag = options.tailscale ? " --tailscale" : options.tailnet ? " --tailnet" : options.publicUrl ? ` --public-url ${options.publicUrl}` : options.cloudflare !== undefined ? ` --cloudflare ${cloudflareName}${options.replaceFunnel ? " --replace-funnel" : ""}` : options.relay !== undefined ? ` --relay ${options.relay}`.trimEnd() : "";
+	const accountFlag = options.account ? ` --account ${options.account}` : "";
 	const cloudflareHost = cloudflareName === undefined ? undefined : normalizeCloudflareHost(cloudflareName);
 	if (cloudflareName !== undefined && !cloudflareHost) return fail("problem", `${cloudflareName} isn't a name a tunnel can have. Use one like tychicus.yourdomain.com.`, { code: "cloudflare_dns", next: { kind: "choose_name" } });
 	if (previous?.route === "cloudflare" && !cloudflareHost) return fail("problem", `A Cloudflare tunnel from an earlier setup is on. Run ${COMMAND_NAME} remote off first.`);
 	if (previous?.route === "tailnet" && !tailnet) return fail("problem", `The tailnet route from an earlier setup is on. Run ${COMMAND_NAME} remote off first.`);
 	if (relay) {
 		if (!options.service) return fail("problem", "The relay route runs as a service, so --no-service doesn't apply.");
-		if (typeof WebSocket !== "function") return fail("problem", `The relay route needs Node.js 22 or later; this is ${process.version}.`, { code: "node", next: { kind: "install", url: NODE_DOWNLOAD_URL } });
-		if (!npxBinary()) return fail("problem", "The relay route deploys with Cloudflare's wrangler through npx, and npx isn't on PATH. It comes with Node.js.", { code: "npx", next: { kind: "install", url: NODE_DOWNLOAD_URL } });
+		// Someone who named no route hears of the ones that need no Node.
+		const others = options.relay === undefined && !previous ? ` Routes without it: ${COMMAND_NAME} remote setup --tailscale${flags}, or ${COMMAND_NAME} remote setup --cloudflare <name on your domain>${flags}.` : "";
+		if (typeof WebSocket !== "function") return fail("problem", `The relay route needs Node.js 22 or later; this is ${process.version}.${others}`, { code: "node", next: { kind: "install", url: NODE_DOWNLOAD_URL } });
+		if (!npxBinary()) return fail("problem", `The relay route deploys with Cloudflare's wrangler through npx, and npx isn't on PATH. It comes with Node.js.${others}`, { code: "npx", next: { kind: "install", url: NODE_DOWNLOAD_URL } });
 		relayName = options.relay || previous?.relay?.name || DEFAULT_RELAY_NAME;
 		if (!validWorkerName(relayName)) return fail("problem", `${relayName} can't be a Worker's name: use 1 to 63 of a-z, 0-9 and -, not starting or ending with -.`, { code: "relay_name", next: { kind: "choose_name" } });
 		// Another Worker's key would stay valid behind an address assistants have, with nothing here naming it any more.
@@ -685,8 +693,8 @@ async function runSetup(options: SetupOptions): Promise<number> {
 			return fail("problem", `The relay ${old.name} from an earlier setup is on. Run ${command} first; it says how to delete that Worker. Nothing was changed.`, { code: "relay_on", next: { kind: "run_command", command } });
 		}
 		// The relay goes on the person's own account, from their own sign-in: wrangler login in their terminal, never one of ours.
-		const again = `${COMMAND_NAME} remote setup${options.relay !== undefined ? ` --relay ${options.relay}`.trimEnd() : ""}`;
-		const signIn: RemoteNext = { kind: "sign_in", command: `${again}${options.account ? ` --account ${options.account}` : ""}` };
+		const again = `${COMMAND_NAME} remote setup${routeFlag}`;
+		const signIn: RemoteNext = { kind: "sign_in", command: `${again}${accountFlag}${flags}` };
 		say(`${sym.dot} Checking your Cloudflare sign-in with wrangler ${WRANGLER_VERSION} (npx fetches it the first time).`);
 		let who = await relayWhoami();
 		if ("error" in who) return fail("problem", `${who.error} Nothing was changed.`, { code: "wrangler" });
@@ -707,7 +715,7 @@ async function runSetup(options: SetupOptions): Promise<number> {
 			if (!input) {
 				return fail("problem", `This Cloudflare sign-in has ${who.accounts.length} accounts. Pick one with --account <id>:\n${list.join("\n")}`, {
 					code: "cloudflare_account",
-					next: { kind: "run_command", command: `${again} --account <id>` },
+					next: { kind: "run_command", command: `${again} --account <id>${flags}` },
 				});
 			}
 			say("Which Cloudflare account should the relay go on?");
@@ -725,32 +733,34 @@ async function runSetup(options: SetupOptions): Promise<number> {
 			// The relay doesn't use Tailscale, so a state that can't be read doesn't stop it.
 			if (stray.kind === "unknown") say(`${sym.warn} ${stray.message} If it is, this machine stays public there too.`);
 		}
+		// With more than one account, the command to run again names the one used here, however it was picked.
+		const onAccount = options.account ?? (who.accounts.length > 1 ? relayAccount : undefined);
+		const rerun = `${again}${onAccount ? ` --account ${onAccount}` : ""}${flags}`;
 		// The relay goes live refusing every connector until RELAY_KEY is set (relay/deploy.md), so deploying before the key is safe.
 		let address: string | undefined;
-		while (!address) {
+		for (let opened = false; !address; opened = true) {
 			say(`${sym.dot} Deploying the relay as ${relayName} to your Cloudflare account.`);
 			// Naming the Worker, or having set it up before on this account, is the go-ahead to take a relay over; the default name may be another computer's.
 			const deployed = await deployRelay(relayName, relayAccount, { takeOver: Boolean(options.relay) || (old !== undefined && old.accountId === relayAccount) });
 			if (deployed.ok) {
 				address = deployed.url;
-				break;
+				continue;
 			}
 			if (deployed.why === "relay" || deployed.why === "other") {
 				const host = hostname().split(".")[0]?.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") ?? "";
 				// A random end, so a second computer with this hostname isn't sent to this one's relay.
-				const other = relaySetupCommand(`${DEFAULT_RELAY_NAME}-${[host.slice(0, 40).replace(/-+$/, ""), randomBytes(2).toString("hex")].filter(Boolean).join("-")}`, options.account);
+				const other = relaySetupCommand(`${DEFAULT_RELAY_NAME}-${[host.slice(0, 40).replace(/-+$/, ""), randomBytes(2).toString("hex")].filter(Boolean).join("-")}`, onAccount) + flags;
 				const why = deployed.why === "relay"
-					? `A relay named ${relayName} is already on this Cloudflare account with a key this computer didn't set, so it is probably another computer's. For this computer's own relay, run ${other}. To take that one over, which cuts the other computer off, run ${relaySetupCommand(relayName, options.account)}.`
+					? `A relay named ${relayName} is already on this Cloudflare account with a key this computer didn't set, so it is probably another computer's. For this computer's own relay, run ${other}. To take that one over, which cuts the other computer off, run ${relaySetupCommand(relayName, onAccount)}${flags}.`
 					: `A Worker named ${relayName} is already on this Cloudflare account and isn't a relay, so it is left alone. For a relay of another name, run ${other}.`;
 				return fail("problem", `${why} Nothing was changed.`, { code: deployed.why === "relay" ? "relay_taken" : "relay_name_used", next: { kind: "run_command", command: other } });
 			}
 			if (deployed.why === "failed") return fail("problem", `${deployed.message} Nothing was saved.`, { code: "relay_deploy" });
 			const page = onboardingUrl(relayAccount);
 			const pick = `Your Cloudflare account has no workers.dev subdomain yet, and the relay's address ends in one. Open ${page}, pick a subdomain`;
-			if (!input) return fail("problem", `${pick}, then run ${signIn.command} again. Nothing was saved.`, { code: "workers_subdomain", next: { kind: "open_page", url: page } });
-			say(`${sym.dot} ${pick}. ${openPage(page) ? "Your browser opened it." : ""}`.trim());
-			const answer = await ask("Press Enter once it's saved, or type q to stop: ");
-			if (answer === undefined || answer.trim().toLowerCase() === "q") return fail("problem", `${pick}, then run ${signIn.command} again. Nothing was saved.`, { code: "workers_subdomain", next: { kind: "open_page", url: page } });
+			if (input) say(opened ? `${sym.dot} The subdomain isn't there yet. Pick it at ${page}` : `${sym.dot} ${pick}. ${openPage(page) ? "Your browser opened it." : ""}`.trim());
+			const answer = input ? await ask("Press Enter once it's saved, or type q to stop: ") : undefined;
+			if (answer === undefined || answer.trim().toLowerCase() === "q") return fail("problem", `${pick}, then run ${rerun} again. Nothing was saved.`, { code: "workers_subdomain", next: { kind: "open_page", url: page } });
 		}
 		say(`${sym.ok} Relay deployed at ${address}`);
 		publicUrl = address;
@@ -818,7 +828,7 @@ async function runSetup(options: SetupOptions): Promise<number> {
 		cloudflaredBin = bin;
 		publicUrl = `https://${cloudflareHost}`;
 		route = "cloudflare";
-	} else if (options.publicUrl) {
+	} else if (customUrl) {
 		if (previous?.route === "funnel") {
 			return fail("problem", `Funnel from an earlier setup is on. Run ${COMMAND_NAME} remote off first.`);
 		}
@@ -829,7 +839,7 @@ async function runSetup(options: SetupOptions): Promise<number> {
 				return fail("port_busy", `Funnel on ${FUNNEL_PORT} is on${stray.kind === "unknown" ? ` (${stray.message})` : ""}; run ${COMMAND_NAME} remote off first. Nothing was changed.`);
 			}
 		}
-		publicUrl = options.publicUrl;
+		publicUrl = customUrl;
 		route = "custom";
 	} else {
 		const ports = previous?.route === "funnel" ? [port, previous.port] : [port];
@@ -851,7 +861,7 @@ async function runSetup(options: SetupOptions): Promise<number> {
 	if (options.service && !launcherValid()) {
 		if (wait) await ensureLauncher(say);
 		if (!launcherValid()) {
-			return fail("problem", `${launcherBinary()} isn't a working launcher, so the service would have nothing to start. Run ${launcherStep()} first, then ${COMMAND_NAME} remote setup again.`, {
+			return fail("problem", `${launcherBinary()} isn't a working launcher, so the service would have nothing to start. Run ${launcherStep()} first, then ${COMMAND_NAME} remote setup${routeFlag}${accountFlag}${flags} again.`, {
 				code: "launcher",
 				next: { kind: "run_command", command: `${COMMAND_NAME} install --browser <name>` },
 			});
@@ -865,7 +875,7 @@ async function runSetup(options: SetupOptions): Promise<number> {
 		if (!restartsOurs) {
 			return fail(
 				"port_busy",
-				`Something already listens on 127.0.0.1:${port} and isn't ${COMMAND_NAME} serve for ${publicUrl} (${probe.detail}). Nothing was changed. Stop it (a ${COMMAND_NAME} serve you started by hand, or another program), or pick another port with --port, then run ${COMMAND_NAME} remote setup again.`,
+				`Something already listens on 127.0.0.1:${port} and isn't ${COMMAND_NAME} serve for ${publicUrl} (${probe.detail}). ${route === "relay" ? `The relay ${relayName} is deployed; nothing else was changed.` : "Nothing was changed."} Stop it (a ${COMMAND_NAME} serve you started by hand, or another program), or pick another port with --port, then run ${COMMAND_NAME} remote setup${routeFlag}${accountFlag}${options.passcode === false ? " --no-passcode" : ""} again.`,
 				{ code: "local_port" },
 			);
 		}

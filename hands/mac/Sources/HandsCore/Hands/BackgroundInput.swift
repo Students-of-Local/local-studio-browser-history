@@ -409,6 +409,15 @@ public enum BackgroundRefusal {
         HandsError(.unverified, "\(landed) of \(total) steps landed; step \(landed + 1) showed no sign of landing (\(basis)) and the steps after it were not sent",
                    suggestion: "Do not send the whole press again: the first \(landed) step\(landed == 1 ? "" : "s") already landed. Read the element with `computer_get` and continue from step \(landed + 1) if it did not land.", retry: .never)
     }
+    /// Steps of a press landed, and a check right before the next one refused it: what landed is said with the refusal.
+    public static func stopped(_ e: HandsError, landed: Int, of total: Int) -> HandsError {
+        guard landed > 0 else { return e }
+        var out = e
+        out.message = "\(landed) of \(total) steps landed, and the rest were not sent: \(e.message)"
+        out.suggestion = "Do not send the whole press again: the first \(landed) step\(landed == 1 ? "" : "s") already landed. \(e.suggestion)"
+        (out.retry, out.nextCall) = (.never, nil)
+        return out
+    }
     public static func frontUnknown(_ app: String) -> HandsError {
         HandsError(.actionFailed, "the front app could not be read while events were being posted to \(app); the rest were not sent",
                    suggestion: "Read the element back before doing anything else: part of the input may have landed.", retry: .never)
@@ -876,6 +885,19 @@ public enum KeySteps {
         }
         flush()
         return out
+    }
+
+    /// Posts `steps` in order. `check` (scope, Read Only, use, and the facts planned on) is made right before each, since
+    /// the step before it may have raised a panel or taken a second (#90 r2 first-F1, sol-F1). `post` answers why a step
+    /// ended the press, nil when it landed.
+    public static func run<S, P>(_ steps: [S], check: () -> Result<P, HandsError>, post: (Int, S, P) -> HandsError?) -> HandsError? {
+        for (i, step) in steps.enumerated() {
+            switch check() {
+            case .failure(let e): return BackgroundRefusal.stopped(e, landed: i, of: steps.count)
+            case .success(let permit): if let e = post(i, step, permit) { return e }
+            }
+        }
+        return nil
     }
 }
 
