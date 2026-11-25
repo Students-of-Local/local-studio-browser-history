@@ -1376,10 +1376,12 @@ export function createMcpServer(options: McpServerOptions = {}): { server: McpSe
 			{ description: "Whether computer use is available in this session, and what to tell the user if it isn't.", inputSchema: {}, annotations: { readOnlyHint: true, openWorldHint: false } },
 			async () => {
 				const computer = options.computer;
-				if (!computer?.tools.length) {
+				// A helper that stopped, or doesn't answer, is as good as not here.
+				const missing = computer?.tools.length ? await computer.grants().catch(() => undefined) : undefined;
+				if (!missing) {
 					return { content: text(`Computer use isn't available right now: Tychicus's computer-use helper, ${HANDS_COMMAND}, isn't on this computer or isn't answering. Tell the user. ${handsHowTo()} Browser tools work as usual.`) };
 				}
-				return { content: text(grantsText(await computer.grants()) ?? "Computer use is available: the agent workspace and apps the user has lent.") };
+				return { content: text(grantsText(missing) ?? "Computer use is available: the agent workspace and apps the user has lent.") };
 			},
 		);
 	}

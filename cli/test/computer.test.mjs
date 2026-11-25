@@ -47,7 +47,10 @@ require("node:readline").createInterface({ input: process.stdin }).on("line", (l
 	if (m.method === "initialize") return reply({ serverInfo: { name: process.env.FAKE_SERVER_NAME ?? "tychicus-connector" } });
 	if (m.method === "tools/list") return reply({ tools });
 	if (m.method === "hands/grants") {
-		if (process.env.FAKE_MISSING_GRANT === "1") return reply({ missing: [${JSON.stringify(MISSING)}] });
+		if (process.env.FAKE_GRANTS === "hang") return;
+		if (process.env.FAKE_GRANTS === "exit") process.exit(4);
+		if (process.env.FAKE_GRANTS === "bare") return reply({ missing: [{ message: "screen capture is off" }] });
+		if (process.env.FAKE_GRANTS === "missing") return reply({ missing: [${JSON.stringify(MISSING)}] });
 		return process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: m.id, error: { code: -32601, message: "method not found: hands/grants" } }) + "\\n");
 	}
 	appendFileSync(${JSON.stringify(log)}, JSON.stringify(m.params) + "\\n");
@@ -426,23 +429,47 @@ test("Polycarp's polycarp-spaces is never used: on PATH, in ~/.local/bin or name
 });
 
 test("computer_status passes on the helper's missing Accessibility grant: what to allow and where", async () => {
-	const ours = namedHelper(join(root, "no-grant"), "tychicus-hands", "tychicus-hands", "FAKE_MISSING_GRANT=1 ");
+	const ours = namedHelper(join(root, "no-grant"), "tychicus-hands", "tychicus-hands", "FAKE_GRANTS=missing ");
 	const client = await local({ TYCHICUS_HANDS_BIN: ours });
 	await client.listTools();
 	const status = (await client.callTool({ name: "computer_status", arguments: {} })).content[0].text;
-	assert.match(status, /installed but can't read or act on windows yet/);
+	assert.match(status, /installed but the OS hasn't allowed all of it yet/);
 	assert.ok(status.includes("System Settings > Privacy & Security > Accessibility and turn on Terminal (/System/Applications/Utilities/Terminal.app)"), status);
 	assert.doesNotMatch(status, /Computer use is available/);
 	await client.close();
 });
 
 test("a connector session's computer_status says what to allow too", async () => {
-	const ours = namedHelper(join(root, "no-grant-connector"), "tychicus-hands", "tychicus-connector", "FAKE_MISSING_GRANT=1 ");
+	const ours = namedHelper(join(root, "no-grant-connector"), "tychicus-hands", "tychicus-connector", "FAKE_GRANTS=missing ");
 	const url = await serve({ TYCHICUS_HANDS_BIN: ours });
 	const client = await connect(url, token("no-grant", "computer.read"));
 	const status = (await client.callTool({ name: "computer_status", arguments: {} })).content[0].text;
-	assert.match(status, /can't read or act on windows yet/);
+	assert.match(status, /the OS hasn't allowed all of it yet/);
 	assert.match(status, /Privacy & Security > Accessibility/);
+	await client.close();
+});
+
+test("a helper that stops or never answers hands/grants isn't available, here or on a connector", async () => {
+	for (const how of ["hang", "exit"]) {
+		const ours = namedHelper(join(root, `grants-${how}`), "tychicus-hands", "tychicus-connector", `FAKE_GRANTS=${how} `);
+		const client = await connect(await serve({ TYCHICUS_HANDS_BIN: ours }), token(`grants-${how}`, "computer.read"));
+		assert.match((await client.callTool({ name: "computer_status", arguments: {} })).content[0].text, /isn't on this computer or isn't answering/, how);
+		await client.close();
+		const mine = namedHelper(join(root, `grants-local-${how}`), "tychicus-hands", "tychicus-hands", `FAKE_GRANTS=${how} `);
+		const here = await local({ TYCHICUS_HANDS_BIN: mine });
+		await here.listTools();
+		assert.match((await here.callTool({ name: "computer_status", arguments: {} })).content[0].text, how === "hang" ? /helper isn't answering/ : /helper stopped/);
+		await here.close();
+	}
+});
+
+test("a missing grant with only a message is still reported", async () => {
+	const ours = namedHelper(join(root, "grants-bare"), "tychicus-hands", "tychicus-hands", "FAKE_GRANTS=bare ");
+	const client = await local({ TYCHICUS_HANDS_BIN: ours });
+	await client.listTools();
+	const status = (await client.callTool({ name: "computer_status", arguments: {} })).content[0].text;
+	assert.match(status, /yet\. screen capture is off\. Browser tools/);
+	assert.doesNotMatch(status, /Computer use is available/);
 	await client.close();
 });
 

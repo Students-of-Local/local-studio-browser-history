@@ -7,7 +7,7 @@ windows for an agent. One protocol, one helper per OS. Any helper that passes th
 This page writes down the wire exactly as Polycarp's helper spoke it at its last commit with computer use (baney75/polycarp
 `e43ee1d6`, tag `pre-hands-removal`: `spaces/Sources/BaneySpacesCore/Hands/MCP.swift`, `Tools.swift`, `Envelope.swift`,
 `AccessMode.swift`, `RunSteps.swift`, and `HandsRouter.swift` for the connector cap). Nothing here is new except the
-helper's own names (`tychicus-hands`, `tychicus-connector`). Where this page and that code disagree, the code was the
+helper's own names (`tychicus-hands`, `tychicus-connector`) and the optional `hands/grants`. Where this page and that code disagree, the code was the
 truth and this page is wrong: fix the page and the suite together.
 
 ## Helpers and how Tychicus finds one
@@ -109,10 +109,10 @@ it has them. Each entry:
 ```
 
 `computer_status` asks it once the tools are listed and, when something is missing, answers with each `message` and
-`suggestion` instead of "available", so the agent can tell the person exactly what to allow. `program` is the program
+`suggestion` (optional) instead of "available", so the agent can tell the person exactly what to allow. `program` is the program
 the OS checks the grant against (on a Mac, the process responsible for the helper), and is optional. A helper without
-the method answers `-32601` (an older helper, the Linux one), and Tychicus reads that as nothing missing. The Mac helper
-implements it.
+the method answers `-32601` (an older helper, the Linux one), and Tychicus reads that, and only that, as nothing missing: a
+helper that stopped or doesn't answer within 2 seconds is reported as such. The Mac helper implements it.
 
 ### `tools/list`
 
