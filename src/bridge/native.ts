@@ -575,6 +575,7 @@ async function runRequest(state: ClientState, req: HostForwardedRequest, answer?
 				(!!topUrl && hostOf(url) === hostOf(topUrl) && !isOwnExtensionUrl(url)) ||
 				(await isUrlAllowed(url, state.tier, state.remote)),
 			askUpload: (url, files, askId) => askUpload(state, url, files, askId),
+			hardLimits: true,
 			checkUrl: async (url: string) => {
 				if (isGuardedUrl(url, req.guardedHosts)) throw guardedError(url);
 				if (!(await askPermission(state, url))) {
@@ -855,7 +856,12 @@ async function runHandback(state: ClientState, req: HostForwardedRequest): Promi
 		const session = await withTimeout(getSession(state), 15000, "session open");
 		// The client may have hung up during the awaits; nobody would hear the Continue.
 		if (clients.get(state.clientId) !== state) return;
-		respond({ result: await handleHandback({ clientId: state.clientId, session }, req.params ?? {}) });
+		respond({
+			result: await handleHandback(
+				{ clientId: state.clientId, session, guardedHosts: req.guardedHosts },
+				req.params ?? {},
+			),
+		});
 	} catch (err) {
 		const { error } = classify(err, req.method);
 		respond({ error: error.toRpc() });

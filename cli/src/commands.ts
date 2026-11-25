@@ -61,6 +61,8 @@ export const VALUE_HINTS: Record<string, string> = {
 	"--port": "N",
 	"--public-url": "https://host",
 	"--cloudflare": "name.yourdomain.com",
+	"--relay": "worker-name",
+	"--account": "account-id",
 	"--redirect-host": "a,b",
 	"--allow-host": "a,b",
 	"--scope": "a,b",
@@ -246,11 +248,12 @@ export const COMMANDS: CommandSpec[] = [
 		subcommands: [
 			{
 				name: "setup",
-				what: "Tailscale Funnel (or a Cloudflare tunnel with --cloudflare, your tailnet only with --tailnet, or your own --public-url), a passcode and a service that keeps serve running. Where Local Studio is installed, Local Studio runs the tunnel (--cloudflare or --tailnet) and this joins it. In a terminal it asks and waits; --no-wait stops instead",
-				flags: ["--cloudflare", "--replace-funnel", "--public-url", "--port", "--no-service", "--no-passcode", "--tailscale", "--tailnet", "--no-wait", "--no-input", "--yes", "--connect-code", "--json"],
-				optionalValue: ["--cloudflare"],
+				what: "Tailscale Funnel (or a relay on your own free Cloudflare account with --relay, a Cloudflare tunnel with --cloudflare, your tailnet only with --tailnet, or your own --public-url), a passcode and a service that keeps serve running. Where Local Studio is installed, Local Studio runs the tunnel (--cloudflare or --tailnet) and this joins it. In a terminal it asks and waits; --no-wait stops instead",
+				flags: ["--relay", "--account", "--cloudflare", "--replace-funnel", "--public-url", "--port", "--no-service", "--no-passcode", "--tailscale", "--tailnet", "--no-wait", "--no-input", "--yes", "--connect-code", "--json"],
+				optionalValue: ["--cloudflare", "--relay"],
 			},
 			{ name: "cloudflare", args: "login", max: 1, what: "Sign in to your own Cloudflare account, in your browser", flags: ["--json"] },
+			{ name: "relay", args: "run", max: 1, what: "Run the relay connector in the foreground (the relay service runs this)" },
 			{ name: "status", what: "Is it up and reachable from the internet? Fast checks from this computer", flags: ["--json"] },
 			{ name: "test", what: "Prove an assistant can reach it, from outside: public DNS, TLS, the OAuth metadata, the sign-in challenge and a streaming probe", flags: ["--json"] },
 			{ name: "fix", what: "Repair what remote test or status found, one step at a time, asking first (--yes to skip asking, --dry-run to list)", flags: ["--yes", "--dry-run", "--json"] },
@@ -402,7 +405,7 @@ export const EXIT_CODES =
 /** `remote --help`, or `remote` alone (a usage error, exit 2): the remote commands in the order a person uses them. */
 export const REMOTE_GUIDE = [
 	"Remote access for claude.ai, ChatGPT and grok.com, in the order you use it:",
-	`  1. ${COMMAND_NAME} remote setup    Make serve reachable: Tailscale Funnel, a Cloudflare tunnel or your own --public-url`,
+	`  1. ${COMMAND_NAME} remote setup    Make serve reachable: Tailscale Funnel, a relay on your Cloudflare account, a Cloudflare tunnel or your own --public-url`,
 	`  2. ${COMMAND_NAME} remote status   Fast checks from this computer: is it up?`,
 	`  3. ${COMMAND_NAME} remote test     Prove an assistant can reach and stream from it, from outside`,
 	`  4. ${COMMAND_NAME} remote fix      Repair what status or test found (--dry-run lists the steps)`,

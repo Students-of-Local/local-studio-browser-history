@@ -61,7 +61,10 @@ Every host named below sees the computer's IP address, as any site does.
   hub machine can ask the browser for page content and tool results. Those travel over the tunnel the user set up, on
   the user's own Tailscale Funnel or Cloudflare account, or to the hub machine the user named. Every request needs a
   sign-in the user approved. Setting it up looks the name up at `cloudflare-dns.com` and can download cloudflared from
-  `github.com` and `release-assets.githubusercontent.com`. `tychicus remote off` turns it off.
+  `github.com` and `release-assets.githubusercontent.com`. With `--relay`, setup runs Cloudflare's own program, wrangler
+  (downloaded from `registry.npmjs.org`, its usage reports off), to put a small Worker on the user's own Cloudflare account,
+  and the tunnel is a connection to that Worker's workers.dev address; what wrangler contacts is Cloudflare's choice.
+  `tychicus remote off` turns it off.
 - **Pages, files and searches.** The agent opens the pages and files the user's request calls for. Reading a PDF uses the
   user's cookies for that site. Search and crawl go only to the user's own SearXNG or Firecrawl.
 - **Papers saved to the library** are looked up by DOI at `doi.org`, `api.crossref.org` and `api.openalex.org`.

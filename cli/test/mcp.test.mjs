@@ -102,7 +102,9 @@ test("tools/list stays small: no schema dialect line, and a byte budget", async 
 	// site_filter adds 1,135 (34,967): a feed filtered by words or accounts on every visit, with a count on the page, which
 	// otherwise took a site_script the user had to turn on and a selector per site. Its two list arguments are flat string
 	// arrays (no $ref) so local models can fill them; the description was cut to two examples first.
-	assert.ok(bytes <= 34967, `tools/list is ${bytes} bytes, over the 34,967 budget`);
+	// tabs_show's username_ref and password_ref add 206 (35,173; D69): the user types a sign-in in the extension's own window and
+	// the agent never has it. On tabs_show and not in a tool of its own, and the description was cut to one clause first.
+	assert.ok(bytes <= 35173, `tools/list is ${bytes} bytes, over the 35,173 budget`);
 	// The loop line teaching `changes` (D43) adds 47 bytes; it saves a read_page after most actions.
 	// The password rule covering one the user gave, with its tabs_show handoff, adds 92 (evals/weak-model: Haiku typed
 	// the password a signup prompt supplied, and submitted, when the rule didn't say it covered that).
@@ -229,7 +231,7 @@ test("in a session without tabs_show, no result names it: a click that reveals a
 	const sent = [];
 	bridge.call = async (method, params) => {
 		sent.push(method);
-		return { clicked: { x: 10, y: 20 }, changes: 'new: e7 textbox "Password" [required, password: never type one, call tabs_show and ask the person to type it]' };
+		return { clicked: { x: 10, y: 20 }, changes: 'new: e7 textbox "Password" [required, password: never type one, call tabs_show with password_ref so the person types it]' };
 	};
 	const [a, b] = InMemoryTransport.createLinkedPair();
 	await server.connect(a);

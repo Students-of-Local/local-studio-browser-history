@@ -47,8 +47,19 @@ const box = (tabId, type, message) =>
 /** What each tab's page does when it is clicked at (x, y) or gets an Enter: it may open boxes, one after another. */
 const programs = new Map();
 const send = chrome.debugger.sendCommand;
+/** What the page's looks at the focus say, in turn and the last one from then on (src/browser/page.ts FOCUS_LIB); an Error fails the look. */
+let looks;
+/** Every input event a test's tabs got, for "nothing went to the page". */
+const inputs = [];
 chrome.debugger.sendCommand = async (target, method, params) => {
 	const tabId = target.tabId;
+	if (looks && method === "Runtime.evaluate" && String(params?.expression).includes("tychicusFocus")) {
+		const said = looks.length > 1 ? looks.shift() : looks[0];
+		// Where the focus is when text is refused or let in: what went out before it.
+		inputs.push({ tabId, method: "look" });
+		return { result: { value: said instanceof Error ? { ok: false, error: said.message } : { ok: true, value: said } } };
+	}
+	if (method.startsWith("Input.")) inputs.push({ tabId, method, params });
 	if (method === "Page.handleJavaScriptDialog") {
 		await holdAnswer;
 		const w = waiting.get(tabId);
@@ -1005,6 +1016,173 @@ test(`a remote connector session in Yolo still asks before a site, and can't ans
 	// The person says no, through another client or the side panel.
 	assert.equal((await request("permission.respond", { requestId: ask.requestId, decision: "deny" })).result?.accepted, true);
 	assert.equal((await reply(call)).error?.code, "permission_denied");
+});
+
+// The hard limits hold in every mode: these run in Yolo, with the focus a test describes.
+async function yoloTest(t, ...said) {
+	setup(t);
+	looks = said;
+	inputs.length = 0;
+	t.after(() => {
+		looks = undefined;
+		return chrome.storage.local.set({ permission_mode: "auto" });
+	});
+	await chrome.storage.local.set({ permission_mode: "yolo" });
+	const tab = await agentTab(async () => undefined);
+	/** The text the tab's keys and insertions carried, and "|" for each look at the focus. */
+	const sent = () =>
+		inputs
+			.filter((i) => i.tabId === tab && (i.method === "look" || i.params.type === "keyDown" || i.method === "Input.insertText"))
+			.map((i) => (i.method === "look" ? "|" : (i.params.text ?? "")))
+			.join("");
+	return { tab, sent };
+}
+
+test("hard limit in Yolo: a password field is refused, nothing is typed, and the agent is told to hand over", async (t) => {
+	const { tab, sent } = await yoloTest(t, "password-field");
+	for (const [method, params] of [
+		["type", { text: "hunter2" }],
+		["type", { text: "hunter2\nhunter2", paste: true }],
+		["press", { key: "h" }],
+		["press", { key: "Shift+H" }],
+		["press", { key: "Space" }],
+		["press", { key: "h", ref: "e1", selector: "input" }],
+	]) {
+		const r = await request(method, { tabId: tab, ...params });
+		assert.equal(r.error?.code, "permission_denied", `${method} ${JSON.stringify(r)}`);
+		assert.match(r.error.message, /^Nothing was entered: this field is a password field\. No permission mode lets an agent enter passwords or payment details\./);
+		assert.match(r.error.message, /call tabs_show with password_ref/);
+		assert.doesNotMatch(r.error.message, /hunter2/);
+	}
+	assert.equal(sent(), "||||||", "a look each, and no key");
+	// A key that enters no text goes out: the person may be typing the password and the agent moving on.
+	assert.equal((await request("press", { tabId: tab, key: "Tab" })).error, undefined);
+	assert.ok(inputs.some((i) => i.tabId === tab && i.params?.key === "Tab"));
+});
+
+test("hard limit: a payment field, and an ordinary one", async (t) => {
+	const { tab, sent } = await yoloTest(t, "payment-field", "");
+	const r = await request("type", { tabId: tab, text: "4242424242424242" });
+	assert.equal(r.error?.code, "permission_denied", JSON.stringify(r));
+	assert.match(r.error.message, /this field is a payment field/);
+	assert.equal((await request("type", { tabId: tab, text: "Ann" })).error, undefined, "an ordinary field takes text");
+	assert.equal(sent(), "||Ann", "one look for the whole text");
+});
+
+test("hard limit: text that moves the focus is looked at again: after each Enter and Tab, and for every press", async (t) => {
+	const { tab, sent } = await yoloTest(t, "", "password-field");
+	let r = await request("type", { tabId: tab, text: "ann\nhunter2" });
+	assert.equal(r.error?.code, "permission_denied", JSON.stringify(r));
+	assert.match(r.error.message, /^Stopped partway: some of the text went in, and the rest did not: this field is a password field/);
+	assert.equal(sent(), "|ann\r|");
+	// A look that fails after some text went in says so, so no agent types it again.
+	looks = ["", new Error("its frame did not answer")];
+	inputs.length = 0;
+	r = await request("type", { tabId: tab, text: "ann\nbob" });
+	assert.match(r.error?.message ?? "", /^Stopped partway: .*\(its frame did not answer\)\. Call read_page/, JSON.stringify(r));
+	assert.equal(sent(), "|ann\r|");
+	looks = ["", "password-field"];
+	inputs.length = 0;
+	r = await request("type", { tabId: tab, text: "ann\thunter2" });
+	assert.match(r.error?.message ?? "", /^Stopped partway/);
+	assert.equal(sent(), "|ann\t|");
+	looks = ["", "", "password-field"];
+	inputs.length = 0;
+	r = await request("press", { tabId: tab, key: "1", repeat: 4 });
+	assert.match(r.error?.message ?? "", /^Stopped partway/);
+	assert.equal(sent(), "|1|1|");
+	// A paste the page's handler moved the focus under: nothing was inserted.
+	looks = ["", "password-field"];
+	inputs.length = 0;
+	const inner = chrome.debugger.sendCommand;
+	chrome.debugger.sendCommand = (target, method, params) =>
+		method === "Runtime.evaluate" && String(params?.expression).includes("ClipboardEvent")
+			? Promise.resolve({ result: { value: { ok: true, value: "unhandled" } } })
+			: inner(target, method, params);
+	t.after(() => {
+		chrome.debugger.sendCommand = inner;
+	});
+	r = await request("type", { tabId: tab, text: "hunter2", paste: true });
+	assert.match(r.error?.message ?? "", /^Nothing was entered: this field is a password field/, JSON.stringify(r));
+	assert.equal(sent(), "||");
+});
+
+test("hard limit: fill is checked by the page code that writes, only for an agent over the bridge", async (t) => {
+	const { tab, sent } = await yoloTest(t, "");
+	const inner = chrome.debugger.sendCommand;
+	let limited;
+	chrome.debugger.sendCommand = (target, method, params) => {
+		const code = String(params?.expression);
+		if (method !== "Runtime.evaluate" || !code.includes("value, limited) =>")) return inner(target, method, params);
+		limited = /"hunter2",\s*true\)/.test(code);
+		return Promise.resolve({ result: { value: { ok: true, value: { limit: "password-field" } } } });
+	};
+	t.after(() => {
+		chrome.debugger.sendCommand = inner;
+	});
+	const r = await request("fill", { tabId: tab, selector: "input", value: "hunter2" });
+	assert.equal(r.error?.code, "permission_denied", JSON.stringify(r));
+	assert.match(r.error.message, /^Nothing was entered: this field is a password field/);
+	assert.equal(limited, true);
+	assert.equal(sent(), "");
+});
+
+test("hard limit: text waits for a look that can tell: a failed look, another site's frame or a closed shadow root refuses it", async (t) => {
+	const { tab, sent } = await yoloTest(t, new Error("the look's script crashed"));
+	const all = [["type", { text: "Ann" }], ["type", { text: "Ann", paste: true }], ["press", { key: "a" }]];
+	for (const [method, params] of all)
+		assert.match((await request(method, { tabId: tab, ...params })).error?.message ?? "", /the look's script crashed/, method);
+	looks = ["other-site"];
+	for (const [method, params] of all) {
+		const r = await request(method, { tabId: tab, ...params });
+		assert.equal(r.error?.code, "bad_params", JSON.stringify(r));
+		assert.match(r.error.message, /^Nothing was entered: the focus is in a frame from another site/);
+	}
+	// What the debugger says of an element that could host a closed root: one with a closed root refuses, one without doesn't.
+	looks = ["host"];
+	let shadowRoots = [{ shadowRootType: "closed" }];
+	const inner = chrome.debugger.sendCommand;
+	chrome.debugger.sendCommand = (target, method, params) => {
+		if (method === "Runtime.evaluate" && params.expression.startsWith("(") && !params.returnByValue)
+			return Promise.resolve({ result: { objectId: "7" } });
+		if (method === "Page.getFrameTree") return Promise.resolve({ frameTree: { frame: { id: "top" } } });
+		if (method === "Page.createIsolatedWorld") return Promise.resolve({ executionContextId: 3 });
+		return method === "DOM.describeNode" ? Promise.resolve({ node: { shadowRoots } }) : inner(target, method, params);
+	};
+	t.after(() => {
+		chrome.debugger.sendCommand = inner;
+	});
+	for (const [method, params] of all) {
+		const r = await request(method, { tabId: tab, ...params });
+		assert.match(r.error?.message ?? "", /^Nothing was entered: the focus is inside a part of the page it keeps closed/, JSON.stringify(r));
+	}
+	assert.equal(sent().replaceAll("|", ""), "", "nothing went to the page");
+	shadowRoots = undefined;
+	assert.equal((await request("press", { tabId: tab, key: "a" })).error, undefined, "a plain element takes a shortcut key");
+	assert.match(sent(), /\|a$/);
+});
+
+test("hard limit: a look the debugger's detach cut off is taken again", async (t) => {
+	const { tab, sent } = await yoloTest(t, "");
+	let failed = 0;
+	const inner = chrome.debugger.sendCommand;
+	chrome.debugger.sendCommand = (target, method, params) => {
+		if (!failed && method === "Runtime.evaluate" && String(params?.expression).includes("tychicusFocus")) {
+			failed++;
+			return Promise.reject(new Error("Detached while handling command."));
+		}
+		return inner(target, method, params);
+	};
+	t.after(() => {
+		chrome.debugger.sendCommand = inner;
+	});
+	for (const [method, params, want] of [["type", { text: "Ann" }, "|Ann"], ["press", { key: "a" }, "|a"]]) {
+		failed = 0;
+		inputs.length = 0;
+		assert.equal((await request(method, { tabId: tab, ...params })).error, undefined, method);
+		assert.equal(failed, 1);
+		assert.equal(sent(), want);
+	}
 });
 
 // Last: it takes the native host away, and nothing after it could reach the bridge.

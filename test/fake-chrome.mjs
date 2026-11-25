@@ -262,7 +262,10 @@ export function installFakeChrome() {
 			async getTargets() {
 				return [];
 			},
-			async sendCommand() {
+			async sendCommand(_target, method, params) {
+				// Where an agent's text would go (page.ts FOCUS_LIB), looked up before its first key: nowhere refused.
+				if (method === "Runtime.evaluate" && params?.expression?.includes("tychicusFocus"))
+					return { result: { value: { ok: true, value: "" } } };
 				return {};
 			},
 			onEvent: event(),

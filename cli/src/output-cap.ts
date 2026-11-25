@@ -290,7 +290,7 @@ export function utf8Window(all: Uint8Array, offset: number, maxBytes: number, ma
 	return { text: new TextDecoder().decode(all.subarray(from, end)), from, end };
 }
 
-const PASSWORD_HINT = "password: never type one, call tabs_show and ask the person to type it";
+const PASSWORD_HINT = "password: never type one, call tabs_show with password_ref so the person types it";
 
 /**
  * The password field's hint (src/browser/page.ts) names tabs_show, the handoff that shows the user the tab. A session

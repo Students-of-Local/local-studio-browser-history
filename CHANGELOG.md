@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### Added
+- Sign in without giving an agent your password. An agent that reaches a sign-in form can ask for it (`tabs_show` with `username_ref` and
+  `password_ref`), and a small window pops up that names the site and takes your username and password. They go straight into the page's
+  fields; the agent is told only that they are in, and its page reads leave those fields' values out. The window takes no focus, and the panel's card opens it too. Needs https, or a page on
+  this computer (D69). Tests: `test/sign-in.test.mjs`, `cli/test/e2e-panel.test.mjs`.
 - PRIVACY.md names every host the code contacts by itself or on request, when, and how to turn it off where there is a switch. It also says the
   chat copy for coding agents is on by default, and which other agents' settings files the helper opens. `test/privacy-hosts.test.mjs` fails when code
   names a host the policy doesn't, and when the policy names one nothing here contacts. Settings > Privacy says the copy is on by default and is not uploaded.
@@ -14,6 +18,10 @@
   Auto's rule, and it can't answer its own question, allow a site or change the mode. Every bridge step in the
   Runs log records the mode it started under. A session from an older CLI counts as remote when `serve` named it. Decision D67. Tests: `test/permission-guard.test.mjs`, `test/dialog-preset.test.mjs`,
   `cli/test/model-tier.test.mjs`.
+- An agent over the bridge can't put text into a password or payment field, in any permission mode. `type`, `fill` and a
+  press of a character are refused where the text would go in, and the agent is told to open the sign-in window for a password, or show you the tab for a payment.
+  Text is also refused when Tychicus can't tell which field would get it. A script (`run_js`) isn't checked. Decision D67. Tests: `test/dialog-preset.test.mjs`,
+  `test/permission-guard.test.mjs`, `cli/test/e2e-bridge.test.mjs`.
 - Settings > Privacy has a switch that stops the model detail lookup on models.dev. The lookup (the public
   table at `https://models.dev/api.json`, when the copy is a day old, only while a key is saved for a provider that lists
   its models) had no off switch. Off, `loadMetadata` in `src/models/registry.ts` never fetches it. Test: `test/models-dev-switch.test.mjs`.
@@ -41,6 +49,7 @@
   and install steps, with the date, machine and versions. `evals/market/page.mjs` builds it from the runs kept in
   `evals/market/published/`, and `test/market-page.test.mjs` fails when the page and those runs disagree. New: a Chrome
   DevTools MCP adapter and `evals/market/rivals/install-time.mjs` (#30).
+- `tychicus remote setup --relay` makes a free relay on your own Cloudflare account, with no domain. It signs you in to Cloudflare in your browser (Cloudflare's `wrangler` 4.163.0 through `npx`), deploys the relay Worker as `tychicus-relay` (`--relay <name>` picks another, `--account <id>` the account; a relay of that name another computer set the key of is left alone unless you name it), sets a new relay key as the Worker's secret, and checks that `/v1/health` through the relay comes back from serve. `remote status` shows the connector's state, `remote fix` restarts it, and `remote off` removes it and says how to delete the Worker. Tests: `cli/test/relay-remote.test.mjs` (wrangler is a stand-in; nothing reaches Cloudflare).
 - `tychicus remote relay run` connects this computer to a relay Worker on your own Cloudflare account. It is the relay route's service (`com.tychicus.relay`, `tychicus-relay.service`), the way `remote cloudflare run` runs cloudflared: it dials `wss://<relay>/_relay/connect` with the relay key from `remote.json` and carries serve's MCP and OAuth paths and `/v1/health` to `127.0.0.1:<port>`, nothing else. The connector is vendored from baney75/local-studio-tunnels (`cli/src/relay-client.ts`, the source commit in its header, its SHA-256 pinned by `cli/test/relay-vendor.test.mjs`). It writes its state (`connected`, `disconnected`, `unauthorized` and so on) to `relay-state.json` for `remote status`, and stays up in a state it won't retry, so the service doesn't restart it into the same refusal. serve now answers `GET /v1/health` with `{"ok":true}`. Tests: `cli/test/relay.test.mjs` (a local stand-in relay carries a request to a real serve and back).
 
 - The market eval now scores which agent actions Auto should ask about: 59 of 59 risky ones caught. Auto's rule
