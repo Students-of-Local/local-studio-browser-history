@@ -91,6 +91,7 @@ test("at a terminal, a sign-in with two accounts is asked about until the answer
 	assert.equal(r.stdout.split("Type 1 to 2: ").length - 1, 4, "3, work and an empty line are asked again");
 	assert.equal(deploys(m).length, 1);
 	assert.ok(deploys(m)[0].includes(`account=${OTHER} `), deploys(m)[0]);
+	assert.ok((r.stdout + r.stderr).includes(`run tychicus remote setup --relay --account ${OTHER} again`), "the command names the account picked");
 });
 
 test("at a terminal, no answer to the account question deploys nothing and saves nothing", { skip: !unix }, async () => {
@@ -113,9 +114,10 @@ test("at a terminal, a missing workers.dev subdomain opens the page, waits for E
 		assert.equal(deploys(m).length, 3, "one deploy, then one after each Enter");
 		assert.deepEqual(
 			m.calls().filter((l) => l.startsWith("open ")),
-			Array(2).fill(`open https://dash.cloudflare.com/${ACCOUNT}/workers/onboarding`),
+			[`open https://dash.cloudflare.com/${ACCOUNT}/workers/onboarding`],
+			"the page opens once, not over the form on every Enter",
 		);
-		assert.match(r.stdout, /Your browser opened it\..*Relay deployed at /s);
+		assert.match(r.stdout, /Your browser opened it\..*isn't there yet.*Relay deployed at /s);
 		assert.equal(m.remoteJson().publicUrl, ADDRESS);
 		assert.equal(m.secret(), m.remoteJson().relay.key);
 	} finally {
