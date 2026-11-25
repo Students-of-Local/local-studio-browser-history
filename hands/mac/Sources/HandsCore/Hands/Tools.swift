@@ -340,7 +340,7 @@ public enum HandsParse {
     }
 
     public static func usageLine(_ tool: HandsTool) -> String {
-        var parts = ["tychicus-hands agent", tool.verb]
+        var parts = ["computer_" + tool.verb.replacingOccurrences(of: "-", with: "_")]
         for p in tool.params {
             if p.positional { parts.append(p.required ? "<\(p.name)>" : "[\(p.name)\(p.rest ? "…" : "")]") }
             else {

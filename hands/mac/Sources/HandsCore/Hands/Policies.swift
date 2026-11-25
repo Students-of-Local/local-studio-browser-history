@@ -181,10 +181,12 @@ public enum AgentOpenGate {
 /// any mode, on any window. A document is checked only on a process the hands started for an agent: a lent app is lent with what it
 /// shows, and Full Access opens documents.
 public enum WindowInspection: Equatable {
-    case usable, panel, outsideDocument
+    case usable, panel, unreadable, outsideDocument
 
-    public static func decide(full: Bool, agentOwned: Bool, panel: Bool, document: String?, handoff: URL) -> WindowInspection {
+    /// `readable`: the app answered what the window shows. One that didn't is refused for this use, and read again on the next.
+    public static func decide(full: Bool, agentOwned: Bool, panel: Bool, readable: Bool = true, document: String?, handoff: URL) -> WindowInspection {
         if panel { return .panel }
+        guard readable else { return .unreadable }
         guard !full, agentOwned, let document, !document.isEmpty, !HandoffPath.contains(document: document, in: handoff) else { return .usable }
         return .outsideDocument
     }
@@ -330,16 +332,17 @@ public enum UserEventSource {
 public enum EngineRetry {
     public static func mayRepeat(_ e: HandsError) -> Bool { e.code == .timeout && e.retry == .safe }
 
-    /// Runs `attempt` until it succeeds or fails for good. Between attempts the caller's wait and the scope are
-    /// checked, so nothing is dispatched for a caller that left or into a window that is out of scope.
+    /// Runs `attempt` until it succeeds or fails for good. Before every attempt, the first included, the caller's wait and
+    /// the scope are checked, so nothing is dispatched for a caller that left or into a window that is out of scope.
     public static func run<T>(attempt: () -> Result<T, HandsError>, stop: () -> HandsError?, cancelled: () -> Bool,
                               giveUp: Date, now: () -> Date = Date.init, pause: () -> Void) -> Result<T, HandsError> {
+        if cancelled() { return .failure(HandsError(.timeout, "the call ran out of time before anything was sent", suggestion: "Try again.", retry: .safe)) }
         while true {
+            if let s = stop() { return .failure(s) }
             let r = attempt()
             guard case .failure(let e) = r, mayRepeat(e), now() < giveUp, !cancelled() else { return r }
             pause()
             if cancelled() { return r }
-            if let s = stop() { return .failure(s) }
         }
     }
 }
@@ -448,7 +451,7 @@ public enum PanelDetector {
 
     /// The refusal for a window that is or holds an Open or Save panel. The same words wherever it is refused.
     public static func refusal(window: UInt32, app: String) -> HandsError {
-        HandsError(.needsSandbox, "window \(window) of \(app) is or holds an Open or Save panel",
+        HandsError(.needsSandbox, "window \(window) of \(app) is or holds an Open or Save panel, or can't be read now",
                    suggestion: "Agents never drive an Open or Save panel. Wait for it to close, or open the file with `computer_open <app> <file in the handoff folder>`.", retry: .never)
     }
 }
