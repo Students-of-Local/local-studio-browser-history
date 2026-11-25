@@ -28,6 +28,8 @@ export interface TargetFacts {
 	dialog?: string;
 	/** The form the control belongs to: the name of its submit button, and the URL it submits to. */
 	form?: { submit?: string; action?: string };
+	/** An input's name attribute, as words ("card number"). */
+	field?: string;
 	/** The URL of the frame the control is in, when that is not the page's own. */
 	frameUrl?: string;
 }
@@ -506,57 +508,64 @@ export function sensitiveApp(app: string | undefined): Verdict<AppClass> | undef
 
 // ---- Hard limits: refused in every mode, Yolo included ------------------------------------------------------------
 
-const PASSWORD_AUTOCOMPLETE = /\b(current-password|new-password)\b/;
-const PAYMENT_AUTOCOMPLETE = /\bcc-(number|csc|exp|exp-month|exp-year|name|type|given-name|family-name)\b/;
-/** A card field by its name, when the page gave it no autocomplete. */
-const PAYMENT_NAME =
-	/\b(card ?number|credit card|debit card|cc ?number|cvc|cvv|cvv2|csc|security code|card verification|expiry|expiration( date)?|exp(\.|iry)? date|mm ?\/ ?yy|iban|routing number|account number|sort code)\b/;
-const PASSWORD_NAME = /\b(password|passcode|passphrase)\b/;
-/** Hosts whose frames are card fields (Stripe Elements, Braintree, Adyen and the like). */
-const PAYMENT_FRAME_HOSTS = [
-	"js.stripe.com",
-	"checkout.stripe.com",
-	"assets.braintreegateway.com",
-	"checkoutshopper-live.adyen.com",
-	"checkoutshopper-test.adyen.com",
-	"pay.google.com",
-	"secure.checkout.com",
-	"js.squareup.com",
-	"web.squarecdn.com",
-	"flex.cybersource.com",
-	"pci-connect.squareup.com",
-	"checkout.paypal.com",
-	"www.paypal.com",
-	"secure.authorize.net",
-	"pay.shopify.com",
-	"checkout.shopifycs.com",
-];
+/**
+ * The hard limit on a field text is about to reach, if it has one. Self-contained: it also runs in the page, on the
+ * field itself (page.ts FILL_LIB and FOCUS_LIB), so it names no other function or constant and keeps its own lists.
+ */
+export function textLimit(t: TargetFacts): HardLimit | undefined {
+	const type = (t.inputType || "").toLowerCase();
+	const auto = (t.autocomplete || "").toLowerCase();
+	// A search box is named for what it finds; its own name is never a field's.
+	const searching = type === "search" || (t.role || "").toLowerCase() === "searchbox";
+	const name = searching ? "" : `${t.name || ""} | ${t.field || ""}`.toLowerCase().replace(/\s+/g, " ");
+	// Named for a password: not one that only speaks of it (an email to reset it, its length).
+	const secret = name.split(" | ").some((part) => {
+		const said = /.*\b(password|passcode|passphrase)\b(.*)/.exec(part);
+		if (!said || /\b(e-?mail|user ?name)\b/.test(part)) return false;
+		return !said[2].trim() || !/\b(reset|forgot(ten)?|recover(y)?|length|hint|strength)\b/.test(part);
+	});
+	if (
+		type === "password" ||
+		/\b(current-password|new-password)\b/.test(auto) ||
+		(secret && !/^(email|url|number|range|date|datetime-local|month|week|time)$/.test(type))
+	)
+		return "password-field";
+	// A card field by its autocomplete, or by its name when the page gave it none.
+	if (
+		/\bcc-(number|csc|exp|exp-month|exp-year|name|type|given-name|family-name)\b/.test(auto) ||
+		/\b(card ?number|credit card|debit card|cc ?number|cvc|cvv|cvv2|csc|security code|card verification|expiry|expiration( date)?|exp(\.|iry)? date|mm ?\/ ?yy|iban|routing number|account number|sort code)\b/.test(
+			name,
+		)
+	)
+		return "payment-field";
+	// Frames that are card fields (Stripe Elements, Braintree, Adyen and the like).
+	const host =
+		/^https?:\/\/(?:[^/?#]*@)?([^/?#:]+)/i
+			.exec(t.frameUrl || "")?.[1]
+			?.toLowerCase()
+			.replace(/\.$/, "") || "";
+	const card =
+		/(^|\.)(js\.stripe\.com|checkout\.stripe\.com|assets\.braintreegateway\.com|checkoutshopper-live\.adyen\.com|checkoutshopper-test\.adyen\.com|pay\.google\.com|secure\.checkout\.com|js\.squareup\.com|web\.squarecdn\.com|flex\.cybersource\.com|pci-connect\.squareup\.com|checkout\.paypal\.com|www\.paypal\.com|secure\.authorize\.net|pay\.shopify\.com|checkout\.shopifycs\.com)$/;
+	return card.test(host) ? "payment-field" : undefined;
+}
 
-/** Tools that put text into a field. */
-const ENTERS_TEXT = new Set(["fill", "type", "press"]);
+const LIMIT_WHY: Record<HardLimit, string> = {
+	"password-field": "is a password field",
+	"payment-field": "is a payment field",
+};
+
+/** The hard limit as the person reads it ("is a password field"). */
+export const limitWhy = (limit: HardLimit): string => LIMIT_WHY[limit];
 
 /**
  * What no mode lets an agent do: type a password or a payment detail. The person types those themselves (the agent
- * calls tabs_show and asks). Checked before the mode, in Yolo too.
+ * calls tabs_show, with password_ref for a password). Checked before the mode, in Yolo too.
  */
 export function hardLimit(f: ActionFacts): Verdict<HardLimit> | undefined {
-	if (!ENTERS_TEXT.has(f.tool)) return undefined;
 	// A press of Enter or Tab enters no text; a press of a character does.
-	if (f.tool === "press" && !/^(shift\+)?.$/i.test((f.key ?? "").trim())) return undefined;
-	const t = f.target;
-	if (!t) return undefined;
-	const type = squash(t.inputType);
-	const auto = squash(t.autocomplete);
-	const name = squash(t.name);
-	const searching = type === "search" || squash(t.role) === "searchbox";
-	if (type === "password" || PASSWORD_AUTOCOMPLETE.test(auto) || (PASSWORD_NAME.test(name) && !searching))
-		return { rule: "password-field", why: "is a password field" };
-	if (PAYMENT_AUTOCOMPLETE.test(auto) || (PAYMENT_NAME.test(name) && !searching))
-		return { rule: "payment-field", why: "is a payment field" };
-	const frame = hostOf(t.frameUrl);
-	if (frame && PAYMENT_FRAME_HOSTS.some((d) => onDomain(frame, d)))
-		return { rule: "payment-field", why: "is a payment field" };
-	return undefined;
+	if (!f.target || !entersText(f.tool, f.key)) return undefined;
+	const rule = textLimit(f.target);
+	return rule && { rule, why: limitWhy(rule) };
 }
 
 /**
@@ -566,4 +575,16 @@ export function hardLimit(f: ActionFacts): Verdict<HardLimit> | undefined {
 export function isRiskyAction(f: ActionFacts): boolean {
 	if (hardLimit(f) || actionRisk(f)) return true;
 	return f.tool === "navigate" && sensitiveSite(f.url) !== undefined;
+}
+
+/** Whether a tool call enters text into the field it names or the one in focus: the hard limits look at it first. */
+export function entersText(tool: string, key?: string): boolean {
+	if (tool !== "press") return tool === "fill" || tool === "type";
+	// Read as pressKey reads a chord: an unknown modifier is none.
+	const parts = (key ?? "").split("+").map((p) => p.trim());
+	const main = parts.pop() ?? "";
+	const held = (names: RegExp) => parts.some((m) => names.test(m));
+	// A paste, though pressKey refuses it too. Alt with a character writes one on a Mac.
+	if (/^insert$/i.test(main)) return held(/^shift$/i);
+	return /^(.|space)$/iu.test(main) && (/^v$/i.test(main) || !held(/^(cmd|command|meta|win|ctrl|control)$/i));
 }

@@ -157,6 +157,9 @@ export function tailscaleDownloadUrl(platform: string = process.platform): strin
 	return `https://tailscale.com/download/${platform === "darwin" ? "mac" : platform === "win32" ? "windows" : "linux"}`;
 }
 
+/** Node.js's download page: the relay route needs Node 22 or later, and npx, which comes with it. */
+export const NODE_DOWNLOAD_URL = "https://nodejs.org/en/download";
+
 export const CLOUDFLARED_DOWNLOAD_URL = "https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/";
 
 /** The fix Tailscale itself prints for a non-root user it refuses (cmd/tailscale/cli/cli.go). Polycarp shows it and never runs it. */

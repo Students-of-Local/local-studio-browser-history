@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { entersText, textLimit } from "../src/bridge/risk-rules.ts";
 import { allowHost, getPermissionMode, isRemoteClient, isUrlAllowed, LEGACY_MODE_KEY, MODE_KEY, modeFor, peekPermissionMode, recordDecision, setPermissionMode } from "../src/bridge/permissions.ts";
 import { addStep } from "../src/runs/log.ts";
 import { installFakeChrome } from "./fake-chrome.mjs";
@@ -110,4 +111,56 @@ test("every step in the Runs log carries the mode it ran under", () => {
 	const native = read("src/bridge/native.ts");
 	assert.match(native, /if \(isRunStep\(req\.method\)\) runMode = modeFor\(await peekPermissionMode\(\), state\.remote\);/);
 	assert.match(native, /\.\.\.\(runMode \? \{ mode: runMode \} : \{\}\),/);
+});
+
+test("the presses that enter text: one character or Space, read as pressKey reads the chord", () => {
+	for (const [tool, key, want] of [
+		["fill", undefined, true],
+		["type", undefined, true],
+		["press", "a", true],
+		["press", " a ", true],
+		["press", "+a", true],
+		["press", "Hyper+a", true],
+		["press", "Shift+A", true],
+		["press", "Space", true],
+		["press", "\u{1F600}", true],
+		["press", "Enter", false],
+		["press", "Tab", false],
+		["press", "Control+V", true],
+		["press", "Meta+Shift+v", true],
+		["press", "Shift+Insert", true],
+		["press", "Alt+q", true],
+		["press", "Insert", false],
+		["press", "Meta+a", false],
+		["press", "Shift+ctrl+a", false],
+		["press", undefined, false],
+		["click", undefined, false],
+	])
+		assert.equal(entersText(tool, key), want, `${tool} ${key ?? ""}`);
+	assert.doesNotMatch(read("src/bridge/panel-calls.ts"), /hardLimits/, "the side panel's agent is the person's own");
+	assert.match(read("src/bridge/native.ts"), /hardLimits: true,/);
+});
+
+test("the hard limit's rule runs in the page as it stands: it names nothing outside itself", () => {
+	const rule = new Function(`return (${textLimit.toString()})`)();
+	for (const [t, want] of [
+		[{ inputType: "password" }, "password-field"],
+		[{ inputType: "text", name: "Passphrase" }, "password-field"],
+		[{ inputType: "text", name: "Number", autocomplete: "cc-number" }, "payment-field"],
+		[{ inputType: "text", field: "card number" }, "payment-field"],
+		[{ role: "textbox", frameUrl: "https://js.stripe.com/v3/elements-inner-card.html" }, "payment-field"],
+		[{ role: "textbox", frameUrl: "https://js.stripe.com.example.net/" }, undefined],
+		[{ role: "textbox", frameUrl: "https://js.stripe.com./v3/" }, "payment-field"],
+		[{ inputType: "text", name: "Password *" }, "password-field"],
+		[{ inputType: "text", field: "password reset password" }, "password-field"],
+		[{ inputType: "email", field: "password reset email" }, undefined],
+		[{ inputType: "email", name: "Enter your email to reset your password" }, undefined],
+		[{ inputType: "text", name: "Enter your email to reset your password" }, undefined],
+		[{ inputType: "text", name: "Password reset code" }, undefined],
+		[{ inputType: "number", field: "password length" }, undefined],
+		[{ role: "searchbox", name: "Search passwords" }, undefined],
+		[{ inputType: "text", name: "Your name" }, undefined],
+		[{}, undefined],
+	])
+		assert.equal(rule(t), want, JSON.stringify(t));
 });
