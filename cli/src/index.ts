@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { claudeAllows, setClaudeAllows } from "./always-allow.ts";
 import { harnesses } from "./harness.ts";
 import { BridgeClient, BridgeRpcError, isConnectionError, listSockets, NOT_CONNECTED } from "./client.ts";
@@ -49,7 +49,7 @@ import { argsProblem, COMMANDS, completionScript, EXIT_CODES, helpRows, REMOTE_G
 import { VERSION } from "./version.ts";
 import { parseVmArgs, runVm, VM_USAGE } from "./vm.ts";
 import { installLocalStudio, LocalStudioError, localStudioCommand } from "./local-studio.ts";
-import { installFromRelease, loadSteps, releaseProgram, releaseRoot } from "./release.ts";
+import { installFromRelease, loadSteps, releaseProgram, releaseRoot, reportHands } from "./release.ts";
 import { restartStaleServices } from "./service-version.ts";
 
 /** A path under the home folder as ~/..., for help text. */
@@ -444,6 +444,7 @@ async function main(): Promise<void> {
 			if (hint) console.log(`${sym.ok} ${hint}`);
 			if (dryRun) return;
 			if (result.written.length > 0) console.log(c.dim("If the extension was already loaded, reload it once on chrome://extensions."));
+			if (process.env.TYCHICUS_RELEASE_PARENT) reportHands(dirname(process.execPath));
 			// A release's own copy prints how to load its extension; under --release the outer run does, after it.
 			const ext = bundledExtensionDir();
 			if (ext && existsSync(ext) && !process.env.TYCHICUS_RELEASE_PARENT) for (const line of loadSteps(ext)) console.log(line);

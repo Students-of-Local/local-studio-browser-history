@@ -133,13 +133,23 @@ require("node:readline").createInterface({ input: process.stdin }).on("line", (l
 	if (m.method === "initialize") process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: m.id, result: { serverInfo: { name: "tychicus-hands", version: "${version}" } } }) + "\\n");
 });
 `;
+// The release's program as a Mac runs it: this CLI, with the platform and its own path as they'd be there. The program that
+// installs it here copies no helper, like one from before releases carried it, so the new program has to.
+const macHook = join(scratch, "mac-hook.mjs");
+writeFileSync(macHook, 'Object.defineProperty(process, "platform", { value: "darwin" });\nprocess.execPath = process.env.VERSION_PROGRAM;\n');
+const macProgram = `#!/bin/sh\nVERSION_PROGRAM="$0" exec "${process.execPath}" --import "${macHook}" "${cli}" "$@"\n`;
+function macHome() {
+	const home = freshHome();
+	mkdirSync(join(home, "Library", "Application Support", "Chromium"), { recursive: true });
+	return home;
+}
 const handsPath = (home) => join(home, ".local", "bin", "tychicus-hands");
 // Install never looks for a helper; doctor does, so it runs with only these variables and finds none but the one installed.
 const noHelperEnv = { TYCHICUS_HANDS_BIN: "", PATH: `${dirname(process.execPath)}:/usr/bin:/bin` };
 
-test("on a Mac, install puts the release's tychicus-hands in ~/.local/bin, and doctor names it", { skip: process.platform !== "darwin" }, () => {
-	const home = freshHome();
-	const { dir } = makeRelease("9.9.9", undefined, { hands: fakeHands("1.0.0") });
+test("on a Mac, install puts the release's tychicus-hands in ~/.local/bin, and doctor names it", { skip: process.platform === "win32" }, () => {
+	const home = macHome();
+	const { dir } = makeRelease("9.9.9", macProgram, { hands: fakeHands("1.0.0") });
 	const r = run(home, ["install", "--release", dir], noHelperEnv);
 	assert.equal(r.status, 0, r.out);
 	const installed = handsPath(home);
@@ -159,9 +169,9 @@ test("on a Mac, install puts the release's tychicus-hands in ~/.local/bin, and d
 	assert.match(computer.label, /answered as tychicus-hands 1\.0\.0/);
 });
 
-test("on a Mac, the same helper again is left alone, and a new one replaces it", { skip: process.platform !== "darwin" }, () => {
-	const home = freshHome();
-	const first = makeRelease("9.9.9", undefined, { hands: fakeHands("1.0.0") });
+test("on a Mac, the same helper again is left alone, and a new one replaces it", { skip: process.platform === "win32" }, () => {
+	const home = macHome();
+	const first = makeRelease("9.9.9", macProgram, { hands: fakeHands("1.0.0") });
 	assert.equal(run(home, ["install", "--release", first.dir], noHelperEnv).status, 0);
 	const before = statSync(handsPath(home)).ino;
 	const again = run(home, ["install", "--release", first.dir], noHelperEnv);
@@ -169,7 +179,7 @@ test("on a Mac, the same helper again is left alone, and a new one replaces it",
 	assert.match(again.out, /is already this version/);
 	assert.doesNotMatch(again.out, /signed ad hoc/, "no re-allow note when nothing changed");
 	assert.equal(statSync(handsPath(home)).ino, before, "the same file: macOS keeps its grant");
-	const next = makeRelease("9.9.10", undefined, { hands: fakeHands("1.0.1") });
+	const next = makeRelease("9.9.10", macProgram, { hands: fakeHands("1.0.1") });
 	const upgraded = run(home, ["install", "--release", next.dir], noHelperEnv);
 	assert.equal(upgraded.status, 0, upgraded.out);
 	assert.equal(readFileSync(handsPath(home), "utf8"), fakeHands("1.0.1"));
