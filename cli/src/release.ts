@@ -6,8 +6,8 @@
  * registers itself from there. Only after that works does the `release` pointer (a symlink, a junction on Windows)
  * move to the new version, and the extension is copied to one fixed real folder, so the browser keeps loading it
  * from the same place. A running copy (the native host the browser started, an MCP server) keeps its own folder:
- * an old version is removed only once no program runs from it. On a Mac the version's computer-use helper
- * (`bin/tychicus-hands`) is copied to ~/.local/bin, where `findHelper` (computer.ts) looks.
+ * an old version is removed only once no program runs from it. On a Mac the new version's own program copies its
+ * computer-use helper (`bin/tychicus-hands`) to ~/.local/bin, where `findHelper` (computer.ts) looks.
  *
  * The check is as strong as the program that runs it: a tampered archive could carry a `tychicus` that skips it. To
  * check before running anything from the download, run
@@ -347,6 +347,20 @@ export function handsGrantLine(path: string): string {
 }
 
 /**
+ * `installHands`, said. Called by the new version's own `install` under `install --release`, so an older program that is
+ * upgrading gets the helper too. A copy that fails doesn't stop the browser half: computer use waits for the next install.
+ */
+export function reportHands(versionDir: string): void {
+	try {
+		const hands = installHands(versionDir);
+		if (hands) console.log(`${sym.ok} Computer-use helper ${c.dim(hands.path)}${hands.changed ? "" : " is already this version"}`);
+		if (hands?.replaced) console.log(`${sym.warn} ${handsGrantLine(hands.path)}`);
+	} catch (err) {
+		console.log(`${sym.warn} The computer-use helper wasn't copied to ${handsInstallPath()}: ${(err as Error).message}`);
+	}
+}
+
+/**
  * The version folders some running program was started from, or undefined where that can't be told (then nothing is
  * pruned). Linux reads /proc/<pid>/exe, macOS asks ps; Windows is answered by the rename in pruneVersions.
  */
@@ -503,15 +517,6 @@ export async function installFromRelease(dir: string, options: { dryRun?: boolea
 	console.log(`${sym.ok} ${c.dim(`${root} -> ${target}`)}`);
 	// `tychicus` on PATH runs the release from now on: ~/.local/bin/tychicus names the pointer, not this version.
 	await linkOnPath();
-	try {
-		const hands = installHands(target);
-		if (hands?.changed) console.log(`${sym.ok} Computer-use helper ${c.dim(hands.path)}`);
-		if (hands?.replaced) console.log(`${sym.warn} ${handsGrantLine(hands.path)}`);
-		if (hands && !hands.changed) console.log(`${sym.ok} Computer-use helper ${c.dim(hands.path)} is already this version`);
-	} catch (err) {
-		// The browser half is installed; computer use waits for the next install.
-		console.log(`${sym.warn} The computer-use helper wasn't copied to ${handsInstallPath()}: ${(err as Error).message}`);
-	}
 	const restarted = restartServices(target, root, before, options.noRestart === true);
 	const removed = pruneVersions(target, base);
 	if (removed.length) console.log(`${sym.ok} Removed ${removed.length} older version${removed.length === 1 ? "" : "s"} no program runs from`);
