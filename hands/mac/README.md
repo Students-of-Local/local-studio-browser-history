@@ -62,7 +62,7 @@ com.tychicus.hands` (`scripts/package.sh`). There is no Developer ID yet, so it 
 ## Build
 
 ```sh
-scripts/build-engine.sh          # agent-desktop's static library, pinned in engine/PIN (needs cargo); BANEYSPACES_ARM64_ONLY=1 for arm64 only
+scripts/build-engine.sh          # agent-desktop's static library, pinned in engine/PIN (needs cargo); TYCHICUS_HANDS_ARM64_ONLY=1 for arm64 only
 swift build -c release           # .build/release/tychicus-hands
 scripts/package.sh <out-dir>     # both of the above for arm64, then the release copy: signed ad hoc and checked
 ```
