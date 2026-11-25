@@ -575,6 +575,7 @@ async function runRequest(state: ClientState, req: HostForwardedRequest, answer?
 				(!!topUrl && hostOf(url) === hostOf(topUrl) && !isOwnExtensionUrl(url)) ||
 				(await isUrlAllowed(url, state.tier, state.remote)),
 			askUpload: (url, files, askId) => askUpload(state, url, files, askId),
+			hardLimits: true,
 			checkUrl: async (url: string) => {
 				if (isGuardedUrl(url, req.guardedHosts)) throw guardedError(url);
 				if (!(await askPermission(state, url))) {

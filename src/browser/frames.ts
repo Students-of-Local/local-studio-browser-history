@@ -713,12 +713,8 @@ async function contentBox(
 	};
 }
 
-/** Run page code (an expression that runInPage would wrap) in a frame's isolated world. */
-export async function evaluateInFrame(
-	tabId: number,
-	frame: Pick<PageFrame, "frameId" | "sessionId">,
-	expression: string,
-): Promise<unknown> {
+/** The execution context of a frame's isolated world. */
+export async function frameWorld(tabId: number, frame: Pick<PageFrame, "frameId" | "sessionId">): Promise<number> {
 	const world = await cdpSendSession<{ executionContextId: number }>(
 		tabId,
 		frame.sessionId,
@@ -729,12 +725,22 @@ export async function evaluateInFrame(
 			grantUniveralAccess: false,
 		},
 	);
+	return world.executionContextId;
+}
+
+/** Run page code (an expression that runInPage would wrap) in a frame's isolated world. */
+export async function evaluateInFrame(
+	tabId: number,
+	frame: Pick<PageFrame, "frameId" | "sessionId">,
+	expression: string,
+): Promise<unknown> {
+	const contextId = await frameWorld(tabId, frame);
 	const r = await cdpSendSession<{
 		result: { value?: unknown };
 		exceptionDetails?: { exception?: { description?: string }; text?: string };
 	}>(tabId, frame.sessionId, "Runtime.evaluate", {
 		expression,
-		contextId: world.executionContextId,
+		contextId,
 		returnByValue: true,
 		awaitPromise: true,
 	});

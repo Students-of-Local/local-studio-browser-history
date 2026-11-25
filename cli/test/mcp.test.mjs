@@ -231,7 +231,7 @@ test("in a session without tabs_show, no result names it: a click that reveals a
 	const sent = [];
 	bridge.call = async (method, params) => {
 		sent.push(method);
-		return { clicked: { x: 10, y: 20 }, changes: 'new: e7 textbox "Password" [required, password: never type one, call tabs_show and ask the person to type it]' };
+		return { clicked: { x: 10, y: 20 }, changes: 'new: e7 textbox "Password" [required, password: never type one, call tabs_show with password_ref so the person types it]' };
 	};
 	const [a, b] = InMemoryTransport.createLinkedPair();
 	await server.connect(a);
