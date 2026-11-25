@@ -78,6 +78,65 @@ test("a sign-in with two accounts needs --account, and --account picks the one w
 	assert.equal(unknown.json().code, "cloudflare_account");
 });
 
+const TERMINAL = { TABKYRA_ASSUME_TTY: "1" };
+const twoAccounts = { loggedIn: true, accounts: [{ id: ACCOUNT, name: "Mine" }, { id: OTHER, name: "Work" }] };
+const deploys = (m) => m.wrangler().filter((l) => l.includes(" deploy "));
+
+test("at a terminal, a sign-in with two accounts is asked about until the answer is one of them", { skip: !unix }, async () => {
+	const m = machine(root, "ask-account", { whoami: twoAccounts, deploy: "subdomain" });
+	const r = await m.run(["remote", "setup", "--relay", "--no-passcode"], TERMINAL, { input: "3\nwork\n\n2\nq\n" });
+	assert.equal(r.code, 3, r.stdout + r.stderr);
+	assert.match(r.stdout, /Which Cloudflare account/);
+	assert.ok(r.stdout.includes(`  1  Mine (${ACCOUNT})`) && r.stdout.includes(`  2  Work (${OTHER})`), r.stdout);
+	assert.equal(r.stdout.split("Type 1 to 2: ").length - 1, 4, "3, work and an empty line are asked again");
+	assert.equal(deploys(m).length, 1);
+	assert.ok(deploys(m)[0].includes(`account=${OTHER} `), deploys(m)[0]);
+	assert.ok((r.stdout + r.stderr).includes(`run tychicus remote setup --relay --account ${OTHER} again`), "the command names the account picked");
+});
+
+test("at a terminal, no answer to the account question deploys nothing and saves nothing", { skip: !unix }, async () => {
+	const m = machine(root, "ask-account-end", { whoami: twoAccounts, deploy: "subdomain" });
+	const r = await m.run(["remote", "setup", "--relay", "--no-passcode"], TERMINAL, { input: "9\n" });
+	assert.equal(r.code, 1, r.stdout + r.stderr);
+	assert.match(r.stdout + r.stderr, /No account was chosen, so nothing was changed/);
+	assert.deepEqual(deploys(m), []);
+	assert.equal(m.remoteJson(), undefined);
+});
+
+test("at a terminal, a missing workers.dev subdomain opens the page, waits for Enter and deploys again until it works", { skip: !unix }, async () => {
+	const m = machine(root, "wait-subdomain", { subdomainAfter: 2 });
+	m.launcher();
+	const serve = await serveStandIn();
+	try {
+		const extra = { ...TERMINAL, RELAY_HOOK_PORT: String(serve.port), TYCHICUS_PUBLIC_WAIT_MS: "2000", TYCHICUS_PUBLIC_POLL_MS: "50" };
+		const r = await m.run(["remote", "setup", "--relay", "--no-passcode", "--port", String(serve.port)], extra, { hooks: true, input: "\n\n" });
+		assert.equal(r.code, 0, r.stdout + r.stderr);
+		assert.equal(deploys(m).length, 3, "one deploy, then one after each Enter");
+		assert.deepEqual(
+			m.calls().filter((l) => l.startsWith("open ")),
+			[`open https://dash.cloudflare.com/${ACCOUNT}/workers/onboarding`],
+			"the page opens once, not over the form on every Enter",
+		);
+		assert.match(r.stdout, /Your browser opened it\..*isn't there yet.*Relay deployed at /s);
+		assert.equal(m.remoteJson().publicUrl, ADDRESS);
+		assert.equal(m.secret(), m.remoteJson().relay.key);
+	} finally {
+		await serve.close();
+	}
+});
+
+test("at a terminal, q or the end of input at the subdomain wait stops, and nothing is saved", { skip: !unix }, async () => {
+	for (const [name, input] of [["q", "q\n"], ["end", ""]]) {
+		const m = machine(root, `subdomain-${name}`, { subdomainAfter: 1 });
+		const r = await m.run(["remote", "setup", "--relay", "--no-passcode"], TERMINAL, { input });
+		assert.equal(r.code, 3, r.stdout + r.stderr);
+		assert.match(r.stdout + r.stderr, /run tychicus remote setup --relay again\. Nothing was saved/);
+		assert.equal(deploys(m).length, 1, name);
+		assert.equal(m.secret(), undefined);
+		assert.equal(m.remoteJson(), undefined);
+	}
+});
+
 test("route flags and the relay's own refusals change nothing", { skip: !unix }, async () => {
 	const m = machine(root, "refusals");
 	assert.equal((await m.run(["remote", "setup", "--relay", "--tailscale"])).code, 2);
