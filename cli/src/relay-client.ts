@@ -1,5 +1,5 @@
 // Vendored, unchanged below this header, from baney75/local-studio-tunnels relay/client/relay-client.ts
-// at commit adfe3db4dbe5a8731ff1ed55871f53ac7c783d5c (2026-11-24). Change it upstream and copy it again;
+// at commit 741ff1611f280b23e7fbad0862f0e71201a8f9c7 (2026-11-24). Change it upstream and copy it again;
 // cli/test/relay-vendor.test.mjs fails when the body below stops matching that copy's SHA-256.
 // License: the upstream file has no license header and its repository no license file. Both repositories are
 // baney75's, and this copy is distributed under Tychicus's license (AGPL-3.0, LICENSE).
@@ -215,6 +215,7 @@ export class RelayClient {
     try {
       const res = await fetch(new URL("/_relay/connect", this.opts.url), {
         headers: { authorization: `Bearer ${this.opts.key}`, "user-agent": USER_AGENT },
+        signal: AbortSignal.timeout(10_000),
       });
       status = res.status;
       await res.body?.cancel();
@@ -399,7 +400,7 @@ export class RelayClient {
       headers.set("connection", ["Upgrade"]).set("upgrade", ["websocket"]).set("sec-websocket-version", ["13"]).set("sec-websocket-key", [key]);
     }
     const req = httpRequest({
-      host: target.hostname,
+      host: target.hostname.replace(/^\[(.*)\]$/, "$1"), // an IPv6 literal, without the URL's brackets
       port: Number(target.port) || 80,
       method: m.method,
       path: m.path,
@@ -425,6 +426,8 @@ export class RelayClient {
       s.req = undefined;
       s.origin = new OriginSocket(socket, head, {
         message: (op, payload) => {
+          // Until the origin answers a close it can still send, perhaps after the relay socket reconnected.
+          if (this.streams.get(m.id) !== s) return;
           this.sendFrame(op === 1 ? WS_TEXT : WS_BINARY, m.id, payload);
           this.backpressure(socket);
         },
@@ -488,6 +491,11 @@ function closeCode(code: number): number {
   return pass ? code : 1011;
 }
 
+/** `reason` cut to the 123 UTF-8 bytes a close frame holds, at a character boundary. */
+function closeReason(reason: string): string {
+  return new TextDecoder().decode(new TextEncoder().encode(reason).subarray(0, 123), { stream: true });
+}
+
 interface OriginEvents {
   message: (op: number, payload: Buffer) => void;
   close: (code: number, reason: string) => void;
@@ -540,7 +548,7 @@ class OriginSocket {
 
   close(code: number, reason: string): void {
     if (this.closeSent || this.closed) return;
-    const r = Buffer.from(reason).subarray(0, 123);
+    const r = Buffer.from(closeReason(reason));
     const body = Buffer.alloc(2 + r.length);
     body.writeUInt16BE(closeCode(code));
     r.copy(body, 2);
