@@ -67,7 +67,7 @@ export function remoteSetupPrompt(version: string, command = "tychicus"): string
 1. Run: ${command} doctor
    If ${command} isn't found, try ${RELEASE_PROGRAM} doctor, and use that full path in place of "${command}" in every command below. If neither runs, stop and tell me to copy the setup prompt from the Settings > Agents tab in Local Studio's side panel and run that first.
 2. Pick the route. If it isn't clear from what I told you, ask me which one:
-   - One computer, no domain needed (the usual pick): a relay on my own free Cloudflare account. Cloudflare's sign-in opens in my browser, so ask me to run ${command} remote setup --no-passcode in my own terminal, and wait until I say it finished
+   - One computer, no domain needed (the usual pick): a relay on my own free Cloudflare account, with Node.js 22 or later. Cloudflare's sign-in opens in my browser, so ask me to run ${command} remote setup --no-passcode in my own terminal, and wait until I say it finished
    - One computer with Tailscale installed and signed in: ${command} remote setup --tailscale --no-passcode
    - Several computers behind one address, on an always-on machine with an HTTPS address I already own: ${command} hub setup --public-url https://ADDRESS --no-passcode (with my address in place of ADDRESS)
    If a command stops and names a reason, show me the reason and the fix it names. Don't work around it.

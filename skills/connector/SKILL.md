@@ -28,8 +28,8 @@ For driving the browser from an agent on this computer, use the `polycarp-browse
 
 1. **Read the state.** Run `tychicus remote status --json`. It changes nothing. Read `state`, `connectorUrl` and `routes`.
 2. **If `state` is `on`,** give the person `connectorUrl` and go to step 6.
-3. **If nothing is set up, suggest the relay.** It needs no domain: a free Worker on the person's own Cloudflare account, at `https://tychicus-relay.<subdomain>.workers.dev`. It needs Node.js 22 or later. Other routes: Tailscale Funnel (no domain, `--tailscale`) or a Cloudflare tunnel on their domain (`--cloudflare <name>`). The side panel's Settings > Agents > "Use Tychicus from Claude, ChatGPT and Grok" has these steps as buttons.
-4. **Relay.** The person runs `tychicus remote setup` in their own terminal: wrangler opens Cloudflare's sign-in in their browser, and setup may open a page to pick a workers.dev subdomain. Your shell has no terminal, so `--json` answers `cloudflare_login` until they have done that once. Then, with their yes, you can run `tychicus remote setup --no-passcode`.
+3. **If `connectorUrl` is null, nothing is set up: suggest the relay,** whatever `state` says about Tailscale. It needs no domain: a free Worker on the person's own Cloudflare account, at `https://tychicus-relay.<subdomain>.workers.dev`. It needs Node.js 22 or later. Other routes: Tailscale Funnel (no domain, `--tailscale`) or a Cloudflare tunnel on their domain (`--cloudflare <name>`). The side panel's Settings > Agents > "Use Tychicus from Claude, ChatGPT and Grok" has these steps as buttons.
+4. **Relay.** The person runs `tychicus remote setup --no-passcode` in their own terminal: wrangler opens Cloudflare's sign-in in their browser, and setup may open a page to pick a workers.dev subdomain. Your shell has no terminal, so `--json` answers `cloudflare_login` until they have done that once. When they say it finished, read the status again, and only if it isn't `on`, with their yes, run `tychicus remote setup --no-passcode`.
 5. **Tailscale or Cloudflare tunnel.** The person installs Tailscale and signs in, or installs `cloudflared` and runs `tychicus remote cloudflare login`. Then, with their yes, run `tychicus remote setup --no-passcode --tailscale` (on `funnel_not_allowed`, give them `adminUrl` and run it again once they allow it) or `--cloudflare tychicus.example.com`.
 6. **Have the person add the connector.**
    - claude.ai: Settings > Connectors > Add custom connector, paste the address.
@@ -44,9 +44,9 @@ For driving the browser from an agent on this computer, use the `polycarp-browse
 
 | `state` or `code` | What to do |
 | --- | --- |
-| `tailscale_missing`, `tailscale_signed_out` | The person installs Tailscale or signs in. |
+| `tailscale_missing`, `tailscale_signed_out` | Only on a Tailscale route: the person installs Tailscale or signs in. With nothing set up, go to step 3. |
 | `cloudflared_missing` | The person installs `cloudflared`. |
-| `cloudflare_login` | On the relay, the person runs `tychicus remote setup` in their terminal. On a tunnel, run `tychicus remote cloudflare login`. |
+| `cloudflare_login` | The person runs `next.command` in their terminal and signs in. |
 | `cloudflare_account`, `workers_subdomain` | The person picks the account (`--account <id>`) or opens `next.url` to pick a subdomain. |
 | `relay_connector`, `relay_health` | `remote status --json` shows `relay.state`; `unauthorized` or `replaced` means setup again. |
 | `cloudflare_dns` | That name is in use or not valid. Ask for another. Never overwrite a record. |
@@ -70,10 +70,10 @@ To stop everything: with their yes, `tychicus remote off`. To end one assistant:
 
 ## Example
 
-They ask: "I want to use my Mac from claude.ai. I have Cloudflare."
+They ask: "I want to use my Mac from claude.ai. I have Cloudflare, with my own domain."
 
 1. `remote status --json` shows `routes.cloudflare` `{"installed":true,"signedIn":false}`.
-2. Run `tychicus remote cloudflare login`. Say: "Your browser opened Cloudflare. Sign in and pick your domain."
+2. Say: "Run `tychicus remote cloudflare login` in your terminal. In the page it opens, sign in and pick your domain."
 3. Ask: "Which name? Something like tychicus.yourdomain.com." They say `tychicus.example.com`.
 4. Ask before running `tychicus remote setup --no-passcode --cloudflare tychicus.example.com`. Run it after their yes.
 5. Say: "In claude.ai, add a custom connector with https://tychicus.example.com/mcp. On the page that opens, tick computer use only if you want it there. For the code it asks for, press New code in the Tychicus side panel's Settings > Agents."
