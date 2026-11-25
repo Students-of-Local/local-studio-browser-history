@@ -6,8 +6,9 @@
  */
 
 import { isGuardedUrl } from "../bridge/permissions.js";
+import { type HardLimit, textLimit } from "../bridge/risk-rules.js";
 import type { SignInFields, SignInValues } from "../handback/sign-in.js";
-import { cdpSend, isRestrictedUrl } from "./cdp.js";
+import { cdpSend, cdpSendSession, isRestrictedUrl } from "./cdp.js";
 import {
 	bounded,
 	crossOriginFrames,
@@ -22,6 +23,7 @@ import {
 	frameShownNow,
 	frameState,
 	frameTakesPoint,
+	frameWorld,
 	MAX_DEPTH,
 	MAX_FRAMES,
 	type PageFrame,
@@ -1243,7 +1245,7 @@ export function pageSnapshot(
 		// handoff too: one left the field empty and only said so, and the user never saw the tab (r4 rerun, t1). In a session
 		// without tabs_show the MCP server rewrites it in every result, change reports too (cli/src/mcp.ts).
 		if (tag === "input" && f.type === "password")
-			states.push("password: never type one, call tabs_show and ask the person to type it");
+			states.push("password: never type one, call tabs_show with password_ref so the person types it");
 		if (typed(el) && f.value) states.push("filled by the user");
 		if (states.length && !node.states) node.states = states;
 		if (at.frame) node.frame = at.frame.slice(0, 120);
@@ -2270,7 +2272,7 @@ export async function pressLanded(tabId: number, aim: Aim): Promise<string | und
 /** fillElement in the page: find the field by ref or selector, check it is shown and editable, set its value. */
 const FILL_LIB: PageLib = {
 	name: "fill",
-	source: () => `async (ref, sel, value) => {
+	source: () => `async (ref, sel, value, limited) => {
 		delete window.__tabkyraRefound;
 		let el = null;
 		let byRef = false;
@@ -2318,6 +2320,9 @@ const FILL_LIB: PageLib = {
 		// window's HTMLInputElement and its value setter don't apply.
 		const W = el.ownerDocument.defaultView || window;
 		el.focus();
+		// On the element the value goes into, after its focus handlers ran: nothing can change between this and the write.
+		const limit = limited ? (${textLimit.toString()})((${FIELD_FACTS})(el)) : undefined;
+		if (limit) return { limit };
 		if (el instanceof W.HTMLSelectElement) {
 			const opt = Array.from(el.options).find(o => o.value === value || o.text.trim() === value);
 			if (!opt) throw new Error("No option matches " + value + ". read_page lists the options (value=...).");
@@ -2348,17 +2353,21 @@ const FILL_LIB: PageLib = {
 	}`,
 };
 
-/** Set a form control's value the way frameworks expect (native setter + input/change). */
+/**
+ * Set a form control's value the way frameworks expect (native setter + input/change). With `limited`, a password or
+ * payment field is left as it is and its hard limit comes back.
+ */
 export async function fillElement(
 	tabId: number,
 	target: { ref?: string; selector?: string },
 	value: string,
 	rule: FrameRule = FRAMES_CLOSED,
 	found?: { frame: PageFrame; inner: string },
-): Promise<void> {
+	limited = false,
+): Promise<HardLimit | undefined> {
 	const code = (r: string | undefined, inFrame: boolean): LibCall => ({
 		lib: FILL_LIB,
-		args: [r ?? "", inFrame ? "" : (target.selector ?? ""), value],
+		args: [r ?? "", inFrame ? "" : (target.selector ?? ""), value, limited],
 	});
 	// A field in a frame: the frame's own document can't see a banner over the frame, so the page
 	// around it is checked as a click would be, before anything is written.
@@ -2367,6 +2376,110 @@ export async function fillElement(
 	if (framed) await locate(tabId, { ref: target.ref }, rule, "fill", framed);
 	const { value: done } = await runForRef<unknown>(tabId, target.ref, code, rule, framed);
 	if (typeof done === "string") refoundNotes.set(tabId, done);
+	return (done as { limit?: HardLimit } | undefined)?.limit;
+}
+
+/**
+ * What the hard limits read about the element text is about to reach (risk-rules.ts TargetFacts): an input's type and
+ * autocomplete, and for one that takes text (or a select) its accessible name, its name attribute and its frame. Never
+ * its content.
+ * Page code, without backquotes.
+ */
+const FIELD_FACTS = String.raw`(el) => {
+	const W = el.ownerDocument.defaultView || window;
+	const tag = el.tagName.toLowerCase();
+	const type = tag === "input" ? String(el.type || "text").toLowerCase() : "";
+	const role = (el.getAttribute("role") || "").trim().split(/\s+/)[0].toLowerCase();
+	const out = { role: role || (type === "search" ? "searchbox" : tag), inputType: type, autocomplete: el.getAttribute("autocomplete") || "" };
+	if (el.isContentEditable) while (el.parentElement && el.parentElement.isContentEditable) el = el.parentElement;
+	out.takesText = tag === "textarea" || el.isContentEditable || /^(textbox|searchbox|combobox|spinbutton)$/.test(role) ||
+		(!!type && !/^(button|submit|reset|image|checkbox|radio|range|color|file|hidden)$/.test(type));
+	if (!out.takesText && tag !== "select") return out;
+	if (W !== W.top) out.frameUrl = W.location.href;
+	const root = el.getRootNode();
+	const labelled = (el.getAttribute("aria-labelledby") || "").split(/\s+/).map((id) => { const n = id && root.getElementById ? root.getElementById(id) : null; return n ? n.textContent : ""; }).join(" ").trim();
+	const label = [...(el.labels || [])].map((l) => l.textContent.replace(el.textContent || "", "")).join(" ").trim();
+	out.name = String(el.getAttribute("aria-label") || labelled || label || el.getAttribute("placeholder") || el.getAttribute("title") || "").slice(0, 200);
+	out.field = String(el.getAttribute("name") || "").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[^A-Za-z0-9]+/g, " ").slice(0, 100);
+	return out;
+}`;
+
+const FRAME_TAG = "/^(iframe|frame|object|embed|fencedframe)$/i";
+
+/** The element with the focus, through open shadow roots and same-origin frames. A frame element means a frame from another site holds it. Page code. */
+const DEEP_FOCUS = `() => {
+	let el = document.activeElement;
+	while (el) {
+		let doc = null;
+		if (${FRAME_TAG}.test(el.tagName)) try { doc = el.contentDocument; } catch {}
+		const inner = el.shadowRoot ? el.shadowRoot.activeElement : doc ? doc.activeElement : null;
+		if (doc && !inner) return null;
+		if (!inner) break;
+		el = inner;
+	}
+	return el;
+}`;
+
+/** "" when an agent's next key may go out; else the hard limit, "other-site", or "host" for an element that may hide a closed shadow root. */
+const FOCUS_LIB: PageLib = {
+	name: "focus",
+	source: () => `() => {
+		const tychicusFocus = (${DEEP_FOCUS})();
+		const el = tychicusFocus;
+		if (!el) return "";
+		if (${FRAME_TAG}.test(el.tagName)) return "other-site";
+		const limit = (${textLimit.toString()})((${FIELD_FACTS})(el));
+		// Its role says nothing of what a closed root inside it holds.
+		return limit || (!el.shadowRoot && /-|^(article|aside|blockquote|body|div|footer|h[1-6]|header|main|nav|p|section|span)$/i.test(el.tagName) ? "host" : "");
+	}`,
+};
+
+/**
+ * What the debugger knows of the element with the focus and the page doesn't: the frame it holds, and whether its
+ * shadow root is closed (the page can't say which field inside has the focus). Asked in Tychicus's own world, where no
+ * page script changes the answer; a focus that is gone counts as closed.
+ */
+async function focusNode(tabId: number, frame: PageFrame | undefined): Promise<{ frameId?: string; closed: boolean }> {
+	const call = <T>(method: string, params: Record<string, unknown>) =>
+		cdpSendSession<T>(tabId, frame?.sessionId, method, params);
+	const at = frame ?? {
+		frameId: (await call<{ frameTree: { frame: { id: string } } }>("Page.getFrameTree", {})).frameTree.frame.id,
+	};
+	const { result } = await call<{ result: { objectId?: string } }>("Runtime.evaluate", {
+		expression: `(${DEEP_FOCUS})()`,
+		contextId: await frameWorld(tabId, at),
+	});
+	const { objectId } = result;
+	if (!objectId) return { closed: true };
+	const { node } = await call<{ node: { frameId?: string; shadowRoots?: Array<{ shadowRootType?: string }> } }>(
+		"DOM.describeNode",
+		{ objectId },
+	);
+	call("Runtime.releaseObject", { objectId }).catch(() => undefined);
+	return { frameId: node.frameId, closed: !!node.shadowRoots?.some((r) => r.shadowRootType === "closed") };
+}
+
+/**
+ * Why an agent's next key may not go out, if it may not: the focus is a password or payment field, or somewhere that
+ * can't be told ("other-site", "closed-root"). Looks at the live focus, whatever the call named. With a ref in a
+ * cross-origin frame the focus is followed into that frame and the frames around it, and into no other.
+ */
+export async function focusLimit(
+	tabId: number,
+	ref: string | undefined,
+	rule: FrameRule = FRAMES_CLOSED,
+): Promise<HardLimit | "other-site" | "closed-root" | undefined> {
+	const chain = (ref && (await frameForRef(tabId, ref, rule))?.frame.chain) || [];
+	const look: LibCall = { lib: FOCUS_LIB, args: [] };
+	for (let depth = 0; depth <= chain.length; depth++) {
+		const frame = depth ? chain[depth - 1] : undefined;
+		type Said = HardLimit | "other-site" | "host" | "";
+		const said = frame ? await runInFrame<Said>(tabId, frame, libCode(look)) : await runLib<Said>(tabId, look);
+		if (said === "host") return (await focusNode(tabId, frame)).closed ? "closed-root" : undefined;
+		if (said !== "other-site") return said || undefined;
+		if (!chain[depth] || (await focusNode(tabId, frame)).frameId !== chain[depth].frameId) break;
+	}
+	return "other-site";
 }
 
 /**

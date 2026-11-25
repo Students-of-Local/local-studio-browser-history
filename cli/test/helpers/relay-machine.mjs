@@ -18,9 +18,9 @@ export const unix = process.platform === "linux" || process.platform === "darwin
  * A machine with node alone on PATH, stub service managers, and TYCHICUS_NPX at a script that answers like wrangler. A `login` writes
  * a signed-in file, and whoami answers `afterLogin` from then on when one is given; `loginCode` is what it exits with.
  * `subdomainAfter` is how many deploys fail for want of a workers.dev subdomain before one works. `starts` is the state the connector
- * writes when the service manager is asked to start it. The browser opener logs its URL.
+ * writes when the service manager is asked to start it, `refused` the one it writes the first time. The browser opener logs its URL.
  */
-export function machine(root, name, { whoami = { loggedIn: true, accounts: [{ id: ACCOUNT, name: "Mine" }] }, afterLogin, loginCode = 0, deploy = "ok", subdomainAfter = 0, keyed = false, worker = false, starts } = {}) {
+export function machine(root, name, { whoami = { loggedIn: true, accounts: [{ id: ACCOUNT, name: "Mine" }] }, afterLogin, loginCode = 0, deploy = "ok", subdomainAfter = 0, keyed = false, worker = false, starts, refused = false, secret = "ok" } = {}) {
 	const dir = join(root, name);
 	const bin = join(dir, "bin");
 	const home = join(dir, "home");
@@ -41,13 +41,14 @@ export function machine(root, name, { whoami = { loggedIn: true, accounts: [{ id
 			script(
 				join(bin, name),
 				`#!${process.execPath}
-const { appendFileSync, existsSync, rmSync, writeFileSync } = require("node:fs");
+const { appendFileSync, existsSync, readFileSync, rmSync, writeFileSync } = require("node:fs");
 const up = ${JSON.stringify(join(dir, "connector-up"))};
 const args = process.argv.slice(2).join(" ");
 appendFileSync(${JSON.stringify(log)}, "${name} " + args + "\\n");
 if (/^bootout/.test(args)) rmSync(up, { force: true });
+if (/(restart|bootstrap).*relay/.test(args)) appendFileSync(up + "-starts", "x");
 if (${verb}.test(args)) writeFileSync(up, "");
-if (${verb}.test(args)) writeFileSync(${JSON.stringify(join(cfg, "relay-state.json"))}, JSON.stringify({ state: ${JSON.stringify(starts)}, at: Date.now(), pid: ${process.pid} }));
+if (${verb}.test(args)) writeFileSync(${JSON.stringify(join(cfg, "relay-state.json"))}, JSON.stringify({ state: ${refused} && !(existsSync(up + "-starts") && readFileSync(up + "-starts", "utf8").length > 1) ? "unauthorized" : ${JSON.stringify(starts)}, at: Date.now(), pid: ${process.pid} }));
 if (args.includes("is-active") && existsSync(up)) console.log("active");
 if (process.argv[2] === "print") existsSync(up) ? console.log("state = running") : process.exit(1);
 `,
@@ -79,6 +80,9 @@ if (args[0] === "login") {
 	const tag = existsSync(${JSON.stringify(join(dir, "tag"))}) ? readFileSync(${JSON.stringify(join(dir, "tag"))}, "utf8") : undefined;
 	if (!${keyed} && !${worker} && !tag) { console.error("This Worker does not exist on your account. [code: 10007]"); process.exit(1); }
 	console.log(JSON.stringify(args[0] === "versions" ? [{ annotations: tag ? { "workers/tag": tag } : {} }] : ${worker} ? [] : [{ name: "RELAY_KEY", type: "secret_text" }]));
+} else if (args[0] === "secret" && ${JSON.stringify(secret)} === "fail") {
+	console.error("boom");
+	process.exit(1);
 } else if (args[0] === "secret") {
 	writeFileSync(${JSON.stringify(join(dir, "secret"))}, readFileSync(0, "utf8"));
 }
