@@ -15,6 +15,7 @@ final class TychicusHost {
     private var askedToMove = Set<UInt32>()
     private var bundles: [Int32: (startedAt: Double?, bundle: String)] = [:]
     private var last: [HandsWindow] = []
+    private var known = KnownWindows()
     private let launcher: AgentAppLauncher = SystemAppLauncher()
 
     init(workspace: AgentWorkspace) { self.workspace = workspace }
@@ -89,11 +90,17 @@ final class TychicusHost {
     private func standardWindows(of pid: Int32) -> Set<UInt32> {
         let ax = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(ax, 0.25)
-        let listed: [AXUIElement] = ax.value(kAXWindowsAttribute) ?? []
-        return Set(listed.compactMap { el in
+        var raw: CFTypeRef?
+        let code = AXUIElementCopyAttributeValue(ax, kAXWindowsAttribute as CFString, &raw)
+        var standard: Set<UInt32>? = code == .success || code == .noValue ? [] : nil
+        var unread = Set<UInt32>()
+        for el in raw as? [AXUIElement] ?? [] {
             AXUIElementSetMessagingTimeout(el, 0.25)
-            return el.string(kAXSubroleAttribute) == kAXStandardWindowSubrole as String ? el.windowID : nil
-        })
+            guard let id = el.windowID else { continue }
+            guard let subrole = el.string(kAXSubroleAttribute) else { unread.insert(id); continue }
+            if subrole == kAXStandardWindowSubrole as String { standard?.insert(id) }
+        }
+        return known.windows(pid: pid, startedAt: AgentOwned.startTime(pid), read: standard, unread: unread) { HandsRouter.listedWindows(of: pid) }
     }
 
     private func element(_ id: UInt32) -> (element: AXUIElement, pid: Int32)? {

@@ -136,10 +136,9 @@ extension HandsRouter {
     }
 
     /// One look for layer 2: an Open or Save panel of the app, or a new window outside the agent workspace that may be
-    /// the press's (`MenuPath.escaped`). Input from Donovan shortly before or since the press unties a helper's window from it.
+    /// the press's (`MenuPath.escaped`). A helper's window is never tied to it.
     /// A look at windows the app didn't answer for is told to `watch`: one that ends on such a look is unknown.
     func menuWatchStep(_ w: HandsWindow, before: Set<UInt32>, agent: Int?, oldPanels: [AXUIElement], watch: MenuWatch<MenuPath.Seen>) -> @Sendable (Bool) -> MenuPath.Seen? {
-        let started = Date()
         return { [self, weak watch] settled in
             let read = MenuAX.windows(w.pid)
             watch?.looked(read: read != nil)
@@ -155,9 +154,8 @@ extension HandsRouter {
             let ids = new.map(\.id)
             let places = onMain { ids.map { host.live($0)?.workspace } }
             for i in new.indices { new[i].workspace = places[i]; MenuAX.fillProcess(&new[i]) }
-            let userInput = MenuPath.userInput(idle: IdleWatch.idle(), sincePress: Date().timeIntervalSince(started))
             let found = MenuPath.escaped(before: before, now: new, pid: w.pid, agentWorkspace: agent, settled: settled,
-                                         parent: all.first { $0.id == w.id }?.bounds, userInput: userInput)
+                                         parent: all.first { $0.id == w.id }?.bounds)
             return found.isEmpty && !panel ? nil : MenuPath.Seen(panel: panel, escapes: found)
         }
     }
@@ -173,7 +171,7 @@ extension HandsRouter {
         var open = found.filter(\.tied)
         let (panelError, closed) = MenuPath.undoing(panel: seen.panel,
             cancel: { cancelPanels(w, within: 0.3, old: oldPanels, inline: inline == nil ? nil : { false }) ?? MenuPath.panelRefusal(w.app, cancelled: false, gone: true) },
-            close: { open.removeAll { x in onMain { host.close(x.window.id) } }; return open.isEmpty },
+            close: { let now = MenuAX.listed(); open.removeAll { x in MenuPath.mayClose(x, now: now, pid: w.pid) && onMain { host.close(x.window.id) } }; return open.isEmpty },
             pause: { Thread.sleep(forTimeInterval: 0.1) })
         let escape = seen.escapes.isEmpty ? nil : MenuPath.escapeRefusal(path, found: found, gone: gone, closed: closed, window: Int(w.id))
         guard var e = panelError else { return escape ?? MenuPath.panelRefusal(w.app, cancelled: false, gone: true) }

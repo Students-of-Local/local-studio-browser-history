@@ -477,10 +477,6 @@ public enum MenuPath {
         }
     }
 
-    /// Whether input from Donovan may have opened a helper's window: input since a watch's length before the press, since
-    /// a helper takes a moment to put its window up after his keystroke or click (197 r1 first-F1).
-    public static func userInput(idle: TimeInterval, sincePress: TimeInterval) -> Bool { idle < sincePress + watch }
-
     /// The bundle id of the app, XPC service or extension a process runs from, read from its executable's path: an XPC
     /// service isn't an app LaunchServices knows, so NSRunningApplication has none for it (197 r1 second-S2).
     public static func processBundle(pid: Int32) -> String? {
@@ -516,10 +512,10 @@ public enum MenuPath {
     /// (192 r1 first-F2, second-F8):
     /// - The app's own, once `settled` (the host has had the watch to place it): tied. One untracked and lying on
     ///   `parent` (the target window's frame) is a sheet or alert on the agent's window, not an escape.
-    /// - Another process's: tied when its parent is the app; a helper bundle's is tied only when no input from
-    ///   Donovan came in the watch (`userInput`), else it is reported untied: he may have opened it himself.
+    /// - Another process's: tied when its parent is the app; a helper bundle's is reported untied, since nothing says
+    ///   the press brought it up and not he, or the system by itself (a print queue) (#90 r2 sol-F2).
     /// Any other process's window is his and is never listed.
-    public static func escaped(before: Set<UInt32>, now: [Listed], pid: Int32, agentWorkspace: Int?, settled: Bool, parent: CGRect?, userInput: Bool) -> [Escape] {
+    public static func escaped(before: Set<UInt32>, now: [Listed], pid: Int32, agentWorkspace: Int?, settled: Bool, parent: CGRect?) -> [Escape] {
         now.compactMap { w in
             guard !before.contains(w.id), w.visible, w.workspace == nil || w.workspace != agentWorkspace else { return nil }
             if w.pid == pid {
@@ -528,8 +524,14 @@ public enum MenuPath {
             }
             if w.parent == pid { return Escape(w, tied: true) }
             guard let b = w.bundle, helperBundles.contains(b) else { return nil }
-            return Escape(w, tied: !userInput)
+            return Escape(w, tied: false)
         }
+    }
+
+    /// Whether a window the press raised is still the one to close: tied, listed now under the same process, and that
+    /// process is the app's or its child.
+    public static func mayClose(_ e: Escape, now: [Listed], pid: Int32) -> Bool {
+        e.tied && (e.window.pid == pid || e.window.parent == pid) && now.contains { $0.id == e.window.id && $0.pid == e.window.pid }
     }
 
     /// Most of `w` lies on `parent`, as a sheet or an alert does on its window.

@@ -168,9 +168,9 @@ extension HandsRouter {
         /// What the span so far means: nil when nothing changed. An app that came forward by itself is shut out of the
         /// route; one Donovan brought forward is not blamed.
         func frontFailure() -> HandsError? { frontVerdict(w, kind: kind, spanFront(), events: tap.snapshot) }
-        let stop: () -> HandsError? = {
+        let stop: () -> HandsError? = { [self] in
             if cancelled() { return HandsError(.timeout, "the caller stopped waiting", suggestion: "Read the element back before trying again.", retry: .never) }
-            return frontFailure()
+            return AgentAccessGate.actingRefusal(mode: access) ?? frontFailure()
         }
 
         // Readings. The window's tree is read twice, a moment apart: what changes by itself, by place, is noise.
@@ -217,6 +217,14 @@ extension HandsRouter {
                                                  point: path.first.map { PointerPath.screenPoint(local: $0, frame: frame) }, frame: path.isEmpty ? frame : nil,
                                                  session: session, scope: scope.reason, workspace: w.workspace))
         }
+        /// Read again right before a post that follows a step, a hover or a reading: each takes time, and can raise a panel.
+        func recheck() -> Result<(permit: BackgroundPermit, frame: CGRect), HandsError> {
+            if let e = scopeCheck() { return .failure(e) }
+            guard let (facts, frame) = gatherFacts(w, kind: kind, verifier: verifier, path: path, session: session) else {
+                return .failure(HandsError(.windowNotFound, "window \(w.id) is gone", suggestion: "Run `computer_windows` and take a new snapshot.", retry: .afterSnapshot))
+            }
+            return BackgroundPlanner.plan(facts).map { (permit: $0, frame: frame) }
+        }
         let pointerBefore = BackgroundPoster.pointerLocation()
         var posted = 0, released = 0
         var aimed: [CGPoint] = []
@@ -239,10 +247,10 @@ extension HandsRouter {
             // step that shows nothing stops the press, and what landed before it is reported.
             let steps = KeySteps.split(chords)
             stepCount = steps.count
-            for step in steps {
-                let report = BackgroundPoster.keys(step.chords, permit: permit, stop: stop)
+            let failed = KeySteps.run(steps, check: recheck) { done, step, now in
+                let report = BackgroundPoster.keys(step.chords, permit: now.permit, stop: stop)
                 posted += report.posted.count; released += report.released; lastPostAt = Date()
-                if let stopped = report.stopped { return .failed(frontFailure() ?? stopped) }
+                if let stopped = report.stopped { return BackgroundRefusal.stopped(frontFailure() ?? stopped, landed: done, of: stepCount) }
                 let deadline = Date().addingTimeInterval(1.2)
                 var after: (ref: ElementReading?, focus: ElementReading?, window: WindowReading?, tree: JSONValue?) = (nil, nil, nil, nil)
                 repeat {
@@ -255,17 +263,18 @@ extension HandsRouter {
                     if let t = t.tree, let b = tree1 { diff = AXDiff.between(b, t) }
                 } while !verdict.verified && Date() < deadline
                 if !verdict.verified {
-                    if let e = frontFailure() { return .failed(e) }
+                    if let e = frontFailure() { return e }
                     droppedKeys = KeyPrediction.certainToShow(step, focusIsText: curFocus?.isText ?? false) && verdict.basis == "no_change"
                     BackgroundBreaker.shared.update { if droppedKeys { $0.dropped(pid: w.pid, kind: kind) } }
-                    return .failed(stepCount == 1 ? BackgroundRefusal.unverified(basis: verdict.basis)
-                                                  : BackgroundRefusal.partial(landed: landed, of: stepCount, basis: verdict.basis))
+                    return stepCount == 1 ? BackgroundRefusal.unverified(basis: verdict.basis) : BackgroundRefusal.partial(landed: done, of: stepCount, basis: verdict.basis)
                 }
                 landed += 1
                 // The next step is compared with how things stand now.
                 curRef = after.ref; curFocus = after.focus; curWindow = after.window
                 if let t = after.tree { baseEntries = ContentChange.entries(of: t) }
+                return nil
             }
+            if let failed { return .failed(failed) }
         case .pointer where style.right:
             // Proved by the menu's own window, not by the target window's tree or pixels (`ContextMenu`).
             // The cancel: Escape posted to the process, with a key permit of its own from the planner, planned with this
@@ -296,8 +305,10 @@ extension HandsRouter {
             }
             let shotBefore = verifier.hasPixels ? WindowShot.pixels(window: w.id, check: scopeCheck) : nil
             if verifier == .pixels, shotBefore == nil { return .failed(BackgroundRefusal.noVerifier(w.app)) }     // nothing is pressed yet
-            let press = BackgroundPoster.pointer(drag ? InputScript.drag(path: path) : InputScript.click(at: path[0], count: style.count), frame: frame, drag: drag,
-                                                 gesture: gesture, permit: permit, stop: stop)
+            let now: (permit: BackgroundPermit, frame: CGRect)
+            switch recheck() { case .failure(let e): return .failed(e); case .success(let r): now = r }
+            let press = BackgroundPoster.pointer(drag ? InputScript.drag(path: path) : InputScript.click(at: path[0], count: style.count), frame: now.frame, drag: drag,
+                                                 gesture: gesture, permit: now.permit, stop: stop)
             aimed += press.screenPoints
             posted += press.report.posted.count; released = press.report.released; lastPostAt = Date()
             if let stopped = press.report.stopped { return .failed(frontFailure() ?? stopped) }

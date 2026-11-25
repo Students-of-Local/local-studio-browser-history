@@ -1,3 +1,4 @@
+import CryptoKit
 import Carbon.HIToolbox
 import ImageIO
 import XCTest
@@ -139,11 +140,15 @@ final class BackgroundInputTests: XCTestCase {
         CGImageDestinationAddImage(dest, try XCTUnwrap(ctx.makeImage()), nil)
         XCTAssertTrue(CGImageDestinationFinalize(dest))
         let mcp = HandsMCP(version: "1", session: "s", perform: { _ in .success(.object([:])) }, readImage: { _ in data as Data })
-        func types(zoom: String) -> [String] {
-            let shot = JSONValue.object(["path": "/x.png", "points": ShotImage.pointsJSON(CGSize(width: 20, height: 10))])
+        let hash = SHA256.hash(data: data as Data).map { String(format: "%02x", $0) }.joined()
+        func types(zoom: String, sha256: String? = nil) -> [String] {
+            let shot = JSONValue.object(["path": "/x.png", "points": ShotImage.pointsJSON(CGSize(width: 20, height: 10)),
+                                         "evidence": .object(["sha256": .string(sha256 ?? hash)])])
             return (mcp.imageParts(verb: "shot", arguments: ["zoom": .string(zoom)], data: shot) ?? []).compactMap { $0["type"]?.string }
         }
         XCTAssertEqual(types(zoom: "0,0,10,10"), ["text", "image"])
         XCTAssertEqual(types(zoom: "40,0,10,10"), ["text"])
+        // Another capture replaced the file under this name: its picture isn't this window's (r2 sol-F3).
+        XCTAssertEqual(types(zoom: "0,0,10,10", sha256: String(repeating: "0", count: 64)), ["text"])
     }
 }

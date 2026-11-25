@@ -449,7 +449,7 @@ final class HandsRouter {
                 let token = AgentActivity.shared.begin(pid: w.pid, window: w.id)
                 defer { AgentActivity.shared.end(token) }
                 return WindowShot.capture(window: w.id, named: nil, check: check(w, session: session))
-                    .map { ShotImage.Captured(path: $0.path, width: $0.width, height: $0.height, points: $0.points) }
+                    .map { ShotImage.Captured(path: $0.path, width: $0.width, height: $0.height, points: $0.points, sha256: $0.sha256) }
             })))
     }
 
@@ -1035,11 +1035,13 @@ final class HandsRouter {
         let elsewhere = Self.listedWindows(of: pid).subtracting(held)
         let owned = onMain { host.agentOwned() }
         let waited = String(format: "%.1f", Date().timeIntervalSince(requestStart))
+        // An app that shows only a dialog (a file it can't open) says why there.
+        let dialog = ChildWindowsAX.dialog(of: pid)
+        let shown = MenuAX.windows(pid).map { Set($0.compactMap(\.id)) }
         switch OpenMiss.decide(launched: pid, agentStarted: owned, startedAt: AgentOwned.startTime(pid),
-                               requestStart: requestStart.timeIntervalSince1970, held: held.count) {
+                               requestStart: requestStart.timeIntervalSince1970, held: held.count,
+                               unread: OpenMiss.unread(shown: shown, listed: elsewhere, dialog: dialog != nil)) {
         case .quit(let p):
-            // An app that shows only a dialog (a file it can't open) says why there.
-            let dialog = ChildWindowsAX.dialog(of: p)
             childLocked { sessionWindows.cancelOpen(token) }
             Self.quit(p)
             Trace.log("agent open \(display): quit its copy (pid \(p)), no window on the agent workspace in \(waited)s; window(s) elsewhere: \(elsewhere.isEmpty ? "none" : elsewhere.sorted().map(String.init).joined(separator: ","))")
