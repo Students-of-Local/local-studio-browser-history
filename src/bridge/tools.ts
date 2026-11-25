@@ -54,6 +54,7 @@ import { injectScript } from "../browser/inject.js";
 import {
 	type Aim,
 	fillElement,
+	focusLimit,
 	goBack,
 	goForward,
 	inspectPage,
@@ -111,6 +112,7 @@ import {
 import { getAllowedHosts, getPermissionMode } from "./permissions.js";
 import { ERR, type ModelTier } from "./protocol.js";
 import { cleanRef, lookUpName, nodeLine, REF_RE } from "./ref-lookup.js";
+import { entersText, type HardLimit, limitWhy } from "./risk-rules.js";
 
 export { BridgeError, detachedError };
 
@@ -186,6 +188,8 @@ export interface HandlerContext {
 	batch?: boolean;
 	/** Set only when the client traces its calls (TYCHICUS_TRACE): note that this phase of the call ended now. */
 	mark?(label: string): void;
+	/** No text goes into a password or payment field (D67, risk-rules.ts). Unset (the side panel's own agent): no check. */
+	hardLimits?: boolean;
 }
 
 /**
@@ -324,6 +328,50 @@ async function changesBefore(ctx: HandlerContext, tabId: number, params?: Params
 		ctx.guardedHosts ?? [],
 		skipFor(ctx, tabId),
 	);
+}
+
+/** Why an agent's text may not go in (D67), for the agent to act on. `partway`: some of it went in before the field changed. */
+function limitError(limit: HardLimit | "other-site" | "closed-root", partway: boolean): BridgeError {
+	const said = partway ? "Stopped partway: some of the text went in, and the rest did not" : "Nothing was entered";
+	if (limit === "other-site")
+		return new BridgeError(
+			ERR.BAD_PARAMS,
+			`${said}: the focus is in a frame from another site, where Tychicus can't see which field has it. Call read_page, then type or fill with the field's ref.`,
+		);
+	if (limit === "closed-root")
+		return new BridgeError(
+			ERR.BAD_PARAMS,
+			`${said}: the focus is inside a part of the page it keeps closed (a closed shadow root), where Tychicus can't see which field has it. Call tabs_show and ask the user to type it.`,
+		);
+	const ask =
+		limit === "password-field"
+			? "call tabs_show with password_ref (and username_ref) so the user types it in a window of its own, then submit the form. Where that says the field can't be used, or for a new account, call tabs_show with wait and let the user type it on the page."
+			: "call tabs_show with wait and let the user enter it on the page and submit the form.";
+	return new BridgeError(
+		ERR.PERMISSION_DENIED,
+		`${said}: this field ${limitWhy(limit)}. No permission mode lets an agent enter passwords or payment details. Fill in the rest, then ${ask}`,
+	);
+}
+
+/**
+ * Right before text goes out: refuse it when the focus is a password or payment field, or can't be told (focusLimit). A
+ * look that fails throws, so no text goes out on a guess.
+ */
+async function refuseLimited(
+	ctx: HandlerContext,
+	tabId: number,
+	ref: string | undefined,
+	partway = false,
+): Promise<void> {
+	if (!ctx.hardLimits) return;
+	const limit = await focusLimit(tabId, ref, skipFor(ctx, tabId)).catch((err) => {
+		if (!partway || isDetachError(err)) throw err;
+		throw new BridgeError(
+			ERR.BAD_PARAMS,
+			`Stopped partway: some of the text went in, and the rest did not, because the next field couldn't be checked (${err instanceof Error ? err.message : err}). Call read_page before typing again.`,
+		);
+	});
+	if (limit) throw limitError(limit, partway);
 }
 
 function stopIfAborted(ctx: HandlerContext): void {
@@ -582,11 +630,16 @@ const pasteText: Handler = async (ctx, params) => {
 			await click(tabId, rect.x, rect.y, { stop: () => stopIfAborted(ctx), pointerThere: !!rect.aim });
 			await focusLanded(tabId, rect.aim, t.ref, "pasted");
 		}
+		await refuseLimited(ctx, tabId, t.ref);
 		stopIfAborted(ctx);
 		handed = true;
 		// The page's own paste handler first; text nothing took goes in at the focus, as one insertion.
 		const by = await pasteInto(tabId, t.ref, text, skipFor(ctx, tabId), before?.frame.hit);
-		if (by === "unhandled") await insertText(tabId, text);
+		if (by === "unhandled") {
+			// The page's handler may have moved the focus.
+			await refuseLimited(ctx, tabId, t.ref);
+			await insertText(tabId, text);
+		}
 		stopIfAborted(ctx);
 		if (params.submit === true) await pressKey(tabId, "Enter");
 		return by === "page" ? "page" : "inserted";
@@ -1205,9 +1258,15 @@ export const handlers: Record<string, Handler> = {
 				await focusLanded(tabId, rect.aim, t.ref, "typed");
 			}
 			stopIfAborted(ctx);
-			await typeText(tabId, text, ctx.aborted, () => {
-				keysStarted = true;
-			});
+			await typeText(
+				tabId,
+				text,
+				ctx.aborted,
+				() => {
+					keysStarted = true;
+				},
+				() => refuseLimited(ctx, tabId, t.ref, keysStarted),
+			);
 			stopIfAborted(ctx);
 			if (params.submit === true) await pressKey(tabId, "Enter");
 		};
@@ -1250,6 +1309,15 @@ export const handlers: Record<string, Handler> = {
 		const since = await actionStart(ctx, tabId);
 		try {
 			for (let i = 0; i < repeat; i++) {
+				if (entersText("press", key)) {
+					const check = () => refuseLimited(ctx, tabId, undefined, i > 0);
+					await check().catch(async (err: unknown) => {
+						// The debugger came off before this key was sent: attach again and look once more, as the press would.
+						if (!isDetachError(err) || isNavigatedError(err)) throw err;
+						await reattach(tabId);
+						await check();
+					});
+				}
 				stopIfAborted(ctx);
 				// The last press is the action: a box it opens worked (and its on_dialog may answer it), as a click's does.
 				if (i === repeat - 1) ctx.delivered({ pressed: key, repeat }, tabId);
@@ -1311,7 +1379,8 @@ export const handlers: Record<string, Handler> = {
 		ctx.mark?.("before");
 		const since = await actionStart(ctx, tabId);
 		ctx.mark?.("start");
-		await fillElement(tabId, t, value, skipFor(ctx, tabId), before?.frame.hit);
+		const limit = await fillElement(tabId, t, value, skipFor(ctx, tabId), before?.frame.hit, ctx.hardLimits);
+		if (limit) throw limitError(limit, false);
 		ctx.mark?.("input");
 		// fill focuses its field: the pointer goes there once it holds the value.
 		cuePointer(tabId, "fill");
