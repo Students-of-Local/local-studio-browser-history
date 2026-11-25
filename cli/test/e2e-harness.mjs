@@ -38,6 +38,9 @@ export async function until(fn, ms, what) {
 	throw new Error(`timed out waiting for ${what}${last ? `: ${last.message}` : ""}`);
 }
 
+/** What a CDP command fails with when its target closes before the reply. */
+export const TARGET_CLOSED = "the target closed";
+
 /** One CDP command over a target's websocket. */
 export async function cdp(wsUrl, method, params = {}) {
 	const ws = new WebSocket(wsUrl);
@@ -47,12 +50,17 @@ export async function cdp(wsUrl, method, params = {}) {
 	});
 	try {
 		const reply = await new Promise((resolve, reject) => {
-			const timer = setTimeout(() => reject(new Error(`${method} timed out`)), 15_000);
+			const timer = setTimeout(() => reject(new Error(`${method} timed out${params.expression ? `: ${params.expression.slice(0, 120)}` : ""}`)), 15_000);
 			ws.onmessage = (m) => {
 				const msg = JSON.parse(m.data);
 				if (msg.id !== 1) return;
 				clearTimeout(timer);
 				resolve(msg);
+			};
+			// The target went away (a window the call itself closed): its reply never comes.
+			ws.onclose = () => {
+				clearTimeout(timer);
+				reject(new Error(`${method}: ${TARGET_CLOSED}`));
 			};
 			ws.send(JSON.stringify({ id: 1, method, params }));
 		});

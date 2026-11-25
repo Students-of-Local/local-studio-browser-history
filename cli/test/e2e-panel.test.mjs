@@ -17,7 +17,7 @@ import { dirname, join } from "node:path";
 import { after, before, test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright-core";
-import { startHarness } from "./e2e-harness.mjs";
+import { startHarness, TARGET_CLOSED } from "./e2e-harness.mjs";
 import { loadTs } from "./helpers/bundle-ts.mjs";
 import { ethicsPdf, FAR_LINE, FRIENDSHIP_PAGES, makePdf } from "./helpers/pdf.mjs";
 import { lastToolResult, seedStubScript, stubModelServer } from "./helpers/stub-model.mjs";
@@ -1164,8 +1164,11 @@ test("a sign-in: the user types it in its own window, it goes into the page's fi
 		const ref = (name) => new RegExp(`(e\\d+) textbox "${name}"`).exec(read)?.[1];
 		return { read, username_ref: ref("Email"), password_ref: ref("Password") };
 	};
-	// After the reply: a window that closes inside the evaluate takes its answer with it, and the call times out.
-	const then = (t, js) => run(t, `void setTimeout(() => { ${js} })`);
+	// What closes the sign-in window can take the evaluate's reply with it.
+	const closing = (t, js) =>
+		run(t, `(() => { ${js} })()`).catch((err) => {
+			if (!err.message.includes(TARGET_CLOSED)) throw err;
+		});
 	const { username_ref, password_ref } = await refs();
 	assert.ok(username_ref && password_ref, "the page's two fields have refs");
 	const active = () => run(x.w, `chrome.tabs.query({ active: true, windowType: "normal" }).then((ts) => ts.map((t) => t.id).sort().join())`);
@@ -1191,7 +1194,7 @@ test("a sign-in: the user types it in its own window, it goes into the page's fi
 	await x.narrow(w);
 	await x.shot(w, "4-sign-in-window");
 	assert.equal(await run(x.p, `!!document.querySelector('[data-testid="handback-card"] [data-action="sign-in"]')`), true, "the panel's card opens it too");
-	await then(w, `const set = (id, v) => { document.getElementById(id).value = v; }; set("username", "pat@example.com"); set("password", ${JSON.stringify(PASSWORD)}); document.getElementById("fill").click();`);
+	await closing(w, `const set = (id, v) => { document.getElementById(id).value = v; }; set("username", "pat@example.com"); set("password", ${JSON.stringify(PASSWORD)}); document.getElementById("fill").click();`);
 	const done = await x.signingIn;
 	assert.ok(done.ok, done.text);
 	assert.match(done.text, /The user typed their sign-in and it is in the page's fields/);
@@ -1216,7 +1219,7 @@ test("a sign-in: the user types it in its own window, it goes into the page's fi
 	const again = h.call("tabs_show", ask);
 	const second = await h.until(windowTarget, 15_000, "the second window");
 	await h.until(() => run(second, `!document.getElementById("form").hidden`), 10_000, "the form");
-	await then(second, `document.getElementById("cancel").click();`);
+	await closing(second, `document.getElementById("cancel").click();`);
 	assert.match((await again).text, /The user chose not to type a sign-in/);
 	await h.until(gone, 10_000, "the window to close");
 
@@ -1226,20 +1229,20 @@ test("a sign-in: the user types it in its own window, it goes into the page's fi
 	const t3 = await h.until(windowTarget, 15_000, "the third window");
 	await h.until(() => run(t3, `!document.getElementById("form").hidden`), 10_000, "the form");
 	await run(page, `document.querySelector("[name=pw]").type = "text"`);
-	await then(t3, `document.getElementById("username").value = "pat"; document.getElementById("password").value = ${JSON.stringify(PASSWORD)}; document.getElementById("fill").click();`);
+	await closing(t3, `document.getElementById("username").value = "pat"; document.getElementById("password").value = ${JSON.stringify(PASSWORD)}; document.getElementById("fill").click();`);
 	const failed = await third;
 	assert.match(failed.text, /The sign-in was not completed on tab \d+: Ref e\d+ .+Nothing was entered\./);
 	assert.ok(!failed.text.includes(PASSWORD), failed.text);
 	assert.equal(await run(page, `document.querySelector("[name=email]").value + document.querySelector("[name=pw]").value`), "");
 	await run(page, `document.querySelector("[name=pw]").type = "password"`);
 	assert.match(await run(t3, `document.getElementById("status").textContent`), /^The page changed, so nothing was entered\. .+ was told and can ask again\.$/);
-	await then(t3, `window.close();`);
+	await closing(t3, `window.close();`);
 	await h.until(gone, 10_000, "the window to close");
 
 	// It unmasks the field as it takes the focus: only the username goes in, and both are told so.
 	const fill = async (t, values) => {
 		await h.until(() => run(t, `!document.getElementById("form").hidden`), 10_000, "the form");
-		await then(t, `for (const [id, v] of Object.entries(${JSON.stringify(values)})) document.getElementById(id).value = v; document.getElementById("fill").click();`);
+		await closing(t, `for (const [id, v] of Object.entries(${JSON.stringify(values)})) document.getElementById(id).value = v; document.getElementById("fill").click();`);
 	};
 	await run(page, `document.querySelector("[name=pw]").onfocus = (e) => { e.target.type = "text"; }`);
 	const fourth = h.call("tabs_show", ask);
@@ -1248,7 +1251,7 @@ test("a sign-in: the user types it in its own window, it goes into the page's fi
 	assert.match((await fourth).text, /Only the username was entered\./);
 	assert.equal(await run(page, `document.querySelector("[name=email]").value + "/" + document.querySelector("[name=pw]").value`), "pat/");
 	assert.match(await run(t4, `document.getElementById("status").textContent`), /only your username was entered/);
-	await then(t4, `window.close();`);
+	await closing(t4, `window.close();`);
 	await h.until(gone, 10_000, "the window to close");
 
 	// One field: the other row isn't shown, and only the named field is written.
@@ -1273,7 +1276,7 @@ test("a sign-in: the user types it in its own window, it goes into the page's fi
 	await fill(t6, { username: "pat", password: PASSWORD });
 	assert.match((await sixth).text, /The page moved to another site\. Nothing was entered\./);
 	assert.equal(await run(moved, `[...document.querySelectorAll("input")].map((i) => i.value).join("")`), "");
-	await then(t6, `window.close();`);
+	await closing(t6, `window.close();`);
 	await run(moved, `void (location.href = ${JSON.stringify(x.signIn)})`);
 	await h.until(() => h.pageTarget(x.signIn), 10_000, "the sign-in page again");
 });
