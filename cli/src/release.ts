@@ -313,14 +313,19 @@ export function versionHands(versionDir: string, platform: string = process.plat
 /**
  * Copy the version's computer-use helper to `handsInstallPath()`. Copied, not linked: macOS ties the Accessibility grant
  * to the program's real path and, for a program signed ad hoc, to its hash, so one fixed path keeps one entry in System
- * Settings. The same bytes are left alone (the grant stays); new bytes go in with a rename, so a running copy keeps its
- * file. Returns what happened, or undefined when the version carries no helper here.
+ * Settings; a link there is replaced by the copy for the same reason. The same bytes are left alone (the grant stays);
+ * new bytes go in with a rename, so a running copy keeps its file. `replaced` says an earlier helper was there. Undefined
+ * when the version carries no helper here.
  */
-export function installHands(versionDir: string, platform: string = process.platform): { path: string; changed: boolean } | undefined {
+export function installHands(versionDir: string, platform: string = process.platform): { path: string; changed: boolean; replaced: boolean } | undefined {
 	const from = versionHands(versionDir, platform);
 	if (!from) return undefined;
 	const dest = handsInstallPath();
-	if (existsSync(dest) && sha256File(dest) === sha256File(from)) return { path: dest, changed: false };
+	const was = lstatSync(dest, { throwIfNoEntry: false });
+	if (was?.isFile() && sha256File(dest) === sha256File(from)) {
+		chmodSync(dest, 0o755);
+		return { path: dest, changed: false, replaced: false };
+	}
 	mkdirSync(dirname(dest), { recursive: true });
 	const staged = `${dest}.new-${process.pid}`;
 	try {
@@ -330,7 +335,7 @@ export function installHands(versionDir: string, platform: string = process.plat
 	} finally {
 		rmSync(staged, { force: true });
 	}
-	return { path: dest, changed: true };
+	return { path: dest, changed: true, replaced: was !== undefined };
 }
 
 /**
@@ -500,8 +505,9 @@ export async function installFromRelease(dir: string, options: { dryRun?: boolea
 	await linkOnPath();
 	try {
 		const hands = installHands(target);
-		if (hands?.changed) console.log(`${sym.ok} Computer-use helper ${c.dim(hands.path)}\n${sym.warn} ${handsGrantLine(hands.path)}`);
-		else if (hands) console.log(`${sym.ok} Computer-use helper ${c.dim(hands.path)} is already this version`);
+		if (hands?.changed) console.log(`${sym.ok} Computer-use helper ${c.dim(hands.path)}`);
+		if (hands?.replaced) console.log(`${sym.warn} ${handsGrantLine(hands.path)}`);
+		if (hands && !hands.changed) console.log(`${sym.ok} Computer-use helper ${c.dim(hands.path)} is already this version`);
 	} catch (err) {
 		// The browser half is installed; computer use waits for the next install.
 		console.log(`${sym.warn} The computer-use helper wasn't copied to ${handsInstallPath()}: ${(err as Error).message}`);

@@ -10,7 +10,7 @@
 # can check it was built here: gh attestation verify <file> --repo baney75/tychicus
 #   --signer-workflow baney75/tychicus/.github/workflows/release.yml
 # Runs on a pushed v* tag (release.sh pushes one), or by hand for an existing tag:
-#   gh workflow run release.yml -f tag=v1.2.3
+#   gh workflow run release.yml --ref v1.2.3 -f tag=v1.2.3 (with --ref, the workflow and the tree are both the tag's)
 name: Release
 
 on:

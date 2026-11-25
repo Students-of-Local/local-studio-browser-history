@@ -11,6 +11,9 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { after, test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { loadTs } from "./helpers/bundle-ts.mjs";
+
+const { installHands } = await loadTs(`export { installHands } from "@src/release.ts";`);
 
 const here = dirname(fileURLToPath(import.meta.url));
 const cli = join(here, "..", "dist", "index.js");
@@ -134,7 +137,7 @@ const handsPath = (home) => join(home, ".local", "bin", "tychicus-hands");
 // Install never looks for a helper; doctor does, so it runs with only these variables and finds none but the one installed.
 const noHelperEnv = { TYCHICUS_HANDS_BIN: "", PATH: `${dirname(process.execPath)}:/usr/bin:/bin` };
 
-test("on a Mac, install puts the release's tychicus-hands in ~/.local/bin, says to re-allow it, and doctor names it", { skip: process.platform !== "darwin" }, () => {
+test("on a Mac, install puts the release's tychicus-hands in ~/.local/bin, and doctor names it", { skip: process.platform !== "darwin" }, () => {
 	const home = freshHome();
 	const { dir } = makeRelease("9.9.9", undefined, { hands: fakeHands("1.0.0") });
 	const r = run(home, ["install", "--release", dir], noHelperEnv);
@@ -144,8 +147,7 @@ test("on a Mac, install puts the release's tychicus-hands in ~/.local/bin, says 
 	assert.ok(lstatSync(installed).isFile() && !lstatSync(installed).isSymbolicLink(), "a copy at one fixed path, not a link into versions/");
 	assert.equal(statSync(installed).mode & 0o111, 0o111, "executable");
 	assert.ok(r.out.includes(`Computer-use helper ${installed}`), r.out);
-	assert.match(r.out, /Privacy & Security > Accessibility/);
-	assert.match(r.out, /signed ad hoc/);
+	assert.doesNotMatch(r.out, /signed ad hoc/, "nothing was allowed before, so nothing needs allowing again");
 	const doctor = spawnSync(process.execPath, [cli, "doctor", "--json"], {
 		env: { HOME: home, TMPDIR: tmpdir(), TABKYRA_SOCKET_DIR: join(home, "sock"), TYCHICUS_GH: "none", ...noHelperEnv },
 		encoding: "utf8",
@@ -171,7 +173,38 @@ test("on a Mac, the same helper again is left alone, and a new one replaces it",
 	const upgraded = run(home, ["install", "--release", next.dir], noHelperEnv);
 	assert.equal(upgraded.status, 0, upgraded.out);
 	assert.equal(readFileSync(handsPath(home), "utf8"), fakeHands("1.0.1"));
+	assert.match(upgraded.out, /Privacy & Security > Accessibility/);
 	assert.match(upgraded.out, /signed ad hoc/);
+});
+
+test("the Mac helper's copy: new, the same again, its mode restored, a link replaced, new bytes", { skip: process.platform === "win32" }, () => {
+	const home = freshHome();
+	const version = join(home, "version");
+	mkdirSync(join(version, "bin"), { recursive: true });
+	writeFileSync(join(version, "bin", "tychicus-hands"), "one");
+	const real = process.env.HOME;
+	process.env.HOME = home;
+	try {
+		const path = handsPath(home);
+		const install = () => installHands(version, "darwin");
+		assert.deepEqual(install(), { path, changed: true, replaced: false });
+		assert.equal(statSync(path).mode & 0o777, 0o755);
+		const { ino } = statSync(path);
+		chmodSync(path, 0o644);
+		assert.deepEqual(install(), { path, changed: false, replaced: false });
+		assert.equal(statSync(path).mode & 0o777, 0o755);
+		assert.equal(statSync(path).ino, ino, "the same file: macOS keeps its grant");
+		writeFileSync(join(version, "bin", "tychicus-hands"), "two");
+		assert.deepEqual(install(), { path, changed: true, replaced: true });
+		assert.equal(readFileSync(path, "utf8"), "two");
+		rmSync(path);
+		symlinkSync(join(version, "bin", "tychicus-hands"), path);
+		assert.deepEqual(install(), { path, changed: true, replaced: true });
+		assert.ok(lstatSync(path).isFile(), "a link into the version folder becomes a copy at the fixed path");
+		assert.equal(installHands(version, "linux"), undefined);
+	} finally {
+		process.env.HOME = real;
+	}
 });
 
 test("off a Mac, a release's tychicus-hands is not put in ~/.local/bin", { skip: process.platform === "darwin" || process.platform === "win32" }, () => {
