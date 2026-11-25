@@ -37,7 +37,7 @@ test("each metric a rival wins is listed as a loss, with both numbers", () => {
 	assert.deepEqual(losses(batch(run("rival"))), []);
 	const lost = losses(batch(run("rival", { speed_ms: { click: 20, fill: 60, firstText: 200 }, tasks: { pass: 29, of: 30, failed: {} } })));
 	assert.deepEqual(lost, [{ metric: "Click, ms (median)", tychicus: 50, best: { tool: "rival", value: 20 } }]);
-	assert.match(render([batch(run("rival", { speed_ms: { click: 20, fill: 60, firstText: 200 } }))]), /- Click, ms \(median\): Tychicus 50, rival 20\./);
+	assert.match(render([batch(run("rival", { speed_ms: { click: 20, fill: 60, firstText: 200 } }))]), /- Click, ms \(median\): Local Studio 50, rival 20\./);
 });
 
 test("a published run keeps numbers and failed task ids, never rows or page text", () => {

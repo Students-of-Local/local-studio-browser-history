@@ -1,4 +1,4 @@
-// The two measurements every tool gets, written once so Tychicus (run.mjs, speed.mjs, ../run.mjs) and the rivals
+// The two measurements every tool gets, written once so Local Studio (run.mjs, speed.mjs, ../run.mjs) and the rivals
 // (../rivals/run.mjs) are measured the same way: the scripted task set, and the per-verb speed on t02's form.
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";

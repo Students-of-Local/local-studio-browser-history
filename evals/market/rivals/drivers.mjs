@@ -1,4 +1,4 @@
-// One driver per rival tool, with the same verbs as Tychicus's driver (../tasks/lib.mjs), so every tool runs the same solve logic (../tasks/solves.mjs).
+// One driver per rival tool, with the same verbs as Local Studio's driver (../tasks/lib.mjs), so every tool runs the same solve logic (../tasks/solves.mjs).
 // Each verb is the fewest tool calls that tool needs for it; `s.calls` counts them. Targets are found by
 // role and accessible name from the tool's own snapshot, never by a CSS selector or page JavaScript.
 import { execFile } from "node:child_process";

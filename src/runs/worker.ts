@@ -26,6 +26,9 @@ const RENAMES_KEY = "browser_session_renames";
 let log: RunsLog | undefined;
 let loading: Promise<RunsLog> | undefined;
 let edits: Promise<unknown> = Promise.resolve();
+/** When each session's run last ended, for the calls still open then; the newest MAX_ENDED of them. */
+const ended = new Map<string, number>();
+const MAX_ENDED = 50;
 let flushTimer: ReturnType<typeof setTimeout> | undefined;
 
 function load(): Promise<RunsLog> {
@@ -70,25 +73,38 @@ async function titleOf(tabId: number | undefined): Promise<string | undefined> {
 /** One step of a run, after it answered. */
 export function recordStep(sessionId: string, step: StepInput): void {
 	const at = Date.now();
-	edit(async (l) => addStep(l, sessionId, { ...step, tabTitle: step.tabTitle ?? (await titleOf(step.tabId)) }, at));
+	const endedAt = ended.get(sessionId);
+	edit(async (l) => {
+		const tabTitle = step.tabTitle ?? (await titleOf(step.tabId));
+		return addStep(l, sessionId, { ...step, tabTitle }, at, endedAt);
+	});
 }
 
 /** Open waits per run: a run can wait on two hand-backs, or a hand-back and a question, at once. */
 const waits = new Map<string, number>();
 
-/** A wait on the user opened or closed. The run shows waiting from its first open wait until its last one closes. */
-export function runWaiting(sessionId: string, on: boolean): void {
+/**
+ * A wait on the user opened or closed. The run shows waiting from its first open wait until its last one closes. A wait
+ * whose call began (`since`) before the run ended doesn't start it again.
+ */
+export function runWaiting(sessionId: string, on: boolean, since = Date.now()): void {
 	const open = Math.max(0, (waits.get(sessionId) ?? 0) + (on ? 1 : -1));
 	if (open) waits.set(sessionId, open);
 	else waits.delete(sessionId);
+	if (on && since <= (ended.get(sessionId) ?? -1)) return;
 	if (on ? open === 1 : open === 0) edit((l, now) => setWaiting(l, sessionId, on, now));
 }
 
 export function runEnded(sessionId: string, failed?: boolean): void {
+	ended.delete(sessionId);
+	ended.set(sessionId, Date.now());
+	if (ended.size > MAX_ENDED) ended.delete(ended.keys().next().value as string);
 	edit((l, now) => endRun(l, sessionId, now, failed));
 }
 
 export function runRenamed(from: string, to: string): void {
+	const at = ended.get(from);
+	if (at !== undefined) ended.set(to, at);
 	edit((l) => renameRun(l, from, to));
 }
 
