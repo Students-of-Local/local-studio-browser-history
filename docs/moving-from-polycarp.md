@@ -1,6 +1,6 @@
 # Moving agents from Polycarp
 
-Before Tychicus, the browser tools came from Polycarp's browser helper, so your agents may have an MCP entry, usually named `polycarp`, that runs `polycarp browser mcp`, `polycarp-browser mcp`, `tabkyra mcp` or Polycarp's old browser launcher (`~/.config/polycarp/browser/polycarp mcp`). Once Polycarp drops its browser, those agents lose their browser tools. `tychicus setup --agents` (and the agent step of `tychicus setup`) moves them in two steps in one run: the move, then the rename to `tychicus`.
+Before Local Studio, the browser tools came from Polycarp's browser helper, so your agents may have an MCP entry, usually named `polycarp`, that runs `polycarp browser mcp`, `polycarp-browser mcp`, `tabkyra mcp` or Polycarp's old browser launcher (`~/.config/polycarp/browser/polycarp mcp`). Once Polycarp drops its browser, those agents lose their browser tools. `tychicus setup --agents` (and the agent step of `tychicus setup`) moves them in two steps in one run: the move, then the rename to `tychicus`.
 
 ## See what would change
 
@@ -8,7 +8,7 @@ Before Tychicus, the browser tools came from Polycarp's browser helper, so your 
 tychicus setup --dry-run
 ```
 
-For each agent config that runs Polycarp's browser server, this prints the file, the entries it would move, and the exact lines before and after, as `diff -u` shows them; for each entry that already runs Tychicus under an old name, it prints the rename the same way. It writes nothing. `tychicus doctor` lists the same agents with a warning.
+For each agent config that runs Polycarp's browser server, this prints the file, the entries it would move, and the exact lines before and after, as `diff -u` shows them; for each entry that already runs Local Studio's server under an older server name, such as `polycarp` or `tabkyra`, it prints the rename the same way. It writes nothing. `tychicus doctor` lists the same agents with a warning.
 
 ## Step 1: move them
 
@@ -16,9 +16,9 @@ For each agent config that runs Polycarp's browser server, this prints the file,
 tychicus setup --agents        # asks first; add --yes to skip the question
 ```
 
-`tychicus setup` does the same move in its "Connect your coding agents" step. Each entry it finds keeps its name, position and env, and only its command and arguments change: it now runs Tychicus's launcher (`~/.config/tychicus/tychicus mcp`). No second entry is added, so each agent still starts one server. Step 2 then renames it, in the same run.
+`tychicus setup` does the same move in its "Connect your coding agents" step. Each entry it finds keeps its name, position and env, and only its command and arguments change: it now runs Local Studio's launcher (`~/.config/tychicus/tychicus mcp`). No second entry is added, so each agent still starts one server. Step 2 then renames it, in the same run.
 
-If the file already has a `tychicus` entry beside the old one, the agent runs two Tychicus servers until step 2 removes the old name, and the plan says so.
+If the file already has a `tychicus` entry beside the old one, the agent runs two Local Studio servers until step 2 removes the old name, and the plan says so.
 
 How each file is written:
 
@@ -56,13 +56,13 @@ Restart an agent that was running for it to pick up the change.
 
 ## Step 2: rename to tychicus
 
-Right after the move, `tychicus setup --agents` renames each entry that runs Tychicus under an old name to `tychicus`. It asks first (`--yes` skips the question) and shows the exact lines. These entries are aliases, listed in `~/.config/tychicus/agent-aliases.json`; an entry named `polycarp` or `tabkyra` (any case) that runs Tychicus's launcher counts too, so an entry moved before this step existed, or one whose list couldn't be written, is renamed as well. `tychicus doctor` warns about each with the one fix, `tychicus setup --agents`. To run only the rename:
+Right after the move, `tychicus setup --agents` renames each such entry to `tychicus`, the name the server and the command keep for now. It asks first (`--yes` skips the question) and shows the exact lines. These entries are aliases, listed in `~/.config/tychicus/agent-aliases.json`; an entry named `polycarp` or `tabkyra` (any case) that runs Local Studio's launcher counts too, so an entry moved before this step existed, or one whose list couldn't be written, is renamed as well. `tychicus doctor` warns about each with the one fix, `tychicus setup --agents`. To run only the rename:
 
 ```bash
 tychicus setup --agents --finish --dry-run   # see the renames
 tychicus setup --agents --finish             # asks first; add --yes to skip the question
 ```
 
-Tool names follow the server name, so a rule, hook or prompt that named the old one (a Claude Code permission rule for `mcp__polycarp`, an AGENTS.md line about "the polycarp MCP server") needs the new name; setup says so after a rename. Tychicus never edits those.
+Tool names follow the server name, so a rule, hook or prompt that named the old one (a Claude Code permission rule for `mcp__polycarp`, an AGENTS.md line about "the polycarp MCP server") needs the new name; setup says so after a rename. Local Studio never edits those.
 
 Each alias is renamed to `tychicus` in place, with the same command, env and position. When a `tychicus` entry is already there and matches the alias in every field (command, args, env, `enabled` and the rest, in any key order), the alias is removed instead. When they differ in any field, both are left for you to settle by hand, with the fields named, and the command exits 1: removing the alias could drop the server the agent actually runs, such as an enabled alias beside a disabled `tychicus`, or its env. Neighboring aliases are removed in one edit. `--dry-run` writes nothing, the alias list included. Files are backed up and checked the same way as in step 1, each finished alias leaves `agent-aliases.json`, and running it again changes nothing. An agent then reaches the same tools as `tychicus` (tool names such as `mcp__tychicus__navigate` in Claude Code).

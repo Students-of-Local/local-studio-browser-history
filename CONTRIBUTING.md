@@ -1,4 +1,4 @@
-# Contributing to Tychicus
+# Contributing to Local Studio's browser and computer use
 
 Thanks for helping. Bug reports, fixes, docs and skills are all welcome. This page covers
 setup, the checks a pull request must pass, and how skill contributions are reviewed.
@@ -23,7 +23,7 @@ tychicus setup                    # builds the extension, registers the host, co
 `npm run build && tychicus reload`. Set `TABKYRA_NO_BUMP=1` to stop a build from bumping
 the version in `static/manifest.chrome.json`.
 
-Upstream code lives in the siblings. A change to pi-mono that Tychicus needs goes in
+Upstream code lives in the siblings. A change to pi-mono that Local Studio needs goes in
 `patches/pi-mono.patch`.
 
 ## Checks

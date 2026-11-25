@@ -68,12 +68,21 @@ public enum OpenMiss: Equatable, Sendable {
         alpha > 0 && bounds.width > minSide && bounds.height > minSide
     }
 
+    /// Whether a copy with no window held may still have one, so it isn't quit for showing none: its app didn't answer
+    /// what windows it shows (`shown` nil), or the window server lists one it doesn't show to Accessibility now (a window on
+    /// another Space). One that shows a dialog shows what it has (#90 r2 first-F2).
+    public static func unread(shown: Set<UInt32>?, listed: Set<UInt32>, dialog: Bool) -> Bool {
+        guard let shown else { return true }
+        return !dialog && !listed.isSubset(of: shown)
+    }
+
     /// `launched`: the pid the launch's own completion reported. `startedAt`: that process's start, in seconds since 1970.
     /// `requestStart`: when the request began, the same clock. `held`: windows of that pid the agent workspace holds.
     public static func decide(launched: Int32?, agentStarted: Set<Int32>, startedAt: TimeInterval?, requestStart: TimeInterval,
-                              held: Int) -> OpenMiss {
+                              held: Int, unread: Bool) -> OpenMiss {
         guard let pid = launched else { return .wait }
         guard held == 0 else { return .placed }
+        guard !unread else { return .leave }
         guard agentStarted.contains(pid), let t = startedAt, t >= requestStart - startSlack else { return .leave }
         return .quit(pid: pid)
     }
@@ -104,5 +113,22 @@ public enum CloseReadback {
         }
         if mainThread, !listed() { return true }
         return !inModel()
+    }
+}
+
+/// The standard windows of each process an agent started. One whose app doesn't answer keeps the windows it showed last,
+/// while the window server still lists them under that process: the window isn't gone, it can't be checked now, and a
+/// call on it is told to try again (#90 r2 first-F2).
+public struct KnownWindows {
+    private var known: [Int32: (startedAt: Double?, ids: Set<UInt32>)] = [:]
+    public init() {}
+
+    /// `read`: the standard windows the app showed, nil when it didn't answer. `unread`: windows it listed and didn't say the
+    /// kind of. `listed`: what the window server lists under the process now.
+    public mutating func windows(pid: Int32, startedAt: Double?, read: Set<UInt32>?, unread: Set<UInt32>, listed: () -> Set<UInt32>) -> Set<UInt32> {
+        let kept = known[pid].flatMap { $0.startedAt == startedAt ? $0.ids : nil } ?? []
+        let ids = read?.union(kept.intersection(unread)) ?? (kept.isEmpty ? [] : kept.intersection(listed()))
+        known[pid] = (startedAt, ids)
+        return ids
     }
 }

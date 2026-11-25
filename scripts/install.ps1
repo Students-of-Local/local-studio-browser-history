@@ -1,4 +1,4 @@
-# Installs Tychicus's helper from a GitHub release, on Windows:
+# Installs the Local Studio helper from a GitHub release, on Windows:
 #
 #   irm https://github.com/baney75/tychicus/releases/latest/download/install.ps1 | iex
 #
@@ -39,7 +39,7 @@ function Install-Tychicus {
 	$identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 	$elevated = ([Security.Principal.WindowsPrincipal]$identity).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 	if ($elevated -and -not $allowRoot) {
-		Fail 'refusing to run as administrator. Tychicus installs into your own profile and needs no elevation. Run this from a PowerShell window that is not "Run as administrator", or pass --allow-root.'
+		Fail 'refusing to run as administrator. The helper installs into your own profile and needs no elevation. Run this from a PowerShell window that is not "Run as administrator", or pass --allow-root.'
 	}
 
 	if ($env:TYCHICUS_INSTALL_BASE_URL) {
@@ -154,8 +154,8 @@ function Install-Tychicus {
 		$localAppData = if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { Join-Path $HOME 'AppData\Local' }
 		$root = Join-Path $localAppData 'Tychicus\release'
 		Write-Host ''
-		Write-Host "Tychicus $version is installed in $root."
-		Write-Host 'Next: if you added Tychicus from the Chrome Web Store, its side panel now shows the helper connected. Otherwise load'
+		Write-Host "The Local Studio helper $version is installed in $root."
+		Write-Host 'Next: if you added the extension from the Chrome Web Store, its side panel now shows the helper connected. Otherwise load'
 		Write-Host "the extension from the folder printed above. Then connect your coding agents: & '$root\tychicus.exe' setup"
 	} finally {
 		Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue

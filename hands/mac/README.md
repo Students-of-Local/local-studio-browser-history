@@ -34,10 +34,14 @@ asks macOS which program that is, and when the grant is missing:
 - `computer_status` says so and names the program and its path: "macOS hasn't allowed Terminal to use Accessibility,
   so tychicus-hands can't read or act on windows. Ask the person to open System Settings > Privacy & Security >
   Accessibility and turn on Terminal (/System/Applications/Utilities/Terminal.app)...".
-- every window verb answers `permission_denied` with the same words.
+- every window verb, `windows` and `open` included, answers `permission_denied` with the same words.
 
 It asks macOS on every call (`AXIsProcessTrusted`), not once at start. The helper never opens System Settings or
 changes a permission itself.
+
+A capture (`shot`, or `snapshot` with `screenshot: true`) also needs Screen Recording, checked against the same program:
+System Settings > Privacy & Security > Screen & System Audio Recording. Without it those answer `permission_denied` and
+everything else works.
 
 ## Signing
 
@@ -81,6 +85,9 @@ suite against the signed binary at Default and Read Only. The runner gives the h
 
 - Developer ID signing and notarization, so a grant to the helper survives updates.
 - Consent sheets (lend, allow, Full Access). Until then lending answers `needs_lend` and Full Access can't be chosen.
+- Right clicks and pop-up menus (`click` with `button: right`, `select` or `click` on a pop-up button): the menu would open
+  on the person's screen, so they are refused until a window manager shows an agent workspace.
+- Copies an agent left open when its helper ends stay open, and the next helper doesn't count them as the agent's.
 - Close without saving for apps that autosave in place: TextEdit saved typed text into the file on `close` in the
   live test, and `cmd+z` or File > Revert To did not undo it in the background copy.
 - An Intel (x86_64) build: the release has a darwin-arm64 archive only.

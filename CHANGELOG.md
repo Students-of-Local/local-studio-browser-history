@@ -88,6 +88,9 @@
 - A request that reuses an idle connection to `serve` or the hub no longer fails now and then. Node closed an idle connection after 5 seconds,
   while a tunnel keeps its own for about 90 and sends the next request down it, so one that went out as Node closed it came back as a 502. Both now
   keep an idle connection for 2 minutes. Tests: `cli/test/remote.test.mjs`, `cli/test/hub-hardening.test.mjs`.
+- A hand-back an agent already gave up on no longer shows its card. A cancel or a disconnect that came before the hand-back, or while it looked its tab up, found
+  nothing to end and the card waited 10 minutes for nobody. A run in the Runs view no longer says "Running" for good after its agent left in the middle of a call: the
+  call's answer is logged as a step of the ended run (#52). Tests: `test/handback-worker.test.mjs`, `test/runs.test.mjs`.
 - `read_page` right after a page opens now holds a cross-site frame (a payment form) that arrives a moment later. It waits for a frame it
   first saw under a second ago, and starts no new look after a second; a frame that still hasn't arrived is listed as "not loaded yet". The market
   task `t05-iframe` missed the form in 2 of 3 runs on a Mac (#75). Tests: `test/frames.test.mjs`, `cli/test/e2e-bridge.test.mjs`.

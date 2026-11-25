@@ -187,12 +187,12 @@ final class HandsEngine {
             return failure
         }
         guard let a = ad_adapter_create() else {
-            failure = HandsError(.engineError, "the hands engine didn't start: \(lastError().message)", suggestion: "Check `tychicus-hands doctor`.", retry: .never)
+            failure = HandsError(.engineError, "the hands engine didn't start: \(lastError().message)", suggestion: "Run `tychicus doctor`.", retry: .never)
             return failure
         }
         guard let e = "evidence".withCString({ ad_adapter_create_with_session($0) }) else {
             ad_adapter_destroy(a)
-            failure = HandsError(.engineError, "the engine's evidence store didn't start: \(lastError().message)", suggestion: "Check `tychicus-hands doctor`.", retry: .never)
+            failure = HandsError(.engineError, "the engine's evidence store didn't start: \(lastError().message)", suggestion: "Run `tychicus doctor`.", retry: .never)
             return failure
         }
         adapter = a
@@ -214,8 +214,8 @@ final class HandsEngine {
         if let json, json["ok"]?.bool == true { return .ok(json["data"] ?? .object([:])) }
         if let err = json?["error"] { return .failed(Self.translate(err)) }
         let e = lastError()
-        if code == Self.resultPermDenied || e.message.lowercased().contains("permission") {
-            return .failed(AccessibilityGrant.missing())
+        if code == Self.resultPermDenied || e.message.lowercased().contains("permission"), let problem = AccessibilityGrant.problem() {
+            return .failed(problem)
         }
         return .failed(HandsError(.engineError, e.message.isEmpty ? "the engine failed (\(code))" : e.message,
                                   suggestion: e.suggestion.isEmpty ? "Take a new snapshot and try again." : EngineVerdict.suggestion(e.suggestion), retry: .never))
@@ -261,7 +261,7 @@ final class HandsEngine {
 
     private func doSnapshot(windowID: UInt32, interactive: Bool, compact: Bool, depth: UInt8, evidence: Bool, surface: Int32 = surfaceWindow) -> Reply {
         if let e = ready() { return .failed(e) }
-        guard let adapter = evidence ? evidenceAdapter : adapter else { return .failed(HandsError(.engineError, "the engine isn't ready", suggestion: "Check `tychicus-hands doctor`.", retry: .never)) }
+        guard let adapter = evidence ? evidenceAdapter : adapter else { return .failed(HandsError(.engineError, "the engine isn't ready", suggestion: "Run `tychicus doctor`.", retry: .never)) }
         var out: UnsafeMutablePointer<CChar>?
         let id = "w-\(windowID)"
         // The exact window id alone names the window. The app's name is not passed: two copies of an app share
@@ -285,7 +285,7 @@ final class HandsEngine {
 
     private func doGet(ref: String, property: String) -> Reply {
         if let e = ready() { return .failed(e) }
-        guard let adapter else { return .failed(HandsError(.engineError, "the engine isn't ready", suggestion: "Check `tychicus-hands doctor`.", retry: .never)) }
+        guard let adapter else { return .failed(HandsError(.engineError, "the engine isn't ready", suggestion: "Run `tychicus doctor`.", retry: .never)) }
         var out: UnsafeMutablePointer<CChar>?
         let code = ref.withCString { r in property.withCString { p in ad_get_ref(adapter, r, p, &out) } }
         return finish(code, out)
@@ -325,7 +325,7 @@ final class HandsEngine {
 
     private func doAct(ref: String, kind: Kind, text: String?, direction: Int32, amount: UInt32, evidence: Bool = false, check: @escaping Check, cancelled: () -> Bool) -> Reply {
             if let e = ready() { return .failed(e) }
-            guard let adapter = evidence ? evidenceAdapter : adapter else { return .failed(HandsError(.engineError, "the engine isn't ready", suggestion: "Check `tychicus-hands doctor`.", retry: .never)) }
+            guard let adapter = evidence ? evidenceAdapter : adapter else { return .failed(HandsError(.engineError, "the engine isn't ready", suggestion: "Run `tychicus doctor`.", retry: .never)) }
             var out: UnsafeMutablePointer<CChar>?
             var action = AdAction()
             action.kind = kind.rawValue

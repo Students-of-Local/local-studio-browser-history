@@ -11,14 +11,10 @@ struct HandsHost {
     /// One window, straight from the model, for the check right before an engine call.
     var live: (UInt32) -> HandsWindow? = { _ in nil }
     var titles: ([UInt32]) -> [UInt32: String] = { _ in [:] }
-    /// What a window shows: its document (AXDocument), and whether it is an Open or Save panel.
-    var inspect: (UInt32) -> (document: String?, panel: Bool) = { _ in (nil, false) }
+    /// What a window shows: its document (AXDocument), whether it is an Open or Save panel, and whether its app answered.
+    var inspect: (UInt32) -> (document: String?, panel: Bool, readable: Bool) = { _ in (nil, false, true) }
     /// The processes the hands started for an agent.
     var agentOwned: () -> Set<Int32> = { [] }
-    /// Asks Donovan, in a sheet, whether to lend an app; true only for a real click on "Lend".
-    var askToLend: (_ app: String, _ minutes: Int, _ takeBack: Bool) -> Bool = { _, _, _ in false }
-    /// Asks Donovan, in a sheet, whether agents may open an app; true only for a real click on "Allow".
-    var askToAllow: (_ app: String, _ bundle: String, _ path: String) -> Bool = { _, _, _ in false }
     /// Where the agent cursor last acted in a window, for `agent shot --cursor`.
     var cursorMark: (UInt32) -> CursorMark? = { _ in nil }
     /// The session engine's `agent open <app> [files…]`.
@@ -39,7 +35,7 @@ final class HandsRouter {
     private let lends = HandsLends.shared
     private let cap: (AgentAccessMode) -> AgentAccessMode
     /// The access this router works under: the Mac's setting, through its cap. Every decision below reads this one, so a
-    /// router for connectors can never act on Full Access (`HandsRouterAccessTests` holds the code to it).
+    /// router for connectors can never act on Full Access.
     var access: AgentAccessMode { cap(AgentAccess.shared.current) }
 
     /// A router for connectors (another machine): the managing verbs (`WorkspaceVerbs.manage`) are never open to it.
@@ -97,7 +93,7 @@ final class HandsRouter {
             case .failure(let e): return .failure(e)
             }
         }
-        if req.verb != "windows", req.verb != "workspaces", req.verb != "query", req.verb != "events", req.verb != "open", let problem = HandsEngine.shared.permissionProblem() { return .failure(problem) }
+        if let problem = HandsEngine.shared.permissionProblem() { return .failure(problem) }
         // A click by text: the element is picked from a read of the window now, then clicked by its ref like any click.
         if req.verb == "click", req.args["ref"] == nil, let text = req.string("text") {
             switch clickTarget(req, text: text) {
@@ -162,12 +158,6 @@ final class HandsRouter {
         // A window an agent moved onto the agent workspace keeps the scope that let it move: none once that ends.
         let d = HandsMovedIn.shared.decide(w, base: base, lends: book, now: Date(), mode: mode)
         if case .denied = d { return d }
-        // What Full Access let onto the agent workspace goes out with it. A window of that process Donovan lends later still counts as lent.
-        if d == .onAgentWorkspace, mode != .full, AgentAccess.shared.grantedUnderFull(w.pid) {
-            if book.isLent(w, now: Date()) { return .lent }
-            return .denied(HandsError(.needsSandbox, "\(w.app) was opened for agents under Full Access, and agent access is \(mode.title) now",
-                                      suggestion: "Ask the person to set Full Access again (Settings > Agents), or work in an app `computer_open` starts in \(mode.title).", retry: .never))
-        }
         return d
     }
 
@@ -273,11 +263,13 @@ final class HandsRouter {
 
     /// The check right before an engine call: the window is still the same process's, and still in scope.
     /// A move to one of Donovan's workspaces or a revoked lend between resolving and dispatching stops the call.
-    func gate(_ w: HandsWindow, session: String = "") -> HandsError? {
+    /// `panels` false: for the cancel of a panel, which is up by definition.
+    func gate(_ w: HandsWindow, session: String = "", panels: Bool = true) -> HandsError? {
         let (placed, agent) = onMain { (host.live(w.id), host.agentWorkspace()) }
         guard let now = placed ?? (w.workspace == nil ? childWindow(w.id) : nil) else { return HandsError(.windowNotFound, "window \(w.id) is gone", suggestion: "Run `computer_windows` and take a new snapshot.", retry: .afterSnapshot) }
         guard now.pid == w.pid else { return HandsError(.staleRef, "window \(w.id) belongs to a different process now", suggestion: "Take a new snapshot.", retry: .afterSnapshot) }
         if case .denied(let e) = decide(now, agent, session: session) { return e }
+        guard panels else { return nil }
         // A child's own panel check is part of its decision (`ChildWindowRule` rule 3).
         return now.workspace == nil ? nil : sheetProblem(now, agent: agent, session: session) ?? inspectProblem(now)
     }
@@ -288,7 +280,7 @@ final class HandsRouter {
     func inspectProblem(_ w: HandsWindow) -> HandsError? {
         let (owned, seen) = onMain { (host.agentOwned(), host.inspect(w.id)) }
         let agentOwned = owned.contains(w.pid)
-        let verdict = WindowInspection.decide(full: access == .full, agentOwned: agentOwned, panel: seen.panel, document: seen.document, handoff: Self.handoffFolder)
+        let verdict = WindowInspection.decide(full: access == .full, agentOwned: agentOwned, panel: seen.panel, readable: seen.readable, document: seen.document, handoff: Self.handoffFolder)
         if verdict.remembered { remember(w.id) }
         switch verdict {
         case .usable:
@@ -296,6 +288,8 @@ final class HandsRouter {
         case .panel:
             // Not remembered: read again on every use, so the window is usable once the panel or sheet closes.
             return PanelDetector.refusal(window: w.id, app: w.app)
+        case .unreadable:
+            return HandsError(.timeout, "\(w.app) isn't answering, so window \(w.id) can't be checked now", suggestion: "Try again in a moment.", retry: .safe)
         case .outsideDocument:
             return HandsError(.needsSandbox, "window \(w.id) of \(w.app) shows a document from outside the handoff folder",
                               suggestion: "Agents work only on files from the handoff folder. Open the file with `computer_open <app> <file in the handoff folder>`.", retry: .never)
@@ -455,7 +449,7 @@ final class HandsRouter {
                 let token = AgentActivity.shared.begin(pid: w.pid, window: w.id)
                 defer { AgentActivity.shared.end(token) }
                 return WindowShot.capture(window: w.id, named: nil, check: check(w, session: session))
-                    .map { ShotImage.Captured(path: $0.path, width: $0.width, height: $0.height, points: $0.points) }
+                    .map { ShotImage.Captured(path: $0.path, width: $0.width, height: $0.height, points: $0.points, sha256: $0.sha256) }
             })))
     }
 
@@ -631,7 +625,7 @@ final class HandsRouter {
     private func scroll(_ req: HandsRequest) -> HandsEnvelope {
         let dirs = ["up": 0, "down": 1, "left": 2, "right": 3]
         guard let d = dirs[(req.string("direction") ?? "").lowercased()] else {
-            return .failure(HandsError(.badArguments, "direction must be up, down, left or right", suggestion: "usage: tychicus-hands agent scroll <ref> down", retry: .safe))
+            return .failure(HandsError(.badArguments, "direction must be up, down, left or right", suggestion: "Pass a ref and direction, such as `computer_scroll <ref> down`.", retry: .safe))
         }
         return act(req, .scroll, "scroll", direction: Int32(d), amount: UInt32(clamping: req.int("amount") ?? 3))
     }
@@ -643,7 +637,7 @@ final class HandsRouter {
 
     /// `pasted`: the text is what the session copied, read once the ref resolved and the app is free (198 r1 second-N1).
     private func act(_ req: HandsRequest, _ kind: HandsEngine.Kind, _ name: String, text: String? = nil, pasted: Bool = false, direction: Int32 = 1, amount: UInt32 = 3) -> HandsEnvelope {
-        guard let ref = req.string("ref") else { return .failure(HandsError(.badArguments, "ref is missing", suggestion: "usage: tychicus-hands agent \(name) <ref>", retry: .safe)) }
+        guard let ref = req.string("ref") else { return .failure(HandsError(.badArguments, "ref is missing", suggestion: "Pass the ref of an element from `computer_snapshot`.", retry: .safe)) }
         let session = req.session ?? ""
         if let e = SessionClipboard.both(text: text, paste: pasted) { return .failure(e) }
         if kind == .click || kind == .select, let item = pasteboardItem(ref, option: kind == .select ? text : nil, session: session) {
@@ -817,7 +811,7 @@ final class HandsRouter {
     // MARK: apps
 
     private func open(_ req: HandsRequest) -> HandsEnvelope {
-        guard let app = req.string("app") else { return .failure(HandsError(.badArguments, "app is missing", suggestion: "usage: tychicus-hands agent open <app>", retry: .safe)) }
+        guard let app = req.string("app") else { return .failure(HandsError(.badArguments, "app is missing", suggestion: "Pass an app, such as `computer_open TextEdit`.", retry: .safe)) }
         guard let url = SessionController.appURL(app) else {
             return .failure(HandsError(.appNotFound, "no app called \(app)", suggestion: "Use the app's name as in /Applications, or its bundle id.", retry: .safe))
         }
@@ -841,7 +835,6 @@ final class HandsRouter {
         if listed { Trace.log("agent open: \(display) (\(bundle)) is one the person allowed") }
         let files: [String]
         switch AgentOpenGate.check(app: display, bundle: bundle, targets: targets, handoff: Self.handoffFolder, appURL: url,
-                                     probeFolder: ProbeAppTrust.folder, probeTrusted: bundle == AgentAppPolicy.canvasProbeBundle && ProbeAppTrust.trusted(url),
                                      mode: access) {
         case .failure(let e): return .failure(e)
         case .success(let f): files = f
@@ -927,7 +920,7 @@ final class HandsRouter {
         }
         func lookOnce() -> HandsWindow? {
             let (all, agent) = listWindows(fresh: true)
-            let candidates = all.filter { matches($0, reply.info?["app"] ?? display) && $0.workspace == agent && (!separate || !pidsBefore.contains($0.pid)) }
+            let candidates = all.filter { (!bundle.isEmpty && matches($0, bundle) || matches($0, reply.info?["app"] ?? display)) && $0.workspace == agent && (!separate || !pidsBefore.contains($0.pid)) }
             // Provenance: `close` closes only windows this session's `open` made. Claimed under the lock, only a window of this
             // request's own launch, never one another session owns, and nothing while another open of the same running app overlaps.
             return childLocked { () -> HandsWindow? in
@@ -1042,12 +1035,20 @@ final class HandsRouter {
         let elsewhere = Self.listedWindows(of: pid).subtracting(held)
         let owned = onMain { host.agentOwned() }
         let waited = String(format: "%.1f", Date().timeIntervalSince(requestStart))
+        // An app that shows only a dialog (a file it can't open) says why there.
+        let dialog = ChildWindowsAX.dialog(of: pid)
+        let shown = MenuAX.windows(pid).map { Set($0.compactMap(\.id)) }
         switch OpenMiss.decide(launched: pid, agentStarted: owned, startedAt: AgentOwned.startTime(pid),
-                               requestStart: requestStart.timeIntervalSince1970, held: held.count) {
+                               requestStart: requestStart.timeIntervalSince1970, held: held.count,
+                               unread: OpenMiss.unread(shown: shown, listed: elsewhere, dialog: dialog != nil)) {
         case .quit(let p):
             childLocked { sessionWindows.cancelOpen(token) }
             Self.quit(p)
             Trace.log("agent open \(display): quit its copy (pid \(p)), no window on the agent workspace in \(waited)s; window(s) elsewhere: \(elsewhere.isEmpty ? "none" : elsewhere.sorted().map(String.init).joined(separator: ","))")
+            if let dialog {
+                return (nil, HandsError(.actionFailed, "\(display) showed only a dialog (\(dialog)), so that copy was quit",
+                                        suggestion: "The same open would show it again: check the file, or open another one.", retry: .never))
+            }
             return (nil, HandsError(.actionFailed, "\(display) opened no window Tychicus could put on the agent workspace, so that copy was quit",
                                     suggestion: "Run `open` again.", retry: .safe))
         case .leave:
@@ -1088,79 +1089,4 @@ final class HandsRouter {
     private func runningCopies(bundle: String) -> Set<pid_t> {
         Set(NSWorkspace.shared.runningApplications.filter { $0.bundleIdentifier == bundle }.map(\.processIdentifier))
     }
-
-    // MARK: lending (Donovan's, never an agent's: see HandsTools.userOnly and SocketPolicy)
-
-    /// `agent lend <app|pid>` from the command line: not a grant. It checks the request, then asks Donovan in a
-    /// sheet; only a real click on "Lend" in the app lends (`LendConsent`). Called on the main thread.
-    func askToLend(target: String, duration: String?, session: String) -> HandsEnvelope {
-        guard !target.isEmpty else { return .failure(HandsError(.badArguments, "say which app", suggestion: "usage: tychicus-hands agent lend <app|pid> [--for 30m]", retry: .safe)) }
-        let regular = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
-        let found: [NSRunningApplication]
-        if let pid = Int32(target) { found = regular.filter { $0.processIdentifier == pid } }
-        else { found = regular.filter { $0.localizedName?.caseInsensitiveCompare(target) == .orderedSame || $0.bundleIdentifier?.caseInsensitiveCompare(target) == .orderedSame } }
-        guard !found.isEmpty else { return .failure(HandsError(.appNotFound, "\(target) isn't running", suggestion: "Open it first.", retry: .safe)) }
-        guard found.count == 1, let app = found.first else {
-            return .failure(HandsError(.ambiguous, "\(target) is running \(found.count) times: pids " + found.map { String($0.processIdentifier) }.joined(separator: ", "),
-                                       suggestion: "Lend by pid: `computer_lend <pid>`.", retry: .safe))
-        }
-        let name = app.localizedName ?? "app"
-        if lends.isLent(pid: app.processIdentifier) {
-            // Already lent: the sheet offers to take it back.
-            guard host.askToLend(name, 0, true) else { return .failure(HandsError(.permissionDenied, "not confirmed", suggestion: "Nothing changed.", retry: .never)) }
-            lends.giveBack(name)
-            return .success(.object(["returned": .array([.string(name)])]))
-        }
-        guard let seconds = LendBook.duration(duration) else {
-            return .failure(HandsError(.badArguments, "couldn't read the time \(duration ?? "")", suggestion: "Use 10m, 2h or 90s.", retry: .safe))
-        }
-        // Whether Donovan is using the app doesn't stop the request: the sheet is his decision. After a lend, actions on it
-        // wait while he uses it (`awaitUse`).
-        let ids = host.freshWindows().filter { $0.pid == app.processIdentifier }.map(\.id)
-        guard !ids.isEmpty else {
-            return .failure(HandsError(.windowNotFound, "\(name) has no window Tychicus tracks", suggestion: "Open a window in it first.", retry: .safe))
-        }
-        guard host.askToLend(name, Int(seconds / 60), false) else {
-            return .failure(HandsError(.permissionDenied, "the person didn't lend \(name)", suggestion: "Nothing was lent. Work on the agent workspace with `computer_open`.", retry: .never))
-        }
-        let entry = lends.lend(app: name, bundle: app.bundleIdentifier ?? "", pid: app.processIdentifier, windows: ids, session: session, for: seconds)
-        let ending = session.isEmpty ? "" : " or session \(session) ends"
-        let note = "agents may use these windows until the time runs out" + ending + "; reads work at any time, and an action waits while you are using the app"
-        return .success(.object(["lent": .string(name), "pid": .int(Int(app.processIdentifier)), "windows": .array(ids.map { .int(Int($0)) }),
-                                 "until": .int(Int((entry?.until ?? Date()).timeIntervalSince1970)),
-                                 "note": .string(note)]))
-    }
-
-    // MARK: allowing apps (Donovan's, the same way as lending)
-
-    /// `agent allow <app>`: not a grant. It checks the app, then asks Donovan in a sheet; only a real click on Allow adds
-    /// it (`AppAllowConsent`), with the copy the sheet named (`AgentAppGrants`, in memory). `--remove` narrows and never asks;
-    /// `--list` reads. Called on the main thread.
-    func askToAllow(target: String, verb: String) -> HandsEnvelope {
-        func list() -> JSONValue { .array(AgentAppGrants.current.sorted().map(JSONValue.string)) }
-        if verb == "list" { return .success(.object(["allowed": list()])) }
-        guard !target.isEmpty, let url = SessionController.appURL(target) else {
-            return .failure(HandsError(.appNotFound, "no app called \(target)", suggestion: "usage: tychicus-hands agent allow [--remove] <app>", retry: .safe))
-        }
-        let bundle = Bundle(url: url)?.bundleIdentifier ?? ""
-        let name = url.deletingPathExtension().lastPathComponent
-        if verb == "remove" {
-            AgentAppGrants.remove(bundle)
-            return .success(.object(["removed": .string(bundle), "allowed": list()]))
-        }
-        if AgentAppPolicy.separateInstance.contains(bundle) { return .success(.object(["allowed": list(), "note": .string("\(name) is built in")])) }
-        let facts = AgentAppFacts.read(url)
-        // The copy macOS opens for the id, in /Applications, signed: the sheet names it, and only it opens (second-F7).
-        let copy = AgentAppCopy.read(url)
-        if let why = AgentAppPolicy.neverListed(bundle: bundle) ?? AgentAppCopy.placeProblem(url, registered: NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundle))
-            ?? (copy == nil ? "Tychicus can't check its code signature" : nil) ?? (facts == nil ? "Tychicus can't read its bundle" : facts?.refusal) {
-            return .failure(HandsError(.needsSandbox, "\(name): \(why), so it can't be allowed", suggestion: "Ask the person to lend \(name) while he is away from it.", retry: .never))
-        }
-        guard let copy, host.askToAllow(name, bundle, copy.path) else {
-            return .failure(HandsError(.permissionDenied, "the person didn't allow \(name)", suggestion: "Nothing changed.", retry: .never))
-        }
-        AgentAppGrants.add(bundle, copy)
-        return .success(.object(["allowed": list(), "added": .string(bundle)]))
-    }
-
 }

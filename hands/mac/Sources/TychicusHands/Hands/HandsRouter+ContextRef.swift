@@ -6,7 +6,7 @@ import Foundation
 // posted right click (`contextMenu`, `ContextMenu`).
 extension HandsRouter {
     func contextClick(_ req: HandsRequest, item: String?) -> HandsEnvelope {
-        guard let ref = req.string("ref") else { return .failure(HandsError(.badArguments, "ref is missing", suggestion: "usage: tychicus-hands agent click <ref> --button right", retry: .safe)) }
+        guard let ref = req.string("ref") else { return .failure(HandsError(.badArguments, "ref is missing", suggestion: "Pass the ref of an element from `computer_snapshot`.", retry: .safe)) }
         let session = req.session ?? ""
         switch resolve(ref, session: session) {
         case .failure(let e): return .failure(e)
