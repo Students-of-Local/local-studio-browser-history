@@ -241,7 +241,7 @@ async function probe(address: string, publicUrl: string, token: string): Promise
 	const held = {
 		name: "streaming" as const,
 		status: "fail" as const,
-		next: `Assistants time out on a held stream. A quick tunnel (trycloudflare.com) or a buffering proxy does this: use ${COMMAND_NAME} remote setup (Tailscale Funnel or a Cloudflare named tunnel), or turn buffering off in your proxy.`,
+		next: `Assistants time out on a held stream. A quick tunnel (trycloudflare.com) or a buffering proxy does this: use ${COMMAND_NAME} remote setup (a relay, Tailscale Funnel or a Cloudflare named tunnel), or turn buffering off in your proxy.`,
 	};
 	let answer: Answer;
 	try {
@@ -264,7 +264,7 @@ async function probe(address: string, publicUrl: string, token: string): Promise
 	}
 	if (answer.status !== 200) return { name: "streaming", status: "fail", detail: `POST /mcp answered ${answer.status}`, next: `Run ${COMMAND_NAME} remote fix, then ${COMMAND_NAME} remote test again.` };
 	if (!/text\/event-stream/.test(header(answer, "content-type"))) {
-		return { name: "streaming", status: "fail", detail: `POST /mcp answered ${header(answer, "content-type") || "no content type"}, not a stream (text/event-stream)`, next: "Something between the internet and serve rewrites the answer. Use Tailscale Funnel or a Cloudflare named tunnel (remote setup)." };
+		return { name: "streaming", status: "fail", detail: `POST /mcp answered ${header(answer, "content-type") || "no content type"}, not a stream (text/event-stream)`, next: "Something between the internet and serve rewrites the answer. Use a relay, Tailscale Funnel or a Cloudflare named tunnel (remote setup)." };
 	}
 	if (answer.firstByteMs === undefined || answer.firstByteMs > STREAM_FIRST_BYTE_MS) return { ...held, detail: `the stream's first bytes didn't arrive in ${STREAM_FIRST_BYTE_MS / 1000} seconds: something between the internet and serve holds them back` };
 	return { name: "streaming", status: "ok", detail: `the stream's first bytes arrived in ${answer.firstByteMs} ms` };

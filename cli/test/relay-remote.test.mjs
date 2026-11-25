@@ -13,12 +13,12 @@ after(() => rmSync(root, { recursive: true, force: true }));
 
 test("signed out with no terminal: setup asks for the sign-in, runs no login and saves nothing", { skip: !unix }, async () => {
 	const m = machine(root, "signed-out", { whoami: "out" });
-	const r = await m.run(["remote", "setup", "--relay", "--json"]);
+	const r = await m.run(["remote", "setup", "--json"]);
 	assert.equal(r.code, 3, r.stdout + r.stderr);
 	const report = r.json();
 	assert.equal(report.code, "cloudflare_login");
 	assert.equal(report.step, "needs_signin");
-	assert.deepEqual(report.next, { kind: "sign_in", command: "tychicus remote setup --relay" });
+	assert.deepEqual(report.next, { kind: "sign_in", command: "tychicus remote setup" });
 	assert.deepEqual(
 		m.wrangler().map((l) => l.split(" ")[3]),
 		["whoami"],
@@ -66,10 +66,10 @@ test("no workers.dev subdomain: setup names the onboarding page for the account 
 test("a sign-in with two accounts needs --account, and --account picks the one wrangler deploys to", { skip: !unix }, async () => {
 	const whoami = { loggedIn: true, accounts: [{ id: ACCOUNT, name: "Mine" }, { id: OTHER, name: "Work" }] };
 	const m = machine(root, "two-accounts", { whoami, deploy: "subdomain" });
-	const r = await m.run(["remote", "setup", "--relay", "--json"]);
+	const r = await m.run(["remote", "setup", "--json"]);
 	assert.equal(r.code, 3);
 	assert.equal(r.json().code, "cloudflare_account");
-	assert.deepEqual(r.json().next, { kind: "run_command", command: "tychicus remote setup --relay --account <id>" });
+	assert.deepEqual(r.json().next, { kind: "run_command", command: "tychicus remote setup --account <id>" });
 	assert.ok(!m.wrangler().some((l) => l.includes(" deploy ")));
 	const picked = await m.run(["remote", "setup", "--json", "--relay", "my-relay", "--account", OTHER]);
 	assert.equal(picked.json().code, "workers_subdomain");
@@ -91,7 +91,7 @@ test("at a terminal, a sign-in with two accounts is asked about until the answer
 	assert.equal(r.stdout.split("Type 1 to 2: ").length - 1, 4, "3, work and an empty line are asked again");
 	assert.equal(deploys(m).length, 1);
 	assert.ok(deploys(m)[0].includes(`account=${OTHER} `), deploys(m)[0]);
-	assert.ok((r.stdout + r.stderr).includes(`run tychicus remote setup --relay --account ${OTHER} again`), "the command names the account picked");
+	assert.ok((r.stdout + r.stderr).includes(`run tychicus remote setup --relay --account ${OTHER} --no-passcode again`), "the command names the account picked");
 });
 
 test("at a terminal, no answer to the account question deploys nothing and saves nothing", { skip: !unix }, async () => {
@@ -130,11 +130,44 @@ test("at a terminal, q or the end of input at the subdomain wait stops, and noth
 		const m = machine(root, `subdomain-${name}`, { subdomainAfter: 1 });
 		const r = await m.run(["remote", "setup", "--relay", "--no-passcode"], TERMINAL, { input });
 		assert.equal(r.code, 3, r.stdout + r.stderr);
-		assert.match(r.stdout + r.stderr, /run tychicus remote setup --relay again\. Nothing was saved/);
+		assert.match(r.stdout + r.stderr, /run tychicus remote setup --relay --no-passcode again\. Nothing was saved/);
 		assert.equal(deploys(m).length, 1, name);
 		assert.equal(m.secret(), undefined);
 		assert.equal(m.remoteJson(), undefined);
 	}
+});
+
+test("at a terminal, --no-wait and --no-input never ask about the account or wait for the subdomain, and the command to run again keeps the run's flags", { skip: !unix }, async () => {
+	for (const flag of ["--no-wait", "--no-input"]) {
+		const two = machine(root, `unasked-account${flag}`, { whoami: twoAccounts });
+		const asked = await two.run(["remote", "setup", "--relay", "--no-passcode", "--port", "9000", flag], TERMINAL, { input: "1\n" });
+		assert.equal(asked.code, 3, asked.stdout + asked.stderr);
+		assert.doesNotMatch(asked.stdout, /Type 1 to/);
+		assert.match(asked.stderr, /Pick one with --account <id>/);
+		assert.deepEqual(deploys(two), []);
+		const sub = machine(root, `unasked-subdomain${flag}`, { subdomainAfter: 1 });
+		const waited = await sub.run(["remote", "setup", "--relay", "--no-passcode", "--port", "9000", flag], TERMINAL, { input: "\n" });
+		assert.equal(waited.code, 3, waited.stdout + waited.stderr);
+		assert.doesNotMatch(waited.stdout, /Press Enter/);
+		assert.match(waited.stderr, /run tychicus remote setup --relay --no-passcode --port 9000 again\. Nothing was saved/);
+		assert.equal(deploys(sub).length, 1);
+	}
+	const out = machine(root, "flags-login", { whoami: "out" });
+	assert.equal((await out.run(["remote", "setup", "--json", "--no-passcode", "--port", "9000"])).json().next.command, "tychicus remote setup --no-passcode --port 9000");
+	const taken = machine(root, "flags-taken", { keyed: true });
+	assert.match((await taken.run(["remote", "setup", "--json", "--no-passcode"])).json().next.command, / --no-passcode$/);
+});
+
+test("a named route never reaches wrangler, and plain setup on a saved --public-url keeps it", { skip: !unix }, async () => {
+	const m = machine(root, "no-relay");
+	assert.equal((await m.run(["remote", "setup", "--tailscale", "--json"])).json().state, "tailscale_missing");
+	writeFileSync(join(m.cfg, "remote.json"), JSON.stringify({ publicUrl: "https://front.example.com", port: 1, route: "custom" }), { mode: 0o600 });
+	const kept = await m.run(["remote", "setup", "--no-service", "--no-passcode", "--json", "--port", "2"]);
+	assert.equal(kept.json().code, "serve", "past the plan: only nothing listening on the port stops it");
+	assert.equal(m.remoteJson().port, 2);
+	assert.equal(m.remoteJson().publicUrl, "https://front.example.com");
+	assert.equal(m.remoteJson().route, "custom");
+	assert.deepEqual(m.wrangler(), []);
 });
 
 test("route flags and the relay's own refusals change nothing", { skip: !unix }, async () => {
@@ -163,7 +196,7 @@ test("setup end to end: deploy, a new key on stdin, saved 0600, the connector's 
 	const serve = await serveStandIn();
 	try {
 		const extra = { RELAY_HOOK_PORT: String(serve.port), TYCHICUS_PUBLIC_WAIT_MS: "2000", TYCHICUS_PUBLIC_POLL_MS: "50" };
-		const r = await m.run(["remote", "setup", "--relay", "--json", "--port", String(serve.port)], extra, { hooks: true });
+		const r = await m.run(["remote", "setup", "--json", "--port", String(serve.port)], extra, { hooks: true });
 		assert.equal(r.code, 0, r.stdout + r.stderr);
 		const report = r.json();
 		assert.equal(report.state, "on");
