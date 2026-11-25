@@ -168,9 +168,10 @@ extension HandsRouter {
         /// What the span so far means: nil when nothing changed. An app that came forward by itself is shut out of the
         /// route; one Donovan brought forward is not blamed.
         func frontFailure() -> HandsError? { frontVerdict(w, kind: kind, spanFront(), events: tap.snapshot) }
-        let stop: () -> HandsError? = { [self] in
+        func readOnly() -> HandsError? { AgentAccessGate.actingRefusal(mode: access) }
+        let stop: () -> HandsError? = {
             if cancelled() { return HandsError(.timeout, "the caller stopped waiting", suggestion: "Read the element back before trying again.", retry: .never) }
-            return AgentAccessGate.actingRefusal(mode: access) ?? frontFailure()
+            return readOnly() ?? frontFailure()
         }
 
         // Readings. The window's tree is read twice, a moment apart: what changes by itself, by place, is noise.
