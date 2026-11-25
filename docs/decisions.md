@@ -2397,3 +2397,26 @@ the agent uses `wait` and the person signs in on the page.
 **Proof.** `test/sign-in.test.mjs` (which refs, which origins, who may answer) and `cli/test/e2e-panel.test.mjs` (asked, typed, filled,
 in no result, read or storage; no value in HTML; wrong fields; Cancel; a field that stops masking, before and during the write; a
 tab moved to another site; one field alone).
+
+## D70. `remote setup` defaults to a relay on the person's own Cloudflare account (Claude, 2026-11-24)
+
+**Context.** The owner wants one click and no waitlist: a person makes their own free relay on their own Cloudflare
+account. Tailscale Funnel needs a Tailscale account and an admin's yes; a Cloudflare tunnel with a fixed name needs a
+domain. The relay Worker in baney75/local-studio-tunnels (`relay/`) needs neither: its address is
+`<name>.<subdomain>.workers.dev`, and a connector on this computer dials out to it.
+
+**Decision.**
+- With no route flag and no route set up, `remote setup` takes the relay route. It replaces the question that asked
+  Tailscale or Cloudflare. `--tailscale`, `--tailnet`, `--cloudflare` and `--public-url` keep their routes, and plain
+  setup on a route that is on keeps it.
+- Setup drives the person's own `wrangler` at one pinned version through `npx`: whoami, login in their terminal,
+  deploy, and `secret put RELAY_KEY` with the key on stdin. Tychicus never reads wrangler's sign-in.
+- Every setup run makes a new key, saved in `remote.json` at 0600.
+- The relay forwards serve's nine paths and `/v1/health` only, so a hub stays off it.
+- `remote off` leaves the Worker on the account and prints the delete command. Deleting it can't be undone.
+- The relay needs Node.js 22 or later for its built-in WebSocket. Setup refuses older ones with Node's download page.
+
+**Why.**
+- A workers.dev address is the only route with neither a domain nor a second account to make.
+- A new key each run means a `remote.json` copied elsewhere stops working at the next setup.
+- Leaving the Worker matches the Cloudflare tunnel route, which leaves its tunnel and record.

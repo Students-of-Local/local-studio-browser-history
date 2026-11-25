@@ -61,7 +61,7 @@ Every host named below sees the computer's IP address, as any site does.
   hub machine can ask the browser for page content and tool results. Those travel over the tunnel the user set up, on
   the user's own Tailscale Funnel or Cloudflare account, or to the hub machine the user named. Every request needs a
   sign-in the user approved. Setting it up looks the name up at `cloudflare-dns.com` and can download cloudflared from
-  `github.com` and `release-assets.githubusercontent.com`. With `--relay`, setup runs Cloudflare's own program, wrangler
+  `github.com` and `release-assets.githubusercontent.com`. For the relay, the usual route, setup runs Cloudflare's own program, wrangler
   (downloaded from `registry.npmjs.org`, its usage reports off), to put a small Worker on the user's own Cloudflare account,
   and the tunnel is a connection to that Worker's workers.dev address; what wrangler contacts is Cloudflare's choice.
   `tychicus remote off` turns it off.

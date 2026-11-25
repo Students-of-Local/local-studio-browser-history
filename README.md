@@ -200,8 +200,8 @@ release archive does not carry it yet. [docs/LINUX.md](docs/LINUX.md) covers the
 
 ## Remote access
 
-`tychicus remote setup` makes the MCP server reachable from claude.ai, ChatGPT and grok.com through Tailscale Funnel or
-your own Cloudflare tunnel; [docs/remote.md](docs/remote.md) has every step.
+`tychicus remote setup` makes the MCP server reachable from claude.ai, ChatGPT and grok.com through a relay
+on your own free Cloudflare account, Tailscale Funnel or your own Cloudflare tunnel; [docs/remote.md](docs/remote.md) has every step.
 
 ### Moving a connector from Polycarp
 
