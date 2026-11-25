@@ -7,6 +7,7 @@
  */
 
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { lookup } from "node:dns/promises";
 import { get as httpGet } from "node:http";
@@ -70,7 +71,7 @@ import { loadRemoteConfig, type RelayConfig, type RemoteConfig, reachedOnTailnet
 import { type RouteRecord, readRouteRecord, routeRecordFile, TYCHICUS_PATHS } from "./route-record.ts";
 import { applyMounts, funnelOn443, handlersOn443, type Mount, mountTarget, planMounts, readServeState, removeMounts, type ServeState, wantedMounts } from "./tailnet.ts";
 import { cloudflareTunnelPaths, setupThroughLocalStudio } from "./remote-join.ts";
-import { generateRelayKey, RELAY_SERVICE, readRelayStatus, relaySetupCommand, relayStateFile } from "./relay.ts";
+import { generateRelayKey, RELAY_SERVICE, readRelayStatus, relaySetupCommand, relayStateFile, workerStays } from "./relay.ts";
 import { DEFAULT_RELAY_NAME, deploy as deployRelay, login as relayLogin, npxBinary, onboardingUrl, putKey as putRelayKey, WRANGLER_VERSION, whoami as relayWhoami } from "./relay-setup.ts";
 import { verify as verifyRelay } from "./relay-verify.ts";
 
@@ -713,6 +714,12 @@ async function runSetup(options: SetupOptions): Promise<number> {
 		if (!npxBinary()) return fail("problem", "The relay route deploys with Cloudflare's wrangler through npx, and npx isn't on PATH. It comes with Node.js.", { code: "npx", next: { kind: "install", url: NODE_DOWNLOAD_URL } });
 		relayName = options.relay || previous?.relay?.name || DEFAULT_RELAY_NAME;
 		if (!validWorkerName(relayName)) return fail("problem", `${relayName} can't be a Worker's name: use 1 to 63 of a-z, 0-9 and -, not starting or ending with -.`, { code: "relay_name", next: { kind: "choose_name" } });
+		// Another Worker's key would stay valid behind an address assistants have, with nothing here naming it any more.
+		const old = previous?.relay;
+		if (old && (old.name !== relayName || (options.account && old.accountId && options.account !== old.accountId))) {
+			const command = `${COMMAND_NAME} remote off`;
+			return fail("problem", `The relay ${old.name} from an earlier setup is on. Run ${command} first; it says how to delete that Worker. Nothing was changed.`, { code: "relay_on", next: { kind: "run_command", command } });
+		}
 		// The relay goes on the person's own account, from their own sign-in: wrangler login in their terminal, never one of ours.
 		const again = `${COMMAND_NAME} remote setup${options.relay !== undefined ? ` --relay ${options.relay}`.trimEnd() : ""}`;
 		const signIn: RemoteNext = { kind: "sign_in", command: `${again}${options.account ? ` --account ${options.account}` : ""}` };
@@ -741,17 +748,20 @@ async function runSetup(options: SetupOptions): Promise<number> {
 		if (tailscaleBinary()) {
 			// Funnel on 8443 would stay public and forward to this machine, whatever else is set up.
 			const stray = await strayFunnel();
-			if (stray.kind !== "none") return fail("port_busy", `Funnel on ${FUNNEL_PORT} is on${stray.kind === "unknown" ? ` (${stray.message})` : ""}; run ${COMMAND_NAME} remote off first. Nothing was changed.`, { code: "tailscale_port" });
+			if (stray.kind === "found") return fail("port_busy", `Funnel on ${FUNNEL_PORT} is on; run ${COMMAND_NAME} remote off first. Nothing was changed.`, { code: "tailscale_port" });
+			// The relay doesn't use Tailscale, so a state that can't be read doesn't stop it.
+			if (stray.kind === "unknown") say(`${sym.warn} ${stray.message} If it is, this machine stays public there too.`);
 		}
 		// The relay goes live refusing every connector until RELAY_KEY is set (relay/deploy.md), so deploying before the key is safe.
 		say(`${sym.dot} Deploying the relay as ${relayName} to your Cloudflare account.`);
-		// Naming the Worker, or having set it up before, is the go-ahead to take a relay over; the default name may be another computer's.
-		const deployed = await deployRelay(relayName, relayAccount, { takeOver: Boolean(options.relay) || previous?.relay?.name === relayName });
+		// Naming the Worker, or having set it up before on this account, is the go-ahead to take a relay over; the default name may be another computer's.
+		const deployed = await deployRelay(relayName, relayAccount, { takeOver: Boolean(options.relay) || (old !== undefined && old.accountId === relayAccount) });
 		if (!deployed.ok && (deployed.why === "relay" || deployed.why === "other")) {
 			const host = hostname().split(".")[0]?.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") ?? "";
-			const other = `${COMMAND_NAME} remote setup --relay ${DEFAULT_RELAY_NAME}-${host.slice(0, 40).replace(/-+$/, "") || "2"}${options.account ? ` --account ${options.account}` : ""}`;
+			// A random end, so a second computer with this hostname isn't sent to this one's relay.
+			const other = relaySetupCommand(`${DEFAULT_RELAY_NAME}-${[host.slice(0, 40).replace(/-+$/, ""), randomBytes(2).toString("hex")].filter(Boolean).join("-")}`, options.account);
 			const why = deployed.why === "relay"
-				? `A relay named ${relayName} is already on this Cloudflare account with a key this computer didn't set, so it is probably another computer's. For this computer's own relay, run ${other}. To take that one over, which cuts the other computer off, run ${COMMAND_NAME} remote setup --relay ${relayName}.`
+				? `A relay named ${relayName} is already on this Cloudflare account with a key this computer didn't set, so it is probably another computer's. For this computer's own relay, run ${other}. To take that one over, which cuts the other computer off, run ${relaySetupCommand(relayName, options.account)}.`
 				: `A Worker named ${relayName} is already on this Cloudflare account and isn't a relay, so it is left alone. For a relay of another name, run ${other}.`;
 			return fail("problem", `${why} Nothing was changed.`, { code: deployed.why === "relay" ? "relay_taken" : "relay_name_used", next: { kind: "run_command", command: other } });
 		}
@@ -969,7 +979,15 @@ async function runSetup(options: SetupOptions): Promise<number> {
 			say(`${sym.ok} Relay connector ${c.dim(`${publicUrl} -> 127.0.0.1:${port}`)}`);
 			// End to end: the relay sees this computer's connector, and /v1/health through it comes back from serve.
 			say(`Waiting for a request through the relay to reach serve and come back (a new workers.dev name can take a few minutes).`);
-			const checked = await verifyRelay(publicUrl, Date.now() + waitMs("PUBLIC_WAIT_MS", 5 * 60_000), waitMs("PUBLIC_POLL_MS", 5000), { fetch: preloadedHooks().relayFetch });
+			// The new key can take a moment to reach the edge, and a connector refused before then doesn't try again: it is started again.
+			let starting = false;
+			const retry = setInterval(async () => {
+				if (starting || readRelayStatus()?.state !== "unauthorized") return;
+				starting = true;
+				await installService(RELAY_SERVICE).catch(() => {});
+				starting = false;
+			}, waitMs("RELAY_RETRY_MS", 10_000));
+			const checked = await verifyRelay(publicUrl, Date.now() + waitMs("PUBLIC_WAIT_MS", 5 * 60_000), waitMs("PUBLIC_POLL_MS", 5000), { fetch: preloadedHooks().relayFetch }).finally(() => clearInterval(retry));
 			if (!checked.ok) {
 				return fail("problem", `${checked.message} remote.json is kept. Run ${COMMAND_NAME} remote status to see the connector's state, or ${serviceLogHint(RELAY_SERVICE)} for its log.`, {
 					code: checked.code,
@@ -1614,7 +1632,7 @@ export async function remoteOff(options: { json?: boolean } = {}): Promise<numbe
 		for (const line of closed.notes) note(sym.ok, line);
 		rmSync(relayStateFile(), { force: true });
 		if (config?.relay) {
-			note("", `The relay Worker ${config.relay.name} stays on your Cloudflare account. This computer's copy of its key is gone; a computer that still has the key can connect until the Worker is deleted. To delete it: npx wrangler@${WRANGLER_VERSION} delete ${config.relay.name}`, true);
+			note("", `This computer's copy of the relay's key is gone. ${workerStays(config.relay)}`, true);
 		}
 	}
 	if (config?.route === "cloudflare" || config?.route === "relay") {

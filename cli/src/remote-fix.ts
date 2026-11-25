@@ -142,7 +142,8 @@ async function diagnose(config: RemoteConfig): Promise<Diagnosis> {
 function relaySetAgain(state: "unauthorized" | "replaced" | "outdated", name: string): NonNullable<Diagnosis["blocked"]> {
 	const command = relaySetupCommand(name);
 	const why = state === "unauthorized" ? "the relay refused its key" : state === "replaced" ? "another connector took over its key" : "the relay speaks another protocol version";
-	return { state: "problem", code: `relay_${state}`, message: `The relay connector stopped: ${why}. Run ${command}.`, command };
+	const run = state === "replaced" ? `Only on the computer that should have the relay, run ${command}; it cuts the other one off.` : `Run ${command}.`;
+	return { state: "problem", code: `relay_${state}`, message: `The relay connector stopped: ${why}. ${run}`, command };
 }
 
 type Done = { ok: true; detail: string } | { ok: false; detail: string; blocked?: Diagnosis["blocked"] };

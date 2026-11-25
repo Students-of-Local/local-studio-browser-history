@@ -146,11 +146,58 @@ test("a relay of the default name with a key from elsewhere is left alone; namin
 	const r = await m.run(["remote", "setup", "--relay", "--json"]);
 	assert.equal(r.code, 3, r.stdout + r.stderr);
 	assert.equal(r.json().code, "relay_taken");
-	assert.match(r.json().next.command, /^tychicus remote setup --relay tychicus-relay-[a-z0-9][a-z0-9-]*[a-z0-9]$|-2$/);
+	const own = /^tychicus remote setup --relay tychicus-relay-(?:[a-z0-9-]*[a-z0-9]-)?[0-9a-f]{4}$/;
+	assert.match(r.json().next.command, own);
+	const second = (await m.run(["remote", "setup", "--relay", "--json"])).json().next.command;
+	assert.notEqual(second, r.json().next.command, "a second computer with this hostname is sent to a name of its own");
 	assert.ok(!m.wrangler().some((l) => l.includes(" deploy ")), "nothing is deployed");
 	assert.equal(m.secret(), undefined);
 	const named = await m.run(["remote", "setup", "--relay", "tychicus-relay", "--json"]);
 	assert.equal(named.json().code, "workers_subdomain", "it went on to deploy");
+});
+
+test("a saved relay is this computer's own only on its own account, and another name or account needs remote off first", { skip: !unix }, async () => {
+	const whoami = { loggedIn: true, accounts: [{ id: ACCOUNT, name: "Mine" }, { id: OTHER, name: "Work" }] };
+	const m = machine(root, "other-account", { whoami, keyed: true, deploy: "subdomain" });
+	const save = (relay) => writeFileSync(join(m.cfg, "remote.json"), JSON.stringify({ publicUrl: ADDRESS, port: 18787, route: "relay", relay: { name: "tychicus-relay", key: "k".repeat(43), ...relay } }), { mode: 0o600 });
+	save({ accountId: ACCOUNT });
+	for (const args of [["--account", OTHER], ["--relay", "another"]]) {
+		const r = await m.run(["remote", "setup", "--json", ...args]);
+		assert.equal(r.json().code, "relay_on", r.stdout);
+		assert.equal(r.json().next.command, "tychicus remote off");
+	}
+	assert.deepEqual(m.wrangler(), [], "wrangler never ran");
+	const off = await m.run(["remote", "off"]);
+	assert.match(off.stdout + off.stderr, new RegExp(`Cloudflare account ${ACCOUNT}.*CLOUDFLARE_ACCOUNT_ID=${ACCOUNT} npx wrangler@`, "s"));
+	save({});
+	const unknown = await m.run(["remote", "setup", "--json", "--account", OTHER]);
+	assert.equal(unknown.json().code, "relay_taken", "a saved relay of no known account isn't taken over there");
+	assert.ok(!m.wrangler().some((l) => l.includes(" deploy ")));
+});
+
+test("a key that can't be set leaves remote.json as it was", { skip: !unix }, async () => {
+	const m = machine(root, "no-key", { secret: "fail" });
+	m.launcher();
+	const first = await m.run(["remote", "setup", "--relay", "--json", "--port", "18787"]);
+	assert.equal(first.json().code, "relay_key", first.stdout);
+	assert.equal(m.remoteJson(), undefined);
+	const saved = { publicUrl: ADDRESS, port: 18787, route: "relay", relay: { name: "tychicus-relay", key: "k".repeat(43), accountId: ACCOUNT } };
+	writeFileSync(join(m.cfg, "remote.json"), JSON.stringify(saved), { mode: 0o600 });
+	assert.equal((await m.run(["remote", "setup", "--json"])).json().code, "relay_key");
+	assert.deepEqual(m.remoteJson(), saved);
+});
+
+test("a connector refused before the new key reached the relay is started again", { skip: !unix }, async () => {
+	const m = machine(root, "late-key", { starts: "connected", refused: true });
+	m.launcher();
+	const serve = await serveStandIn();
+	try {
+		const extra = { RELAY_HOOK_PORT: String(serve.port), RELAY_HOOK_STATE: join(m.cfg, "relay-state.json"), TYCHICUS_PUBLIC_WAIT_MS: "20000", TYCHICUS_PUBLIC_POLL_MS: "50", TYCHICUS_RELAY_RETRY_MS: "100" };
+		const r = await m.run(["remote", "setup", "--relay", "--json", "--port", String(serve.port)], extra, { hooks: true });
+		assert.equal(r.code, 0, r.stdout + r.stderr);
+	} finally {
+		await serve.close();
+	}
 });
 
 test("a Worker that isn't a relay is never replaced, named or not", { skip: !unix }, async () => {
@@ -198,6 +245,8 @@ test("remote fix on the relay route: a refused key means setup again, and a conn
 		assert.equal(refused.json().code, "relay_unauthorized", refused.stdout);
 		assert.match(refused.json().message, /refused its key/);
 		assert.equal(refused.json().next.command, "tychicus remote setup --relay tychicus-relay", "fix keeps the relay's own name");
+		writeFileSync(join(m.cfg, "relay-state.json"), JSON.stringify({ state: "replaced", at: Date.now(), pid: process.pid }));
+		assert.match((await m.run(["remote", "fix", "--dry-run", "--json"])).json().message, /Only on the computer that should have the relay.*cuts the other one off/);
 		rmSync(join(m.cfg, "relay-state.json"));
 		const down = await m.run(["remote", "fix", "--dry-run", "--json"]);
 		assert.ok(down.json().actions.some((a) => a.kind === "restart_relay"), down.stdout);
