@@ -254,18 +254,31 @@ test("the relay route: the panel gets the connector's live state, never the key,
 		const on = await seen("connected");
 		assert.equal(on.state, "on");
 		assert.equal(on.route, "relay");
-		assert.deepEqual(on.relay, { state: "connected", since: 5 });
+		assert.deepEqual(on.relay, { state: "connected" });
 		assert.equal(on.connectorUrl, "https://r.s.workers.dev/mcp");
-		for (const state of ["disconnected", "unauthorized", "replaced", "outdated"]) {
+		assert.equal(on.next.kind, "add_connector");
+		// The command names this relay: bare `remote setup` leaves one whose key another computer set alone.
+		const commands = { disconnected: undefined, unauthorized: "remote setup --relay r", replaced: "remote setup --relay r", outdated: "remote fix" };
+		for (const [state, command] of Object.entries(commands)) {
 			const answer = await seen(state);
 			assert.equal(answer.state, "problem");
 			assert.equal(answer.code, `relay_${state}`);
 			assert.equal(answer.relay.state, state);
+			assert.equal(answer.next?.command?.replace(/^\S+ /, ""), command, state);
 		}
-		assert.equal((await remoteTest(async () => OK_CHECKS)).relay.state, "outdated", "an outside check keeps the state on screen");
+		const tested = await remoteTest(async () => OK_CHECKS);
+		assert.equal(tested.relay.state, "outdated", "an outside check keeps the state on screen");
+		assert.match(tested.next.command, / remote fix$/, "and its command");
 		rmSync(join(dir, "relay-state.json"));
-		assert.equal((await remoteState(noTailscale)).relay.state, "stopped", "a connector that never ran is stopped");
+		const stopped = await remoteState(noTailscale);
+		assert.equal(stopped.relay.state, "stopped", "a connector that never ran is stopped");
+		assert.match(stopped.next.command, / remote fix$/);
+	});
+	await inConfig("relay-none", async () => {
+		const none = await remoteState({ tailscale: () => undefined });
+		assert.equal(none.relaySetup, true, "this helper's setup makes a relay");
+		assert.equal((await remoteTest(async () => OK_CHECKS)).relaySetup, true);
 	});
 	assert.equal(remoteAnswer({ state: "on", relay: { state: "made_up" } }).relay, undefined);
-	assert.deepEqual(remoteAnswer({ state: "on", relay: { state: "connected", since: null, key: "x" } }).relay, { state: "connected" });
+	assert.deepEqual(remoteAnswer({ state: "on", relay: { state: "connected", key: "x" } }).relay, { state: "connected" });
 });
