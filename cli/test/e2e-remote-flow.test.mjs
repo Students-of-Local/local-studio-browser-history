@@ -48,7 +48,7 @@ before(async () => {
 			const relayUrl = "https://tychicus-relay.sam.workers.dev";
 			const okChecks = ["dns", "tls", "resource_metadata", "auth_metadata", "auth_challenge", "streaming"].map((name) => ({ name, status: "ok", detail: "fine" }));
 			const dnsPending = [{ name: "dns", status: "fail", detail: "laptop.tail1a2b.ts.net has no public address yet.", pending: true }];
-			const st = { route: "none", stateCalls: 0, funnelCalls: 0, testCalls: 0, relayCalls: 0, ranSetup: false, calls: [] };
+			const st = { route: "none", stateCalls: 0, funnelCalls: 0, testCalls: 0, relayCalls: 0, ranSetup: false, phase: "funnel", calls: [] };
 			globalThis.__helper = st;
 			const scenario = () => globalThis.__scenario ?? "choose";
 			const answer = (method) => {
@@ -58,11 +58,14 @@ before(async () => {
 					case "status":
 						if (sc === "repair" || sc === "norepair") st.route = "funnel";
 						if (sc === "relayfix") st.route = "relay";
+						if (sc === "relaymove") st.route = st.phase === "funnel" ? "funnel" : "relay";
 						if (st.route === "relay") return { route: "remote", remoteKind: "relay", publicUrl: relayUrl, passcodeSet: false, theme };
 						return st.route === "funnel" ? { route: "remote", remoteKind: "funnel", publicUrl, passcodeSet: false, theme } : { route: "none", passcodeSet: false, theme, joinScopes: [] };
 					case "remoteState":
 						st.stateCalls++;
 						// Setup in the terminal saves the route; the connector dials, then connects.
+						if (sc === "relaymove" && st.phase === "funnel") return { state: "on", message: "", route: "funnel", connectorUrl: `${publicUrl}/mcp` };
+						if (sc === "relaymove") return { state: st.phase === "down" ? "problem" : "on", message: "", route: "relay", relay: { state: st.phase === "down" ? "disconnected" : "connected" }, connectorUrl: `${relayUrl}/mcp` };
 						if (sc === "relayfix") return { state: "on", message: "", route: "relay", relay: { state: "connected" }, connectorUrl: `${relayUrl}/mcp` };
 						if (sc === "relay" && st.ranSetup) {
 							const state = ++st.relayCalls > 4 ? "connected" : st.relayCalls > 1 ? "connecting" : undefined;
@@ -88,7 +91,8 @@ before(async () => {
 					case "remoteTest":
 						st.testCalls++;
 						if (sc === "relayfix") return { state: "problem", code: "tls", message: "tls: refused", route: "relay", relay: { state: "connected" }, connectorUrl: `${relayUrl}/mcp`, checks: okChecks.map((c) => (c.name === "tls" ? { ...c, status: "fail", detail: "The connection was refused." } : c)) };
-						if (sc === "relay") return { state: "on", message: "Reachable.", route: "relay", relay: { state: "connected" }, connectorUrl: `${relayUrl}/mcp`, checks: okChecks };
+						if (sc === "relaymove" && st.phase === "funnel") return { state: "problem", code: "tls", message: "", route: "funnel", connectorUrl: `${publicUrl}/mcp`, checks: okChecks.map((c) => (c.name === "tls" ? { ...c, status: "fail", detail: "Funnel's certificate expired." } : c)) };
+						if (sc === "relay" || sc === "relaymove") return { state: "on", message: "Reachable.", route: "relay", relay: { state: "connected" }, connectorUrl: `${relayUrl}/mcp`, checks: okChecks };
 						if (sc === "dns" && st.testCalls < 2) return { state: "problem", code: "dns", message: "dns: no address yet", route: "funnel", connectorUrl: `${publicUrl}/mcp`, checks: dnsPending };
 						if (sc === "repair" || sc === "norepair") {
 							const checks = okChecks.map((c) => (c.name === "tls" ? { ...c, status: "fail", detail: "The certificate for laptop.tail1a2b.ts.net expired." } : c));
@@ -250,6 +254,27 @@ for (const theme of ["light", "dark"]) {
 			await page.locator('[data-repair-action="try_again"] button').click({ timeout: 10_000 });
 			await page.waitForFunction(() => globalThis.__helper.calls.filter((m) => m === "remoteFix").length === 2, undefined, { timeout: 10_000 });
 			assert.ok(!(await page.evaluate(() => globalThis.__helper.calls)).includes("remoteSetup"), "Try again started Tailscale's setup on a relay");
+		} finally {
+			await page.close();
+		}
+	});
+
+	test(`Funnel to the relay, then an outage: what was found before is dropped and the checks run again (${theme})`, async () => {
+		const page = await connect("relaymove", theme);
+		const go = (phase) => page.evaluate((p) => (globalThis.__helper.phase = p), phase);
+		const passed = page.locator("[data-checks] summary", { hasText: "Every check passed" });
+		try {
+			await page.locator('[data-check="tls"][data-status="fail"]').waitFor({ timeout: 20_000 });
+			await go("relay");
+			await page.locator('[data-relay-state="connected"]').waitFor({ timeout: 20_000 });
+			await passed.waitFor({ timeout: 10_000 });
+			assert.equal(await page.locator('[data-check="tls"][data-status="fail"]').count(), 0, "Funnel's failed check spoke for the relay");
+			const tests = await page.evaluate(() => globalThis.__helper.testCalls);
+			await go("down");
+			await page.locator('[data-relay-state="disconnected"]').waitFor({ timeout: 20_000 });
+			await go("relay");
+			await passed.waitFor({ timeout: 20_000 });
+			assert.ok((await page.evaluate(() => globalThis.__helper.testCalls)) > tests, "checks from before the outage were shown");
 		} finally {
 			await page.close();
 		}

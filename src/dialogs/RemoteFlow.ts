@@ -144,6 +144,8 @@ export class RemoteFlow extends LitElement {
 	private funnelSince?: number;
 	private opened = new Set<string>();
 	private checkedOnce = false;
+	/** Bumped when the route moves onto or off the relay: an answer asked for before then is about the old route. */
+	private routeAsked = 0;
 
 	protected override createRenderRoot(): HTMLElement {
 		return this;
@@ -215,9 +217,11 @@ export class RemoteFlow extends LitElement {
 	private async ask(method: "remoteState" | "remoteFunnel" | "remoteTest"): Promise<void> {
 		this.polling = true;
 		this.lastPoll = Date.now();
+		const asked = this.routeAsked;
 		try {
 			if (method === "remoteState") {
 				const answer = await connectRemoteState();
+				if (asked !== this.routeAsked) return;
 				if (relayCameBack(this.remote, answer)) this.forgetChecks();
 				if (!sameAnswer(answer, this.remote)) this.remote = answer;
 				const kept = settleRun(this.run, answer, this.status);
@@ -227,11 +231,13 @@ export class RemoteFlow extends LitElement {
 					this.dispatchEvent(new CustomEvent("remote-changed", { bubbles: true }));
 			} else if (method === "remoteFunnel") {
 				const answer = await connectRemoteFunnel();
+				if (asked !== this.routeAsked) return;
 				// "Use Cloudflare instead" was pressed while this retry was out: its answer is about Funnel, so it's dropped (second-S1).
 				if (this.chosen !== "cloudflare" && !sameAnswer(answer, this.run)) this.takeRun(answer);
 			} else {
 				this.checking = true;
 				const answer = await connectRemoteTest();
+				if (asked !== this.routeAsked) return;
 				this.takeChecks(answer.checks);
 				if (relayCameBack(this.remote, answer)) this.forgetChecks();
 				if (!sameAnswer(answer, this.remote))
@@ -813,11 +819,14 @@ export class RemoteFlow extends LitElement {
 
 	protected override willUpdate(changed: PropertyValues<this>): void {
 		if (!changed.has("status") || !relayMoved(changed.get("status"), this.status)) return;
+		this.routeAsked++;
 		this.forgetChecks();
 		this.run = undefined;
 		this.chosen = undefined;
-		// An answer about another route; the poll brings this one's.
-		if (this.status?.remoteKind !== "relay" || !this.remote?.relay) this.remote = undefined;
+		// A code made for the old address, and an answer about it; the poll brings this one's.
+		this.code = undefined;
+		this.codeProblem = undefined;
+		if (!this.remote?.relay || this.remote.connectorUrl !== `${this.status?.publicUrl}/mcp`) this.remote = undefined;
 	}
 
 	protected override updated(): void {

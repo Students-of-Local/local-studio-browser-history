@@ -231,6 +231,8 @@ const relayUnknown = (remote?: RemoteAnswer): boolean => Boolean(remote && !remo
 /** A saved relay: its connector's state on this computer comes ahead of everything else, an older run included. */
 function relayScreen(input: FlowInput, connectorUrl: string): FlowScreen {
 	const { remote } = input;
+	// A helper from before the connector's state: it names neither a route nor `remote setup`'s relay.
+	if (relayUnknown(remote) && !remote?.relay) return { kind: "relay", connectorUrl, outdated: true };
 	// What is known is about another route, or nothing is yet: never "on" until the connector's own state arrives.
 	if (!remote?.relay) return { kind: "loading" };
 	if (remote.relay.state === "connected") return result(input, connectorUrl, remote);

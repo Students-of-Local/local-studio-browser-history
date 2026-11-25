@@ -768,6 +768,10 @@ test("a saved relay draws nothing about another route: an old answer, an old ref
 		assert.equal(screen.kind, "loading", "never On before the connector's own state");
 		assert.deepEqual(pollFor(screen, { status: RELAY }), { method: "remoteState", everyMs: STATE_POLL_MS });
 	}
+	// A helper from before the connector's state: the words to update it, not "Checking..." for good.
+	const old = flowScreen({ status: RELAY, remote: { state: "on", message: "" } });
+	assert.deepEqual(old, { kind: "relay", connectorUrl: "https://r.s.workers.dev/mcp", outdated: true });
+	assert.equal(read("src/dialogs/RemoteFlow.ts").match(/if \(asked !== this\.routeAsked\) return;/g)?.length, 3, "an answer about the old route is dropped");
 	const refused = { state: "funnel_not_allowed", message: "" };
 	for (const input of [{ run: refused }, { run: funnel }, { chosen: "cloudflare" }, { chosen: "cloudflare", run: refused, runFromForm: true }]) {
 		assert.equal(flowScreen({ status: RELAY, remote: relayIs("connected"), ...input }).connectorUrl, "https://r.s.workers.dev/mcp");

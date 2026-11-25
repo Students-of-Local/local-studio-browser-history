@@ -6,10 +6,12 @@
  * native host's channel to the browser.
  */
 import { execFile } from "node:child_process";
+import { statSync } from "node:fs";
 import { cloudflaredBinary } from "./cloudflare.ts";
 import { cloudflaredAsset } from "./cloudflared-download.ts";
 import { relaySetupCommand } from "./relay.ts";
 import { DEFAULT_RELAY_NAME } from "./relay-setup.ts";
+import { remoteFile } from "./remote-config.ts";
 import { loadRemoteConfig, openFunnel, planFunnelAsync, preflight, type ProbeSeam, relayView, type RemoteConfig, remoteSetup, routesFrom, tailscaleReadyAsync } from "./remote-setup.ts";
 import { CLOUDFLARED_DOWNLOAD_URL, type RemoteNext, type RemoteState, type SetupReport, TAILSCALE_OPERATOR_FIX, tailscaleAccessDenied, tailscaleDownloadUrl } from "./remote-state.ts";
 import { publicChecks, realFault } from "./remote-test.ts";
@@ -93,9 +95,15 @@ function relayAnswer(relay: unknown): RemoteRelayView | undefined {
 	return known ? { state: known } : undefined;
 }
 
+/** How long after remote.json is saved a connector with no state yet is starting, not stopped. */
+const RELAY_STARTS_MS = 60_000;
+
 /** The connector's state, and for a state it can't leave by itself the command that ends it, as `remote status` names it. */
 function relayPart(config: RemoteConfig): { relay: { state: string }; next?: RemoteNext } {
-	const relay = relayView();
+	const seen = relayView();
+	// Setup saves remote.json and then starts the connector: one that never wrote a state is starting for the first minute.
+	const starting = seen.since === null && Date.now() - (statSync(remoteFile(), { throwIfNoEntry: false })?.mtimeMs ?? 0) < RELAY_STARTS_MS;
+	const relay = starting ? { state: "connecting" } : seen;
 	const again = relay.state === "unauthorized" || relay.state === "replaced";
 	const fix = relay.state === "stopped" || relay.state === "outdated";
 	const command = again ? relaySetupCommand(config.relay?.name ?? DEFAULT_RELAY_NAME) : fix ? `${COMMAND_NAME} remote fix` : undefined;

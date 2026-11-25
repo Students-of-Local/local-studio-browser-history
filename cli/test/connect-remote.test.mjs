@@ -1,7 +1,7 @@
 // "Use Polycarp from Claude, ChatGPT and Grok", host side: the six remote methods Connect's flow calls. Every Tailscale,
 // Cloudflare and `remote fix` step is a stand-in; nothing here runs tailscale, cloudflared, a service or `remote setup`.
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import { after, test } from "node:test";
 import { rmSync, tempRoot, writeJson } from "./helpers/hub-fixture.mjs";
@@ -270,6 +270,11 @@ test("the relay route: the panel gets the connector's live state, never the key,
 		assert.equal(tested.relay.state, "outdated", "an outside check keeps the state on screen");
 		assert.match(tested.next.command, / remote fix$/, "and its command");
 		rmSync(join(dir, "relay-state.json"));
+		const starting = await remoteState(noTailscale);
+		assert.equal(starting.relay.state, "connecting", "setup just saved the route and starts the connector next");
+		assert.equal(starting.next, undefined);
+		const anHourAgo = new Date(Date.now() - 3_600_000);
+		utimesSync(join(dir, "remote.json"), anHourAgo, anHourAgo);
 		const stopped = await remoteState(noTailscale);
 		assert.equal(stopped.relay.state, "stopped", "a connector that never ran is stopped");
 		assert.match(stopped.next.command, / remote fix$/);
