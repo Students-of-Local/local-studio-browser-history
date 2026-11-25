@@ -93,7 +93,7 @@ export type FlowScreen =
 	| { kind: "loading" }
 	/** Not this flow: a hub, a link to a hub, or the person's own front door. Connect draws those as before. */
 	| { kind: "other" }
-	| { kind: "choose"; routes?: RemoteRoutesView; recommended: ChosenRoute }
+	| { kind: "choose"; routes?: RemoteRoutesView; recommended?: ChosenRoute }
 	| {
 			kind: "step";
 			step: 2 | 3;
@@ -107,7 +107,15 @@ export type FlowScreen =
 	  }
 	| { kind: "cloudflare"; step: 3 }
 	/** The relay: the terminal command to run while nothing is saved, then the connector's state until it is connected. */
-	| { kind: "relay"; relay?: RemoteRelayView; connectorUrl?: string }
+	| {
+			kind: "relay";
+			relay?: RemoteRelayView;
+			connectorUrl?: string;
+			/** What to run to leave this state, as the helper names it. */
+			command?: string;
+			/** The helper is from before the relay: its `remote setup` would set up something else. */
+			outdated?: boolean;
+	  }
 	| {
 			kind: "result";
 			connectorUrl: string;
@@ -217,8 +225,35 @@ function result(input: FlowInput, connectorUrl: string, answer?: RemoteAnswer): 
 	};
 }
 
-/** Recommended: the relay, which needs neither a domain nor another program. */
-export const RECOMMENDED: ChosenRoute = "relay";
+/** The helper answered that nothing is set up, and didn't say that its `remote setup` makes a relay: it is from before it. */
+const relayUnknown = (remote?: RemoteAnswer): boolean => Boolean(remote && !remote.relaySetup && !remote.route);
+
+/** A saved relay: its connector's state on this computer comes ahead of everything else, an older run included. */
+function relayScreen(input: FlowInput, connectorUrl: string): FlowScreen {
+	const { remote } = input;
+	// A helper from before the connector's state: it names neither a route nor `remote setup`'s relay.
+	if (relayUnknown(remote) && !remote?.relay) return { kind: "relay", connectorUrl, outdated: true };
+	// What is known is about another route, or nothing is yet: never "on" until the connector's own state arrives.
+	if (!remote?.relay) return { kind: "loading" };
+	if (remote.relay.state === "connected") return result(input, connectorUrl, remote);
+	const command = remote.next?.kind === "run_command" ? remote.next.command : undefined;
+	return { kind: "relay", relay: remote.relay, connectorUrl, ...(command ? { command } : {}) };
+}
+
+/** The status moved onto the relay, off it, or to another one: what was found about the old route says nothing about this one. */
+export function relayMoved(was: ConnectStatus | undefined, is: ConnectStatus | undefined): boolean {
+	const relay = (s?: ConnectStatus) => (s?.route === "remote" && s.remoteKind === "relay" ? s.publicUrl : undefined);
+	return relay(was) !== relay(is);
+}
+
+/** The relay connected again: checks made before or during the outage say nothing about it now. */
+export const relayCameBack = (was: RemoteAnswer | undefined, is: RemoteAnswer): boolean =>
+	was?.relay !== undefined && was.relay.state !== "connected" && is.relay?.state === "connected";
+
+/** What Turn on, Try again and Open Funnel do: on a relay, Repair, and never Tailscale's setup over the saved relay. */
+export function retryFor(route: ChosenRoute | undefined): "repair" | "form" | "turn_on" {
+	return route === "relay" ? "repair" : route === "cloudflare" ? "form" : "turn_on";
+}
 
 /** The flow draws Connect's assistant section when there is no address yet, or this computer's own relay, Funnel or Cloudflare one. */
 export function remoteFlowFor(s: ConnectStatus): boolean {
@@ -233,12 +268,11 @@ export function flowScreen(input: FlowInput): FlowScreen {
 	if (!remoteFlowFor(status)) return { kind: "other" };
 	if (busy === "setup") return step({ state: "turning_on", message: "" }, input, "tailscale");
 	if (busy === "tunnel") return { kind: "cloudflare", step: 3 };
+	if (status.route === "remote" && status.publicUrl && status.remoteKind === "relay")
+		return relayScreen(input, `${status.publicUrl}/mcp`);
 	// A run that turned on (a new name still being published included) speaks for itself until the status catches up.
 	if (isOn(run) && run?.connectorUrl) return result(input, run.connectorUrl, run);
 	if (status.route === "remote" && status.publicUrl) {
-		// The relay: its connector's state on this computer comes ahead of the result until it is connected.
-		if (status.remoteKind === "relay" && remote?.relay && remote.relay.state !== "connected")
-			return { kind: "relay", relay: remote.relay, connectorUrl: `${status.publicUrl}/mcp` };
 		// "Use Cloudflare instead" on a Funnel route: the Cloudflare form, until it turns on or the person goes back.
 		// A refusal from that form (a taken name) is drawn as its own step first (first-F1). Only one from the form: a Funnel
 		// answer that lands after "Use Cloudflare instead" must not hide the form (PR 136 second-S1).
@@ -258,16 +292,21 @@ export function flowScreen(input: FlowInput): FlowScreen {
 		return {
 			kind: "choose",
 			...(remote?.routes ? { routes: remote.routes } : {}),
-			recommended: RECOMMENDED,
+			// The relay needs neither a domain nor another program.
+			...(relayUnknown(remote) ? {} : { recommended: "relay" as const }),
 		};
 	if (chosen === "cloudflare") return { kind: "cloudflare", step: 3 };
-	if (chosen === "relay") return { kind: "relay" };
+	if (chosen === "relay") return { kind: "relay", ...(relayUnknown(remote) ? { outdated: true } : {}) };
 	if (!remote) return { kind: "loading" };
 	return step(remote, input, "tailscale");
 }
 
-const routeOf = (status: ConnectStatus): ChosenRoute | undefined =>
-	status.remoteKind === "funnel" ? "tailscale" : status.remoteKind === "cloudflare" ? "cloudflare" : undefined;
+export const routeOf = (status: ConnectStatus): ChosenRoute | undefined =>
+	status.remoteKind === "funnel"
+		? "tailscale"
+		: status.remoteKind === "cloudflare" || status.remoteKind === "relay"
+			? status.remoteKind
+			: undefined;
 
 /** What the panel asks while this screen is up, and how often. Undefined: nothing until the person acts. */
 export interface Poll {
@@ -278,7 +317,7 @@ export interface Poll {
 export const STATE_POLL_MS = 3_000;
 export const FUNNEL_POLL_MS = 5_000;
 export const DNS_POLL_MS = 30_000;
-/** The relay's live state while it is connected: a local file read, with no network and no Tailscale. */
+/** The relay's live state while it is connected (a local file read), and the wait for setup to finish in the terminal. */
 export const RELAY_POLL_MS = 5_000;
 /**
  * The choose screen once the routes are read: an install or sign-in in another window still shows up, without asking Tailscale
@@ -289,9 +328,11 @@ export const CHOOSE_POLL_MS = 15_000;
 export function pollFor(screen: FlowScreen, input: FlowInput): Poll | undefined {
 	if (screen.kind === "choose")
 		return { method: "remoteState", everyMs: screen.routes ? CHOOSE_POLL_MS : STATE_POLL_MS };
+	if (screen.kind === "loading" && input.status?.remoteKind === "relay")
+		return { method: "remoteState", everyMs: STATE_POLL_MS };
+	if (screen.kind === "relay") return { method: "remoteState", everyMs: screen.relay ? STATE_POLL_MS : RELAY_POLL_MS };
 	// A new address takes minutes to reach public DNS, and a new tunnel a minute to connect: check again until it answers.
 	if (screen.kind === "result" && screen.waiting) return { method: "remoteTest", everyMs: DNS_POLL_MS };
-	if (screen.kind === "relay") return { method: "remoteState", everyMs: STATE_POLL_MS };
 	if (screen.kind === "result") return screen.relay ? { method: "remoteState", everyMs: RELAY_POLL_MS } : undefined;
 	if (screen.kind !== "step" || input.busy) return undefined;
 	const key = screen.copy.key;
