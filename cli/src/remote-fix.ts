@@ -1,7 +1,7 @@
 /**
  * `remote fix`: one repair per fault, in a fixed order, checking again after each, then the outside proof (`remote test`).
  *
- * What it may do: restart the serve or cloudflared service, open Funnel, download the pinned cloudflared (on a yes), and rewrite
+ * What it may do: restart the serve, cloudflared or relay service, open Funnel, download the pinned cloudflared (on a yes), and rewrite
  * remote.json when the computer was renamed. What it never does: delete or overwrite a DNS record, run sudo, touch Tailnet Lock,
  * turn a route off, revoke a token or a connector, or make a passcode. Those it names, with the exact command, for the person.
  */
@@ -10,6 +10,7 @@ import { CLOUDFLARE_SERVICE, cloudflareConfigFile, cloudflaredBinary } from "./c
 import { CLOUDFLARED_VERSION, cloudflaredAsset, downloadCloudflared, downloadedCloudflared } from "./cloudflared-download.ts";
 import { envVar } from "./env.ts";
 import { passcodeSet } from "./oauth.ts";
+import { RELAY_SERVICE, readRelayStatus } from "./relay.ts";
 import { reachedOnTailnet } from "./remote-config.ts";
 import { askYes, closeInput, interactiveTerminal } from "./remote-guide.ts";
 import { FUNNEL_PORT, lingerWarning, loadRemoteConfig, openFunnel, operatorWarning, probeLocal, proofLines, type RemoteConfig, saveRemoteConfig, serveWaitMs, tailscaleReady, waitForServe } from "./remote-setup.ts";
@@ -22,7 +23,7 @@ import { installService, SERVE_SERVICE, type ServiceSpec, serviceFile, serviceLo
 import { c, sym } from "./ui.ts";
 
 /** The repairs, in the order they run: a rename first (serve must restart for the new name), serve before Funnel (setup's rule). */
-export const FIX_ORDER = ["download_cloudflared", "rename", "restart_serve", "restart_cloudflared", "open_funnel"] as const;
+export const FIX_ORDER = ["download_cloudflared", "rename", "restart_serve", "restart_cloudflared", "restart_relay", "open_funnel"] as const;
 export type FixKind = (typeof FIX_ORDER)[number];
 
 export interface FixAction {
@@ -87,10 +88,32 @@ async function diagnose(config: RemoteConfig): Promise<Diagnosis> {
 
 	// A service started before `install --release` moved the pointer keeps running the old version until it restarts.
 	const release = currentRelease(releaseRoot());
-	const stale = new Map(staleServices(release, { root: releaseRoot() }, config.route === "cloudflare" ? [SERVE_SERVICE, CLOUDFLARE_SERVICE] : [SERVE_SERVICE]).map((s) => [s.spec.label, s]));
+	const tunnel = config.route === "cloudflare" ? [CLOUDFLARE_SERVICE] : config.route === "relay" ? [RELAY_SERVICE] : [];
+	const stale = new Map(staleServices(release, { root: releaseRoot() }, [SERVE_SERVICE, ...tunnel]).map((s) => [s.spec.label, s]));
+
+	if (config.route === "relay") {
+		// A refused key, another computer on the key or an outdated relay: a restart answers the same, so the relay is set up anew. An
+		// old connector is restarted first: the release it isn't running yet may speak the relay's version.
+		const state = readRelayStatus()?.state;
+		if (state === "unauthorized" || state === "replaced" || (state === "outdated" && !stale.has(RELAY_SERVICE.label))) {
+			const command = `${COMMAND_NAME} remote off && ${COMMAND_NAME} remote setup`;
+			return { actions, advice, blocked: { state: "problem", code: `relay_${state}`, message: `The relay connector stopped: ${state === "unauthorized" ? "the relay refused its key" : state === "replaced" ? "another computer connected with its key" : "the relay speaks another protocol version"}. Run ${command}.`, command } };
+		}
+		const file = serviceFile(RELAY_SERVICE);
+		const running = serviceRunning(RELAY_SERVICE);
+		// Where the service manager can't say, the connector's own state does.
+		const down = running === false || (running === undefined && (state === undefined || state === "stopped"));
+		if (!file || !existsSync(file) || down) actions.push({ kind: "restart_relay", what: "Start the relay connector's service again" });
+	}
+
 	const oldCloudflared = stale.get(CLOUDFLARE_SERVICE.label);
 	if (oldCloudflared && !actions.some((a) => a.kind === "restart_cloudflared")) {
 		actions.push({ kind: "restart_cloudflared", what: `Restart the Cloudflare tunnel's service: it runs ${oldCloudflared.running}, and release is ${oldCloudflared.release}`, stale: true });
+	}
+
+	const oldRelay = stale.get(RELAY_SERVICE.label);
+	if (oldRelay && !actions.some((a) => a.kind === "restart_relay")) {
+		actions.push({ kind: "restart_relay", what: `Restart the relay connector's service: it runs ${oldRelay.running}, and release is ${oldRelay.release}`, stale: true });
 	}
 
 	const local = await probeLocal(config.port, expected, 3000);
@@ -131,6 +154,19 @@ async function serviceUp(spec: ServiceSpec): Promise<boolean> {
 	for (;;) {
 		if (serviceRunning(spec) !== false) return true;
 		if (Date.now() >= deadline) return false;
+		await sleep(250);
+	}
+}
+
+/** True once a connector started after `since` says it reached the relay; its state, or that it never wrote one, at the deadline or where it stops trying. */
+async function relayUp(since: number): Promise<{ ok: true } | { ok: false; state: string }> {
+	const deadline = Date.now() + serviceWaitMs();
+	for (;;) {
+		const status = readRelayStatus();
+		// A state from before the restart is the old connector's.
+		const state = status && status.at >= since ? status.state : "not started";
+		if (state === "connected") return { ok: true };
+		if (state === "unauthorized" || state === "replaced" || state === "outdated" || Date.now() >= deadline) return { ok: false, state };
 		await sleep(250);
 	}
 }
@@ -182,6 +218,19 @@ async function perform(action: Diagnosis["actions"][number], config: RemoteConfi
 			return (await serviceUp(CLOUDFLARE_SERVICE))
 				? { ok: true, detail: "the tunnel's service started" }
 				: { ok: false, detail: `the tunnel's service was started but isn't running after ${Math.round(serviceWaitMs() / 1000)} seconds. Its log: ${serviceLogHint(CLOUDFLARE_SERVICE)}` };
+		}
+		case "restart_relay": {
+			const since = Date.now();
+			if (action.stale) {
+				const r = await restartStale(RELAY_SERVICE);
+				if (!r.ok) return { ok: false, detail: r.why };
+			} else {
+				const r = await installService(RELAY_SERVICE);
+				if (!r.ok) return { ok: false, detail: r.message };
+				if (!(await serviceUp(RELAY_SERVICE))) return { ok: false, detail: `the relay connector's service was started but isn't running after ${Math.round(serviceWaitMs() / 1000)} seconds. Its log: ${serviceLogHint(RELAY_SERVICE)}` };
+			}
+			const up = await relayUp(since);
+			return up.ok ? { ok: true, detail: "the relay connector is connected" } : { ok: false, detail: `the relay connector was started, but it is ${up.state}, not connected. Its log: ${serviceLogHint(RELAY_SERVICE)}` };
 		}
 		case "open_funnel": {
 			const where = funnelFor();
@@ -256,8 +305,8 @@ export async function remoteFix(options: FixOptions): Promise<number> {
 		const d = await diagnose(current);
 		advice = d.advice;
 		// installService writes this shell's folder into the service file; a stale restart in place keeps the service's own (#41).
-		const rewrites = d.actions.filter((a) => !a.stale && (a.kind === "restart_serve" || a.kind === "restart_cloudflared"));
-		const foreign = serviceOfOtherConfig(rewrites.map((a) => (a.kind === "restart_serve" ? SERVE_SERVICE : CLOUDFLARE_SERVICE)));
+		const rewrites = d.actions.filter((a) => !a.stale && (a.kind === "restart_serve" || a.kind === "restart_cloudflared" || a.kind === "restart_relay"));
+		const foreign = serviceOfOtherConfig(rewrites.map((a) => (a.kind === "restart_serve" ? SERVE_SERVICE : a.kind === "restart_relay" ? RELAY_SERVICE : CLOUDFLARE_SERVICE)));
 		if (foreign) return finish({ ok: false, state: "problem", code: foreign.code, message: foreign.message }, EXIT_FAILED);
 		if (current.route === "funnel") {
 			const ts = tailscaleReady();

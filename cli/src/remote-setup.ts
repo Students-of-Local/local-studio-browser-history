@@ -69,6 +69,8 @@ import { loadRemoteConfig, type RemoteConfig, reachedOnTailnet, remoteFile, save
 import { type RouteRecord, readRouteRecord, routeRecordFile, TYCHICUS_PATHS } from "./route-record.ts";
 import { applyMounts, funnelOn443, handlersOn443, type Mount, mountTarget, planMounts, readServeState, removeMounts, type ServeState, wantedMounts } from "./tailnet.ts";
 import { cloudflareTunnelPaths, setupThroughLocalStudio } from "./remote-join.ts";
+import { RELAY_SERVICE, readRelayStatus, relayStateFile } from "./relay.ts";
+import { WRANGLER_VERSION } from "./relay-setup.ts";
 
 /** Funnel's own port: keeps the OAuth paths at the root and anything on 443 private. */
 export const FUNNEL_PORT = 8443;
@@ -647,7 +649,7 @@ async function runSetup(options: SetupOptions): Promise<number> {
 	if (existsSync(hubFile())) {
 		return fail("problem", `This install is set up as a hub (${hubFile()}), and an install has one public route. Run ${COMMAND_NAME} hub off first. Nothing was changed.`, { code: "hub" });
 	}
-	const foreign = serviceOfOtherConfig([SERVE_SERVICE, CLOUDFLARE_SERVICE]);
+	const foreign = serviceOfOtherConfig([SERVE_SERVICE, CLOUDFLARE_SERVICE, RELAY_SERVICE]);
 	if (foreign) return fail("problem", foreign.message, { code: foreign.code });
 	let previous: RemoteConfig | undefined;
 	try {
@@ -669,6 +671,7 @@ async function runSetup(options: SetupOptions): Promise<number> {
 	const tailnet = (options.tailnet === true || (previous?.route === "tailnet" && !options.publicUrl && !options.tailscale && options.cloudflare === undefined));
 	// `remote setup` again on this route picks up where a failed run stopped, with the name it already has.
 	let cloudflareName = tailnet ? undefined : (options.cloudflare ?? (previous?.route === "cloudflare" && !options.publicUrl && !options.tailscale ? new URL(previous.publicUrl).hostname : undefined));
+	if (previous?.route === "relay") return fail("problem", `The relay route from an earlier setup is on. Run ${COMMAND_NAME} remote off first.`);
 	if (input && !previous && !tailnet && cloudflareName === undefined && !options.publicUrl && !options.tailscale) {
 		const choice = await chooseRoute(say, port);
 		if (choice === undefined) return fail("problem", `No route was chosen, so nothing was changed. Run ${COMMAND_NAME} remote setup --tailscale, or --cloudflare name.yourdomain.com.`);
@@ -1207,6 +1210,8 @@ export async function remoteStatus(options: { json: boolean }, seam: ProbeSeam =
 			status: running ? "ok" : "fail",
 			detail: running ? `tunnel ${cloudflareTunnelName()}` : installed ? `The tunnel's service isn't running. Run ${COMMAND_NAME} remote fix.` : `The tunnel's service is gone. Run ${COMMAND_NAME} remote setup --cloudflare ${new URL(config.publicUrl).hostname} again.`,
 		});
+	} else if (config?.route === "relay") {
+		checks.push(relayCheck(config));
 	} else if (tailscale) checks.push({ name: "tailscale", status: "fail", detail: tailscale.message });
 	if (config && !tailscale) {
 		const passcode = passcodeSet();
@@ -1242,7 +1247,7 @@ export async function remoteStatus(options: { json: boolean }, seam: ProbeSeam =
 	const studio = localStudioStatus(config);
 	if (studio.check) checks.push(studio.check);
 	// Linux only, both warnings: without operator rights setup can't open Funnel again, and without lingering the service stops at logout.
-	if (config?.route !== "cloudflare" && config?.route !== "custom") {
+	if (config?.route !== "cloudflare" && config?.route !== "custom" && config?.route !== "relay") {
 		const operator = operatorWarning(tailscaleBinary());
 		if (operator) checks.push({ name: "tailscale user", status: "warn", detail: operator });
 	}
@@ -1269,6 +1274,8 @@ export async function remoteStatus(options: { json: boolean }, seam: ProbeSeam =
 			localStudio: studio.json,
 			// For Local Studio's adopt step: where this install's own Cloudflare tunnel is, by path only.
 			cloudflare: cloudflareTunnelPaths(config) ?? null,
+			// The relay connector's state (connected, disconnected, unauthorized, ...), on the relay route. Never its key.
+			relay: config?.route === "relay" ? relayView() : null,
 			passcodeSet: passcodeSet(),
 			extensionConnected: extensionConnected ?? null,
 			oauthClients: clients,
@@ -1281,6 +1288,29 @@ export async function remoteStatus(options: { json: boolean }, seam: ProbeSeam =
 		console.log(`${mark} ${check.name.padEnd(13)} ${c.dim(check.detail)}`);
 	}
 	return ok ? 0 : 1;
+}
+
+/** The relay connector as `remote status --json` and the side panel read it: its state and since when, or stopped when it never ran. */
+export function relayView(): { state: string; since: number | null } {
+	const status = readRelayStatus();
+	return status ? { state: status.state, since: status.at } : { state: "stopped", since: null };
+}
+
+/** `remote status`'s line for the relay route: the connector's state, and what to do when it isn't connected. */
+function relayCheck(config: RemoteConfig): Check {
+	const file = serviceFile(RELAY_SERVICE);
+	if (!file || !existsSync(file)) return { name: "relay", status: "fail", detail: `The relay connector's service is gone. Run ${COMMAND_NAME} remote fix.` };
+	const { state } = relayView();
+	const name = config.relay?.name ?? "relay";
+	if (state === "connected") return { name: "relay", status: "ok", detail: `${name} connected; requests reach 127.0.0.1:${config.port}` };
+	if (state === "connecting" || state === "disconnected") return { name: "relay", status: "warn", detail: `${name} ${state}; the connector keeps trying. Its log: ${serviceLogHint(RELAY_SERVICE)}` };
+	const again = `${COMMAND_NAME} remote off && ${COMMAND_NAME} remote setup`;
+	const why: Record<string, string> = {
+		unauthorized: `The relay refused the key. To set a new one, run ${again}.`,
+		replaced: `Another computer connected to ${name} with this key and took over. On the computer that should have it, run ${again}.`,
+		outdated: `The relay speaks another protocol version. Update ${COMMAND_NAME}, then run ${COMMAND_NAME} remote fix.`,
+	};
+	return { name: "relay", status: "fail", detail: why[state] ?? `The connector isn't running. Run ${COMMAND_NAME} remote fix.` };
 }
 
 /**
@@ -1435,7 +1465,7 @@ export async function remoteOff(options: { json?: boolean } = {}): Promise<numbe
 		return code;
 	};
 	// Another setup's services (another config folder under the same HOME) are never stopped from here.
-	const foreign = serviceOfOtherConfig([SERVE_SERVICE, CLOUDFLARE_SERVICE]);
+	const foreign = serviceOfOtherConfig([SERVE_SERVICE, CLOUDFLARE_SERVICE, RELAY_SERVICE]);
 	if (foreign) {
 		failureCode = foreign.code;
 		problem(foreign.message);
@@ -1468,8 +1498,21 @@ export async function remoteOff(options: { json?: boolean } = {}): Promise<numbe
 		for (const line of closed.notes) note(sym.ok, line);
 		note("", `The tunnel and its DNS record stay in your Cloudflare account, so turning this on again reuses them. To remove the tunnel: cloudflared tunnel delete ${cloudflareTunnelName()}`, true);
 	}
-	if (config?.route === "cloudflare") {
-		// The tunnel is closed above; there's no Funnel to look for on this route.
+	const relayService = serviceFile(RELAY_SERVICE);
+	if (config?.route === "relay" || (relayService && existsSync(relayService))) {
+		const closed = removeService(RELAY_SERVICE);
+		if (!closed.ok) {
+			problem(closed.failure ?? "The relay connector's service couldn't be removed.");
+			return finish(1);
+		}
+		for (const line of closed.notes) note(sym.ok, line);
+		rmSync(relayStateFile(), { force: true });
+		if (config?.relay) {
+			note("", `The relay Worker ${config.relay.name} stays on your Cloudflare account. This computer's copy of its key is gone; a computer that still has the key can connect until the Worker is deleted. To delete it: npx wrangler@${WRANGLER_VERSION} delete ${config.relay.name}`, true);
+		}
+	}
+	if (config?.route === "cloudflare" || config?.route === "relay") {
+		// The tunnel or relay is closed above; there's no Funnel to look for on these routes.
 	} else if (config?.route === "tailnet") {
 		// The mounts first, like Funnel: while they are up, serve with OAuth on loopback is the safe state.
 		const r = tailnetOff(tailscaleBinary(), config);
