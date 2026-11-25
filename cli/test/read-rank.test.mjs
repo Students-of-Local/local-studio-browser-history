@@ -88,7 +88,7 @@ test("a ranked read's note in a session without find or get_page_text names neit
 
 // The password field's handoff names a tool the session has: tabs_show, else ask_user, else none.
 test("the password hint names the handoff the session has", () => {
-	const line = 'e1 textbox "Password" [required, password: never type one, call tabs_show and ask the person to type it]';
+	const line = 'e1 textbox "Password" [required, password: never type one, call tabs_show with password_ref so the person types it]';
 	assert.equal(passwordHandoff(line, () => true), line);
 	assert.match(passwordHandoff(line, (t) => t === "ask_user"), /\[required, password: never type one, call ask_user and ask the person to type it\]/);
 	const bare = passwordHandoff(line, () => false);
