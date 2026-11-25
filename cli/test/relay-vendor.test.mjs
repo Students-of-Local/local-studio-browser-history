@@ -18,7 +18,7 @@ export { RELAY_COMMIT, RELAY_JS, RELAY_WRANGLER } from "@src/relay-dist.ts";
 `);
 
 const noWebSocket = typeof WebSocket !== "function" && "the relay client needs Node's built-in WebSocket (Node 22)";
-const COMMIT = "adfe3db4dbe5a8731ff1ed55871f53ac7c783d5c";
+const COMMIT = "741ff1611f280b23e7fbad0862f0e71201a8f9c7";
 const KEY = "k".repeat(43);
 const sha = (text) => createHash("sha256").update(text).digest("hex");
 
@@ -27,12 +27,12 @@ test("the vendored client is the upstream file, unchanged below its header", () 
 	const marker = "// ---- upstream file starts here ----\n";
 	assert.ok(text.includes(marker));
 	assert.ok(text.includes(`commit ${COMMIT}`));
-	assert.equal(sha(text.slice(text.indexOf(marker) + marker.length)), "e9466cfcdf345c6e8cd367a8ed724029ffb844522099b0d1efc51a42abfa8d47");
+	assert.equal(sha(text.slice(text.indexOf(marker) + marker.length)), "78efcabdd8ccec6d20571042d515c2f3cfa0fd655e5ac50eb1dccd8bc8f1c672");
 });
 
 test("the vendored relay bundle and its config are upstream's files at the named commit", () => {
 	assert.equal(mod.RELAY_COMMIT, COMMIT);
-	assert.equal(sha(mod.RELAY_JS), "6b39919d0821010fa08aefeb552b90f350e7d5b090a151a85fb7e28ea2226bb8");
+	assert.equal(sha(mod.RELAY_JS), "3bb1f173b4100933e40c87efba8632d3236954b85e6693b56cc01d7daae87ade");
 	assert.equal(sha(mod.RELAY_WRANGLER), "c020a9b02ec0d5a271dfef8de77b631496eab63864cb7958bae29c56394f9b71");
 });
 
