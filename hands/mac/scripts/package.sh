@@ -16,7 +16,7 @@ mkdir -p "$1"
 OUT=$(cd "$1" && pwd)
 cd "$(dirname "$0")/.."
 
-BANEYSPACES_ARM64_ONLY=1 scripts/build-engine.sh
+TYCHICUS_HANDS_ARM64_ONLY=1 scripts/build-engine.sh
 swift build -c release
 BIN=$(swift build -c release --show-bin-path)/tychicus-hands
 
