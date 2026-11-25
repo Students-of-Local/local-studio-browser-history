@@ -158,6 +158,19 @@ async function serviceUp(spec: ServiceSpec): Promise<boolean> {
 	}
 }
 
+/** True once a connector started after `since` says it reached the relay; its state, or that it never wrote one, at the deadline or where it stops trying. */
+async function relayUp(since: number): Promise<{ ok: true } | { ok: false; state: string }> {
+	const deadline = Date.now() + serviceWaitMs();
+	for (;;) {
+		const status = readRelayStatus();
+		// A state from before the restart is the old connector's.
+		const state = status && status.at >= since ? status.state : "not started";
+		if (state === "connected") return { ok: true };
+		if (state === "unauthorized" || state === "replaced" || state === "outdated" || Date.now() >= deadline) return { ok: false, state };
+		await sleep(250);
+	}
+}
+
 /**
  * Restart a service that runs an older version onto the release, the way `install --restart-services` does: in place, keeping
  * its plist, unit or task and the config folder it was set up with (installService would write this shell's folder into it).
@@ -207,15 +220,17 @@ async function perform(action: Diagnosis["actions"][number], config: RemoteConfi
 				: { ok: false, detail: `the tunnel's service was started but isn't running after ${Math.round(serviceWaitMs() / 1000)} seconds. Its log: ${serviceLogHint(CLOUDFLARE_SERVICE)}` };
 		}
 		case "restart_relay": {
+			const since = Date.now();
 			if (action.stale) {
 				const r = await restartStale(RELAY_SERVICE);
-				return r.ok ? { ok: true, detail: `the relay connector runs the release (pid ${r.pid})` } : { ok: false, detail: r.why };
+				if (!r.ok) return { ok: false, detail: r.why };
+			} else {
+				const r = await installService(RELAY_SERVICE);
+				if (!r.ok) return { ok: false, detail: r.message };
+				if (!(await serviceUp(RELAY_SERVICE))) return { ok: false, detail: `the relay connector's service was started but isn't running after ${Math.round(serviceWaitMs() / 1000)} seconds. Its log: ${serviceLogHint(RELAY_SERVICE)}` };
 			}
-			const r = await installService(RELAY_SERVICE);
-			if (!r.ok) return { ok: false, detail: r.message };
-			return (await serviceUp(RELAY_SERVICE))
-				? { ok: true, detail: "the relay connector's service started" }
-				: { ok: false, detail: `the relay connector's service was started but isn't running after ${Math.round(serviceWaitMs() / 1000)} seconds. Its log: ${serviceLogHint(RELAY_SERVICE)}` };
+			const up = await relayUp(since);
+			return up.ok ? { ok: true, detail: "the relay connector is connected" } : { ok: false, detail: `the relay connector was started, but it is ${up.state}, not connected. Its log: ${serviceLogHint(RELAY_SERVICE)}` };
 		}
 		case "open_funnel": {
 			const where = funnelFor();

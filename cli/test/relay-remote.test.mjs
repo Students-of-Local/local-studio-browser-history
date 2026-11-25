@@ -49,6 +49,21 @@ test("remote fix on the relay route: a refused key means setup again, and a conn
 		rmSync(join(m.cfg, "relay-state.json"));
 		const down = await m.run(["remote", "fix", "--dry-run", "--json"]);
 		assert.ok(down.json().actions.some((a) => a.kind === "restart_relay"), down.stdout);
+		const started = await m.run(["remote", "fix", "--yes", "--json"], { TYCHICUS_FIX_SERVICE_WAIT_MS: "300" });
+		assert.notEqual(started.code, 0, "a connector that never reached the relay isn't a fix");
+		assert.equal(started.json().code, "restart_relay", started.stdout);
+		assert.ok(m.calls().some((l) => /relay/.test(l)), "the service manager was asked to start the connector");
+		const check = async (state) => {
+			writeFileSync(join(m.cfg, "relay-state.json"), JSON.stringify({ state, at: Date.now(), pid: process.pid }));
+			return (await m.run(["remote", "status", "--json"])).json().checks.find((c) => c.name === "relay");
+		};
+		assert.equal((await check("connected")).status, "ok");
+		assert.equal((await check("disconnected")).status, "warn");
+		for (const [state, advice] of [["unauthorized", /remote off && tychicus remote setup\./], ["replaced", /remote off && tychicus remote setup\./], ["outdated", /remote fix\./], ["stopped", /remote fix\./]]) {
+			const c = await check(state);
+			assert.equal(c.status, "fail", state);
+			assert.match(c.detail, advice);
+		}
 		assert.deepEqual(m.wrangler(), []);
 	} finally {
 		await serve.close();

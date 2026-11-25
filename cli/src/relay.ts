@@ -82,9 +82,9 @@ const STATE_LINES: Record<RelayState, string> = {
 	connecting: "Connecting to the relay.",
 	connected: "Connected: the relay carries requests to serve.",
 	disconnected: "Disconnected; trying again with backoff.",
-	replaced: `Another connector with this key took over, on another computer or this one. Run ${COMMAND_NAME} remote setup where the relay should run.`,
-	unauthorized: `The relay refused the key. Run ${COMMAND_NAME} remote setup again to set a new one.`,
-	outdated: `The relay speaks another protocol version. Update ${COMMAND_NAME}, then run ${COMMAND_NAME} remote setup again.`,
+	replaced: `Another connector with this key took over, on another computer or this one. Run ${COMMAND_NAME} remote fix where the relay should run.`,
+	unauthorized: `The relay refused the key. Run ${COMMAND_NAME} remote fix.`,
+	outdated: `The relay speaks another protocol version. Update ${COMMAND_NAME}, then run ${COMMAND_NAME} remote fix.`,
 	stopped: "Stopped.",
 };
 
