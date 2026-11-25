@@ -250,7 +250,7 @@ Tychicus only reads it and never creates Local Studio's folder. The route carrie
   `local-studio tunnel setup` with that route and `--json` when `local-studio` is on PATH, then joins. A Local Studio
   folder alone proves nothing (`install --local-studio` makes one). Funnel, no route, `--public-url`, and a re-run on
   this install's own Funnel, Cloudflare or relay route stay Tychicus's own setup; `remote join` moves that route.
-- Local Studio's tunnel runs on your own Cloudflare account; `local-studio tunnel byo` gives the steps
+- Local Studio's Cloudflare route runs on your own Cloudflare account; `local-studio tunnel byo` gives the steps
   ([its guide](https://github.com/baney75/local-studio/blob/main/docs/tunnel.md#your-own-cloudflare-tunnel-step-by-step)).
   A `local-studio` that answers no JSON (a build from before tunnel setup) leaves Tychicus its own route. One that answers
   JSON and fails is a refusal with code `local_studio`.

@@ -72,6 +72,7 @@ test("Tychicus only reads the record: no write or remove, and a malformed record
 		[{ ...good, extra: true }, /fields version 1 doesn't define \(extra\)/],
 		[{ ...good, owner: "someone" }, /owner must be/],
 		[{ ...good, route: "funnel" }, /route must be cloudflare or tailnet/],
+		[{ ...good, route: "hosted" }, /route must be cloudflare or tailnet/],
 		[{ ...good, hostname: "Studio.Example.com" }, /hostname must be/],
 		[{ ...good, aliases: "old.example.com" }, /aliases must be a list/],
 		[{ ...good, aliases: ["https://old.example.com"] }, /aliases must be a list of lowercase DNS names/],
@@ -731,6 +732,12 @@ test("a local-studio without tunnel setup leaves Tychicus its own route; one who
 			assert.equal(gated.remoteJson(), undefined);
 			assert.deepEqual(mountCalls(gated), []);
 		}
+		// The tailnet route such a build left this install stays its own: setup runs it again.
+		writeFileSync(join(gated.config, "remote.json"), JSON.stringify({ publicUrl: `https://${DNS}`, port: local.port, route: "tailnet" }));
+		const again = await gated.runAsync(["remote", "setup", "--tailnet", "--no-service", "--no-passcode", "--json"]);
+		assert.notEqual(again.json().code, "local_studio", again.out);
+		assert.ok(!again.out.includes(signup), again.out);
+		assert.notDeepEqual(mountCalls(gated), []);
 	} finally {
 		await local.close();
 	}

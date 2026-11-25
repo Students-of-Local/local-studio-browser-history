@@ -334,8 +334,11 @@ export async function setupThroughLocalStudio(options: SetupOptions): Promise<nu
 			return undefined;
 		}
 		// A build from before its tunnels ran on the person's own account answers with a signup page that is gone: never pass it on.
+		// A tailnet route of this install's own, which such a build left it, stays its own.
 		if (r.answer?.state === "waitlist") {
-			return fail(`This Local Studio is too old to set up a tunnel. Update it (local-studio update apply, or reinstall it), or run ${COMMAND_NAME} remote setup for a relay on your own Cloudflare account. ${COMMAND_NAME} changed nothing.`, "local_studio");
+			if (own?.route === "tailnet" && options.tailnet) return undefined;
+			const relay = own ? "" : `, or run ${COMMAND_NAME} remote setup for a relay on your own Cloudflare account, which the internet can reach`;
+			return fail(`This Local Studio is too old to set up a tunnel. Update it (local-studio update apply, or reinstall it)${relay}. ${COMMAND_NAME} changed nothing.`, "local_studio");
 		}
 		if (r.code !== 0) {
 			return fail(`local-studio ${args.join(" ")} failed (exit ${r.code})${r.out ? `: ${r.out.slice(-400)}` : ""}. ${COMMAND_NAME} changed nothing.`, "local_studio");

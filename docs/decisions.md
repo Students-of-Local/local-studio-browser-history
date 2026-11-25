@@ -2414,8 +2414,8 @@ domain. The relay Worker in baney75/local-studio-tunnels (`relay/`) needs neithe
 - Every setup run makes a new key, saved in `remote.json` at 0600.
 - The relay forwards serve's nine paths and `/v1/health` only, so a hub stays off it.
 - `remote off` leaves the Worker on the account and prints the delete command. Deleting it can't be undone.
-- D59's handling of a Local Studio that gates tunnel setup is gone: such a build is a refusal, like any failed
-  `local-studio tunnel setup`.
+- D59's handling of a Local Studio that gates tunnel setup is gone: such a build is a refusal, like any
+  `local-studio tunnel setup` that answers JSON and fails. A tailnet route it left to Tychicus stays Tychicus's own.
 - The relay needs Node.js 22 or later for its built-in WebSocket. Setup refuses older ones with Node's download page.
 
 **Why.**
