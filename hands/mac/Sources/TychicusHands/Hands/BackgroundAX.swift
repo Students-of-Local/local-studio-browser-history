@@ -37,11 +37,21 @@ enum BackgroundAX {
         var minimized: Bool
     }
 
+    /// A read with what the app answered, for a caller that must tell "none" from "didn't answer".
+    private static func read(_ e: AXUIElement, _ attribute: String) -> (value: CFTypeRef?, code: AXError) {
+        var out: CFTypeRef?
+        let code = AXUIElementCopyAttributeValue(e, attribute as CFString, &out)
+        return (code == .success ? out : nil, code)
+    }
+
     /// The app's accessibility windows with their window-server ids, and how many it lists that cannot be mapped to
     /// one (a panel being made, a window `_AXUIElementGetWindow` has no answer for). The unmapped count is kept so a
     /// caller can fail closed: a key could land in a window nobody can name.
     static func windows(pid: pid_t) -> (mapped: [AppWindow], unmapped: Int) {
-        guard let list = copy(app(pid), kAXWindowsAttribute) as? [AXUIElement] else { return ([], 0) }
+        let (raw, code) = read(app(pid), kAXWindowsAttribute)
+        // A list that couldn't be read counts as one window nobody can name.
+        guard code == .success || code == .noValue else { return ([], 1) }
+        let list = (raw as? [AXUIElement]) ?? []
         var mapped: [AppWindow] = []
         var unmapped = 0
         for w in list {
@@ -100,7 +110,8 @@ enum BackgroundAX {
     static func focus(pid: pid_t) -> (window: UInt32?, element: AXUIElement?, elementWindow: UInt32?, unplaced: Bool) {
         let a = app(pid)
         let window = copy(a, kAXFocusedWindowAttribute).flatMap { windowID(of: $0 as! AXUIElement) }
-        guard let raw = copy(a, kAXFocusedUIElementAttribute) else { return (window, nil, nil, false) }
+        let (found, code) = read(a, kAXFocusedUIElementAttribute)
+        guard let raw = found else { return (window, nil, nil, code != .success && code != .noValue && code != .attributeUnsupported) }
         let el = raw as! AXUIElement
         let w = placedWindow(of: el)
         return (window, el, w, w == nil)
@@ -125,16 +136,9 @@ enum BackgroundAX {
         return (matches(kAXFocusedWindowAttribute), matches(kAXMainWindowAttribute))
     }
 
-    /// A reading of one element: what it is (role and frame), what it holds (hashed), what is selected.
+    /// A reading of one element: what it is (role and the element's own hash), what it holds (hashed), what is selected.
     static func reading(of e: AXUIElement) -> ElementReading {
         let role = (copy(e, kAXRoleAttribute) as? String) ?? ""
-        var frame = ""
-        if let p = copy(e, kAXPositionAttribute), let s = copy(e, kAXSizeAttribute) {
-            var pt = CGPoint.zero, sz = CGSize.zero
-            AXValueGetValue(p as! AXValue, .cgPoint, &pt)
-            AXValueGetValue(s as! AXValue, .cgSize, &sz)
-            frame = "\(Int(pt.x)),\(Int(pt.y)),\(Int(sz.width)),\(Int(sz.height))"
-        }
         var value: String?
         // Only a string or a number: other value types print with addresses and would differ on every read.
         if let v = copy(e, kAXValueAttribute) { value = (v as? String) ?? (v as? NSNumber).map { "\($0)" } }
@@ -143,7 +147,7 @@ enum BackgroundAX {
             var range = CFRange()
             if AXValueGetValue(r as! AXValue, .cfRange, &range) { selection = (range.location, range.length) }
         }
-        return ElementReading.text(window: placedWindow(of: e), identity: "\(role)|\(frame)", value: value, selection: selection,
+        return ElementReading.text(window: placedWindow(of: e), identity: ElementReading.identity(role: role, element: CFHash(e)), value: value, selection: selection,
                                    attributes: value.flatMap { attributesDescription(e, length: $0.utf16.count) })
     }
 

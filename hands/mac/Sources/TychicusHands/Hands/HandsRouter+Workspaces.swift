@@ -170,17 +170,6 @@ extension HandsRouter {
         HandsError(.inUse, "another action on \(app) is still running", suggestion: "Try `\(verb)` again when it has answered.", retry: .safe)
     }
 
-    /// sol-sol-F4: `work` on the process queue of every pid, one at a time in pid order (two calls can't deadlock), so a
-    /// window change never lands inside a background action's transaction. The main thread never waits: there, and when a
-    /// queue isn't free within 10 s, it refuses with `busy`, and work that starts late sees `cancelled()` true.
-    func onProcessQueues<T>(_ pids: [Int32], busy: HandsError, _ work: @escaping (_ cancelled: @escaping () -> Bool) -> Result<T, HandsError>) -> Result<T, HandsError> {
-        func step(_ rest: ArraySlice<Int32>, _ cancelled: @escaping () -> Bool) -> Result<T, HandsError> {
-            guard let pid = rest.first else { return work(cancelled) }
-            return HandsEngine.shared.serialized(pid: pid, wait: Thread.isMainThread ? 0 : 10) { c in step(rest.dropFirst(), { cancelled() || c() }) } ?? .failure(busy)
-        }
-        return step(ArraySlice(Set(pids).sorted()), { false })
-    }
-
     func close(_ req: HandsRequest) -> HandsEnvelope {
         let session = req.session ?? ""
         switch target(req) {

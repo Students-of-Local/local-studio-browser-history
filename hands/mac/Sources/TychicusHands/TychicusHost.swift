@@ -13,8 +13,9 @@ final class TychicusHost {
     private let workspace: AgentWorkspace
     /// Windows this helper already asked the agent workspace to move, so each is asked once.
     private var askedToMove = Set<UInt32>()
-    private var bundles: [Int32: String] = [:]
+    private var bundles: [Int32: (startedAt: Double?, bundle: String)] = [:]
     private var last: [HandsWindow] = []
+    private var known = KnownWindows()
     private let launcher: AgentAppLauncher = SystemAppLauncher()
 
     init(workspace: AgentWorkspace) { self.workspace = workspace }
@@ -77,9 +78,11 @@ final class TychicusHost {
     }
 
     private func bundle(_ pid: Int32) -> String {
-        if let b = bundles[pid] { return b }
+        let started = AgentOwned.startTime(pid)
+        if let b = bundles[pid], b.startedAt == started { return b.bundle }
         let b = NSRunningApplication(processIdentifier: pid)?.bundleIdentifier ?? ""
-        bundles[pid] = b
+        // Not known yet (still starting) isn't kept, and one kept is for this process, not a later one with its pid.
+        if !b.isEmpty { bundles[pid] = (started, b) }
         return b
     }
 
@@ -87,8 +90,17 @@ final class TychicusHost {
     private func standardWindows(of pid: Int32) -> Set<UInt32> {
         let ax = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(ax, 0.25)
-        let listed: [AXUIElement] = ax.value(kAXWindowsAttribute) ?? []
-        return Set(listed.compactMap { el in el.string(kAXSubroleAttribute) == kAXStandardWindowSubrole as String ? el.windowID : nil })
+        var raw: CFTypeRef?
+        let code = AXUIElementCopyAttributeValue(ax, kAXWindowsAttribute as CFString, &raw)
+        var standard: Set<UInt32>? = code == .success || code == .noValue ? [] : nil
+        var unread = Set<UInt32>()
+        for el in raw as? [AXUIElement] ?? [] {
+            AXUIElementSetMessagingTimeout(el, 0.25)
+            guard let id = el.windowID else { continue }
+            guard let subrole = el.string(kAXSubroleAttribute) else { unread.insert(id); continue }
+            if subrole == kAXStandardWindowSubrole as String { standard?.insert(id) }
+        }
+        return known.windows(pid: pid, startedAt: AgentOwned.startTime(pid), read: standard, unread: unread) { HandsRouter.listedWindows(of: pid) }
     }
 
     private func element(_ id: UInt32) -> (element: AXUIElement, pid: Int32)? {
@@ -104,17 +116,22 @@ final class TychicusHost {
         return out
     }
 
-    /// What a window shows (AXDocument), and whether it is an Open or Save panel. Unreadable is off limits, and so is one its
-    /// app doesn't show to Accessibility now (a hung app); it is read again on the next use.
-    private func inspect(_ id: UInt32) -> (document: String?, panel: Bool) {
-        guard let (e, pid) = element(id) else { return (nil, true) }
-        return (e.string("AXDocument"), HandsAXTree.offLimits(e, bundle: bundle(pid)))
+    /// What a window shows (AXDocument), whether it is an Open or Save panel, and whether its app answered both. One its app
+    /// doesn't show to Accessibility now (a hung app) isn't readable; it is read again on the next use.
+    private func inspect(_ id: UInt32) -> (document: String?, panel: Bool, readable: Bool) {
+        guard let (e, pid) = element(id) else { return (nil, false, false) }
+        let document = HandsAXTree.document(e)
+        guard document.readable, HandsAXTree.children(e).readable else { return (nil, false, false) }
+        return (document.path, HandsAXTree.offLimits(e, bundle: bundle(pid)), true)
     }
 
-    /// `close`: presses the window's close button from behind (no raise, no activation). False when it has none.
+    /// `close`: presses the window's close button from behind (no raise, no activation). False when it has none. An app that
+    /// asks something in a dialog before it answers was pressed: `close` reads back what came of it.
     private func pressClose(_ id: UInt32) -> Bool {
         guard let (e, _) = element(id), let button: AXUIElement = e.value(kAXCloseButtonAttribute) else { return false }
-        return AXUIElementPerformAction(button, kAXPressAction as CFString) == .success
+        AXUIElementSetMessagingTimeout(button, 1)
+        let result = AXUIElementPerformAction(button, kAXPressAction as CFString)
+        return result == .success || result == .cannotComplete
     }
 
     // MARK: open
@@ -129,7 +146,7 @@ final class TychicusHost {
         let bundle = Bundle(url: url)?.bundleIdentifier ?? ""
         let launch: AgentLaunchRequest
         switch AgentOpenGate.check(app: appName, bundle: bundle, targets: Array(args.dropFirst()), handoff: HandsRouter.handoffFolder, appURL: url,
-                                   probeFolder: ProbeAppTrust.folder, probeTrusted: false, mode: mode) {
+                                   mode: mode) {
         case .failure(let e): return .init(ok: false, error: e.message, info: ["code": e.code.rawValue, "suggestion": e.suggestion])
         case .success(let paths): launch = AgentLaunchRequest(app: url, paths: paths)
         }

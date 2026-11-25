@@ -528,7 +528,7 @@ export class DataExporter {
 
 ## Threads for local agents
 
-The side panel's chats live in the `sessions` and `sessions-metadata` stores. Tychicus reads
+The side panel's chats live in the `sessions` and `sessions-metadata` stores. Local Studio reads
 them from two more places (`src/threads/`):
 
 - **The service worker** opens the same database read-only (`src/threads/store.ts`; it never

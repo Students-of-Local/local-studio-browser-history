@@ -345,6 +345,21 @@ export const CHECKS = [
 		},
 	},
 	{
+		name: "a helper without its OS grant refuses open as it refuses windows",
+		async run(start) {
+			const s = start(["mcp"]);
+			try {
+				await s.initialize();
+				const { result, envelope } = await s.call("windows");
+				if (envelope?.ok || envelope?.error.code !== "permission_denied") return;
+				assert.ok(envelope.error.suggestion, result.content[0].text);
+				assertError(await s.call("open", { app: "TextEdit" }), "permission_denied");
+			} finally {
+				await s.close();
+			}
+		},
+	},
+	{
 		name: "connector cap: access is the person's mode capped at Default, managing verbs are refused, lending is refused",
 		async run(start) {
 			const local = await accessOf(start, ["mcp"]);
@@ -379,7 +394,8 @@ export const CHECKS = [
 					assertError(await s.call("toggle", { ref: "1" }), "permission_denied", "never");
 					assertError(await s.call("click_at", { window: 1, x: 1, y: 1 }), "permission_denied", "never");
 					const shot = await s.call("shot", { window: 1 });
-					assert.ok(!(shot.envelope && shot.envelope.ok === false && shot.envelope.error.code === "permission_denied"), `shot works under Read Only (${args.join(" ")})`);
+					// The mode's refusal is never worth retrying; a missing OS grant's is.
+					assert.ok(!(shot.envelope && shot.envelope.ok === false && shot.envelope.error.code === "permission_denied" && shot.envelope.error.retry === "never"), `shot works under Read Only (${args.join(" ")})`);
 				} finally {
 					await s.close();
 				}
@@ -399,8 +415,10 @@ export const CHECKS = [
 	},
 ];
 
-/** The access a session with `args` reports from `windows`, or undefined when it can't say (no OS grant). */
+/** The access a session with `args` reports from `windows`, or undefined when it can't say (no OS grant) and nothing says it. */
 async function accessOf(start, args) {
+	const told = process.env.TYCHICUS_HANDS_CONFORMANCE_ACCESS;
+	if (told) return told;
 	const s = start(args);
 	try {
 		await s.initialize();

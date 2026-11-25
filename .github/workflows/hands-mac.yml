@@ -64,7 +64,7 @@ jobs:
           for mode in default read_only; do
             if [ "$mode" = read_only ]; then defaults write tychicus-hands agentAccessMode read_only; else defaults delete tychicus-hands agentAccessMode 2>/dev/null || true; fi
             echo "::group::conformance, $mode"
-            TYCHICUS_HANDS_CONFORMANCE_BIN="$HANDS_BIN" node --test test/hands-conformance.test.mjs
+            TYCHICUS_HANDS_CONFORMANCE_ACCESS=$mode TYCHICUS_HANDS_CONFORMANCE_BIN="$HANDS_BIN" node --test test/hands-conformance.test.mjs
             echo "::endgroup::"
           done
           defaults delete tychicus-hands agentAccessMode 2>/dev/null || true

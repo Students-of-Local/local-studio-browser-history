@@ -4,6 +4,7 @@
 // CI runs it against the fake. Against a real helper:
 //   TYCHICUS_HANDS_CONFORMANCE_BIN=/path/to/tychicus-hands node --test test/hands-conformance.test.mjs
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -22,6 +23,26 @@ const cache = new Map();
 for (const check of CHECKS) {
 	test(`${real ? "helper" : "fake helper"}: ${check.name}`, () => check.run(starter(), cache));
 }
+
+// On the Mac the mode is a saved value, and Read Only must stop a helper that is already running. Only where the run says
+// which mode it set (hands-mac.yml), since it changes that value.
+test("mac helper: Read Only set while it runs stops it acting", { skip: !real || process.platform !== "darwin" || process.env.TYCHICUS_HANDS_CONFORMANCE_ACCESS !== "default" }, async () => {
+	const s = starter()(["mcp"]);
+	try {
+		await s.initialize();
+		assert.notEqual((await s.call("toggle", { ref: "1" })).envelope.error.retry, "never", "not refused by the mode before");
+		execFileSync("defaults", ["write", "tychicus-hands", "agentAccessMode", "read_only"]);
+		for (let i = 0; ; i++) {
+			const { error } = (await s.call("toggle", { ref: "1" })).envelope;
+			if (error.code === "permission_denied" && error.retry === "never") break;
+			assert.ok(i < 20, `still acts: ${error.message}`);
+			await new Promise((resolve) => setTimeout(resolve, 100));
+		}
+	} finally {
+		execFileSync("defaults", ["delete", "tychicus-hands", "agentAccessMode"]);
+		await s.close();
+	}
+});
 
 // The suite is only worth what it catches. Each break below is one way a helper could drift; the suite must fail on it,
 // on the check named, and on nothing it shouldn't.

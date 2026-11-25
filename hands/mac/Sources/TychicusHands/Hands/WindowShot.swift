@@ -39,8 +39,9 @@ enum WindowShot {
             return .failure(HandsError(.badArguments, "out must be a file name, not a path", suggestion: "Pass just a name like `page.png`; shots are written in \(folder.path).", retry: .safe))
         }
         guard CGPreflightScreenCaptureAccess() else {
-            return .failure(HandsError(.permissionDenied, "Tychicus doesn't have Screen Recording access",
-                                       suggestion: "Allow Tychicus in System Settings > Privacy & Security > Screen & System Audio Recording, then run the command again.", retry: .safe))
+            let program = AccessibilityGrant.responsibleProgram()
+            return .failure(HandsError(.permissionDenied, "macOS hasn't allowed \(program.name) to record the screen, so windows can't be captured",
+                                       suggestion: "Ask the person to open System Settings > Privacy & Security > Screen & System Audio Recording and add \(program.name) (\(program.path)), then try again. `computer_snapshot` reads the window without it.", retry: .safe))
         }
         guard #available(macOS 14, *) else {
             return .failure(HandsError(.notSupported, "window captures need macOS 14 or later", suggestion: "Use `computer_snapshot` to read the window instead.", retry: .never))
@@ -145,7 +146,7 @@ enum WindowShot {
                 let hash = SHA256.hash(data: png).map { String(format: "%02x", $0) }.joined()
                 outcome.set(.success(Result(path: file.path, width: picture.width, height: picture.height, sha256: hash, cursorDrawn: drawn, rawSha256: rawHash, points: w.frame.size)))
             } catch {
-                outcome.set(.failure(HandsError(.engineError, "the capture failed: \(error.localizedDescription)", suggestion: "Check Screen Recording access for Tychicus.", retry: .safe)))
+                outcome.set(.failure(HandsError(.engineError, "the capture failed: \(error.localizedDescription)", suggestion: "Try again, or read the window with `computer_snapshot`.", retry: .safe)))
             }
         }
         if done.wait(timeout: .now() + budget) == .timedOut {

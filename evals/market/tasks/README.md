@@ -1,6 +1,6 @@
 # Task set
 
-Ten browser tasks on a local site, solved by a fixed script through Tychicus's own MCP tools, and checked by what
+Ten browser tasks on a local site, solved by a fixed script through Local Studio's own MCP tools, and checked by what
 the page itself received. Not a model eval: every run takes the same steps, so a failure is the tool's.
 
 ## Origin
@@ -12,7 +12,7 @@ not a repository):
 |---|---|---|
 | `site/`, `fixtures/`, `server.mjs`, `tasks.mjs` | same paths | none |
 | `solves.mjs` | `solves.mjs` | none |
-| `lib.mjs` | `adapters/polycarp.mjs`, `lib/drivers.mjs` | runs this repo's e2e harness (`cli/test/e2e-harness.mjs`) instead of an installed Tychicus; `clickNewTab` takes the tab from the click's `newTabs` (D50) instead of `tabs_context` |
+| `lib.mjs` | `adapters/polycarp.mjs`, `lib/drivers.mjs` | runs this repo's e2e harness (`cli/test/e2e-harness.mjs`) instead of an installed copy; `clickNewTab` takes the tab from the click's `newTabs` (D50) instead of `tabs_context` |
 | `run.mjs`, `loop.mjs` | `run.mjs` | scripted mode; the loop is shared with `../rivals/run.mjs` |
 | `speed.mjs`, `loop.mjs` | `lib/latency.mjs` | the same verbs and page, plus the first page text; `../floors.json` holds the ceilings |
 

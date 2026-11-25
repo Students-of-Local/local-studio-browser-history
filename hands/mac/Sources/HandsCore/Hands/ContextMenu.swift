@@ -134,6 +134,11 @@ public enum ContextMenu {
                                        suggestion: "Pass one of those titles as item.", retry: .safe, nextCall: .null))
         }
         let i = items[at]
+        // Two of one title can't be told apart when the engine reads the menu again for the press (`ref`).
+        guard items.filter({ plain($0.title) == plain(i.title) }).count == 1 else {
+            return .failure(HandsError(.notSupported, "\(path): the context menu has more than one item of that title",
+                                       suggestion: "Do it in the app's own window with click, type or set-value.", retry: .never, nextCall: .null))
+        }
         if let e = MenuPath.itemRule(i, path: path) { return .failure(e) }
         if clipboardIdentifier(i) { return .failure(MenuPath.clipboard(path)) }
         if leavesTheApp(i) { return .failure(MenuPath.refuse(path, why: MenuPath.outside)) }
@@ -152,12 +157,18 @@ public enum ContextMenu {
     /// The item's ref in the engine's read of the open menu (surface menu): an enabled item titled `title` of the menu
     /// itself, never one inside a submenu.
     /// The first item of that title, as `choose` takes the first: never a later look-alike ("Rename" for "Rename…") when
-    /// the one judged went disabled between the two reads (256 first-F4).
+    /// the one judged went disabled between the two reads (256 first-F4). `title` is the judged item's own, and only that
+    /// title is pressed: "Rename…" in its place asks for more, which `choose` refuses.
     public static func ref(_ tree: JSONValue, title: String) -> String? {
-        guard let item = MenuPath.items(under: tree).first(where: { MenuPath.same($0["name"]?.string ?? "", title) }),
+        let items = MenuPath.items(under: tree)
+        guard items.filter({ plain($0["name"]?.string ?? "") == plain(title) }).count == 1,
+              let item = items.first(where: { MenuPath.same($0["name"]?.string ?? "", title) }),
+              plain(item["name"]?.string ?? "") == plain(title),
               !(item["states"]?.array ?? []).contains("disabled") else { return nil }
         return item["ref_id"]?.string
     }
+
+    static func plain(_ s: String) -> String { s.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     /// Whether a window is the agent's own for a right click: on the agent workspace, and under Full Access not one of
     /// Donovan's processes claimed onto it, which the planner treats as his (256 first-F3).

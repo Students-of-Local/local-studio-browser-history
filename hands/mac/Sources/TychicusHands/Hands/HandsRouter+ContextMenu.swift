@@ -99,9 +99,10 @@ extension HandsRouter {
                 if let e = beforePress() { return .failure(cancel() ? e : ContextMenu.stillOpen(w.app)) }
                 // The menu bar's watch from the press on: a panel or an outside window the item raised is undone in this
                 // transaction and fails the call (256 r1 second-S2). The open menu is in `windows`, so it is never new.
-                let title = read.items[at].title, windows = MenuAX.ids(), agent = onMain { host.agentWorkspace() }, oldPanels = MenuAX.panelElements(w.pid)
+                let title = read.items[at].title, windows = MenuAX.ids(), agent = onMain { host.agentWorkspace() }
+                guard let oldPanels = MenuAX.panelElements(w.pid) else { return .failure(cancel() ? MenuAX.unread(w) : ContextMenu.stillOpen(w.app)) }
                 let watch = MenuWatch<MenuPath.Seen>()
-                watch.start(menuWatchStep(w, before: windows, agent: agent, oldPanels: oldPanels))
+                watch.start(menuWatchStep(w, before: windows, agent: agent, oldPanels: oldPanels, watch: watch))
                 func watched(_ answer: Result<[String: JSONValue], HandsError>) -> Result<[String: JSONValue], HandsError> {
                     ContextMenu.watched(watch.finish(), answer, item: title, window: Int(w.id)) { looks in
                         withoutActuallyEscaping(cancelled) { c in undo(MenuPath.Seen.merged(looks), w, path: "context menu > \(title)", oldPanels: oldPanels, inline: c) }

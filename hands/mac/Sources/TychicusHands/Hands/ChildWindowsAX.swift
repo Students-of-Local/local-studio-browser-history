@@ -21,6 +21,15 @@ enum HandsAXTree {
 
     static func role(_ e: AXUIElement) -> String? { string(e, kAXRoleAttribute) }
 
+    /// A label's text.
+    static func text(_ e: AXUIElement) -> String? { role(e) == kAXStaticTextRole as String ? string(e, kAXValueAttribute) : nil }
+
+    /// What the window says it shows, and whether the app answered.
+    static func document(_ e: AXUIElement) -> (path: String?, readable: Bool) {
+        let (v, r) = copy(e, "AXDocument")
+        return (v as? String, r == .success || r == .noValue || r == .attributeUnsupported)
+    }
+
     /// The sheets among a window's own children, however many controls come before them, and whether all were looked at.
     static func sheets(_ kids: [AXUIElement]) -> (list: [AXUIElement], whole: Bool) {
         let read = AXTreeRead.windowChildren(kids, string: { string($0, $1) })
@@ -141,7 +150,16 @@ enum ChildWindowsAX {
                        complete: ChildLook.complete(listed: true, count: list.count, placedReadable: placedReadable), sheetsRead: sheetsRead)
     }
 
-    /// The process that owns a window number, and its name, from the window server.
+    /// The title and first texts of a dialog, alert or sheet `pid` shows, for saying why `open` got no window. Nil when it
+    /// shows none, or can't be read.
+    static func dialog(of pid: pid_t) -> String? {
+        let look = read(pid: pid, placed: [])
+        guard let d = look.children.first(where: { ["AXDialog", "AXSystemDialog"].contains($0.subrole) || $0.role == "AXSheet" }) else { return nil }
+        let texts = element(pid: pid, id: d.id).map { HandsAXTree.children($0).list.compactMap(HandsAXTree.text) } ?? []
+        let said = ([d.title] + texts).filter { !$0.isEmpty }.prefix(3).joined(separator: ": ")
+        return said.isEmpty ? "untitled" : String(said.prefix(200))
+    }
+
     private static func focusedElement(_ app: AXUIElement) -> AXUIElement? {
         var v: CFTypeRef?
         guard AXUIElementCopyAttributeValue(app, kAXFocusedWindowAttribute as CFString, &v) == .success, let v, CFGetTypeID(v) == AXUIElementGetTypeID() else { return nil }
@@ -168,6 +186,7 @@ enum ChildWindowsAX {
         return HiddenPanel.closed(inWindows: f.inWindows, focused: f.focused)
     }
 
+    /// The process that owns a window number, and its name, from the window server.
     static func owner(_ id: UInt32) -> (pid: pid_t, name: String)? {
         guard let list = CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] else { return nil }
         for w in list where (w[kCGWindowNumber as String] as? NSNumber)?.uint32Value == id {

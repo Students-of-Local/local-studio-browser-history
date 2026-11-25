@@ -9,7 +9,7 @@ extension HandsRouter {
     func menu(_ req: HandsRequest) -> HandsEnvelope {
         let path = MenuPath.parse(req.string("path") ?? "")
         guard req.int("window") != nil, !path.isEmpty else {
-            return .failure(HandsError(.badArguments, "window and path are needed", suggestion: #"usage: tychicus-hands agent menu --window <id> "Format > Font > Bold""#, retry: .safe, nextCall: .null))
+            return .failure(HandsError(.badArguments, "window and path are needed", suggestion: #"Pass a window id and a path, such as "Format > Font > Bold"."#, retry: .safe, nextCall: .null))
         }
         switch target(req) {
         case .failure(let e): return .failure(e)
@@ -46,7 +46,7 @@ extension HandsRouter {
                 if case .success = item {
                     var why: HandsError?, own = false, pressed = false
                     let earlier = withoutActuallyEscaping(cancelled) { c in
-                        MenuPath.cancelEarlier(count: MenuAX.panelElements(w.pid).count, pause: { Thread.sleep(forTimeInterval: 0.1) },
+                        MenuPath.cancelEarlier(count: MenuAX.panelElements(w.pid)?.count ?? 0, pause: { Thread.sleep(forTimeInterval: 0.1) },
                                               retry: { MenuPath.retries(after: why, cancelled: c()) }, pressed: { pressed }) {
                             // The error belongs to the last attempt only (258 r1 first-F2).
                             why = nil; pressed = false
@@ -67,8 +67,9 @@ extension HandsRouter {
                 }
                 let ref = found.ref
                 spelled = found.names
-                oldPanels = MenuAX.panelElements(w.pid)
-                watch.start(menuWatchStep(w, before: before, agent: agent, oldPanels: oldPanels))
+                guard let panels = MenuAX.panelElements(w.pid) else { return .failed(MenuAX.unread(w)) }
+                oldPanels = panels
+                watch.start(menuWatchStep(w, before: before, agent: agent, oldPanels: oldPanels, watch: watch))
                 switch HandsEngine.shared.actInline(window: w, ref: ref, kind: .click, evidence: true, check: acting, cancelled: cancelled) {
                 case .failed(let e): return .failed(e)
                 case .ok(let d): press = d
@@ -135,11 +136,13 @@ extension HandsRouter {
     }
 
     /// One look for layer 2: an Open or Save panel of the app, or a new window outside the agent workspace that may be
-    /// the press's (`MenuPath.escaped`). Input from Donovan shortly before or since the press unties a helper's window from it.
-    func menuWatchStep(_ w: HandsWindow, before: Set<UInt32>, agent: Int?, oldPanels: [AXUIElement]) -> @Sendable (Bool) -> MenuPath.Seen? {
-        let started = Date()
-        return { [self] settled in
-            let windows = MenuAX.windows(w.pid)
+    /// the press's (`MenuPath.escaped`). A helper's window is never tied to it.
+    /// A look at windows the app didn't answer for is told to `watch`: one that ends on such a look is unknown.
+    func menuWatchStep(_ w: HandsWindow, before: Set<UInt32>, agent: Int?, oldPanels: [AXUIElement], watch: MenuWatch<MenuPath.Seen>) -> @Sendable (Bool) -> MenuPath.Seen? {
+        return { [self, weak watch] settled in
+            let read = MenuAX.windows(w.pid)
+            watch?.looked(read: read != nil)
+            let windows = read ?? []
             let old = windows.map { x in oldPanels.contains { CFEqual($0, x.element) } }
             let nodes = windows.map { MenuAX.node($0.element) }
             let panel = MenuPath.panel(nodes, old: old) != nil
@@ -151,9 +154,8 @@ extension HandsRouter {
             let ids = new.map(\.id)
             let places = onMain { ids.map { host.live($0)?.workspace } }
             for i in new.indices { new[i].workspace = places[i]; MenuAX.fillProcess(&new[i]) }
-            let userInput = MenuPath.userInput(idle: IdleWatch.idle(), sincePress: Date().timeIntervalSince(started))
             let found = MenuPath.escaped(before: before, now: new, pid: w.pid, agentWorkspace: agent, settled: settled,
-                                         parent: all.first { $0.id == w.id }?.bounds, userInput: userInput)
+                                         parent: all.first { $0.id == w.id }?.bounds)
             return found.isEmpty && !panel ? nil : MenuPath.Seen(panel: panel, escapes: found)
         }
     }
@@ -162,13 +164,14 @@ extension HandsRouter {
     /// window tied to the press is closed; any other is reported and left alone (192 r1 first-F2).
     /// A panel and windows seen in the same watch are both undone; the panel's error leads.
     /// A window that closed on its own since a look saw it is reported as gone, not closed or still open (205 r1 second-S2).
-    /// `inline`: already in the app's transaction (a context menu's press), so the panel's cancel runs in it.
+    /// `inline`: already in the app's transaction (a context menu's press), so the panel's cancel runs in it, also once the
+    /// caller's time is up: what the press raised isn't left behind.
     func undo(_ seen: MenuPath.Seen, _ w: HandsWindow, path: String, oldPanels: [AXUIElement], inline: (() -> Bool)? = nil) -> HandsError {
         let (found, gone) = seen.split(MenuAX.listed())
         var open = found.filter(\.tied)
         let (panelError, closed) = MenuPath.undoing(panel: seen.panel,
-            cancel: { cancelPanels(w, within: 0.3, old: oldPanels, inline: inline) ?? MenuPath.panelRefusal(w.app, cancelled: false, gone: true) },
-            close: { open.removeAll { x in onMain { host.close(x.window.id) } }; return open.isEmpty },
+            cancel: { cancelPanels(w, within: 0.3, old: oldPanels, inline: inline == nil ? nil : { false }) ?? MenuPath.panelRefusal(w.app, cancelled: false, gone: true) },
+            close: { let now = MenuAX.listed(); open.removeAll { x in MenuPath.mayClose(x, now: now, pid: w.pid) && onMain { host.close(x.window.id) } }; return open.isEmpty },
             pause: { Thread.sleep(forTimeInterval: 0.1) })
         let escape = seen.escapes.isEmpty ? nil : MenuPath.escapeRefusal(path, found: found, gone: gone, closed: closed, window: Int(w.id))
         guard var e = panelError else { return escape ?? MenuPath.panelRefusal(w.app, cancelled: false, gone: true) }
@@ -192,7 +195,7 @@ extension HandsRouter {
     /// `failed`: why the cancel didn't go through, and whether it acted on a panel window of its own. `pressed`: its Cancel was pressed.
     private func cancelOnePanel(_ w: HandsWindow, old oldPanels: [AXUIElement], inline cancelled: (() -> Bool)? = nil,
                                 failed: ((HandsError, Bool) -> Void)? = nil, pressed: (() -> Void)? = nil) -> Bool? {
-        let windows = MenuAX.windows(w.pid)
+        guard let windows = MenuAX.windows(w.pid) else { return false }
         let nodes = windows.map { MenuAX.node($0.element) }
         guard let i = MenuPath.panel(nodes, old: windows.map { x in oldPanels.contains { CFEqual($0, x.element) } }) else { return nil }
         var target = w
@@ -200,12 +203,15 @@ extension HandsRouter {
         let title = MenuPath.cancelTitle(nodes[i], cancelButton: MenuAX.cancelTitle(windows[i].element))
         guard let title else { return false }
         if let cancelled {
-            guard let e = cancelInline(target, title: title, scope: check(w), cancelled: cancelled, pressed: pressed) else { return true }
+            guard let e = cancelInline(target, title: title, scope: cancelCheck(w), cancelled: cancelled, pressed: pressed) else { return true }
             failed?(e, target.id != w.id)
             return false
         }
-        return cancelPanel(target, title: title, scope: check(w))
+        return cancelPanel(target, title: title, scope: cancelCheck(w))
     }
+
+    /// The scope of a panel's cancel: its window's, without the rule that refuses a window for holding a panel.
+    private func cancelCheck(_ w: HandsWindow) -> HandsEngine.Check { { [self] in gate(w, panels: false) } }
 
     /// Presses the panel's Cancel button through the engine; true when that press went through.
     private func cancelPanel(_ target: HandsWindow, title: String, scope: @escaping HandsEngine.Check) -> Bool {
@@ -266,24 +272,36 @@ enum MenuAX {
     }
     static func children(_ e: AXUIElement) -> [AXUIElement] { (copy(e, kAXChildrenAttribute) as? [AXUIElement]) ?? [] }
     /// The app's windows and sheets that are Open or Save panels now.
-    static func panelElements(_ pid: Int32) -> [AXUIElement] {
-        let windows = self.windows(pid)
+    static func panelElements(_ pid: Int32) -> [AXUIElement]? {
+        guard let windows = self.windows(pid) else { return nil }
         return MenuPath.panels(windows.map { node($0.element) }).map { windows[$0].element }
     }
     /// The numbers of the app's panel windows (not sheets), read only when the app has other windows.
     static func panelWindows(_ pid: Int32) -> Set<UInt32> {
-        let windows = self.windows(pid)
+        let windows = self.windows(pid) ?? []
         return MenuPath.panelWindows(windows.map { node($0.element) }, sheet: windows.map(\.sheet), ids: windows.map(\.id))
     }
     /// The app's windows with their sheets (a Save panel is often a sheet), and the window number where there is one.
-    /// `sheet`: a sheet, which carries its window's number (217 r1 first-F2).
-    static func windows(_ pid: Int32) -> [(element: AXUIElement, id: UInt32?, sheet: Bool)] {
-        let list = (copy(app(pid), kAXWindowsAttribute) as? [AXUIElement]) ?? []
-        return list.flatMap { w -> [(element: AXUIElement, id: UInt32?, sheet: Bool)] in
-            let id = BackgroundAX.windowID(of: w)
-            let sheets = children(w).filter { (copy($0, kAXRoleAttribute) as? String) == "AXSheet" }
-            return [(w, id, false)] + sheets.map { ($0, id, true) }
+    /// `sheet`: a sheet, which carries its window's number (217 r1 first-F2). Nil when the app didn't list its windows or
+    /// one's children: a panel could be among them.
+    static func windows(_ pid: Int32) -> [(element: AXUIElement, id: UInt32?, sheet: Bool)]? {
+        var raw: CFTypeRef?
+        let a = app(pid)
+        AXUIElementSetMessagingTimeout(a, timeout)
+        let code = AXUIElementCopyAttributeValue(a, kAXWindowsAttribute as CFString, &raw)
+        guard code == .success || code == .noValue else { return nil }
+        var out: [(element: AXUIElement, id: UInt32?, sheet: Bool)] = []
+        for w in (raw as? [AXUIElement]) ?? [] {
+            let id = BackgroundAX.windowID(of: w), kids = HandsAXTree.children(w)
+            guard kids.readable else { return nil }
+            out.append((w, id, false))
+            for k in kids.list where (copy(k, kAXRoleAttribute) as? String) == "AXSheet" { out.append((k, id, true)) }
         }
+        return out
+    }
+    /// The app's windows couldn't be read before a press, so a panel it raises couldn't be told from one already up.
+    static func unread(_ w: HandsWindow) -> HandsError {
+        HandsError(.timeout, "\(w.app) isn't answering, so nothing was pressed", suggestion: "Try again in a moment.", retry: .safe)
     }
     /// The menu bar along `path`: each menu's items with their key equivalents, and the one the path takes. Nil when unread.
     static func steps(pid: Int32, path: [String]) -> [MenuPath.Step]? {

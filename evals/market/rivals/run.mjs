@@ -1,4 +1,4 @@
-// The same task set and speed check, against a rival tool or Tychicus, by hand. Never in CI (README.md).
+// The same task set and speed check, against a rival tool or Local Studio, by hand. Never in CI (README.md).
 //   node evals/market/rivals/run.mjs --tool playwright-mcp|agent-browser|browse|chrome-devtools-mcp|tychicus [--repeat 3] [--only ids]
 //        [--speed-n 9] [--no-speed] [--no-start] [--out file.json]
 // Prints and writes { tool, scores, speed_ms, detail } in the market eval's format, so rows compare one to one, plus
@@ -91,7 +91,7 @@ async function session(part, f) {
 /**
  * startMs: from nothing running to the first page's text, timed the same way for every tool, in a session of its own.
  * Timing start() alone favored a tool that launches its browser on the first command (agent-browser's start() only
- * makes a folder, so it read 0) over one that launches it in start() (Tychicus). launchMs is start() alone.
+ * makes a folder, so it read 0) over one that launches it in start() (Local Studio). launchMs is start() alone.
  */
 async function coldStart() {
 	const t0 = Date.now();
