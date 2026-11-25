@@ -4,7 +4,7 @@
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
 	<title>Local Studio: you steer, your agents work the tabs</title>
-	<meta name="description" content="Let Claude Code, Codex or any MCP agent drive your real Chromium browser in its own tab group, with your approval for every new site. One command to set up.">
+	<meta name="description" content="Let Claude Code, Codex or any MCP agent drive your real Chromium browser in its own tab group, and you pick when it asks. One command to set up.">
 	<meta property="og:title" content="Local Studio">
 	<meta property="og:description" content="You steer. Your agents work the tabs.">
 	<link rel="icon" href="img/favicon.svg" type="image/svg+xml">
@@ -29,7 +29,7 @@
 				<h1>You steer.<br><em>Your agents work the tabs.</em></h1>
 				<p class="lede">
 					Claude Code, Codex or any MCP agent drives your real Chromium browser in its own tab group,
-					in the background, and asks before it opens a site you haven't allowed.
+					in the background, and asks before it goes straight to mail, a bank or another sensitive site.
 				</p>
 				<div class="cta">
 					<a class="btn primary" href="#start">Set it up in 60 seconds</a>
@@ -78,7 +78,7 @@
 			<ol class="steps">
 				<li><b>Setup does the work.</b> It builds the extension, registers the native host with every Chromium browser it finds, and offers to add Local Studio to Claude Code and Codex. For OpenCode, Cursor and OMP it prints the config to paste.</li>
 				<li><b>One step is yours.</b> Browsers make you load an unpacked extension by hand. Setup shows the exact folder and waits until it connects.</li>
-				<li><b>Ask your agent.</b> For example: <i>"Use Tychicus to open news.ycombinator.com and list the top five stories."</i> If anything is off, <code>tychicus doctor</code> prints the exact fix.</li>
+				<li><b>Ask your agent.</b> For example: <i>"Use the tychicus tools to open news.ycombinator.com and list the top five stories."</i> If anything is off, <code>tychicus doctor</code> prints the exact fix.</li>
 			</ol>
 			<p class="harnesses">Works with <span>Claude Code</span><span>Codex</span><span>OpenCode</span><span>Cursor</span><span>OMP</span><span>pi</span><span>any MCP client</span></p>
 		</section>
@@ -87,12 +87,12 @@
 			<h2>Your browser is signed in as you.<br><em>So you stay in command.</em></h2>
 			<div class="cards">
 				<article>
-					<h3>It asks before a new site</h3>
-					<p>An agent can open only the sites you've allowed. Claude Code and Codex show the prompt inline. You can also pre-approve a site with <code>tychicus allow github.com</code>.</p>
+					<h3>You pick when it asks</h3>
+					<p>Auto, the default, lets an agent on a frontier model open ordinary sites. A small or unknown model asks first, and every agent asks before it goes straight to a sensitive site. Manual asks before every new site. Claude Code and Codex show the prompt inline, and you can pre-approve a site with <code>tychicus allow github.com</code>.</p>
 				</article>
 				<article>
 					<h3>Page text is data</h3>
-					<p>Every agent is told that page content is untrusted, that it must ask you before sending, buying, posting or deleting under your sign-in, and that it never types passwords or payment details. That's guidance to the model, not a lock. The lock is the site permission, and it limits where an agent goes, not what it does on a site you allowed.</p>
+					<p>Every agent is told that page content is untrusted, that it must ask you before sending, buying, posting or deleting under your sign-in, and that it never types passwords or payment details. That's guidance to the model, not a lock. The lock is the permission mode, and it limits where an agent goes, not what it does on a site it may open.</p>
 				</article>
 				<article>
 					<h3>Its own tab group</h3>
@@ -135,7 +135,7 @@
 				<article>
 					<h3><a href="https://github.com/baney75/tabkyra">Local Studio</a></h3>
 					<p class="repo"><a href="https://github.com/baney75/tabkyra">github.com/baney75/tabkyra</a></p>
-					<p>The name and brand, one-command setup, the doctor, Helium support, and MCP tools documented for agents. AGPL-3.0, like upstream.</p>
+					<p>One-command setup, the doctor, Helium support, and MCP tools documented for agents. AGPL-3.0, like upstream.</p>
 				</article>
 			</div>
 		</section>

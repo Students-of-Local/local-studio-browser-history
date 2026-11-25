@@ -29,6 +29,9 @@ export const RELAY_SERVICE: ServiceSpec = {
 /** serve's health check: the path setup asks for through the relay to prove a request reaches serve and comes back. */
 export const HEALTH_PATH = "/v1/health";
 
+/** The command that sets a relay up again with its saved name: a new key, and the Worker this version speaks to. */
+export const relaySetupCommand = (name: string): string => `${COMMAND_NAME} remote setup --relay ${name}`;
+
 /** RELAY_KEY: 32 bytes from the OS random source, base64url without padding (43 characters), as the relay requires. */
 export function generateRelayKey(): string {
 	return randomBytes(32).toString("base64url");
@@ -82,9 +85,9 @@ const STATE_LINES: Record<RelayState, string> = {
 	connecting: "Connecting to the relay.",
 	connected: "Connected: the relay carries requests to serve.",
 	disconnected: "Disconnected; trying again with backoff.",
-	replaced: `Another connector with this key took over, on another computer or this one. Run ${COMMAND_NAME} remote setup where the relay should run.`,
-	unauthorized: `The relay refused the key. Run ${COMMAND_NAME} remote setup again to set a new one.`,
-	outdated: `The relay speaks another protocol version. Update ${COMMAND_NAME}, then run ${COMMAND_NAME} remote setup again.`,
+	replaced: `Another connector with this key took over, on another computer or this one. Run ${COMMAND_NAME} remote fix where the relay should run.`,
+	unauthorized: `The relay refused the key. Run ${COMMAND_NAME} remote fix.`,
+	outdated: `The relay speaks another protocol version. Update ${COMMAND_NAME}, then run ${COMMAND_NAME} remote fix.`,
 	stopped: "Stopped.",
 };
 

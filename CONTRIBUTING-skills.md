@@ -1,6 +1,6 @@
 # Contributing a skill
 
-Found a better way to get around a site? Turn it into a community skill. Every Tychicus user
+Found a better way to get around a site? Turn it into a community skill. Every Local Studio user
 gets it once a maintainer merges it. This page is for you and for your agent. The design is
 decision D27 in [docs/decisions.md](docs/decisions.md).
 
@@ -31,14 +31,14 @@ Your agent does steps 1 to 4. Step 5 needs your yes.
    that should pick none, one JSON object per line:
    `{"task": "open my Weekly Sync page in Notion", "skill": "notion-navigation"}`.
 3. **Test it.** `tychicus skill test <name> --cases cases.jsonl` runs the lint, the community
-   rules and the router. In a Tychicus checkout it runs the full regression CI runs. Then use
+   rules and the router. In a Local Studio checkout it runs the full regression CI runs. Then use
    the skill on the real site and fix what goes wrong.
 4. **Preview the submission.** `tychicus skill submit <name> --cases cases.jsonl`. It clones the
    repository, runs the checks CI runs with your skill added, and prints the exact files and
    the pull request it would open. Nothing is sent. (MCP: `skill_manage` with action `prepare_submit`.)
 5. **Submit.** If you approve the preview, run the command it prints, with its
    `--confirm <code>`. The code covers that exact skill and those cases; any change needs a new
-   preview. Tychicus forks `baney75/tychicus` to your GitHub account with `gh`, pushes a branch
+   preview. Local Studio forks `baney75/tychicus` to your GitHub account with `gh`, pushes a branch
    and opens the pull request. `--dry-run` does everything except the push.
 
 Submission needs `gh` signed in (`gh auth login`). It refuses personal data outright and
@@ -70,5 +70,5 @@ A maintainer reads the skill and merges it by hand. Nothing merges on its own.
 - `tychicus skill remove <name>` turns a community skill off on your device;
   `tychicus skill enable <name>` turns it back on.
 - To pull a merged skill, a maintainer deletes its folder and adds it with a reason to
-  `community/revoked.json`. Clients drop it at the next sync, delete the copies Tychicus
+  `community/revoked.json`. Clients drop it at the next sync, delete the copies Local Studio
   installed, and turn off local copies of it.
