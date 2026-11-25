@@ -205,7 +205,7 @@ export async function remoteJoin(options: JoinOptions = {}): Promise<number> {
 		removedRelay = r.ok;
 		if (!r.ok) return rollback(`This install's relay connector couldn't be stopped: ${r.failure ?? r.notes.join(" ")}.`, "service");
 		rmSync(relayStateFile(), { force: true });
-		say(`${sym.ok} Stopped this install's relay connector. The relay Worker stays on your Cloudflare account and refuses every connector.`);
+		say(`${sym.ok} Stopped this install's relay connector. The relay Worker ${previous?.relay?.name ?? ""} stays on your Cloudflare account; a computer that still has its key can connect until you delete it.`);
 	}
 	if (ownFunnel) {
 		const r = funnelOff(tsBin);
@@ -368,15 +368,16 @@ export async function setupThroughLocalStudio(options: SetupOptions): Promise<nu
 	const recorded = existsSync(routeRecordFile());
 	const args = options.cloudflare ? ["tunnel", "setup", "--cloudflare", options.cloudflare] : options.tailnet ? ["tunnel", "setup", "--tailnet"] : undefined;
 	const bin = which("local-studio");
+	let own: RemoteConfig | undefined;
+	try {
+		own = loadRemoteConfig();
+	} catch {
+		if (!recorded) return standalone;
+	}
+	// Setup never replaces a relay route: that takes `remote off`, or an explicit `remote join`.
+	if (own?.route === "relay") return standalone;
 	if (!recorded) {
-		if (!args || !bin) return standalone;
-		let own: RemoteConfig | undefined;
-		try {
-			own = loadRemoteConfig();
-		} catch {
-			return standalone;
-		}
-		if (own?.route === "funnel" || own?.route === "cloudflare" || own?.route === "relay") return standalone;
+		if (!args || !bin || own?.route === "funnel" || own?.route === "cloudflare") return standalone;
 	}
 	const foreign = serviceOfOtherConfig([SERVE_SERVICE, CLOUDFLARE_SERVICE, RELAY_SERVICE]);
 	if (foreign) return fail(foreign.message, foreign.code);

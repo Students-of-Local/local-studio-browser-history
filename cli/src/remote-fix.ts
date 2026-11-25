@@ -86,21 +86,26 @@ async function diagnose(config: RemoteConfig): Promise<Diagnosis> {
 		if (!file || !existsSync(file) || serviceRunning(CLOUDFLARE_SERVICE) === false) actions.push({ kind: "restart_cloudflared", what: "Start the Cloudflare tunnel's service again" });
 	}
 
-	if (config.route === "relay") {
-		// A refused key, another computer on the key or an outdated relay: a restart answers the same, so setup again is the fix.
-		const state = readRelayStatus()?.state;
-		if (state === "unauthorized" || state === "replaced" || state === "outdated") {
-			const command = `${COMMAND_NAME} remote setup`;
-			return { actions, advice, blocked: { state: "problem", code: `relay_${state}`, message: `The relay connector stopped: ${state === "unauthorized" ? "the relay refused its key" : state === "replaced" ? "another computer connected with its key" : "the relay speaks another protocol version"}. Run ${command} again.`, command } };
-		}
-		const file = serviceFile(RELAY_SERVICE);
-		if (!file || !existsSync(file) || serviceRunning(RELAY_SERVICE) === false) actions.push({ kind: "restart_relay", what: "Start the relay connector's service again" });
-	}
-
 	// A service started before `install --release` moved the pointer keeps running the old version until it restarts.
 	const release = currentRelease(releaseRoot());
 	const tunnel = config.route === "cloudflare" ? [CLOUDFLARE_SERVICE] : config.route === "relay" ? [RELAY_SERVICE] : [];
 	const stale = new Map(staleServices(release, { root: releaseRoot() }, [SERVE_SERVICE, ...tunnel]).map((s) => [s.spec.label, s]));
+
+	if (config.route === "relay") {
+		// A refused key, another computer on the key or an outdated relay: a restart answers the same, so the relay is set up anew. An
+		// old connector is restarted first: the release it isn't running yet may speak the relay's version.
+		const state = readRelayStatus()?.state;
+		if (state === "unauthorized" || state === "replaced" || (state === "outdated" && !stale.has(RELAY_SERVICE.label))) {
+			const command = `${COMMAND_NAME} remote off && ${COMMAND_NAME} remote setup`;
+			return { actions, advice, blocked: { state: "problem", code: `relay_${state}`, message: `The relay connector stopped: ${state === "unauthorized" ? "the relay refused its key" : state === "replaced" ? "another computer connected with its key" : "the relay speaks another protocol version"}. Run ${command}.`, command } };
+		}
+		const file = serviceFile(RELAY_SERVICE);
+		const running = serviceRunning(RELAY_SERVICE);
+		// Where the service manager can't say, the connector's own state does.
+		const down = running === false || (running === undefined && (state === undefined || state === "stopped"));
+		if (!file || !existsSync(file) || down) actions.push({ kind: "restart_relay", what: "Start the relay connector's service again" });
+	}
+
 	const oldCloudflared = stale.get(CLOUDFLARE_SERVICE.label);
 	if (oldCloudflared && !actions.some((a) => a.kind === "restart_cloudflared")) {
 		actions.push({ kind: "restart_cloudflared", what: `Restart the Cloudflare tunnel's service: it runs ${oldCloudflared.running}, and release is ${oldCloudflared.release}`, stale: true });

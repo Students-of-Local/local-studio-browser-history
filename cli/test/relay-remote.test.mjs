@@ -42,6 +42,10 @@ test("remote fix on the relay route: a refused key means setup again, and a conn
 		const refused = await m.run(["remote", "fix", "--dry-run", "--json"]);
 		assert.equal(refused.json().code, "relay_unauthorized", refused.stdout);
 		assert.match(refused.json().message, /refused its key/);
+		assert.match(refused.json().message, /tychicus remote off && tychicus remote setup\./, "what fix prints is a command setup takes");
+		const setup = await m.run(["remote", "setup", "--json"]);
+		assert.notEqual(setup.code, 0, "setup alone refuses to replace a relay route");
+		assert.match(setup.stdout, /remote off/);
 		rmSync(join(m.cfg, "relay-state.json"));
 		const down = await m.run(["remote", "fix", "--dry-run", "--json"]);
 		assert.ok(down.json().actions.some((a) => a.kind === "restart_relay"), down.stdout);
