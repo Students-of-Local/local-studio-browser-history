@@ -1,7 +1,8 @@
 import { Button } from "@mariozechner/mini-lit/dist/Button.js";
-import { html, LitElement, nothing, type TemplateResult } from "lit";
+import { html, LitElement, nothing, type PropertyValues, type TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { CONNECT_CODE } from "../agent-setup-prompt.js";
+import { hostCommand } from "../bridge/host-command.js";
 import { COMMAND_BOX_CLASS } from "../components/command-box.js";
 import { Toast } from "../components/Toast.js";
 import {
@@ -34,6 +35,7 @@ import {
 	checksFailed,
 	copyKey,
 	FLOW_STEPS,
+	RELAY_COPY,
 	REMOTE_TITLE,
 	RESULT_COPY,
 	type RemoteActionKind,
@@ -54,7 +56,11 @@ import {
 	flowScreen,
 	pollFor,
 	type RepairOutcome,
+	relayCameBack,
+	relayMoved,
 	repairOutcome,
+	retryFor,
+	routeOf,
 	sameAnswer,
 	settleRun,
 	settleRunAfterTest,
@@ -66,6 +72,7 @@ import {
 	type RemoteAnswer,
 	type RemoteCheckView,
 	type RemoteFixAnswer,
+	type RemoteRelayView,
 	TUNNEL_STEPS,
 	type TunnelStepId,
 } from "../connect/types.js";
@@ -137,6 +144,8 @@ export class RemoteFlow extends LitElement {
 	private funnelSince?: number;
 	private opened = new Set<string>();
 	private checkedOnce = false;
+	/** Bumped when the route moves onto or off the relay: an answer asked for before then is about the old route. */
+	private routeAsked = 0;
 
 	protected override createRenderRoot(): HTMLElement {
 		return this;
@@ -208,20 +217,29 @@ export class RemoteFlow extends LitElement {
 	private async ask(method: "remoteState" | "remoteFunnel" | "remoteTest"): Promise<void> {
 		this.polling = true;
 		this.lastPoll = Date.now();
+		const asked = this.routeAsked;
 		try {
 			if (method === "remoteState") {
 				const answer = await connectRemoteState();
+				if (asked !== this.routeAsked) return;
+				if (relayCameBack(this.remote, answer)) this.forgetChecks();
 				if (!sameAnswer(answer, this.remote)) this.remote = answer;
 				const kept = settleRun(this.run, answer, this.status);
 				if (kept !== this.run) this.run = kept;
+				// Setup in a terminal saved a route: Connect reads it now, not at its next 10-second refresh.
+				if (answer.route && this.status?.route === "none")
+					this.dispatchEvent(new CustomEvent("remote-changed", { bubbles: true }));
 			} else if (method === "remoteFunnel") {
 				const answer = await connectRemoteFunnel();
+				if (asked !== this.routeAsked) return;
 				// "Use Cloudflare instead" was pressed while this retry was out: its answer is about Funnel, so it's dropped (second-S1).
 				if (this.chosen !== "cloudflare" && !sameAnswer(answer, this.run)) this.takeRun(answer);
 			} else {
 				this.checking = true;
 				const answer = await connectRemoteTest();
+				if (asked !== this.routeAsked) return;
 				this.takeChecks(answer.checks);
+				if (relayCameBack(this.remote, answer)) this.forgetChecks();
 				if (!sameAnswer(answer, this.remote))
 					this.remote = { ...answer, ...(this.remote?.routes ? { routes: this.remote.routes } : {}) };
 				// A step about a check (dns, a failed check) ends once a later test says the route is on.
@@ -238,6 +256,18 @@ export class RemoteFlow extends LitElement {
 			this.polling = false;
 			this.lastPoll = Date.now();
 		}
+	}
+
+	/** The next result tests from outside again, and nothing an older test or Repair said is drawn. */
+	private forgetChecks(): void {
+		this.checks = undefined;
+		this.checkedOnce = false;
+		this.planAsked++;
+		this.planning = false;
+		this.fix = undefined;
+		this.repaired = undefined;
+		this.waited = undefined;
+		this.waitingGaveUp = false;
 	}
 
 	/** A run's answer: its code moves into `code` (the run keeps no copy) and its checks into the checklist. */
@@ -434,11 +464,7 @@ export class RemoteFlow extends LitElement {
 				return;
 			case "turn_on":
 			case "try_again":
-				// The Cloudflare form's refusals (a taken name) go back to the form, even from a Funnel route.
-				if (this.chosen === "cloudflare" || this.routeNow() === "cloudflare") {
-					this.run = undefined;
-					this.chosen = "cloudflare";
-				} else void this.turnOn();
+				this.retry();
 				return;
 			case "download":
 			case "sign_in_cloudflare": {
@@ -457,8 +483,8 @@ export class RemoteFlow extends LitElement {
 				this.chosen = "cloudflare";
 				return;
 			case "open_funnel":
-				if (this.status?.route === "remote") void this.openFunnel();
-				else void this.turnOn();
+				if (this.status?.route === "remote" && this.routeNow() !== "relay") void this.openFunnel();
+				else this.retry();
 				return;
 			case "new_code":
 				void this.newCode();
@@ -473,11 +499,21 @@ export class RemoteFlow extends LitElement {
 		}
 	}
 
+	private retry(): void {
+		// The Cloudflare form's refusals (a taken name) go back to the form, even from a Funnel route.
+		const how = retryFor(
+			this.routeNow() !== "relay" && this.chosen === "cloudflare" ? "cloudflare" : this.routeNow(),
+		);
+		if (how === "turn_on") void this.turnOn();
+		else if (how === "repair") void this.repair();
+		else {
+			this.run = undefined;
+			this.chosen = "cloudflare";
+		}
+	}
+
 	private routeNow(): ChosenRoute | undefined {
-		const s = this.status;
-		if (s?.route === "remote")
-			return s.remoteKind === "cloudflare" ? "cloudflare" : s.remoteKind === "funnel" ? "tailscale" : undefined;
-		return this.chosen;
+		return this.status?.route === "remote" ? routeOf(this.status) : this.chosen;
 	}
 
 	private stepHeader(n: 1 | 2 | 3): TemplateResult {
@@ -500,8 +536,8 @@ export class RemoteFlow extends LitElement {
 
 	private choose(screen: Extract<FlowScreen, { kind: "choose" }>): TemplateResult {
 		const card = (id: ChosenRoute) => {
-			const copy = ROUTE_COPY[id];
-			const r = screen.routes?.[id];
+			const copy = id === "relay" ? RELAY_COPY : ROUTE_COPY[id];
+			const r = id === "relay" ? undefined : screen.routes?.[id];
 			const recommended = screen.recommended === id;
 			return html`
 				<button
@@ -527,9 +563,39 @@ export class RemoteFlow extends LitElement {
 		return html`
 			${this.stepHeader(1)}
 			<p class="text-sm font-medium text-foreground">${ROUTE_COPY.chooseTitle}</p>
-			<p class="text-xs text-muted-foreground">${ROUTE_COPY.chooseBody}</p>
-			<div class="flex flex-col gap-2">${card("tailscale")}${card("cloudflare")}</div>
+			<p class="text-xs text-muted-foreground">${RELAY_COPY.chooseBody}</p>
+			<div class="flex flex-col gap-2">${card("relay")}${card("tailscale")}${card("cloudflare")}</div>
 		`;
+	}
+
+	/** The relay: the terminal command before it is set up, then what its connector says until it is connected. */
+	private relay(screen: Extract<FlowScreen, { kind: "relay" }>): TemplateResult {
+		const command = screen.relay || screen.outdated ? screen.command : `${hostCommand()} remote setup`;
+		return html`
+			${this.stepHeader(screen.relay ? 3 : 2)}
+			<div class="flex flex-col gap-2" data-relay-step>
+				<p class="text-sm font-medium text-foreground">${screen.relay ? RELAY_COPY.savedTitle : RELAY_COPY.title}</p>
+				${screen.relay ? this.relayStatus(screen.relay) : html`<p class="text-xs text-foreground" data-relay-body>${screen.outdated ? helperOutOfDateMessage() : RELAY_COPY.body}</p>`}
+				${command ? this.copyBox(RELAY_COPY.commandLabel, command, "relay-command") : nothing}
+				${screen.connectorUrl ? this.copyBox(RESULT_COPY.addressLabel, screen.connectorUrl, "address") : nothing}
+				${
+					screen.relay
+						? nothing
+						: html`${screen.outdated ? nothing : html`<p class="text-xs text-muted-foreground" role="status" aria-live="polite">${RELAY_COPY.waiting}</p>`}
+						<button type="button" class="self-start text-xs text-muted-foreground underline cursor-pointer ${FOCUS}" @click=${() => this.act("choose", { state: "", message: "" })}>${ROUTE_COPY.chooseAgain}</button>`
+				}
+			</div>
+		`;
+	}
+
+	private relayStatus(relay: RemoteRelayView): TemplateResult {
+		const color =
+			relay.state === "connected"
+				? "text-foreground"
+				: relay.state === "connecting"
+					? "text-muted-foreground"
+					: "text-destructive";
+		return html`<p class="text-xs ${color}" role="status" aria-live="polite" data-relay-state=${relay.state}><span class="font-medium">${RELAY_COPY.statusLabel}:</span> ${RELAY_COPY.states[relay.state]}</p>`;
 	}
 
 	private step(screen: Extract<FlowScreen, { kind: "step" }>): TemplateResult {
@@ -650,6 +716,7 @@ export class RemoteFlow extends LitElement {
 							? html`<p class="text-xs text-muted-foreground" role="status" aria-live="polite" data-remote-wait>${head.body}</p>`
 							: html`<p class="text-xs text-muted-foreground">${head.body}</p>`
 					}
+					${screen.relay ? this.relayStatus(screen.relay) : nothing}
 				</div>
 				<div class="flex flex-col gap-1.5">
 					<p class="text-xs font-medium text-foreground">${RESULT_COPY.assistantsStep}</p>
@@ -750,6 +817,18 @@ export class RemoteFlow extends LitElement {
 		</div>`;
 	}
 
+	protected override willUpdate(changed: PropertyValues<this>): void {
+		if (!changed.has("status") || !relayMoved(changed.get("status"), this.status)) return;
+		this.routeAsked++;
+		this.forgetChecks();
+		this.run = undefined;
+		this.chosen = undefined;
+		// A code made for the old address, and an answer about it; the poll brings this one's.
+		this.code = undefined;
+		this.codeProblem = undefined;
+		if (!this.remote?.relay || this.remote.connectorUrl !== `${this.status?.publicUrl}/mcp`) this.remote = undefined;
+	}
+
 	protected override updated(): void {
 		// The result checks itself from the internet once per visit, unless the run that turned it on already did.
 		const screen = flowScreen(this.input());
@@ -773,9 +852,11 @@ export class RemoteFlow extends LitElement {
 							? this.choose(screen)
 							: screen.kind === "step"
 								? this.step(screen)
-								: screen.kind === "cloudflare"
-									? this.cloudflare()
-									: this.result(screen)
+								: screen.kind === "relay"
+									? this.relay(screen)
+									: screen.kind === "cloudflare"
+										? this.cloudflare()
+										: this.result(screen)
 				}
 			</section>
 		`;

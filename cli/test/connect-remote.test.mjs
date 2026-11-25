@@ -1,7 +1,7 @@
 // "Use Polycarp from Claude, ChatGPT and Grok", host side: the six remote methods Connect's flow calls. Every Tailscale,
 // Cloudflare and `remote fix` step is a stand-in; nothing here runs tailscale, cloudflared, a service or `remote setup`.
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, readdirSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, utimesSync } from "node:fs";
 import { join } from "node:path";
 import { after, test } from "node:test";
 import { rmSync, tempRoot, writeJson } from "./helpers/hub-fixture.mjs";
@@ -12,9 +12,9 @@ after(() => rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDe
 
 const mod = await loadTs(`
 export { ConnectService, parseConnect, failureFor } from "@src/connect-host.ts";
-export { remoteAnswer, nextView, remoteSetupTailscale, remoteOpenFunnel, remoteFix, remoteTest, configProblem } from "@src/remote-panel.ts";
+export { remoteAnswer, remoteState, nextView, remoteSetupTailscale, remoteOpenFunnel, remoteFix, remoteTest, configProblem } from "@src/remote-panel.ts";
 `);
-const { ConnectService, parseConnect, failureFor, remoteAnswer, nextView, remoteSetupTailscale, remoteOpenFunnel, remoteFix, remoteTest, configProblem } = mod;
+const { ConnectService, parseConnect, failureFor, remoteAnswer, remoteState, nextView, remoteSetupTailscale, remoteOpenFunnel, remoteFix, remoteTest, configProblem } = mod;
 
 async function inConfig(name, fn) {
 	const dir = join(root, name);
@@ -238,4 +238,52 @@ test("second-N3: Cloudflare's last check timing out after the tunnel was made is
 		assert.ok(progress.some((p) => p.step === "check" && p.state === "waiting"), JSON.stringify(progress));
 		assert.ok(!progress.some((p) => p.state === "failed"));
 	});
+});
+
+test("the relay route: the panel gets the connector's live state, never the key, and nothing asks Tailscale", async () => {
+	await inConfig("relay", async (dir) => {
+		const key = "k".repeat(43);
+		writeJson(join(dir, "remote.json"), { publicUrl: "https://r.s.workers.dev", port: 8787, route: "relay", relay: { name: "r", key } });
+		const noTailscale = { tailscale: () => assert.fail("Tailscale was asked"), run: () => assert.fail("a command ran") };
+		const seen = async (state) => {
+			writeJson(join(dir, "relay-state.json"), { state, at: 5, pid: process.pid });
+			const answer = await remoteState(noTailscale);
+			assert.ok(!JSON.stringify(answer).includes(key), "the key stays on this computer");
+			return answer;
+		};
+		const on = await seen("connected");
+		assert.equal(on.state, "on");
+		assert.equal(on.route, "relay");
+		assert.deepEqual(on.relay, { state: "connected" });
+		assert.equal(on.connectorUrl, "https://r.s.workers.dev/mcp");
+		assert.equal(on.next.kind, "add_connector");
+		// The command names this relay: bare `remote setup` leaves one whose key another computer set alone.
+		const commands = { disconnected: undefined, unauthorized: "remote setup --relay r", replaced: "remote setup --relay r", outdated: "remote fix" };
+		for (const [state, command] of Object.entries(commands)) {
+			const answer = await seen(state);
+			assert.equal(answer.state, "problem");
+			assert.equal(answer.code, `relay_${state}`);
+			assert.equal(answer.relay.state, state);
+			assert.equal(answer.next?.command?.replace(/^\S+ /, ""), command, state);
+		}
+		const tested = await remoteTest(async () => OK_CHECKS);
+		assert.equal(tested.relay.state, "outdated", "an outside check keeps the state on screen");
+		assert.match(tested.next.command, / remote fix$/, "and its command");
+		rmSync(join(dir, "relay-state.json"));
+		const starting = await remoteState(noTailscale);
+		assert.equal(starting.relay.state, "connecting", "setup just saved the route and starts the connector next");
+		assert.equal(starting.next, undefined);
+		const anHourAgo = new Date(Date.now() - 3_600_000);
+		utimesSync(join(dir, "remote.json"), anHourAgo, anHourAgo);
+		const stopped = await remoteState(noTailscale);
+		assert.equal(stopped.relay.state, "stopped", "a connector that never ran is stopped");
+		assert.match(stopped.next.command, / remote fix$/);
+	});
+	await inConfig("relay-none", async () => {
+		const none = await remoteState({ tailscale: () => undefined });
+		assert.equal(none.relaySetup, true, "this helper's setup makes a relay");
+		assert.equal((await remoteTest(async () => OK_CHECKS)).relaySetup, true);
+	});
+	assert.equal(remoteAnswer({ state: "on", relay: { state: "made_up" } }).relay, undefined);
+	assert.deepEqual(remoteAnswer({ state: "on", relay: { state: "connected", key: "x" } }).relay, { state: "connected" });
 });

@@ -155,6 +155,20 @@ export interface RemoteRoutesView {
 	cloudflare: { installed: boolean; signedIn: boolean };
 }
 
+export const RELAY_STATES = [
+	"connecting",
+	"connected",
+	"disconnected",
+	"replaced",
+	"unauthorized",
+	"outdated",
+	"stopped",
+] as const;
+
+export interface RemoteRelayView {
+	state: (typeof RELAY_STATES)[number];
+}
+
 export interface RemoteAnswer {
 	state: string;
 	code?: string;
@@ -162,7 +176,11 @@ export interface RemoteAnswer {
 	next?: RemoteNextView;
 	routes?: RemoteRoutesView;
 	/** The route remote.json is on, when it exists. */
-	route?: "funnel" | "cloudflare" | "custom";
+	route?: "funnel" | "cloudflare" | "custom" | "relay";
+	/** On the relay route: the connector's state on this computer. Never its key. */
+	relay?: RemoteRelayView;
+	/** Nothing is set up, and this helper's `remote setup` makes a relay. An older helper doesn't say so. */
+	relaySetup?: true;
 	connectorUrl?: string;
 	passcodeSet?: boolean;
 	checks?: RemoteCheckView[];

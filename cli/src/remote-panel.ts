@@ -6,13 +6,17 @@
  * native host's channel to the browser.
  */
 import { execFile } from "node:child_process";
+import { statSync } from "node:fs";
 import { cloudflaredBinary } from "./cloudflare.ts";
 import { cloudflaredAsset } from "./cloudflared-download.ts";
-import { loadRemoteConfig, openFunnel, planFunnelAsync, preflight, type ProbeSeam, type RemoteConfig, remoteSetup, routesFrom, tailscaleReadyAsync } from "./remote-setup.ts";
+import { relaySetupCommand } from "./relay.ts";
+import { DEFAULT_RELAY_NAME } from "./relay-setup.ts";
+import { remoteFile } from "./remote-config.ts";
+import { loadRemoteConfig, openFunnel, planFunnelAsync, preflight, type ProbeSeam, relayView, type RemoteConfig, remoteSetup, routesFrom, tailscaleReadyAsync } from "./remote-setup.ts";
 import { CLOUDFLARED_DOWNLOAD_URL, type RemoteNext, type RemoteState, type SetupReport, TAILSCALE_OPERATOR_FIX, tailscaleAccessDenied, tailscaleDownloadUrl } from "./remote-state.ts";
 import { publicChecks, realFault } from "./remote-test.ts";
 import { COMMAND_NAME, selfExec, selfPrefix } from "./self.ts";
-import type { RemoteAnswer, RemoteCheckView, RemoteFixAnswer, RemoteNextView } from "../../src/connect/types.ts";
+import { RELAY_STATES, type RemoteAnswer, type RemoteCheckView, type RemoteFixAnswer, type RemoteNextView, type RemoteRelayView } from "../../src/connect/types.ts";
 
 /** The longest helper sentence that reaches the panel. Tailscale's own words can be long; this keeps Details readable. */
 const MAX_MESSAGE = 600;
@@ -62,10 +66,11 @@ export function checkViews(checks: unknown): RemoteCheckView[] | undefined {
  * The panel's copy of a helper answer: only these fields, each checked. The passcode is never copied, whatever the answer holds
  * (D33: never in an answer to the panel). The connect code is added by the caller, which counts it against the mint limit.
  */
-export function remoteAnswer(report: Partial<SetupReport> & { state: string; routes?: unknown; route?: unknown }): RemoteAnswer {
+export function remoteAnswer(report: Partial<SetupReport> & { state: string; routes?: unknown; route?: unknown; relay?: unknown; relaySetup?: unknown }): RemoteAnswer {
 	const next = nextView(report.next);
 	const checks = checkViews(report.checks);
 	const routes = routesView(report.routes);
+	const relay = relayAnswer(report.relay);
 	const connector = typeof report.connectorUrl === "string" && /^https:\/\/[^\s/]+(:\d+)?\/mcp$/.test(report.connectorUrl) ? report.connectorUrl : undefined;
 	return {
 		state: cap(String(report.state), 40),
@@ -73,12 +78,36 @@ export function remoteAnswer(report: Partial<SetupReport> & { state: string; rou
 		message: cap(typeof report.message === "string" ? report.message : ""),
 		...(next ? { next } : {}),
 		...(routes ? { routes } : {}),
-		...(report.route === "funnel" || report.route === "cloudflare" || report.route === "custom" ? { route: report.route } : {}),
+		...(report.route === "funnel" || report.route === "cloudflare" || report.route === "custom" || report.route === "relay" ? { route: report.route } : {}),
+		...(relay ? { relay } : {}),
+		...(report.relaySetup === true ? { relaySetup: true as const } : {}),
 		...(connector ? { connectorUrl: connector } : {}),
 		...(typeof report.passcodeSet === "boolean" ? { passcodeSet: report.passcodeSet } : {}),
 		...(checks?.length ? { checks } : {}),
 		...(typeof report.connectCodeProblem === "string" ? { connectCodeProblem: cap(report.connectCodeProblem, 300) } : {}),
 	};
+}
+
+/** The relay connector's state, one of the known ones. Anything else, a key included, is dropped. */
+function relayAnswer(relay: unknown): RemoteRelayView | undefined {
+	if (!relay || typeof relay !== "object") return undefined;
+	const known = RELAY_STATES.find((s) => s === (relay as { state?: unknown }).state);
+	return known ? { state: known } : undefined;
+}
+
+/** How long after remote.json is saved a connector with no state yet is starting, not stopped. */
+const RELAY_STARTS_MS = 60_000;
+
+/** The connector's state, and for a state it can't leave by itself the command that ends it, as `remote status` names it. */
+function relayPart(config: RemoteConfig): { relay: { state: string }; next?: RemoteNext } {
+	const seen = relayView();
+	// Setup saves remote.json and then starts the connector: one that never wrote a state is starting for the first minute.
+	const starting = seen.since === null && Date.now() - (statSync(remoteFile(), { throwIfNoEntry: false })?.mtimeMs ?? 0) < RELAY_STARTS_MS;
+	const relay = starting ? { state: "connecting" } : seen;
+	const again = relay.state === "unauthorized" || relay.state === "replaced";
+	const fix = relay.state === "stopped" || relay.state === "outdated";
+	const command = again ? relaySetupCommand(config.relay?.name ?? DEFAULT_RELAY_NAME) : fix ? `${COMMAND_NAME} remote fix` : undefined;
+	return { relay, ...(command ? { next: { kind: "run_command", command } } : {}) };
 }
 
 function routesView(routes: unknown): RemoteAnswer["routes"] {
@@ -123,13 +152,27 @@ export async function remoteState(seam: ProbeSeam = {}): Promise<RemoteAnswer> {
 		const routes = routesView(routesFrom(await tailscaleReadyAsync(seam)));
 		return { ...configProblem(err), ...(routes ? { routes } : {}) };
 	}
+	// The relay needs no Tailscale: only the connector's own state on this computer, which the panel polls.
+	if (config?.route === "relay") {
+		const part = relayPart(config);
+		const on = part.relay.state === "connected";
+		return remoteAnswer({
+			state: on ? "on" : "problem",
+			...(on ? {} : { code: `relay_${part.relay.state}` }),
+			message: on ? "Remote access is on." : `The relay connector is ${part.relay.state}.`,
+			route: config.route,
+			connectorUrl: `${config.publicUrl}/mcp`,
+			...(on ? { next: { kind: "add_connector", url: `${config.publicUrl}/mcp` } as const } : {}),
+			...part,
+		});
+	}
 	// Tailscale is read once per poll; the routes, the preflight and the Funnel route's readiness all come from it (first-F3).
 	const ready = await tailscaleReadyAsync(seam);
 	const routes = routesFrom(ready);
 	if (!config) {
 		const pf = await preflight(seam, ready);
 		const next = nextFor(pf.state);
-		return remoteAnswer({ ...pf, ...(next ? { next } : {}), routes });
+		return remoteAnswer({ ...pf, ...(next ? { next } : {}), routes, relaySetup: true });
 	}
 	const base = { routes, route: config.route, connectorUrl: `${config.publicUrl}/mcp` };
 	if (config.route === "funnel") {
@@ -202,7 +245,7 @@ export async function remoteOpenFunnel(seam: FunnelSeam = {}): Promise<RemoteAns
 /** `remote test`, for the result screen's checklist: what an assistant sees from outside. Changes nothing. */
 export async function remoteTest(checks: typeof publicChecks = publicChecks, load: () => RemoteConfig | undefined = loadRemoteConfig): Promise<RemoteAnswer> {
 	const config = load();
-	if (!config) return remoteAnswer({ state: "problem", code: "not_set_up", message: `Nothing is set up yet.`, next: { kind: "run_command", command: `${COMMAND_NAME} remote setup` } });
+	if (!config) return remoteAnswer({ state: "problem", code: "not_set_up", message: `Nothing is set up yet.`, next: { kind: "run_command", command: `${COMMAND_NAME} remote setup` }, relaySetup: true });
 	const found = await checks(config.publicUrl);
 	const failed = found.find((x) => x.status === "fail");
 	return remoteAnswer({
@@ -211,6 +254,7 @@ export async function remoteTest(checks: typeof publicChecks = publicChecks, loa
 		message: failed ? `${failed.name}: ${failed.detail}` : "An assistant can reach and stream from this connector.",
 		route: config.route,
 		connectorUrl: `${config.publicUrl}/mcp`,
+		...(config.route === "relay" ? relayPart(config) : {}),
 		checks: found,
 	});
 }

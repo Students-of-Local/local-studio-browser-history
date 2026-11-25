@@ -277,11 +277,16 @@ Without Local Studio, nothing changes: Tychicus keeps its own route with the sam
 
 ## From the side panel
 
-Settings > Agents > "Use Tychicus from Claude, ChatGPT and Grok" turns it on without a terminal, on Mac, Linux and
-Windows. It asks Tychicus's helper through the native host, so the helper must be installed; nothing the page holds
+Settings > Agents > "Use Tychicus from Claude, ChatGPT and Grok" turns it on, on Mac, Linux and
+Windows: Tailscale and Cloudflare without a terminal, the relay with one command in it. It asks Tychicus's helper through the native host, so the helper must be installed; nothing the page holds
 reaches a command line (the remote methods take no parameters, and the Cloudflare address is checked before use).
 
-1. **Choose a way.** Tailscale (no domain; recommended when it is installed) or Cloudflare (a domain on your account).
+1. **Choose a way.** Your own relay (recommended: no domain), Tailscale, or Cloudflare (a domain on your account). "Set up
+   my relay" shows `tychicus remote setup` with a copy button, because Cloudflare's sign-in runs in a terminal; the page
+   checks every 5 seconds and moves on once setup saves the route. A helper from before the relay gets the words to update
+   it instead. From then on the page shows the connector's live state, and for a state the connector can't leave by itself
+   (unauthorized, replaced, outdated, stopped) the command that `remote status` names. When it connects
+   again, the checks from the internet run again.
 2. **Get it and sign in.** The page names what is missing, with one button: Tailscale's download page, the command to
    sign in, or "Turn on" for Cloudflare, which downloads cloudflared and opens Cloudflare's sign-in. It checks every
    3 seconds and moves on by itself. The first screen, once it has shown which ways are ready, checks every 15 seconds.
@@ -304,7 +309,7 @@ seconds, the page says so and changes nothing, rather than asking you to sign in
 only in the page's memory and is gone when Settings closes.
 
 The Mac app's Settings > Browser has the same three steps in the same words (they come from one table, held equal by
-`test/remote-copy.test.mjs`). Its differences: "Get it for me" asks for the Cloudflare address first and runs
+`test/remote-copy.test.mjs`). Its differences: it has no relay card yet, "Get it for me" asks for the Cloudflare address first and runs
 `remote setup --cloudflare <name> --yes`, Funnel is tried again every 15 seconds by running setup again, and a run that
 makes the passcode shows it once, labeled for re-approving. The passcode and the connect code are forgotten when
 Settings closes, not on a tab switch. Leaving the section pauses the Funnel retry and coming back resumes it, without
