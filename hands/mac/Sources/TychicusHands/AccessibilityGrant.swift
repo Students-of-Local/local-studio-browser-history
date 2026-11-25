@@ -36,7 +36,7 @@ enum AccessibilityGrant {
         let open = "Ask the person to open System Settings > Privacy & Security > Accessibility and turn on \(program.name) (\(program.path))."
         let why = program.path == ownPath ? "" : " macOS asks about \(program.name) because tychicus-hands runs under it."
         let add = program.plain
-            ? " If it isn't listed, click +, press Cmd-Shift-G, paste that path and click Open. It is signed ad hoc, so after each update macOS treats it as new: if it is listed and on already, select it, click - and add it again."
+            ? " If it isn't listed, click +, press Cmd-Shift-G, paste that path and click Open." + (program.path == ownPath ? " It is signed ad hoc, so after each update macOS treats it as new: if it is listed and on already, select it, click - and add it again." : "")
             : " If it isn't listed, click + and choose it."
         return open + why + add + " Then try again."
     }

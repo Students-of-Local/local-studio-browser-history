@@ -15,8 +15,12 @@ final class AgentLaunchFocus {
     private init() {
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] note in
             guard let self, let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+            // Who used which app when, for `in_use`: an agent's own action or launch isn't the person's use.
+            let pid = app.processIdentifier
+            UserActivity.shared.activated(pid, byAgent: AgentActivity.shared.causedByAnyAction(pid: pid, bundle: app.bundleIdentifier))
             self.activated(app)
         }
+        if let front = NSWorkspace.shared.frontmostApplication?.processIdentifier { UserActivity.shared.activated(front) }
     }
 
     private func seed() {

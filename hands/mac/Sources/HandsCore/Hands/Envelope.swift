@@ -91,7 +91,7 @@ public struct HandsError: Codable, Equatable, Error, Sendable {
     public static func noReply(verb: String, connected: Bool) -> HandsError {
         guard connected else {
             return HandsError(.notRunning, "Tychicus isn't running, or hasn't finished starting (it needs Accessibility)",
-                              suggestion: "Open Tychicus and run `tychicus-hands doctor`.", retry: .safe)
+                              suggestion: "Run `tychicus doctor`.", retry: .safe)
         }
         let acts = HandsTools.tool(verb: verb)?.acts ?? false
         return HandsError(.timeout, "Tychicus took the request but didn't answer: it may have quit, or still be busy", suggestion: acts

@@ -56,7 +56,7 @@ extension HandsRouter {
     }
 
     private func pointArguments(_ usage: String) -> HandsError {
-        HandsError(.badArguments, "the point is missing", suggestion: "usage: tychicus-hands agent " + usage, retry: .safe)
+        HandsError(.badArguments, "the point is missing", suggestion: "usage: " + usage, retry: .safe)
     }
 
     private func pointer(_ req: HandsRequest, path: [CGPoint], drag: Bool, name: String, style: ClickStyle = .single) -> HandsEnvelope {
@@ -393,7 +393,7 @@ extension HandsRouter {
         let facts = BackgroundFacts(
             kind: kind, app: w.app, pid: w.pid, window: w.id, scope: scope, pidIsAgentOwned: owned.contains(w.pid),
             windowOwnerPid: server.pid, axWindowResolved: me != nil, siblingWindows: siblings,
-            condition: condition, hasSheetOrPanel: seen.panel, focusedWindow: focus.window, focusedElementWindow: focus.elementWindow,
+            condition: condition, hasSheetOrPanel: seen.panel || !seen.readable, focusedWindow: focus.window, focusedElementWindow: focus.elementWindow,
             targetIsFront: frontPid() == w.pid, transports: BackgroundPoster.support,
             block: BackgroundBreaker.shared.block(bundle: w.bundle, pid: w.pid, kind: kind), verifier: verifier,
             pointInsideWindow: path.allSatisfy { PointerPath.inside($0, size: size) },

@@ -24,15 +24,15 @@ cp "$BIN" "$OUT/tychicus-hands.tmp"
 chmod 755 "$OUT/tychicus-hands.tmp"
 # Library search paths that name this machine's folders: none is needed (the engine is static), and a path that
 # doesn't exist on the person's Mac is one a local process could fill.
-for rpath in $(otool -l "$OUT/tychicus-hands.tmp" | awk '/cmd LC_RPATH/ { getline; getline; print $2 }'); do
+otool -l "$OUT/tychicus-hands.tmp" | sed -n '/cmd LC_RPATH/,/path /s/^ *path \(.*\) (offset.*/\1/p' | while IFS= read -r rpath; do
   case "$rpath" in
     /usr/lib/* | @*) ;;
-    *) install_name_tool -delete_rpath "$rpath" "$OUT/tychicus-hands.tmp" 2>/dev/null ;;
+    *) install_name_tool -delete_rpath "$rpath" "$OUT/tychicus-hands.tmp" ;;
   esac
 done
 codesign --force --sign - --options runtime --identifier com.tychicus.hands "$OUT/tychicus-hands.tmp"
-mv "$OUT/tychicus-hands.tmp" "$OUT/tychicus-hands"
-HANDS="$OUT/tychicus-hands"
+# Checked under its temporary name, and renamed only once it passes, so a failed build never replaces a working helper.
+HANDS="$OUT/tychicus-hands.tmp"
 
 fail() { echo "package: $*" >&2; exit 1; }
 # Only the system's libraries: anything else would have to ship beside it.
@@ -48,4 +48,6 @@ lipo -archs "$HANDS" | grep -qx arm64 || fail "not arm64: $(lipo -archs "$HANDS"
 HELLO='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"package","version":"0"}}}'
 REPLY=$(printf '%s\n' "$HELLO" | "$HANDS" mcp)
 grep -q '"name":"tychicus-hands"' <<<"$REPLY" || fail "the signed copy didn't answer initialize: $REPLY"
+mv "$HANDS" "$OUT/tychicus-hands"
+HANDS="$OUT/tychicus-hands"
 echo "package: $HANDS ($(lipo -archs "$HANDS"), signed ad hoc with the hardened runtime, $(shasum -a 256 "$HANDS" | cut -c1-16))"

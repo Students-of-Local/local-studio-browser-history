@@ -592,7 +592,7 @@ extension MenuWatch.Outcome: Equatable where Found: Equatable {}
 /// what it saw is undone through the engine once the press is back, since agents never act on AX directly.
 public final class MenuWatch<Found: Sendable>: @unchecked Sendable {
     private let lock = NSLock()
-    private var started = false, ended: Date?, found: [Found] = []
+    private var started = false, ended: Date?, found: [Found] = [], unread = false
     private let done = DispatchSemaphore(value: 0)
     private let every: TimeInterval, watch: TimeInterval, margin: TimeInterval
     /// `margin`: how long past the watch `finish` waits for a look that hangs (a hung app), before it answers unknown.
@@ -600,7 +600,11 @@ public final class MenuWatch<Found: Sendable>: @unchecked Sendable {
         self.every = every; self.watch = watch; self.margin = margin
     }
 
-    /// Nothing seen, what every look saw, or unknown: the watch didn't finish in time (192 r1 first-F1).
+    /// Whether the last look could read the app's windows.
+    public func looked(read: Bool) { lock.lock(); unread = !read; lock.unlock() }
+
+    /// Nothing seen, what every look saw, or unknown: the watch didn't finish in time (192 r1 first-F1), or its last look
+    /// couldn't read the app.
     public enum Outcome { case quiet, seen([Found]), unknown }
 
     public func start(_ step: @escaping @Sendable (_ settled: Bool) -> Found?) {
@@ -626,7 +630,7 @@ public final class MenuWatch<Found: Sendable>: @unchecked Sendable {
         let timedOut = done.wait(timeout: .now() + watch + margin) == .timedOut
         lock.lock(); defer { lock.unlock() }
         if !found.isEmpty { return .seen(found) }
-        return timedOut ? .unknown : .quiet
+        return timedOut || unread ? .unknown : .quiet
     }
 
     /// The call's error when the watch couldn't finish: the command may have opened something, so it never answers ok.

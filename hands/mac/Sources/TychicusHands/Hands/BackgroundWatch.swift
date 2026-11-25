@@ -1,6 +1,5 @@
 import AppKit
 import HandsCore
-import Security
 
 /// Records every app the workspace activates, for as long as it lives. An action holds one from planning to the end
 /// of its verification: an activation of the target or of any other app in that span is a focus-guard failure, however
@@ -37,6 +36,8 @@ final class SessionTap {
     private var port: CFMachPort?
     private var loop: CFRunLoop?
     private(set) var available = false
+    /// The tap was turned off while it watched.
+    private var lost = false
 
     init() {
         guard CGPreflightListenEventAccess() else { return }
@@ -64,6 +65,11 @@ final class SessionTap {
     }
 
     fileprivate func record(_ type: CGEventType, _ event: CGEvent) {
+        // macOS turned the tap off: events may be missing, so this action has no tap evidence.
+        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            lock.lock(); lost = true; lock.unlock()
+            return
+        }
         let passive: [CGEventType] = [.mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged, .scrollWheel]
         let key = type == .keyDown || type == .keyUp
         let activates = key ? event.flags.contains(.maskCommand) : !passive.contains(type)
@@ -75,7 +81,7 @@ final class SessionTap {
     var snapshot: [SessionEvent]? {
         guard available else { return nil }
         lock.lock(); defer { lock.unlock() }
-        return seen
+        return lost ? nil : seen
     }
 
     func stop() -> [SessionEvent]? {
@@ -83,7 +89,7 @@ final class SessionTap {
         if let loop { CFRunLoopStop(loop) }
         if let port { CFMachPortInvalidate(port) }
         lock.lock(); defer { lock.unlock() }
-        return seen
+        return lost ? nil : seen
     }
 }
 
@@ -102,34 +108,4 @@ struct IdleWatch {
     }
     /// Whether a hardware event happened since the start.
     var hardwareSeen: Bool { !events.isEmpty }
-}
-
-/// Whether a probe app (the host's own canvas test app) is the one built into this app: inside Resources/probe,
-/// its signature valid, signed by the same team as the host when it has one, and its code hash the one recorded
-/// when the bundle was built (the recording is inside the app's own signed seal). Anything else is refused.
-enum ProbeAppTrust {
-    static var folder: URL? { Bundle.main.resourceURL?.appendingPathComponent("probe", isDirectory: true) }
-
-    static func trusted(_ appURL: URL) -> Bool {
-        guard let folder, AgentAppPolicy.isProbeApp(bundle: AgentAppPolicy.canvasProbeBundle, at: appURL, in: folder, trusted: true) else { return false }
-        var me: SecCode?
-        guard SecCodeCopySelf([], &me) == errSecSuccess, let me, SecCodeCheckValidity(me, [], nil) == errSecSuccess else { return false }
-        var mine: SecStaticCode?
-        guard SecCodeCopyStaticCode(me, [], &mine) == errSecSuccess, let mine else { return false }
-        var theirs: SecStaticCode?
-        guard SecStaticCodeCreateWithPath(appURL as CFURL, [], &theirs) == errSecSuccess, let theirs,
-              SecStaticCodeCheckValidityWithErrors(theirs, SecCSFlags(rawValue: kSecCSCheckAllArchitectures | kSecCSStrictValidate), nil, nil) == errSecSuccess else { return false }
-        func info(_ c: SecStaticCode) -> [String: Any]? {
-            var out: CFDictionary?
-            guard SecCodeCopySigningInformation(c, SecCSFlags(rawValue: kSecCSSigningInformation), &out) == errSecSuccess else { return nil }
-            return out as? [String: Any]
-        }
-        guard let a = info(mine), let b = info(theirs) else { return false }
-        // The same team when the host has one.
-        if let team = a[kSecCodeInfoTeamIdentifier as String] as? String, (b[kSecCodeInfoTeamIdentifier as String] as? String) != team { return false }
-        // The code hash recorded at build time, in the app's own sealed Resources.
-        guard let unique = b[kSecCodeInfoUnique as String] as? Data,
-              let recorded = try? String(contentsOf: folder.appendingPathComponent("CanvasProbe.cdhash"), encoding: .utf8) else { return false }
-        return unique.map { String(format: "%02x", $0) }.joined() == recorded.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    }
 }
