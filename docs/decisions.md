@@ -2323,7 +2323,43 @@ action is one the person never saw; a false flag costs one click and "allow on t
 floor in `evals/market/floors.json`; 0 of 27 safe actions flagged. `test/permission-guard.test.mjs`,
 `test/dialog-preset.test.mjs` and `cli/test/model-tier.test.mjs` (the remote cap, the mode on every Runs step).
 
-## D69. `remote setup` defaults to a relay on the person's own Cloudflare account (Claude, 2026-11-24)
+## D69. A sign-in an agent needs is typed by the person, in a window of the extension's own (Donovan, 2026-11-24)
+
+**Problem.** An agent that reaches a sign-in form had one way on: hand the whole tab to the person. Donovan: "An agent can
+type a password into a field, a secure field pops up for the user to type in their password and username."
+
+**Decision.** `tabs_show` takes `username_ref` and `password_ref`. The extension checks the fields, then opens a small
+window (`static/sign-in.html`) that names the site and takes what was asked for.
+
+1. The site shown is the origin the tab is on, read from the page when the agent asks. The agent's reason is shown as its
+   words ("It says: ..."), never as the site.
+2. The page must be https, or on this computer. The fields must have a size, not be hidden by style, be editable and be in the top page or a frame of the
+   same origin. The password goes only into an input the page masks (`type=password`), the username only into a text,
+   email or telephone input, and neither into a card field.
+3. When the person presses Fill, the same checks run again with the origin, inside the page code that writes, and the
+   password field is checked once more after its focus handlers ran. A page changed before the first field gets nothing;
+   one that changes its password field then gets only the username. The agent and the person are told which, or that it
+   isn't known when the page doesn't answer in 20 seconds. Nothing else ends the wait while the write runs.
+4. The values go from the window to the service worker in one message and from there into the page. They are in no storage, log,
+   Runs step or tool result. Only that window's own URL may send them: not a page, a content script or the panel.
+5. The window takes no focus when it pops up, so it can't take keys meant for another app. The panel's card has "Type
+   sign-in", which brings it forward. The user can also sign in on the page and press Continue, or press Cancel.
+6. The agent submits the form itself. No result says what was typed or how long it was. The fields are marked in the page, and a copy of
+   one counts: read_page, find, change reports and get_page_html leave their values out, also when the page turns the password field
+   into a plain one, and that field keeps showing dots.
+7. The window promises what the code holds: the agent isn't given either, it can see a username the page shows, and a
+   script it runs in the page could read the fields.
+
+**Limits.** The username is on the screen as any username is, so a screenshot shows it, and a page that prints it as text
+("Signing in as ...") is read like any page. What is in a page can be read by the page and by a script run in it (`run_js`), as when the person types it there
+or a password manager fills it. Payment fields have no such window. A field in a frame from another site doesn't either;
+the agent uses `wait` and the person signs in on the page.
+
+**Proof.** `test/sign-in.test.mjs` (which refs, which origins, who may answer) and `cli/test/e2e-panel.test.mjs` (asked, typed, filled,
+in no result, read or storage; no value in HTML; wrong fields; Cancel; a field that stops masking, before and during the write; a
+tab moved to another site; one field alone).
+
+## D70. `remote setup` defaults to a relay on the person's own Cloudflare account (Claude, 2026-11-24)
 
 **Context.** The owner wants one click and no waitlist: a person makes their own free relay on their own Cloudflare
 account. Tailscale Funnel needs a Tailscale account and an admin's yes; a Cloudflare tunnel with a fixed name needs a

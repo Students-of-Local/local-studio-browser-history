@@ -1,0 +1,35 @@
+# The Mac computer-use helper's core (hands/mac): `swift test` on a Mac. No secrets, no write token.
+name: Hands (Mac)
+
+on:
+  pull_request:
+    paths:
+      - "hands/mac/**"
+      - ".github/workflows/hands-mac.yml"
+  push:
+    branches: [main]
+    paths:
+      - "hands/mac/**"
+      - ".github/workflows/hands-mac.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hands-mac-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  hands-mac:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Core tests
+        working-directory: hands/mac
+        run: swift test

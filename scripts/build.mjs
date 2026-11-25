@@ -36,6 +36,8 @@ const singleFileEntryPoints = {
 	"dictation-worker": join(packageRoot, "src/dictation/worker.ts"),
 	// The page that asks for the microphone once: the side panel can't show the prompt.
 	"mic-permission": join(packageRoot, "src/dictation/permission.ts"),
+	// The window a user types a sign-in into for an agent (src/handback/sign-in.ts).
+	"sign-in": join(packageRoot, "src/handback/sign-in-window.ts"),
 };
 // Content scripts are classic scripts, put into pages that may already hold a copy, so each is one IIFE.
 const contentScriptEntryPoints = {
