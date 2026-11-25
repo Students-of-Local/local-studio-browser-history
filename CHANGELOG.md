@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### Added
+- Sign in without giving an agent your password. An agent that reaches a sign-in form can ask for it (`tabs_show` with `username_ref` and
+  `password_ref`), and a small window pops up that names the site and takes your username and password. They go straight into the page's
+  fields; the agent is told only that they are in, and its page reads leave those fields' values out. The window takes no focus, and the panel's card opens it too. Needs https, or a page on
+  this computer (D69). Tests: `test/sign-in.test.mjs`, `cli/test/e2e-panel.test.mjs`.
 - PRIVACY.md names every host the code contacts by itself or on request, when, and how to turn it off where there is a switch. It also says the
   chat copy for coding agents is on by default, and which other agents' settings files the helper opens. `test/privacy-hosts.test.mjs` fails when code
   names a host the policy doesn't, and when the policy names one nothing here contacts. Settings > Privacy says the copy is on by default and is not uploaded.
