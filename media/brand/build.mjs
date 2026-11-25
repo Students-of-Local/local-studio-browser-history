@@ -1,4 +1,4 @@
-// Draws Tychicus's mark, a pointer cut from a disc, and writes every brand file from it (see BRAND.md):
+// Draws the extension's mark, a pointer cut from a disc, and writes every brand file from it (see BRAND.md):
 //   media/brand/icon.svg, icon-16.svg, mark.svg, mark-blue.svg, icon-macos.svg, icon-macos-dark.svg
 //   site/src/frontend/public/img/icon.svg and favicon.svg, media/video/public/brand/icon.svg
 //   static/icon-{16,32,48,128}.png         the extension's icons
@@ -17,7 +17,7 @@ const repo = join(here, "..", "..");
 
 /**
  * Local Studio's colors (baney75/local-studio: macos/AppIcon.icon and the default theme in
- * BuiltInThemeData.swift). Tychicus is a Local Studio plugin, so it wears the same blue.
+ * BuiltInThemeData.swift). The extension is part of Local Studio, so it wears the same blue.
  */
 export const PALETTE = {
 	glassLight: "#b6c8ff",
@@ -117,7 +117,7 @@ const fontFaces = () => `
 
 const dataUrl = (body) => `data:image/svg+xml;base64,${Buffer.from(body).toString("base64")}`;
 
-const LINE = "You send the work. Tychicus carries it out.";
+const LINE = "You send the work. Local Studio carries it out.";
 const WHAT = "Browser use and computer use for your coding agents, on your own machine, under your command.";
 /** The harnesses named on the hero; the social card drops the last item to fit its footer. */
 const HARNESS_NAMES = "Claude Code · Codex · pi · OMP · OpenCode · Cursor";
@@ -145,7 +145,7 @@ function banner(width, height, theme = "dark") {
 	</style></head><body><div class="card">
 	<img class="wake" src="${dataUrl(SVG["mark-blue"])}">
 	<img class="mark" src="${dataUrl(SVG.icon)}">
-	<div><div class="word">Tychicus</div>
+	<div><div class="word">Local Studio</div>
 	<div class="line">${LINE}</div>
 	<div class="sub">${HARNESSES}</div></div>
 	</div></body></html>`;
@@ -169,7 +169,7 @@ function socialCard(width, height) {
 		font-family: "JetBrains Mono"; font-size: 21px; color: ${t.sub}; letter-spacing: 0.01em; white-space: nowrap; position: relative; }
 	</style></head><body><div class="card">
 	<img class="wake" src="${dataUrl(SVG["mark-blue"])}">
-	<div class="head"><img class="mark" src="${dataUrl(SVG.icon)}"><div class="word">Tychicus</div></div>
+	<div class="head"><img class="mark" src="${dataUrl(SVG.icon)}"><div class="word">Local Studio</div></div>
 	<div class="line">${LINE}</div>
 	<div class="what">${WHAT}</div>
 	<div class="foot"><span>${HARNESS_NAMES}</span><span>github.com/baney75/tychicus</span></div>

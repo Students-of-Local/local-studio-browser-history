@@ -1151,6 +1151,131 @@ test("issue 45: Continue in the panel returns the agent's call, and the card and
 	assert.equal(await run(x.w, `chrome.action.getBadgeText({})`), "");
 });
 
+test("a sign-in: the user types it in its own window, it goes into the page's fields, and the agent never gets it", { timeout: 180_000 }, async () => {
+	const x = handoff;
+	assert.ok(x.p, "the hand-over case ran first");
+	const { h, run } = x;
+	const page = await h.until(() => h.pageTarget(x.signIn), 5_000, "the sign-in page");
+	const PASSWORD = `marker ${process.pid}`;
+	const windowTarget = () => h.targets().then((ts) => ts.find((t) => t.type === "page" && t.url.includes("/sign-in.html#")));
+	const gone = () => windowTarget().then((t) => !t);
+	const refs = async () => {
+		const read = await h.tool("read_page", { tabId: x.agentTab, filter: "interactive" });
+		const ref = (name) => new RegExp(`(e\\d+) textbox "${name}"`).exec(read)?.[1];
+		return { read, username_ref: ref("Email"), password_ref: ref("Password") };
+	};
+	const { username_ref, password_ref } = await refs();
+	assert.ok(username_ref && password_ref, "the page's two fields have refs");
+	const active = () => run(x.w, `chrome.tabs.query({ active: true, windowType: "normal" }).then((ts) => ts.map((t) => t.id).sort().join())`);
+	const activeBefore = await active();
+	const ask = { tabId: x.agentTab, reason: "Sign in to read your orders", username_ref, password_ref };
+
+	// The wrong fields are refused before anything shows.
+	const swapped = await h.call("tabs_show", { ...ask, username_ref: password_ref, password_ref: username_ref });
+	assert.equal(swapped.ok, false);
+	assert.match(swapped.text, /is not a (password field|field for a username or email)/);
+	assert.equal((await h.call("tabs_show", { ...ask, password_ref: "hunter2" })).ok, false);
+	assert.equal(await windowTarget(), undefined);
+
+	// Asked, typed, filled.
+	x.signingIn = h.call("tabs_show", ask);
+	const w = await h.until(windowTarget, 15_000, "the sign-in window");
+	await h.until(() => run(w, `!document.getElementById("form").hidden`), 10_000, "the form");
+	assert.equal(await active(), activeBefore, "no tab took focus");
+	const host = new URL(x.signIn).host;
+	assert.equal(await run(w, `document.getElementById("host").textContent`), host);
+	assert.match(await run(w, `document.getElementById("where").textContent`), /no copy is kept\. .+ isn't given it, but it can see a username the page shows, and a script it runs there could read the fields/);
+	assert.equal(await run(w, `document.documentElement.scrollWidth <= innerWidth`), true, "nothing runs past the window");
+	await x.narrow(w);
+	await x.shot(w, "4-sign-in-window");
+	assert.equal(await run(x.p, `!!document.querySelector('[data-testid="handback-card"] [data-action="sign-in"]')`), true, "the panel's card opens it too");
+	await run(w, `(() => { const set = (id, v) => { document.getElementById(id).value = v; }; set("username", "pat@example.com"); set("password", ${JSON.stringify(PASSWORD)}); document.getElementById("fill").click(); })()`);
+	const done = await x.signingIn;
+	assert.ok(done.ok, done.text);
+	assert.match(done.text, /The user typed their sign-in and it is in the page's fields/);
+	assert.ok(!done.text.includes(PASSWORD) && !done.text.includes("pat@example.com"), done.text);
+	assert.equal(await run(page, `document.querySelector("[name=email]").value + "/" + document.querySelector("[name=pw]").value`), `pat@example.com/${PASSWORD}`);
+	await h.until(gone, 10_000, "the window to close");
+	// Neither value is in a read, also when the page keeps it in the attribute or shows the password as text.
+	await run(page, `(() => { for (const i of document.querySelectorAll("input")) i.setAttribute("value", i.value); document.querySelector("[name=pw]").type = "text"; })()`);
+	const seen = [(await refs()).read, await h.tool("get_page_html", { tabId: x.agentTab }), await h.tool("find", { tabId: x.agentTab, query: "Email" })].join("\n");
+	assert.ok(!seen.includes(PASSWORD) && !seen.includes("pat@example.com"), seen);
+	assert.match(seen, /filled by the user/);
+	assert.equal(await run(page, `getComputedStyle(document.querySelector("[name=pw]")).webkitTextSecurity`), "disc", "it still shows dots");
+	// "Show password" that swaps the input for another one.
+	await run(page, `(() => { const pw = document.querySelector("[name=pw]"), copy = document.createElement("input"); copy.id = "shown"; copy.value = pw.value; copy.setAttribute("value", pw.value); pw.after(copy); })()`);
+	const swappedIn = [(await refs()).read, await h.tool("get_page_html", { tabId: x.agentTab })].join("\n");
+	assert.ok(swappedIn.includes("shown") && !swappedIn.includes(PASSWORD), swappedIn);
+	await run(page, `(() => { document.getElementById("shown").remove(); for (const i of document.querySelectorAll("input")) i.removeAttribute("value"); document.querySelector("[name=pw]").type = "password"; })()`);
+	const stored = await run(x.w, `Promise.all([chrome.storage.local.get(null), chrome.storage.session.get(null)]).then((all) => JSON.stringify(all))`);
+	assert.ok(!stored.includes(PASSWORD) && !stored.includes("pat@example.com"), "no copy in the extension's storage");
+
+	// Cancel: nothing is entered, and the agent hears it.
+	const again = h.call("tabs_show", ask);
+	const second = await h.until(windowTarget, 15_000, "the second window");
+	await h.until(() => run(second, `!document.getElementById("form").hidden`), 10_000, "the form");
+	await run(second, `document.getElementById("cancel").click()`);
+	assert.match((await again).text, /The user chose not to type a sign-in/);
+	await h.until(gone, 10_000, "the window to close");
+
+	// The page swaps its password field for one that shows its text: nothing goes in.
+	await run(page, `document.querySelector("[name=email]").value = document.querySelector("[name=pw]").value = ""`);
+	const third = h.call("tabs_show", ask);
+	const t3 = await h.until(windowTarget, 15_000, "the third window");
+	await h.until(() => run(t3, `!document.getElementById("form").hidden`), 10_000, "the form");
+	await run(page, `document.querySelector("[name=pw]").type = "text"`);
+	await run(t3, `(() => { document.getElementById("username").value = "pat"; document.getElementById("password").value = ${JSON.stringify(PASSWORD)}; document.getElementById("fill").click(); })()`);
+	const failed = await third;
+	assert.match(failed.text, /The sign-in was not completed on tab \d+: Ref e\d+ .+Nothing was entered\./);
+	assert.ok(!failed.text.includes(PASSWORD), failed.text);
+	assert.equal(await run(page, `document.querySelector("[name=email]").value + document.querySelector("[name=pw]").value`), "");
+	await run(page, `document.querySelector("[name=pw]").type = "password"`);
+	assert.match(await run(t3, `document.getElementById("status").textContent`), /^The page changed, so nothing was entered\. .+ was told and can ask again\.$/);
+	await run(t3, `window.close()`);
+	await h.until(gone, 10_000, "the window to close");
+
+	// It unmasks the field as it takes the focus: only the username goes in, and both are told so.
+	const fill = async (t, values) => {
+		await h.until(() => run(t, `!document.getElementById("form").hidden`), 10_000, "the form");
+		await run(t, `(() => { for (const [id, v] of Object.entries(${JSON.stringify(values)})) document.getElementById(id).value = v; document.getElementById("fill").click(); })()`);
+	};
+	await run(page, `document.querySelector("[name=pw]").onfocus = (e) => { e.target.type = "text"; }`);
+	const fourth = h.call("tabs_show", ask);
+	const t4 = await h.until(windowTarget, 15_000, "the fourth window");
+	await fill(t4, { username: "pat", password: PASSWORD });
+	assert.match((await fourth).text, /Only the username was entered\./);
+	assert.equal(await run(page, `document.querySelector("[name=email]").value + "/" + document.querySelector("[name=pw]").value`), "pat/");
+	assert.match(await run(t4, `document.getElementById("status").textContent`), /only your username was entered/);
+	await run(t4, `window.close()`);
+	await h.until(gone, 10_000, "the window to close");
+
+	// One field: the other row isn't shown, and only the named field is written.
+	await run(page, `(() => { const pw = document.querySelector("[name=pw]"); pw.onfocus = null; pw.type = "password"; document.querySelector("[name=email]").value = ""; })()`);
+	const fifth = h.call("tabs_show", { tabId: x.agentTab, reason: "Sign in", password_ref });
+	const t5 = await h.until(windowTarget, 15_000, "the fifth window");
+	await h.until(() => run(t5, `!document.getElementById("form").hidden`), 10_000, "the form");
+	assert.equal(await run(t5, `getComputedStyle(document.getElementById("username-row")).display`), "none");
+	await fill(t5, { password: PASSWORD });
+	assert.match((await fifth).text, /it is in the page's fields/);
+	assert.equal(await run(page, `document.querySelector("[name=email]").value + "/" + document.querySelector("[name=pw]").value`), `/${PASSWORD}`);
+	await h.until(gone, 10_000, "the window to close");
+
+	// The tab moves to another site with the window open: the page there gets nothing.
+	const sixth = h.call("tabs_show", ask);
+	const t6 = await h.until(windowTarget, 15_000, "the sixth window");
+	await h.until(() => run(t6, `!document.getElementById("form").hidden`), 10_000, "the form");
+	const elsewhere = x.signIn.replace("127.0.0.1", "localhost");
+	assert.notEqual(new URL(elsewhere).origin, new URL(x.signIn).origin);
+	await run(page, `void (location.href = ${JSON.stringify(elsewhere)})`);
+	const moved = await h.until(() => h.pageTarget(elsewhere), 10_000, "the other site");
+	await fill(t6, { username: "pat", password: PASSWORD });
+	assert.match((await sixth).text, /The page moved to another site\. Nothing was entered\./);
+	assert.equal(await run(moved, `[...document.querySelectorAll("input")].map((i) => i.value).join("")`), "");
+	await run(t6, `window.close()`);
+	await run(moved, `void (location.href = ${JSON.stringify(x.signIn)})`);
+	await h.until(() => h.pageTarget(x.signIn), 10_000, "the sign-in page again");
+});
+
 test("issue 45: the Runs view shows the agent's run with its step timeline and a step's change report", { timeout: 60_000 }, async () => {
 	const x = handoff;
 	assert.ok(x.sessionId, "the hand-over case ran first");
@@ -1166,7 +1291,7 @@ test("issue 45: the Runs view shows the agent's run with its step timeline and a
 		"the steps after the hand-back",
 	);
 	assert.match(tools, /navigate.*handback/, tools);
-	assert.equal(await run(x.p, `document.querySelector('${sel} .tk-run-status').textContent.trim()`), "Running");
+	await h.until(() => run(x.p, `document.querySelector('${sel} .tk-run-status').textContent.trim() === "Running"`), 5_000, "the run to go on");
 	assert.equal(await run(x.p, `document.querySelector('textarea')?.offsetParent === null`), true, "the chat is hidden, not removed");
 	const withReport = await run(x.p, `(() => { const b = document.querySelector('${sel} .tk-run-step-row:not([disabled])'); b?.click(); return !!b; })()`);
 	assert.ok(withReport, `a step has a change report: ${tools}`);

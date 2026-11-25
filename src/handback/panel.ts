@@ -9,6 +9,7 @@ import { html, nothing, type TemplateResult } from "lit";
 import { repeat } from "lit/directives/repeat.js";
 import { Hand } from "lucide";
 import { Toast } from "../components/Toast.js";
+import { openSignIn } from "./sign-in.js";
 import { CONTINUE_KEY_PREFIX, HANDBACK_KEY, openHandbacks, type PendingHandback } from "./state.js";
 
 let pending: PendingHandback[] = [];
@@ -77,19 +78,37 @@ export function handbackCards(): TemplateResult | typeof nothing {
 				</div>
 				<p class="mt-1.5 text-sm text-foreground break-words" data-reason>${p.reason}</p>
 				<p class="mt-0.5 text-xs text-muted-foreground truncate" title=${p.tabTitle}>${p.tabTitle}</p>
-				<p class="mt-1.5 text-xs text-muted-foreground">Do it on the page, then press Continue.</p>
+				<p class="mt-1.5 text-xs text-muted-foreground">
+					${
+						p.signIn
+							? `Type it in the sign-in window for ${p.signIn.host}, or sign in on the page and press Continue.`
+							: "Do it on the page, then press Continue."
+					}
+				</p>
 				<div class="mt-3 flex items-center justify-end gap-2">
 					<button type="button" class="tk-ask-btn tk-ask-btn-ghost" data-action="show-tab" @click=${() => showTab(p)}>
 						Show tab
 					</button>
 					<button
 						type="button"
-						class="tk-ask-btn tk-ask-btn-primary"
+						class="tk-ask-btn ${p.signIn ? "tk-ask-btn-ghost" : "tk-ask-btn-primary"}"
 						data-action="continue"
 						@click=${() => void pressContinue(p)}
 					>
 						Continue
 					</button>
+					${
+						p.signIn
+							? html`<button
+								type="button"
+								class="tk-ask-btn tk-ask-btn-primary"
+								data-action="sign-in"
+								@click=${() => void openSignIn(p.id, true).catch(() => Toast.info("The sign-in window didn't open."))}
+							>
+								Type sign-in
+							</button>`
+							: nothing
+					}
 				</div>
 			</section>`,
 		)}

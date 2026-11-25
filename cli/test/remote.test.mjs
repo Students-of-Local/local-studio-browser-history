@@ -86,6 +86,7 @@ test("a request without a valid token is refused", async () => {
 	await assert.rejects(connect("tkr_notarealtokennotarealtoken"), /401|bearer|token/i);
 	const raw = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
 	assert.equal(raw.status, 401);
+	assert.equal(raw.headers.get("keep-alive"), "timeout=120", "an idle connection outlives a tunnel's reuse of it");
 });
 
 test("a session lists and calls only the tools its scopes grant", async () => {

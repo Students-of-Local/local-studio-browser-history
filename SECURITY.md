@@ -1,6 +1,6 @@
 # Security policy
 
-Tychicus drives a browser that is signed in as its user, so security reports matter here
+Local Studio drives a browser that is signed in as its user, so security reports matter here
 more than most. Thank you for taking the time to send one.
 
 ## Report privately
@@ -10,7 +10,7 @@ Don't open a public issue, discussion or pull request for a vulnerability. Use e
 - **GitHub private vulnerability reporting:** the **Report a vulnerability** button on the
   repository's [Security tab](https://github.com/baney75/tychicus/security), or
   [this form](https://github.com/baney75/tychicus/security/advisories/new) directly.
-- **Email:** [donovan@dbaney.com](mailto:donovan@dbaney.com), with "Tychicus security" in
+- **Email:** [donovan@dbaney.com](mailto:donovan@dbaney.com), with "Local Studio security" in
   the subject.
 
 Include what you found, the version (extension version from the side panel's About screen,
@@ -18,7 +18,7 @@ Include what you found, the version (extension version from the side panel's Abo
 and what an attacker gains. A proof of concept against a test page or a throwaway account
 is the most useful thing you can send.
 
-Tychicus has one maintainer, Donovan Baney. Reports are read by him, and fixes are
+Local Studio has one maintainer, Donovan Baney. Reports are read by him, and fixes are
 coordinated with you before anything is published. If you'd like credit in the release
 notes, say how you want to be named.
 
@@ -61,7 +61,7 @@ Out of scope, or known and documented:
   [badlogic/pi-mono](https://github.com/badlogic/pi-mono),
   [badlogic/mini-lit](https://github.com/badlogic/mini-lit),
   [badlogic/sitegeist](https://github.com/badlogic/sitegeist) and
-  [0xSero/sitegeist](https://github.com/0xSero/sitegeist). If one affects Tychicus, a note
+  [0xSero/sitegeist](https://github.com/0xSero/sitegeist). If one affects Local Studio, a note
   here is welcome too.
 - Model providers, harnesses (Claude Code, Codex and others), Tailscale and Cloudflare.
 

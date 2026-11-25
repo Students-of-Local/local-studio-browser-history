@@ -6,6 +6,7 @@
  */
 
 import { isGuardedUrl } from "../bridge/permissions.js";
+import type { SignInFields, SignInValues } from "../handback/sign-in.js";
 import { cdpSend, isRestrictedUrl } from "./cdp.js";
 import {
 	bounded,
@@ -759,7 +760,12 @@ export function pageSnapshot(
 		__tabkyraRefMeta?: unknown;
 		__tabkyraFindLike?: unknown;
 		__tabkyraFramesSeen?: unknown;
+		__tabkyraTyped?: unknown;
 	};
+	// A field the user typed a sign-in into (SIGN_IN_LIB), or a copy of one ("Show password" swaps the input on many
+	// pages): its value stays out of every read, whatever its type is now.
+	const secrets = Array.isArray(w.__tabkyraTyped) ? (w.__tabkyraTyped as HTMLInputElement[]) : [];
+	const typed = (el: Element) => secrets.some((t) => !!t.value && t.value === (el as HTMLInputElement).value);
 	// Adopt earlier state only when it is what this function wrote.
 	const refs = w.__tabkyraRefs instanceof Map ? (w.__tabkyraRefs as Map<string, Element>) : new Map<string, Element>();
 	const prints =
@@ -959,7 +965,7 @@ export function pageSnapshot(
 				if (f.value && f.value !== "on") return clean(f.value);
 				return el.getAttribute("title") ?? el.getAttribute("name") ?? "";
 			}
-			if (tag === "input" && (f.placeholder || f.value) && f.type !== "password")
+			if (tag === "input" && f.type !== "password" && (f.placeholder || (f.value && !typed(el))))
 				return (f.placeholder || f.value) ?? "";
 			if (tag === "textarea" && f.placeholder) return f.placeholder;
 			return el.getAttribute("name") ?? el.getAttribute("title") ?? "";
@@ -1227,7 +1233,7 @@ export function pageSnapshot(
 		}
 		if (tag === "input") {
 			if (f.type === "checkbox" || f.type === "radio") node.value = f.checked ? "checked" : "unchecked";
-			else if (f.type !== "password" && f.value) node.value = String(f.value).slice(0, 120);
+			else if (f.type !== "password" && f.value && !typed(el)) node.value = String(f.value).slice(0, 120);
 		} else if (tag === "textarea" && f.value) node.value = String(f.value).slice(0, 120);
 		else if (tag === "select" && f.options && f.selectedIndex !== undefined)
 			node.value = f.options[f.selectedIndex]?.text ?? "";
@@ -1238,6 +1244,7 @@ export function pageSnapshot(
 		// without tabs_show the MCP server rewrites it in every result, change reports too (cli/src/mcp.ts).
 		if (tag === "input" && f.type === "password")
 			states.push("password: never type one, call tabs_show and ask the person to type it");
+		if (typed(el) && f.value) states.push("filled by the user");
 		if (states.length && !node.states) node.states = states;
 		if (at.frame) node.frame = at.frame.slice(0, 120);
 		nodes.push(node);
@@ -2363,6 +2370,73 @@ export async function fillElement(
 }
 
 /**
+ * A sign-in the user typed (src/handback/sign-in.ts): the fields checked, and with `values` written. Both are checked
+ * before either is written, and the password only ever goes into a field the page masks, which then shows dots even if
+ * the page unmasks it. The fields are marked, and reads leave their values out. A write answers which went in and why it
+ * stopped; no error says a value.
+ */
+const SIGN_IN_LIB: PageLib = {
+	name: "sign-in",
+	source: () => `async (fields, origin, values) => {
+		const check = (what, ref, el) => {
+			const W = el.ownerDocument.defaultView || window;
+			const no = (why) => { throw new Error("Ref " + ref + " " + why + "."); };
+			if (!(el instanceof W.HTMLInputElement)) no("is not a text field");
+			if (what === "password" ? el.type !== "password" : !/^(text|email|tel)$/.test(el.type))
+				no(what === "password" ? "is not a password field" : "is not a field for a username or email");
+			if (/\\bcc-/.test(el.autocomplete || "")) no("is a payment field");
+			if (el.matches(":disabled") || el.readOnly) no("takes no text now");
+			const box = el.getBoundingClientRect();
+			if (!el.isConnected || box.width === 0 || box.height === 0 || !el.checkVisibility({ opacityProperty: true, visibilityProperty: true })) no("isn't shown now");
+			if (W.location.origin !== location.origin) no("is in a frame from another site");
+		};
+		const wrote = [];
+		const find = () => {
+			if (values && location.origin !== origin) throw new Error("The page moved to another site.");
+			const found = ["username", "password"].filter((what) => fields[what]).map((what) => {
+				const el = (${resolveRef.toString()})(fields[what], ${refLive.toString()}, ${refPrint.toString()});
+				check(what, fields[what], el);
+				return [what, el];
+			});
+			if (found.length === 2 && found[0][1] === found[1][1]) throw new Error("Both refs name the same field.");
+			return found;
+		};
+		if (!values) return find() && { origin: location.origin, host: location.host };
+		let found;
+		try { found = find(); } catch (e) { return { wrote, why: e.message }; }
+		for (const [what, el] of found) {
+			const W = el.ownerDocument.defaultView || window;
+			el.focus();
+			// Its focus handlers ran: the same field still, and still masked.
+			try { check(what, fields[what], el); } catch (e) { return { wrote, why: e.message }; }
+			if (!Array.isArray(window.__tabkyraTyped)) window.__tabkyraTyped = [];
+			if (!window.__tabkyraTyped.includes(el)) window.__tabkyraTyped.push(el);
+			if (what === "password") el.style.setProperty("-webkit-text-security", "disc", "important");
+			wrote.push(what);
+			Object.getOwnPropertyDescriptor(W.HTMLInputElement.prototype, "value").set.call(el, values[what]);
+			el.dispatchEvent(new W.InputEvent("input", { bubbles: true, composed: true, inputType: "insertReplacementText" }));
+			el.dispatchEvent(new W.Event("change", { bubbles: true }));
+		}
+		return { wrote };
+	}`,
+};
+
+/** Check the fields of a sign-in and read the site they are on. */
+export function signInSite(tabId: number, fields: SignInFields): Promise<{ origin: string; host: string }> {
+	return runLib(tabId, { lib: SIGN_IN_LIB, args: [fields, "", null] });
+}
+
+/** Write what the user typed into the fields, if the tab is still on that site: which went in, and why it stopped. */
+export function writeSignIn(
+	tabId: number,
+	fields: SignInFields,
+	origin: string,
+	values: SignInValues,
+): Promise<{ wrote: Array<keyof SignInFields>; why?: string }> {
+	return runLib(tabId, { lib: SIGN_IN_LIB, args: [fields, origin, values] });
+}
+
+/**
  * The note an action's ref left when resolveRef found its control again (D51), per tab: set by locate and fillElement,
  * read once into the action's result.
  */
@@ -2498,6 +2572,13 @@ export async function pageHtml(
 		if (!el) throw new Error("Selector not found: " + sel + ". read_page or find gives refs.");
 		const veil = ${JSON.stringify(veil)} ? document.querySelector(${JSON.stringify(veil || "x")}) : null;
 		let out = el.outerHTML;
+		// A page may keep a field's value in its value attribute too: not one the user typed (SIGN_IN_LIB).
+		const typed = Array.isArray(window.__tabkyraTyped) ? window.__tabkyraTyped.map((t) => t.value).filter(Boolean) : [];
+		for (const f of [el, ...el.querySelectorAll("input[value]")]) if (typed.includes(f.getAttribute("value"))) {
+			const bare = f.cloneNode(false);
+			bare.removeAttribute("value");
+			out = out.replace(f.outerHTML, () => bare.outerHTML);
+		}
 		if (veil && el !== veil && el.contains(veil)) out = out.replace(veil.outerHTML, "");
 		return { text: out.slice(${from}, ${to}), offset: ${from}, total: out.length };
 	})()`;

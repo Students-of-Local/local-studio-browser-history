@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer as createHttpServer } from "node:http";
-import { createServer as createNetServer } from "node:net";
+import { connect, createServer as createNetServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
@@ -1498,6 +1498,30 @@ test("in a terminal, setup waits for Tailscale to be installed and carries on on
 		assert.match(r.stdout, /Tailscale Funnel on https:\/\/mac\.example\.ts\.net:8443/);
 	} finally {
 		await local.close();
+	}
+});
+
+test("serve stops soon after the last answer, though the client keeps the connection open", async () => {
+	const { serve } = await loadTs(`export { serve } from "@src/remote.ts";`);
+	const local = await serve({ port: 0, host: "127.0.0.1", oauth: { publicUrl: "https://x.example.com", redirectHosts: [], scopes: {} } });
+	const socket = connect(Number(new URL(local.url).port), "127.0.0.1");
+	let answer = "";
+	socket.on("data", (d) => (answer += d));
+	socket.on("error", () => {});
+	try {
+		// Half a body: the request is still being answered when serve stops.
+		socket.write("POST /register HTTP/1.1\r\nhost: x.example.com\r\ncontent-type: application/json\r\ncontent-length: 4\r\n\r\n{\"");
+		await new Promise((r) => setTimeout(r, 200));
+		const closed = local.close();
+		await new Promise((r) => setTimeout(r, 50));
+		socket.write("x\n");
+		const late = Symbol();
+		const timer = new Promise((r) => setTimeout(() => r(late), 8_000).unref());
+		assert.notEqual(await Promise.race([closed, timer]), late, `serve is still open after it answered: ${answer}`);
+		assert.match(answer, /^HTTP\/1\.1 400 /);
+		assert.match(answer, /connection: keep-alive/i, "the connection was one the client could keep");
+	} finally {
+		socket.destroy();
 	}
 });
 

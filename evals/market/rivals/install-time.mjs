@@ -1,6 +1,6 @@
 // Install time from nothing, and the install steps each tool's README gives, by hand (README.md, "Rivals, by hand").
 //   node evals/market/rivals/install-time.mjs [--reps 3] [--out file.json]
-// Each rep installs into a new temporary folder with an empty npm cache, so every byte is downloaded. Tychicus runs its
+// Each rep installs into a new temporary folder with an empty npm cache, so every byte is downloaded. Local Studio runs its
 // release's one command (README.md, "Install") with a throwaway HOME, so nothing lands in the real home folder, and
 // TYCHICUS_GH=none, as on a computer without the GitHub CLI. No tool's browser download is timed: each drives a
 // Chromium already on the computer. browse's own install script is not run (it installs into the home folder and
@@ -57,7 +57,7 @@ function timeOnce(tool, spec) {
 		const ms = Math.round(performance.now() - t0);
 		if (r.status !== 0) throw new Error(`${tool} install failed (${r.status}): ${(r.stderr || r.stdout).slice(-400)}`);
 		// The release the one command installed, as its last lines name it.
-		const version = /Tychicus (\S+) is installed/.exec(r.stdout)?.[1];
+		const version = /(?:Local Studio helper|Tychicus) (\S+) is installed/.exec(r.stdout)?.[1];
 		return { ms, version };
 	} finally {
 		rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
