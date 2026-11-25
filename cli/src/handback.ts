@@ -41,7 +41,7 @@ export function handbackResultText(reply: unknown, err?: unknown): ToolResult {
 	return { content: [{ type: "text", text: message }], isError: true };
 }
 
-export async function waitForUser(client: BridgeClient, args: { tabId?: number; reason?: string }, extra: Extra): Promise<ToolResult> {
+export async function waitForUser(client: BridgeClient, args: { tabId?: number; reason?: string; username_ref?: string; password_ref?: string }, extra: Extra): Promise<ToolResult> {
 	const token = extra._meta?.progressToken;
 	let ticks = 0;
 	const startedAt = Date.now();
@@ -69,7 +69,9 @@ export async function waitForUser(client: BridgeClient, args: { tabId?: number; 
 		if (!client.connected) await client.connect();
 		if (!client.extensionConnected) return { content: [{ type: "text", text: NOT_CONNECTED }], isError: true };
 		// No retry: a retry after a dropped bridge would show the user a second card.
-		const reply = await client.call("handback", { ...args, waitId }, HANDBACK_TIMEOUT_MS + 30_000, { retry: false });
+		const { tabId, reason, username_ref: username, password_ref: password } = args;
+		const signIn = username || password ? { username, password } : undefined;
+		const reply = await client.call("handback", { tabId, reason, signIn, waitId }, HANDBACK_TIMEOUT_MS + 30_000, { retry: false });
 		return handbackResultText(reply);
 	} catch (err) {
 		return handbackResultText(undefined, err);

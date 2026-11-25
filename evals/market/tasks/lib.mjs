@@ -1,4 +1,4 @@
-// The Tychicus side of the task set: the repo's own e2e harness (built extension, native host and MCP server in a
+// The Local Studio side of the task set: the repo's own e2e harness (built extension, native host and MCP server in a
 // throwaway headless Chromium) and the driver verbs solves.mjs is written against. Adapted from the study's
 // adapters/polycarp.mjs and lib/drivers.mjs (README.md, "Origin").
 import { execFileSync } from "node:child_process";
