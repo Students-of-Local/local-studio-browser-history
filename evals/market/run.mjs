@@ -1,4 +1,4 @@
-// The market eval: Tychicus's scores and speeds in one run, gated on floors.json (README.md).
+// The market eval: Local Studio's scores and speeds in one run, gated on floors.json (README.md).
 //   npm run evals:market                      # everything, then the floor check; exits 1 below a floor
 //   node evals/market/run.mjs --only tasks,speed [--repeat 3] [--speed-n 9] [--out file.json] [--no-check]
 // Parts: `tasks` (the ten-task set, 3 reps), `speed` (median click, fill and first page text on t02's form),

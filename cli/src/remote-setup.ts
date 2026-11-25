@@ -1405,15 +1405,16 @@ export function relayView(): { state: string; since: number | null } {
 /** `remote status`'s line for the relay route: the connector's state, and what to do when it isn't connected. */
 function relayCheck(config: RemoteConfig): Check {
 	const file = serviceFile(RELAY_SERVICE);
-	if (!file || !existsSync(file)) return { name: "relay", status: "fail", detail: `The relay connector's service is gone. Run ${COMMAND_NAME} remote setup again.` };
+	if (!file || !existsSync(file)) return { name: "relay", status: "fail", detail: `The relay connector's service is gone. Run ${COMMAND_NAME} remote fix.` };
 	const { state } = relayView();
 	const name = config.relay?.name ?? "relay";
 	if (state === "connected") return { name: "relay", status: "ok", detail: `${name} connected; requests reach 127.0.0.1:${config.port}` };
 	if (state === "connecting" || state === "disconnected") return { name: "relay", status: "warn", detail: `${name} ${state}; the connector keeps trying. Its log: ${serviceLogHint(RELAY_SERVICE)}` };
+	const again = `${COMMAND_NAME} remote off && ${COMMAND_NAME} remote setup`;
 	const why: Record<string, string> = {
-		unauthorized: `The relay refused the key. Run ${COMMAND_NAME} remote setup again to set a new one.`,
-		replaced: `Another computer connected to ${name} with this key and took over. Run ${COMMAND_NAME} remote setup on the computer that should have it.`,
-		outdated: `The relay speaks another protocol version. Update ${COMMAND_NAME}, then run ${COMMAND_NAME} remote setup again.`,
+		unauthorized: `The relay refused the key. To set a new one, run ${again}.`,
+		replaced: `Another computer connected to ${name} with this key and took over. On the computer that should have it, run ${again}.`,
+		outdated: `The relay speaks another protocol version. Update ${COMMAND_NAME}, then run ${COMMAND_NAME} remote fix.`,
 	};
 	return { name: "relay", status: "fail", detail: why[state] ?? `The connector isn't running. Run ${COMMAND_NAME} remote fix.` };
 }
@@ -1613,7 +1614,7 @@ export async function remoteOff(options: { json?: boolean } = {}): Promise<numbe
 		for (const line of closed.notes) note(sym.ok, line);
 		rmSync(relayStateFile(), { force: true });
 		if (config?.relay) {
-			note("", `The relay Worker ${config.relay.name} stays on your Cloudflare account and refuses every connector, since its key was only in remote.json. To delete it: npx wrangler@${WRANGLER_VERSION} delete ${config.relay.name}`, true);
+			note("", `The relay Worker ${config.relay.name} stays on your Cloudflare account. This computer's copy of its key is gone; a computer that still has the key can connect until the Worker is deleted. To delete it: npx wrangler@${WRANGLER_VERSION} delete ${config.relay.name}`, true);
 		}
 	}
 	if (config?.route === "cloudflare" || config?.route === "relay") {
