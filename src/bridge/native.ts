@@ -855,7 +855,12 @@ async function runHandback(state: ClientState, req: HostForwardedRequest): Promi
 		const session = await withTimeout(getSession(state), 15000, "session open");
 		// The client may have hung up during the awaits; nobody would hear the Continue.
 		if (clients.get(state.clientId) !== state) return;
-		respond({ result: await handleHandback({ clientId: state.clientId, session }, req.params ?? {}) });
+		respond({
+			result: await handleHandback(
+				{ clientId: state.clientId, session, guardedHosts: req.guardedHosts },
+				req.params ?? {},
+			),
+		});
 	} catch (err) {
 		const { error } = classify(err, req.method);
 		respond({ error: error.toRpc() });

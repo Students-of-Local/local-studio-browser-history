@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### Added
+- Sign in without giving an agent your password. An agent that reaches a sign-in form can ask for it (`tabs_show` with `username_ref` and
+  `password_ref`), and a small window pops up that names the site and takes your username and password. They go straight into the page's
+  fields; the agent is told only that they are in, and its page reads leave those fields' values out. The window takes no focus, and the panel's card opens it too. Needs https, or a page on
+  this computer (D69). Tests: `test/sign-in.test.mjs`, `cli/test/e2e-panel.test.mjs`.
 - PRIVACY.md names every host the code contacts by itself or on request, when, and how to turn it off where there is a switch. It also says the
   chat copy for coding agents is on by default, and which other agents' settings files the helper opens. `test/privacy-hosts.test.mjs` fails when code
   names a host the policy doesn't, and when the policy names one nothing here contacts. Settings > Privacy says the copy is on by default and is not uploaded.
@@ -89,6 +93,9 @@
 - A request that reuses an idle connection to `serve` or the hub no longer fails now and then. Node closed an idle connection after 5 seconds,
   while a tunnel keeps its own for about 90 and sends the next request down it, so one that went out as Node closed it came back as a 502. Both now
   keep an idle connection for 2 minutes. Tests: `cli/test/remote.test.mjs`, `cli/test/hub-hardening.test.mjs`.
+- A hand-back an agent already gave up on no longer shows its card. A cancel or a disconnect that came before the hand-back, or while it looked its tab up, found
+  nothing to end and the card waited 10 minutes for nobody. A run in the Runs view no longer says "Running" for good after its agent left in the middle of a call: the
+  call's answer is logged as a step of the ended run (#52). Tests: `test/handback-worker.test.mjs`, `test/runs.test.mjs`.
 - `read_page` right after a page opens now holds a cross-site frame (a payment form) that arrives a moment later. It waits for a frame it
   first saw under a second ago, and starts no new look after a second; a frame that still hasn't arrived is listed as "not loaded yet". The market
   task `t05-iframe` missed the form in 2 of 3 runs on a Mac (#75). Tests: `test/frames.test.mjs`, `cli/test/e2e-bridge.test.mjs`.
