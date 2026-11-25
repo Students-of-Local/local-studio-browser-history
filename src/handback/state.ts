@@ -24,12 +24,23 @@ export interface PendingHandback {
 	detail: string;
 	color: string;
 	tabTitle: string;
+	/** A sign-in the user types in its own window (sign-in.ts): the site, read from the tab, and the fields' refs. */
+	signIn?: { origin: string; host: string; fields: { username?: string; password?: string } };
 	createdAt: number;
 	expiresAt: number;
 }
 
 /** How a wait ended. */
-export type HandbackEnd = "continued" | "taken" | "closed" | "timeout" | "disconnected" | "aborted";
+export type HandbackEnd =
+	| "continued"
+	| "signed_in"
+	| "declined"
+	| "failed"
+	| "taken"
+	| "closed"
+	| "timeout"
+	| "disconnected"
+	| "aborted";
 
 export interface HandbackOutcome {
 	status: HandbackEnd;
@@ -54,9 +65,13 @@ export function handbackOutcome(
 	tabId: number,
 	reason: string,
 	timeoutMs = HANDBACK_TIMEOUT_MS,
+	why = "",
 ): HandbackOutcome {
 	const text: Record<HandbackEnd, string> = {
 		continued: `The user pressed Continue on tab ${tabId} (${reason}). The tab is still yours: read_page to see where the page is now, then go on.`,
+		signed_in: `The user typed their sign-in and it is in the page's fields on tab ${tabId}. You were not given it: never read the fields back. Submit the form (click its button), then read_page.`,
+		declined: `The user chose not to type a sign-in on tab ${tabId} (${reason}). Nothing was entered. Ask them how to go on.`,
+		failed: `The sign-in was not completed on tab ${tabId}: ${why} read_page, then ask again with the fields' refs, or call tabs_show with wait so the user signs in on the page.`,
 		taken: `The user took tab ${tabId} back instead of pressing Continue (${reason}). It is theirs now and you can't use it; ask them how to go on.`,
 		closed: `The user closed tab ${tabId} instead of pressing Continue (${reason}). Ask them how to go on.`,
 		timeout: `No Continue after ${Math.round(timeoutMs / 60000)} minutes (${reason}). Tab ${tabId} is still yours; ask the user whether they finished before you go on.`,

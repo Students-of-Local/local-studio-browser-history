@@ -902,7 +902,7 @@ export async function frameForRef(
 		const host = frameHost(frame.url);
 		throw gone(
 			`Not allowed to open ${host}: ref ${ref} is in a frame from a site not allowed for agents. ` +
-				`The user can allow it in the Tychicus side panel under Settings > Agents, or with \`tychicus allow ${new URL(frame.url).hostname}\`.`,
+				`The user can allow it in the Local Studio side panel under Settings > Agents, or with \`tychicus allow ${new URL(frame.url).hostname}\`.`,
 		);
 	}
 	return { frame, inner: split.inner };

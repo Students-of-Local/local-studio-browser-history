@@ -19,6 +19,7 @@ import { installCopilotSdk } from "./subscriptions/install-sdk.ts";
 import { LIBRARY_USAGE, runLibrary } from "./library.ts";
 import { cloudflareLogin, runCloudflareTunnel } from "./cloudflare.ts";
 import { asPermissionMode, MODE_TITLE, modeSummary, type PermissionMode } from "./permission-mode.ts";
+import { runRelay } from "./relay.ts";
 import { printReport } from "./remote-state.ts";
 import { createToken, loadTokens, loadUsage, offeredScopes, revokeToken, SCOPES, serve, tokenLive } from "./remote.ts";
 import { listClients, mintApprovalCode, normalizePublicUrl, type OAuthConfig, passcodeSet, revokeClient, revokeGrantById, setPasscode } from "./oauth.ts";
@@ -46,6 +47,7 @@ import { type HostRunAction, refuseHostAction, runHostAction } from "./update-ru
 import { BUILD } from "../../src/update/build.ts";
 import { argsProblem, COMMANDS, completionScript, EXIT_CODES, helpRows, REMOTE_GUIDE, VALUE_FLAGS, VISIBLE_COMMANDS } from "./commands.ts";
 import { VERSION } from "./version.ts";
+import { parseVmArgs, runVm, VM_USAGE } from "./vm.ts";
 import { installLocalStudio, LocalStudioError, localStudioCommand } from "./local-studio.ts";
 import { installFromRelease, loadSteps, releaseProgram, releaseRoot } from "./release.ts";
 import { restartStaleServices } from "./service-version.ts";
@@ -743,6 +745,14 @@ async function main(): Promise<void> {
 				}
 				throw new UsageError(`Usage: ${COMMAND_NAME} remote cloudflare login [--json]`);
 			}
+			if (sub === "relay") {
+				// What the relay service runs: the connector, in the foreground.
+				if (argv.slice(1).filter((a) => !a.startsWith("-"))[1] === "run") {
+					process.exitCode = await runRelay();
+					return;
+				}
+				throw new UsageError(`Usage: ${COMMAND_NAME} remote relay run`);
+			}
 			if (sub === "setup") {
 				const rawPublic = option("--public-url");
 				const rawPort = option("--port");
@@ -990,6 +1000,12 @@ async function main(): Promise<void> {
 				console.log(
 					`${sym.warn} The Polycarp app's pi extension is also at ${pi.polycarp}. pi loads both, and their browser tools have the same names: keep one.`,
 				);
+			return;
+		}
+		case "vm": {
+			const vmArgs = parseVmArgs(argv.slice(1));
+			if (typeof vmArgs === "string") throw new UsageError(`${vmArgs} ${VM_USAGE}`);
+			process.exitCode = await runVm(vmArgs, { log: (line) => console.log(line), err: (line) => console.error(line) });
 			return;
 		}
 		case "completion": {

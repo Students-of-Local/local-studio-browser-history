@@ -3,6 +3,13 @@
 ## [Unreleased]
 
 ### Added
+- Sign in without giving an agent your password. An agent that reaches a sign-in form can ask for it (`tabs_show` with `username_ref` and
+  `password_ref`), and a small window pops up that names the site and takes your username and password. They go straight into the page's
+  fields; the agent is told only that they are in, and its page reads leave those fields' values out. The window takes no focus, and the panel's card opens it too. Needs https, or a page on
+  this computer (D69). Tests: `test/sign-in.test.mjs`, `cli/test/e2e-panel.test.mjs`.
+- PRIVACY.md names every host the code contacts by itself or on request, when, and how to turn it off where there is a switch. It also says the
+  chat copy for coding agents is on by default, and which other agents' settings files the helper opens. `test/privacy-hosts.test.mjs` fails when code
+  names a host the policy doesn't, and when the policy names one nothing here contacts. Settings > Privacy says the copy is on by default and is not uploaded.
 - The side panel shows what an agent is waiting on (a site to open, files to upload) as a card above the chat, with the
   same buttons as Settings > Agents, which draws the same card. A remote session's questions come up in those two places only. Two agents
   asking at once both get a card, a card takes no click for half a second after it comes up or another card goes, and a question left by an earlier worker, which nothing could answer, is cleared. Test:
@@ -12,12 +19,20 @@
   Runs log records the mode it started under. A session from an older CLI counts as remote when `serve` named it. Decision D67. Tests: `test/permission-guard.test.mjs`, `test/dialog-preset.test.mjs`,
   `cli/test/model-tier.test.mjs`.
 - An agent over the bridge can't put text into a password or payment field, in any permission mode. `type`, `fill` and a
-  press of a character are refused where the text would go in, and the agent is told to show you the tab so you type it.
+  press of a character are refused where the text would go in, and the agent is told to open the sign-in window for a password, or show you the tab for a payment.
   Text is also refused when Tychicus can't tell which field would get it. A script (`run_js`) isn't checked. Decision D67. Tests: `test/dialog-preset.test.mjs`,
   `test/permission-guard.test.mjs`, `cli/test/e2e-bridge.test.mjs`.
 - Settings > Privacy has a switch that stops the model detail lookup on models.dev. The lookup (the public
   table at `https://models.dev/api.json`, when the copy is a day old, only while a key is saved for a provider that lists
   its models) had no off switch. Off, `loadMetadata` in `src/models/registry.ts` never fetches it. Test: `test/models-dev-switch.test.mjs`.
+- Agents get Linux guests on your Mac that reset to clean in under a second.
+  `tychicus vm up linux` starts one; `exec`, `shot`, `reset`, `down` and `list` work it. `vm/mac` is `tychicus-vm`, a windowless Virtualization.framework helper (no Dock icon, no focus changes) signed ad hoc
+  with the virtualization entitlement. The guest is Debian 13 arm64, pinned by SHA-512, on an APFS clone, set up by
+  cloud-init with no users and no SSH, and reached through a vsock agent. The first boot saves a ready point (machine
+  state plus a disk clone); `reset` restores it, `down` saves the session and `up` resumes it. A gate checks power, RAM,
+  disk (5 GB at least) and load before `up`. `vm shot` saves the guest's console framebuffer as PNG.
+  `scripts/vm-bench.mjs` measures it against the #28 targets (a rerun of D66's numbers is owed).
+  Decision D66. Tests: `cli/test/vm.test.mjs`.
 - Agents can now filter a site's feed for you, by topic or account, on every visit. Ask "hide every post about crypto
   on x.com" and the new `site_filter` MCP tool saves words, phrases, `/regex/` terms and account handles for a site; posts that match are hidden
   with a class and a stylesheet (never removed), new ones too as you scroll, and a count on the page ("12 hidden by your
@@ -34,6 +49,7 @@
   and install steps, with the date, machine and versions. `evals/market/page.mjs` builds it from the runs kept in
   `evals/market/published/`, and `test/market-page.test.mjs` fails when the page and those runs disagree. New: a Chrome
   DevTools MCP adapter and `evals/market/rivals/install-time.mjs` (#30).
+- `tychicus remote relay run` connects this computer to a relay Worker on your own Cloudflare account. It is the relay route's service (`com.tychicus.relay`, `tychicus-relay.service`), the way `remote cloudflare run` runs cloudflared: it dials `wss://<relay>/_relay/connect` with the relay key from `remote.json` and carries serve's MCP and OAuth paths and `/v1/health` to `127.0.0.1:<port>`, nothing else. The connector is vendored from baney75/local-studio-tunnels (`cli/src/relay-client.ts`, the source commit in its header, its SHA-256 pinned by `cli/test/relay-vendor.test.mjs`). It writes its state (`connected`, `disconnected`, `unauthorized` and so on) to `relay-state.json` for `remote status`, and stays up in a state it won't retry, so the service doesn't restart it into the same refusal. serve now answers `GET /v1/health` with `{"ok":true}`. Tests: `cli/test/relay.test.mjs` (a local stand-in relay carries a request to a real serve and back).
 
 - The market eval now scores which agent actions Auto should ask about: 59 of 59 risky ones caught. Auto's rule
   list is one file, `src/bridge/risk-rules.ts`: risky actions (send, post, buy or pay, delete or cancel, change
@@ -44,11 +60,20 @@
   and 0 of the 27 safe ones are flagged. Decision D67. Issue #33. Tests: `test/risk-rules.test.mjs` (one per rule).
 
 ### Changed
+- A site skill's domain patterns are matched by a small matcher of our own (`src/storage/stores/domain-match.ts`) whose time is bounded by the pattern and the address, and a pattern over 256 characters or past a skill's first 100 matches nothing. `*`, `**` and `?` mean what they did; `{a,b}`, `[ab]` and `!(a)` are now plain text, so list each address instead. The `minimatch` dependency is gone. Test: `test/transcript.test.mjs`.
 - In Auto, an agent on a frontier model now asks before it opens a sensitive site (mail, a bank or payments, a password
   manager, a cloud console, a government or health site, a site's account settings pages), unless your allowed sites
   cover it. A sensitive site's frame on another page isn't read without that either. Where a clicked link or a redirect
   leads isn't checked, in Manual either. Ordinary sites open as before, Manual and Yolo are unchanged, and a remote
   session under Yolo gets this rule too. Decision D67. Test: `test/permission-guard.test.mjs`.
+- The extension is named Local Studio. Its manifest name, toolbar title, side panel, settings, onboarding and setup prompts
+  say so, and where the text means the desktop program it says the Local Studio app. The extension ID, commands, MCP
+  names and folders don't change here. Issue #104.
+- Agents' tab groups say "Local Studio · ...", and groups an earlier version named "Tychicus · ..." are still found and
+  tidied; a resumed session's own group takes the new name. The assistant's own prompt, the notes and errors agents read from the extension, and the name the ChatGPT
+  sign-in shows say Local Studio too. Test: `test/browser-session.test.mjs`.
+- The helper's own text (setup, remote setup, pairing, update, service, sessions, the community catalog and errors) says
+  Local Studio. The `tychicus` command, the MCP name, environment variables and folders don't change here. Issue #104.
 - `tychicus setup --agents` renames an agent's old `polycarp` or `tabkyra` entry that runs Tychicus to `tychicus`. Before, the entry kept the old name until a separate `setup --agents --finish`, and `tychicus doctor` called it fine. Now the agent step moves entries that run Polycarp's browser server, then renames every entry that runs Tychicus under an old name, after a backup and a question (`--yes` skips it). The finish's rules stay: an old entry beside a `tychicus` entry is removed only when the two match in every field, and otherwise both are named for a manual fix. `tychicus doctor` warns about an old name with one fix, `tychicus setup --agents`. `--agents --finish` still runs the rename alone. Rules that named the old server, such as a Claude Code permission rule for `mcp__polycarp`, need the new name; setup says so after a rename. Decision D65. Tests: `cli/test/agent-migration.test.mjs`.
 - Messages about missing computer use name Tychicus's own helper, `tychicus-hands`, and how to get it on that OS. `computer_status`, `tychicus doctor`, `link --scope computer.*` and a hub's refusal said computer use needed Polycarp's Mac app, which no longer has it (baney75/polycarp #568). `handsHowTo` in `cli/src/computer.ts` writes the line. `test/product-name.test.mjs` now also fails when a `KEPT` rule or `POLYCARP_ALLOW` file excuses no line.
 - Tychicus opens in its dark look until you pick Light or Match system in Settings > Appearance. The side panel, its first frame and the in-use veil on agents' pages all follow it. Before, nothing saved meant Match system, so a Mac in light mode got a white panel; that choice is now stored by name, and anyone who never picked one gets dark. Tests: `test/appearance.test.mjs`.
@@ -68,9 +93,33 @@
 - The `skill-judge` CI job lets a pull request rename a skill: a base router case may carry the new name when `skills-eval/accepted-drops.json` records the rename under `renamed` (`from`, `to`, `reason`), the old skill is gone and the new one is new. The new name keeps the old accuracy floor. Any other removed or relabeled case still fails.
 
 ### Fixed
+- A request that reuses an idle connection to `serve` or the hub no longer fails now and then. Node closed an idle connection after 5 seconds,
+  while a tunnel keeps its own for about 90 and sends the next request down it, so one that went out as Node closed it came back as a 502. Both now
+  keep an idle connection for 2 minutes. Tests: `cli/test/remote.test.mjs`, `cli/test/hub-hardening.test.mjs`.
+- A hand-back an agent already gave up on no longer shows its card. A cancel or a disconnect that came before the hand-back, or while it looked its tab up, found
+  nothing to end and the card waited 10 minutes for nobody. A run in the Runs view no longer says "Running" for good after its agent left in the middle of a call: the
+  call's answer is logged as a step of the ended run (#52). Tests: `test/handback-worker.test.mjs`, `test/runs.test.mjs`.
+- `read_page` right after a page opens now holds a cross-site frame (a payment form) that arrives a moment later. It waits for a frame it
+  first saw under a second ago, and starts no new look after a second; a frame that still hasn't arrived is listed as "not loaded yet". The market
+  task `t05-iframe` missed the form in 2 of 3 runs on a Mac (#75). Tests: `test/frames.test.mjs`, `cli/test/e2e-bridge.test.mjs`.
+- A click that opens a new tab reports it on a slow machine too. The report waited only for the page to go quiet (300 ms), and under heavy load the new
+  tab joined the session after that: the answer had no `newTabs` and said nothing happened. It now waits for the tab, at most 2 seconds from the moment the
+  page opened it, and only when the page opened one (#75). Test: `test/new-tab.test.mjs`.
+- Tychicus no longer adds CORS headers to the responses of api.anthropic.com, api.z.ai or a custom provider's host
+  (`static/cors-rules.json` and the dynamic rules are gone, and each worker start takes away the saved ones). The side
+  panel's own requests go out under the extension's host permissions and never needed them. Test: `test/provider-cors.test.mjs`.
 - After the one-command install, typing `tychicus` runs the release you just installed. Before, nothing put `tychicus` on PATH, so every printed `tychicus <command>` failed with "command not found", and a `~/.local/bin/tychicus` left from a dev checkout kept running that old code. `tychicus install --release` now links `~/.local/bin/tychicus` to `~/.local/share/tychicus/release/tychicus`, which follows every later install. A link to a Tychicus program (an older version, a checkout's or npm's `cli/dist/index.js`) or to nothing is repointed; anything else is asked about in a terminal (default no) and otherwise left, with the `ln -sf` command printed. It says when `~/.local/bin` isn't on PATH, with the line for your shell, or when another `tychicus` comes first. `install.sh` ends with `tychicus setup` when that name reaches the release, else the full path. macOS and Linux. README's Platforms section now says the Linux computer-use helper exists. Tests: `cli/test/path-link.test.mjs`, `cli/test/release-install.test.mjs`, `test/install-script.test.mjs`.
+- JavaScript run in a page (`browserjs` in the side panel, `run_js` over the bridge) runs apart from the page's own
+  scripts on the debugger path too, as it does with the user scripts permission: in an isolated world made for it
+  (`src/browser/inject.ts`), with its messaging only there. Before, without that permission it ran in the page's own
+  world. `run_js` with `world: "main"` still reaches the page's globals. Tests: `test/inject-world.test.mjs`,
+  `cli/test/e2e-bridge.test.mjs`.
 - Feed filters (`site_filter`) match words in Chinese, Japanese, Thai and other scripts written without spaces: `比特币` now hides "今天比特币大涨", and a mixed word like `AI芯片` still needs a word edge before its "A". Two more kinds of `/regex/` that could freeze a page are refused when saved, a repeated choice like `(a|a)+` and more than one open-ended repeat like `.*.*.*z` (one, as in `/moon+/` or `/\bcrypto\w*/`, is fine); `riskyPattern` in `src/site-edits/feed-match.ts` replaces `nestedQuantifier` and says which shape it found. A handle now means the post's author only: on Bluesky the feed item's own `feedItem-by-` name, and on other sites (Mastodon included) the first account link in a `header` or with `rel=author`, else the first account link, so a post that mentions, replies to or quotes an account is no longer hidden by a filter on it. Tests: `test/feed-filter.test.mjs`.
+- An agent never opens the approval page at an alias address either: the `aliases` in `remote.json` are guarded like its `publicUrl`, and a bad entry in the file no longer leaves the good ones unguarded. Test: `cli/test/guarded-hosts.test.mjs`.
 - The one-command install no longer stops when the GitHub CLI is installed but not signed in. `gh attestation verify` needs a token, so a signed-out gh can't check: `scripts/install.sh`, `scripts/install.ps1` and `tychicus install --release` now ask `gh auth status --hostname github.com` first (its exit code only; `GH_TOKEN` or `GITHUB_TOKEN` counts as signed in) and, when it fails, check `SHA256SUMS` only and say gh is installed but not signed in and that `gh auth login` turns the check on. The scripts then run the release's program with `TYCHICUS_GH=none`, so an older release's program doesn't try the check either. A signed-in gh that refuses an artifact still refuses the whole install. `ReleaseCheck.attestation` gains `gh-signed-out`. Decision D61. Tests: `test/install-script.test.mjs`, `cli/test/release-install.test.mjs`.
+- The bridge checks the socket folder itself before using it or changing its mode: it must be your own real directory, and a link in its place is refused. Test: `cli/test/legacy-socket.test.mjs`.
+- ChatGPT sign-in, sign-out and the model list give up when OpenAI doesn't answer, instead of waiting on it. The discovery, signing-key and model requests stop after 15 seconds; sign-out's requests share one 10-second limit, and the sign-in on this computer is cleared either way. Test: `test/subscriptions-host.test.mjs`.
+- Update settings (`update.json`), the staged update's record and the list of agent aliases are written whole or not at all, so a save that fails leaves the old file in place. Tests: `cli/test/update.test.mjs`, `cli/test/agent-migration.test.mjs`.
 
 ### Removed
 - Tychicus no longer takes its look from the Polycarp app's theme; it always uses its own. The side panel, the in-use veil on agents' pages and the helper's approval and hub pages ignore Polycarp's `current/theme.json`: `src/appearance/polycarp.ts` is gone, the helper's `status` answer no longer carries `polycarp` or `polycarpRefused`, Settings > Appearance drops the "Polycarp app theme in use" card, the refusal notice, "Stop using it" and the "(overridden by the theme)" markers, and `tychicus theme` no longer mentions a Polycarp theme. The service worker deletes the old `tabkyra.polycarp` cache at startup. Tests: `test/appearance.test.mjs` fails if the path comes back, `cli/test/theme.test.mjs`, `cli/test/connect-host.test.mjs`.

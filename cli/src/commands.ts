@@ -29,7 +29,7 @@ export interface CommandSpec {
 	what: string;
 	/** One line for the whole command in completions (commands with subcommands). */
 	summary?: string;
-	group: "Get started" | "Agents" | "Sessions" | "Remote" | "Library" | "Sites" | "Troubleshoot";
+	group: "Get started" | "Agents" | "Sessions" | "Remote" | "Library" | "Sites" | "Guests" | "Troubleshoot";
 	flags?: string[];
 	/** Second words (`skill install`, `token list`); each gets its own help row and flags. */
 	subcommands?: SubcommandSpec[];
@@ -251,6 +251,7 @@ export const COMMANDS: CommandSpec[] = [
 				optionalValue: ["--cloudflare"],
 			},
 			{ name: "cloudflare", args: "login", max: 1, what: "Sign in to your own Cloudflare account, in your browser", flags: ["--json"] },
+			{ name: "relay", args: "run", max: 1, what: "Run the relay connector in the foreground (the relay service runs this)" },
 			{ name: "status", what: "Is it up and reachable from the internet? Fast checks from this computer", flags: ["--json"] },
 			{ name: "test", what: "Prove an assistant can reach it, from outside: public DNS, TLS, the OAuth metadata, the sign-in challenge and a streaming probe", flags: ["--json"] },
 			{ name: "fix", what: "Repair what remote test or status found, one step at a time, asking first (--yes to skip asking, --dry-run to list)", flags: ["--yes", "--dry-run", "--json"] },
@@ -296,6 +297,22 @@ export const COMMANDS: CommandSpec[] = [
 	{ name: "allow-all", what: "Agents may open any site without asking", group: "Sites" },
 	{ name: "yolo", what: "Old name of allow-all", group: "Sites", hidden: true },
 	{ name: "claude-allow", positional: 1, args: "on|off|status", what: "Claude Code uses Tychicus's tools without asking", group: "Sites" },
+	{
+		name: "vm",
+		selfParsed: true,
+		summary: "Linux guests on this Mac (Virtualization.framework), reset from a saved ready point",
+		what: "Linux guests on this Mac",
+		group: "Guests",
+		defaultSubcommand: "list",
+		subcommands: [
+			{ name: "list", what: "Each guest and whether it runs", flags: ["--json"] },
+			{ name: "up", args: "<name>", max: 1, what: "Start a guest: resume its saved session, else boot its disk as it stands (the first boot downloads Debian 13 and saves the ready point; after a reset of a stopped guest, start from that); checks power, RAM, disk and load first", flags: ["--cold", "--from-ready", "--force", "--json"] },
+			{ name: "down", args: "<name>", max: 1, what: "Save the guest's session and stop it", flags: ["--json"] },
+			{ name: "reset", args: "<name>", max: 1, what: "Back to the ready point; whatever the guest wrote since is gone", flags: ["--json"] },
+			{ name: "shot", args: "<name>", max: 1, what: "Save a PNG of the guest's display", flags: ["--out"] },
+			{ name: "exec", args: "<name> -- <command>", max: 99, what: "Run a shell command in the guest as root and print its output" },
+		],
+	},
 	{ name: "doctor", what: "Check everything; one fix per problem", group: "Troubleshoot", flags: ["--json"] },
 	{
 		name: "update",

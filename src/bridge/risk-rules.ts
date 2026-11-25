@@ -559,7 +559,7 @@ export const limitWhy = (limit: HardLimit): string => LIMIT_WHY[limit];
 
 /**
  * What no mode lets an agent do: type a password or a payment detail. The person types those themselves (the agent
- * calls tabs_show and asks). Checked before the mode, in Yolo too.
+ * calls tabs_show, with password_ref for a password). Checked before the mode, in Yolo too.
  */
 export function hardLimit(f: ActionFacts): Verdict<HardLimit> | undefined {
 	// A press of Enter or Tab enters no text; a press of a character does.

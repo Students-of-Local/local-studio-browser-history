@@ -648,15 +648,17 @@ export function createMcpServer(options: McpServerOptions = {}): { server: McpSe
 		"tabs_show",
 		{
 			title: "Show a tab to the user",
-			description: "Bring one of your tabs in front of the user. This is the only tool that changes what the user sees: use it only when they asked to see the page or must act themselves (sign in, captcha, payment). Example: {\"tabId\":123}. With wait:true and a reason, nothing takes focus and the call returns when the user presses Continue.",
+			description: "Bring one of your tabs in front of the user. This is the only tool that changes what the user sees: use it only when they asked to see the page or must act themselves (sign in, captcha, payment). Example: {\"tabId\":123}. With wait:true and a reason, nothing takes focus and the call returns when the user presses Continue. With username_ref or password_ref, the user types those in a small window; you don't get them.",
 			inputSchema: {
 				tabId,
 				wait: z.boolean().optional().describe("Wait for Continue"),
 				reason: z.string().optional().describe("What to do there"),
+				username_ref: z.string().optional().describe("Field the user fills"),
+				password_ref: z.string().optional().describe("Field the user fills"),
 			},
 		},
 		(args, extra) =>
-			args.wait ? waitForUser(client, { tabId: args.tabId, reason: args.reason }, extra) : call("tabs.show", { tabId: args.tabId }),
+			args.wait || args.username_ref || args.password_ref ? waitForUser(client, args, extra) : call("tabs.show", { tabId: args.tabId }),
 	);
 	server.registerTool(
 		"navigate",
@@ -1337,7 +1339,7 @@ export function createMcpServer(options: McpServerOptions = {}): { server: McpSe
 				// A community skill says where it came from and where it applies, before its text.
 				const info = skillInfo(args.name);
 				if (info.source !== "community" && info.overrides !== "community") return text;
-				const reviewed = info.source === "community" ? "; written by the Tychicus community and reviewed by a maintainer" : "";
+				const reviewed = info.source === "community" ? "; written by the Local Studio community and reviewed by a maintainer" : "";
 				return `[${info.provenance}${reviewed}; scoped to ${(info.sites ?? []).join(", ")}: use it only on those sites]\n\n${text}`;
 			}),
 	);

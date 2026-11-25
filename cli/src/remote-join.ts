@@ -3,11 +3,11 @@
  * public route on every route (cloudflare, tailnet) and writes the route record; Tychicus reads it and serves on its port.
  *
  * - `remote join`: read the record, save remote.json on the custom route (`https://<hostname>`, plus the record's aliases), move serve
- *   onto `ports.mcp`, take down any tunnel of Tychicus's own (its Cloudflare service, Funnel or tailnet mounts) without deleting the
+ *   onto `ports.mcp`, take down any tunnel of Tychicus's own (its Cloudflare or relay service, Funnel or tailnet mounts) without deleting the
  *   Cloudflare tunnel, its credentials or its DNS, which Local Studio adopts, then prove the address from outside. Any failure puts
  *   remote.json, serve and Tychicus's own tunnel back as they were and exits non-zero.
  * - `remote setup`: with a record it joins. Without one, for --cloudflare or --tailnet where `local-studio` is on PATH and this
- *   install has no Funnel or Cloudflare route of its own, it runs `local-studio tunnel setup` with that route, then joins. Local
+ *   install has no Funnel, Cloudflare or relay route of its own, it runs `local-studio tunnel setup` with that route, then joins. Local
  *   Studio runs setup on every channel, on the person's own Cloudflare account (`local-studio tunnel byo`). An older build still
  *   gates it and answers `{"state": "waitlist", "url", "next", "channel"}`, and a build from before tunnel setup doesn't know the
  *   command. Either way Tychicus says to update Local Studio and sets up its own route instead.
@@ -18,6 +18,7 @@ import { CLOUDFLARE_SERVICE, cloudflareConfigFile, topLevelValue } from "./cloud
 import { launcherBinary, launcherValid, which } from "./harness.ts";
 import { hubFile } from "./hub-state.ts";
 import { mintApprovalCode, passcodeSet, setPasscode } from "./oauth.ts";
+import { RELAY_SERVICE, relayStateFile } from "./relay.ts";
 import { loadRemoteConfig, type RemoteConfig, remoteFile, saveRemoteConfig } from "./remote-config.ts";
 import { funnelOff, openFunnel, proofLines, type SetupOptions, serveWaitMs, tailnetOff, waitForServe } from "./remote-setup.ts";
 import { agentStep, printReport, type SetupReport, setupExitCode } from "./remote-state.ts";
@@ -91,7 +92,7 @@ async function prove(url: string, tailnet: boolean): Promise<ProofCheck[]> {
 export async function remoteJoin(options: JoinOptions = {}): Promise<number> {
 	const { json, say, finish, fail } = reporter(options);
 	if (existsSync(hubFile())) return fail(`This install is set up as a hub (${hubFile()}), and an install has one public route. Run ${COMMAND_NAME} hub off first. Nothing was changed.`, "hub");
-	const foreign = serviceOfOtherConfig([SERVE_SERVICE, CLOUDFLARE_SERVICE]);
+	const foreign = serviceOfOtherConfig([SERVE_SERVICE, CLOUDFLARE_SERVICE, RELAY_SERVICE]);
 	if (foreign) return fail(foreign.message, foreign.code);
 	let record: RouteRecord | undefined;
 	try {
@@ -125,6 +126,8 @@ export async function remoteJoin(options: JoinOptions = {}): Promise<number> {
 	if (service && !launcherValid()) return fail(`${launcherBinary()} isn't a working launcher, so the service would have nothing to start. Run ${COMMAND_NAME} install first. Nothing was changed.`, "launcher");
 	const cloudflareFile = serviceFile(CLOUDFLARE_SERVICE);
 	const ownCloudflare = Boolean(cloudflareFile && existsSync(cloudflareFile));
+	const relayFile = serviceFile(RELAY_SERVICE);
+	const ownRelay = Boolean(relayFile && existsSync(relayFile));
 	const ownFunnel = previous?.route === "funnel" ? previous : undefined;
 	// On the tailnet, Local Studio's route mounts the same paths to the same port on the same name: those mounts are its now, and stay.
 	const sharedMounts = previous?.route === "tailnet" && tailnet && new URL(previous.publicUrl).hostname === record.hostname && previous.port === port;
@@ -140,6 +143,7 @@ export async function remoteJoin(options: JoinOptions = {}): Promise<number> {
 	let wroteConfig = false;
 	let touchedServe = false;
 	let removedCloudflare = false;
+	let removedRelay = false;
 	let closedFunnel = false;
 	/** The tailnet mounts this run took down, even when taking down the rest failed. */
 	let removedMounts: string[] = [];
@@ -155,6 +159,7 @@ export async function remoteJoin(options: JoinOptions = {}): Promise<number> {
 		}
 		if (touchedServe && !(serveInstalled ? (await installService()).ok : removeService(SERVE_SERVICE).ok)) failed.push("the serve service");
 		if (removedCloudflare && !(await installService(CLOUDFLARE_SERVICE)).ok) failed.push("the Cloudflare tunnel's service");
+		if (removedRelay && !(await installService(RELAY_SERVICE)).ok) failed.push("the relay connector's service");
 		if (closedFunnel && ownFunnel && tsBin && (await openFunnel(tsBin, funnelDns, ownFunnel.port)).kind !== "opened") failed.push("Funnel");
 		if (removedMounts.length && ownTailnet && tsBin) {
 			const state = readServeState(tsBin);
@@ -194,6 +199,13 @@ export async function remoteJoin(options: JoinOptions = {}): Promise<number> {
 		removedCloudflare = r.ok;
 		if (!r.ok) return rollback(`This install's Cloudflare tunnel service couldn't be stopped: ${r.failure ?? r.notes.join(" ")}.`, "service");
 		say(`${sym.ok} Stopped this install's Cloudflare tunnel service. The tunnel, its credentials and its DNS record stay for Local Studio.`);
+	}
+	if (ownRelay) {
+		const r = removeService(RELAY_SERVICE);
+		removedRelay = r.ok;
+		if (!r.ok) return rollback(`This install's relay connector couldn't be stopped: ${r.failure ?? r.notes.join(" ")}.`, "service");
+		rmSync(relayStateFile(), { force: true });
+		say(`${sym.ok} Stopped this install's relay connector. The relay Worker ${previous?.relay?.name ?? ""} stays on your Cloudflare account; a computer that still has its key can connect until you delete it.`);
 	}
 	if (ownFunnel) {
 		const r = funnelOff(tsBin);
@@ -236,11 +248,11 @@ export async function remoteJoin(options: JoinOptions = {}): Promise<number> {
 		const why = `Joined Local Studio's ${record.route} route at ${connectorUrl}, but the connect code couldn't be made (${connectProblem}). remote.json is kept. Make one with ${COMMAND_NAME} token approval-code.`;
 		return finish({ ok: false, state: "problem", code: "connect_code", message: why, ...way, connectCodeProblem: connectProblem }, all, true);
 	}
-	if (connect) say(`${sym.ok} Connect code: ${connect.code}. Type it on the approval page when you add Tychicus to an assistant; it works once, for 10 minutes.`);
+	if (connect) say(`${sym.ok} Connect code: ${connect.code}. Type it on the approval page when you add Local Studio to an assistant; it works once, for 10 minutes.`);
 	return finish({
 		ok: true,
 		state: "on",
-		message: `Joined Local Studio's ${record.route} route: ${connectorUrl} reaches serve on 127.0.0.1:${port}${aliases.length ? `, and so ${aliases.length === 1 ? "does" : "do"} ${aliases.map((a) => `https://${a}/mcp`).join(", ")} while connectors move` : ""}. No tunnel of Tychicus's own runs now.`,
+		message: `Joined Local Studio's ${record.route} route: ${connectorUrl} reaches serve on 127.0.0.1:${port}${aliases.length ? `, and so ${aliases.length === 1 ? "does" : "do"} ${aliases.map((a) => `https://${a}/mcp`).join(", ")} while connectors move` : ""}. No tunnel of the helper's own runs now.`,
 		...way,
 		...(connect ? { connectCode: connect.code, connectCodeExpiresAt: connect.expiresAt } : {}),
 		next: { kind: "add_connector", url: connectorUrl },
@@ -347,8 +359,8 @@ export function waitlistAdvice(answer: Record<string, unknown>, asked: "tailnet"
  * `remote setup` where Local Studio runs the tunnel: with a route record, join it. Without one, run `local-studio tunnel setup
  * --cloudflare <name>` or `--tailnet`, then join. Local Studio runs the tunnel only when it says so: a record, or a tunnel setup
  * that answers with something other than an older build's `state: "waitlist"`. A folder of Local Studio's alone proves nothing (`install --local-studio`
- * makes one), Funnel and setup without a route aren't Local Studio's, and a re-run on Tychicus's own Funnel or Cloudflare route
- * stays Tychicus's (`remote join` moves it). Then the answer is Standalone, and setup runs Tychicus's own route.
+ * makes one), Funnel and setup without a route aren't Local Studio's, and a re-run on Tychicus's own Funnel, Cloudflare or relay
+ * route stays Tychicus's (`remote join` moves it). Then the answer is Standalone, and setup runs Tychicus's own route.
  */
 export async function setupThroughLocalStudio(options: SetupOptions): Promise<number | Standalone> {
 	const { json, say, fail } = reporter(options);
@@ -356,17 +368,18 @@ export async function setupThroughLocalStudio(options: SetupOptions): Promise<nu
 	const recorded = existsSync(routeRecordFile());
 	const args = options.cloudflare ? ["tunnel", "setup", "--cloudflare", options.cloudflare] : options.tailnet ? ["tunnel", "setup", "--tailnet"] : undefined;
 	const bin = which("local-studio");
-	if (!recorded) {
-		if (!args || !bin) return standalone;
-		let own: RemoteConfig | undefined;
-		try {
-			own = loadRemoteConfig();
-		} catch {
-			return standalone;
-		}
-		if (own?.route === "funnel" || own?.route === "cloudflare") return standalone;
+	let own: RemoteConfig | undefined;
+	try {
+		own = loadRemoteConfig();
+	} catch {
+		if (!recorded) return standalone;
 	}
-	const foreign = serviceOfOtherConfig([SERVE_SERVICE, CLOUDFLARE_SERVICE]);
+	// Setup never replaces a relay route: that takes `remote off`, or an explicit `remote join`.
+	if (own?.route === "relay") return standalone;
+	if (!recorded) {
+		if (!args || !bin || own?.route === "funnel" || own?.route === "cloudflare") return standalone;
+	}
+	const foreign = serviceOfOtherConfig([SERVE_SERVICE, CLOUDFLARE_SERVICE, RELAY_SERVICE]);
 	if (foreign) return fail(foreign.message, foreign.code);
 	let record: RouteRecord | undefined;
 	try {

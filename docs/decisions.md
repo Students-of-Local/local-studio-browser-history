@@ -2187,6 +2187,57 @@ changes.
 took 16.1 ms, a 2,000-post scroll batch 14.7 ms, and a recheck of 4,000 posts after the filters changed 16.4 ms. The
 test fails over 50 ms per batch.
 
+## D66. Linux guests on the Mac: a windowless Virtualization.framework helper, APFS clones and a saved ready point (Claude, 2026-11-24)
+
+**Context.** Issue #28 asks for guests an agent can wreck and reset, with targets set against Cua: Linux cold start 8 s or
+less, warm start and reset 1 s or less, idle CPU 5% or less, no telemetry, no focus changes on the host. Phase 1 is a
+Linux guest on this Mac.
+
+**Decision.**
+- *A helper per guest, with no window.* `tychicus-vm` (`vm/mac`, Swift) runs one guest on Virtualization.framework and
+  never starts an NSApplication, so it has no Dock icon and cannot take focus. `vm/mac/build.sh` signs it ad hoc with
+  `com.apple.security.virtualization`; the CLI builds it once per helper version from a checkout and keeps it in
+  `~/.local/share/tychicus/vm/bin`. It answers one JSON line per connection on `<guest>/control.sock` (mode 0600) and
+  blocks in `accept` and `read` between requests.
+- *The image.* Debian 13 `generic` for arm64, pinned to release 20261123-2671 by URL and SHA-512, extracted with holes
+  (about 1.4 GB of a 3 GB disk) and kept read-only under `base/`. A guest runs on an APFS clone (`cp -c`) grown to 8 GB.
+  cloud-init reads a NoCloud seed ISO (`hdiutil makehybrid`, label `cidata`) that creates no user, turns SSH off and
+  installs the guest agent. There are no shared folders. The guest gets NAT networking.
+- *The guest agent.* A short Python service on vsock port 1024, as root: one JSON command in, its exit code and output
+  out. Only this guest's helper can reach it. `vm exec` and `vm shot` go through it.
+- *The ready point.* The first boot waits for the agent, then for cloud-init and systemd to finish, syncs, pauses, saves
+  the machine state (`saveMachineStateTo`) and clones the paused disk. `ready.vzvmsave` and `ready.raw` are the pair a
+  reset restores. Reset pauses the running VM, renames a fresh clone of `ready.raw` over `disk.raw`, restores a new VM
+  from the saved state and stops the old one afterwards, because a stop takes 0.1 to 2 s. Each VM gets its own clone of
+  `efi.vars`, since a VM that is still stopping keeps its store locked. Where saved state isn't supported, reset cold
+  boots the clean disk and says so.
+- *up and down keep the session, and only reset discards a disk.* `down`, and SIGTERM or SIGINT to the helper, save the
+  session state and stop. `up` resumes that session, else cold boots the disk as it stands, so a guest that powered off
+  or crashed keeps what it wrote. `up --cold` drops a saved session. `reset` on a stopped guest deletes its session and
+  disk; the next `up` makes a new disk from the ready point and restores it. `up --from-ready` asks for that start and
+  refuses while the guest has a disk.
+- *The gate.* Before `up`: under 5 GB free disk, or less free RAM than the guest's 1 GB plus 1 GB, refuses always. Battery
+  power, or a 1-minute load above the core count, refuses unless `--force`.
+- *Screenshots come from the guest's framebuffer* (`/dev/fb0`, read through the agent and written as PNG): the console,
+  until a desktop draws with its own buffers. That is why the image is `generic` and not `genericcloud`, whose kernel has
+  no virtio-gpu driver and so no framebuffer; the cost is about 90 MB more to download. Where a guest has no
+  framebuffer, `vm shot` says it shows no display.
+- *No telemetry.* The helper opens no network socket. The CLI's only network use is the pinned image download.
+- *Left out:* macOS guests, input into the guest, a desktop, and the hub link.
+
+**Results, measured before 7de55cc; a rerun on a Mac is owed.** These ran on the old head 67c588a of #100
+(2026-11-24T13:10Z). 7de55cc then changed how a guest starts and stops: a start with no session cold boots `disk.raw`,
+the ready point is reached with `--from-ready`, and `down` waits for a start under way. The ready-point time below is
+the plain `up` of then, with the saved session deleted.
+
+`node scripts/vm-bench.mjs --runs 5 --force` on a MacBook Pro (Mac17,2), the `generic` image, wall clock
+through the CLI, with the 1-minute load between 21 and 27 from other builds: cold start 5.00 s median, warm start from
+the ready point 0.79 s, from a saved session 0.82 s, reset 0.73 s with the guest's file gone each time, helper idle CPU
+0.00% over 30 s (the guest's VM process 0.50%), 0 network sockets in the helper, 0 focus changes. The first boot of a new
+guest took 15.9 s. On `genericcloud` at load 5 to 9, earlier the same day, the same bench gave cold start 4.02 s, warm
+starts 0.69 s and 0.65 s, reset 0.61 s. The bench appends each run to `vm-bench.jsonl` in Tychicus's state folder and
+exits 1 on a missed target.
+
 ## D65. `setup --agents` renames an old name for Tychicus to `tychicus` in the same run (Claude, 2026-11-24)
 
 **Context.** The move from Polycarp (`cli/src/agent-migration.ts`) kept each moved entry's old name, `polycarp` or
@@ -2284,3 +2335,39 @@ action is one the person never saw; a false flag costs one click and "allow on t
 floor in `evals/market/floors.json`; 0 of 27 safe actions flagged. `test/permission-guard.test.mjs`,
 `test/dialog-preset.test.mjs` and `cli/test/model-tier.test.mjs` (the remote cap, the mode on every bridge step, the hard
 limits), and `cli/test/e2e-bridge.test.mjs` (a password refused in a page, a shadow root and a frame).
+
+## D69. A sign-in an agent needs is typed by the person, in a window of the extension's own (Donovan, 2026-11-24)
+
+**Problem.** An agent that reaches a sign-in form had one way on: hand the whole tab to the person. Donovan: "An agent can
+type a password into a field, a secure field pops up for the user to type in their password and username."
+
+**Decision.** `tabs_show` takes `username_ref` and `password_ref`. The extension checks the fields, then opens a small
+window (`static/sign-in.html`) that names the site and takes what was asked for.
+
+1. The site shown is the origin the tab is on, read from the page when the agent asks. The agent's reason is shown as its
+   words ("It says: ..."), never as the site.
+2. The page must be https, or on this computer. The fields must have a size, not be hidden by style, be editable and be in the top page or a frame of the
+   same origin. The password goes only into an input the page masks (`type=password`), the username only into a text,
+   email or telephone input, and neither into a card field.
+3. When the person presses Fill, the same checks run again with the origin, inside the page code that writes, and the
+   password field is checked once more after its focus handlers ran. A page changed before the first field gets nothing;
+   one that changes its password field then gets only the username. The agent and the person are told which, or that it
+   isn't known when the page doesn't answer in 20 seconds. Nothing else ends the wait while the write runs.
+4. The values go from the window to the service worker in one message and from there into the page. They are in no storage, log,
+   Runs step or tool result. Only that window's own URL may send them: not a page, a content script or the panel.
+5. The window takes no focus when it pops up, so it can't take keys meant for another app. The panel's card has "Type
+   sign-in", which brings it forward. The user can also sign in on the page and press Continue, or press Cancel.
+6. The agent submits the form itself. No result says what was typed or how long it was. The fields are marked in the page, and a copy of
+   one counts: read_page, find, change reports and get_page_html leave their values out, also when the page turns the password field
+   into a plain one, and that field keeps showing dots.
+7. The window promises what the code holds: the agent isn't given either, it can see a username the page shows, and a
+   script it runs in the page could read the fields.
+
+**Limits.** The username is on the screen as any username is, so a screenshot shows it, and a page that prints it as text
+("Signing in as ...") is read like any page. What is in a page can be read by the page and by a script run in it (`run_js`), as when the person types it there
+or a password manager fills it. Payment fields have no such window. A field in a frame from another site doesn't either;
+the agent uses `wait` and the person signs in on the page.
+
+**Proof.** `test/sign-in.test.mjs` (which refs, which origins, who may answer) and `cli/test/e2e-panel.test.mjs` (asked, typed, filled,
+in no result, read or storage; no value in HTML; wrong fields; Cancel; a field that stops masking, before and during the write; a
+tab moved to another site; one field alone).

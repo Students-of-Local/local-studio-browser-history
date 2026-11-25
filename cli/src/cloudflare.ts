@@ -291,7 +291,7 @@ export async function prepareCloudflare(bin: string, host: string, port: number)
 			ok: false,
 			code: "cloudflare_zone",
 			nameStep: true,
-			message: `Your Cloudflare sign-in is for a different domain, so Cloudflare made the DNS record ${added} instead of ${host}. Nothing else was set up. That record is the only change: delete it in the Cloudflare dashboard (DNS, Records) if you don't want it; Tychicus never deletes DNS records. Then use a name ending in .${added.startsWith(`${host}.`) ? added.slice(host.length + 1) : "the signed-in domain"}, or delete ${join(cloudflaredDir(), "cert.pem")} and sign in again choosing the domain for ${host}.`,
+			message: `Your Cloudflare sign-in is for a different domain, so Cloudflare made the DNS record ${added} instead of ${host}. Nothing else was set up. That record is the only change: delete it in the Cloudflare dashboard (DNS, Records) if you don't want it; Local Studio never deletes DNS records. Then use a name ending in .${added.startsWith(`${host}.`) ? added.slice(host.length + 1) : "the signed-in domain"}, or delete ${join(cloudflaredDir(), "cert.pem")} and sign in again choosing the domain for ${host}.`,
 		};
 	}
 	// The same tunnel set up again keeps the file's own lines (an imported tunnel keeps a credentials path that must not change).

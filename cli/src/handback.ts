@@ -25,12 +25,12 @@ export function handbackResultText(reply: unknown, err?: unknown): ToolResult {
 	if (err === undefined) {
 		const r = reply as Partial<HandbackOutcome>;
 		if (typeof r?.text === "string" && typeof r.status === "string") return { content: [{ type: "text", text: r.text }] };
-		return { content: [{ type: "text", text: "Tychicus returned an unexpected reply to tabs_show." }], isError: true };
+		return { content: [{ type: "text", text: "Local Studio returned an unexpected reply to tabs_show." }], isError: true };
 	}
 	if (err instanceof BridgeRpcError) {
 		if (err.rpc.code === "not_found")
 			return {
-				content: [{ type: "text", text: "This Tychicus extension can't wait for the user yet. Call tabs_show without wait, and ask the user in the chat to tell you when they are done." }],
+				content: [{ type: "text", text: "This Local Studio extension can't wait for the user yet. Call tabs_show without wait, and ask the user in the chat to tell you when they are done." }],
 				isError: true,
 			};
 		return { content: [{ type: "text", text: `${err.rpc.code}: ${err.rpc.message}` }], isError: true };
@@ -41,7 +41,7 @@ export function handbackResultText(reply: unknown, err?: unknown): ToolResult {
 	return { content: [{ type: "text", text: message }], isError: true };
 }
 
-export async function waitForUser(client: BridgeClient, args: { tabId?: number; reason?: string }, extra: Extra): Promise<ToolResult> {
+export async function waitForUser(client: BridgeClient, args: { tabId?: number; reason?: string; username_ref?: string; password_ref?: string }, extra: Extra): Promise<ToolResult> {
 	const token = extra._meta?.progressToken;
 	let ticks = 0;
 	const startedAt = Date.now();
@@ -56,7 +56,7 @@ export async function waitForUser(client: BridgeClient, args: { tabId?: number; 
 							params: {
 								progressToken: token,
 								progress: ++ticks,
-								message: `Waiting for the user to press Continue in Tychicus (${Math.max(0, Math.ceil((HANDBACK_TIMEOUT_MS - (Date.now() - startedAt)) / 60000))} min left)`,
+								message: `Waiting for the user to press Continue in Local Studio (${Math.max(0, Math.ceil((HANDBACK_TIMEOUT_MS - (Date.now() - startedAt)) / 60000))} min left)`,
 							},
 						})
 						.catch(() => undefined);
@@ -69,7 +69,9 @@ export async function waitForUser(client: BridgeClient, args: { tabId?: number; 
 		if (!client.connected) await client.connect();
 		if (!client.extensionConnected) return { content: [{ type: "text", text: NOT_CONNECTED }], isError: true };
 		// No retry: a retry after a dropped bridge would show the user a second card.
-		const reply = await client.call("handback", { ...args, waitId }, HANDBACK_TIMEOUT_MS + 30_000, { retry: false });
+		const { tabId, reason, username_ref: username, password_ref: password } = args;
+		const signIn = username || password ? { username, password } : undefined;
+		const reply = await client.call("handback", { tabId, reason, signIn, waitId }, HANDBACK_TIMEOUT_MS + 30_000, { retry: false });
 		return handbackResultText(reply);
 	} catch (err) {
 		return handbackResultText(undefined, err);

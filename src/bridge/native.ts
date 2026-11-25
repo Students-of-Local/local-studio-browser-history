@@ -382,7 +382,7 @@ async function askUpload(
 function guardedError(url: string): BridgeError {
 	return new BridgeError(
 		ERR.PERMISSION_DENIED,
-		`Not allowed to open ${hostOf(url) || url}: it is this computer's Tychicus approval address, and an agent never opens it. The owner approves a connector there themselves, outside the agent's browser.`,
+		`Not allowed to open ${hostOf(url) || url}: it is this computer's Local Studio approval address, and an agent never opens it. The owner approves a connector there themselves, outside the agent's browser.`,
 	);
 }
 
@@ -498,7 +498,7 @@ async function runRequest(state: ClientState, req: HostForwardedRequest, answer?
 			undefined,
 			new BridgeError(
 				ERR.NOT_SENT,
-				"Tychicus is installing an update and reloads in a few seconds. The request did not run; repeat it once the bridge reconnects.",
+				"Local Studio is installing an update and reloads in a few seconds. The request did not run; repeat it once the bridge reconnects.",
 			),
 		);
 		return;
@@ -535,7 +535,7 @@ async function runRequest(state: ClientState, req: HostForwardedRequest, answer?
 	};
 	try {
 		if (!(await isBridgeEnabled())) {
-			throw new BridgeError(ERR.DISABLED, "The Tychicus bridge is disabled in Settings > Agents.");
+			throw new BridgeError(ERR.DISABLED, "The Local Studio bridge is disabled in Settings > Agents.");
 		}
 		if (gone()) return;
 
@@ -582,8 +582,8 @@ async function runRequest(state: ClientState, req: HostForwardedRequest, answer?
 					throw new BridgeError(
 						ERR.PERMISSION_DENIED,
 						isOwnExtensionUrl(url)
-							? "Not allowed to open Tychicus's own pages."
-							: `Not allowed to open ${hostOf(url) || url}. The user can allow it in the Tychicus side panel under Settings > Agents, or answer the permission prompt.`,
+							? "Not allowed to open Local Studio's own pages."
+							: `Not allowed to open ${hostOf(url) || url}. The user can allow it in the Local Studio side panel under Settings > Agents, or answer the permission prompt.`,
 					);
 				}
 			},
@@ -804,12 +804,12 @@ async function runAsk(state: ClientState, req: HostForwardedRequest): Promise<vo
 				error: {
 					code: ERR.INTERNAL,
 					message:
-						"Tychicus is installing an update and reloads in a few seconds. Ask again once the bridge reconnects.",
+						"Local Studio is installing an update and reloads in a few seconds. Ask again once the bridge reconnects.",
 				},
 			});
 		if (!(await isBridgeEnabled()))
 			return respond({
-				error: { code: ERR.DISABLED, message: "The Tychicus bridge is disabled in Settings > Agents." },
+				error: { code: ERR.DISABLED, message: "The Local Studio bridge is disabled in Settings > Agents." },
 			});
 		// The client may have hung up during the awaits; its question would have nobody to answer to.
 		if (clients.get(state.clientId) !== state) return;
@@ -846,17 +846,22 @@ async function runHandback(state: ClientState, req: HostForwardedRequest): Promi
 				error: {
 					code: ERR.NOT_SENT,
 					message:
-						"Tychicus is installing an update and reloads in a few seconds. Call tabs_show again once the bridge reconnects.",
+						"Local Studio is installing an update and reloads in a few seconds. Call tabs_show again once the bridge reconnects.",
 				},
 			});
 		if (!(await isBridgeEnabled()))
 			return respond({
-				error: { code: ERR.DISABLED, message: "The Tychicus bridge is disabled in Settings > Agents." },
+				error: { code: ERR.DISABLED, message: "The Local Studio bridge is disabled in Settings > Agents." },
 			});
 		const session = await withTimeout(getSession(state), 15000, "session open");
 		// The client may have hung up during the awaits; nobody would hear the Continue.
 		if (clients.get(state.clientId) !== state) return;
-		respond({ result: await handleHandback({ clientId: state.clientId, session }, req.params ?? {}) });
+		respond({
+			result: await handleHandback(
+				{ clientId: state.clientId, session, guardedHosts: req.guardedHosts },
+				req.params ?? {},
+			),
+		});
 	} catch (err) {
 		const { error } = classify(err, req.method);
 		respond({ error: error.toRpc() });
@@ -959,7 +964,10 @@ function onHostMessage(message: HostToExt): void {
 					type: "response",
 					clientId: message.clientId,
 					id: message.id,
-					error: { code: ERR.PERMISSION_DENIED, message: "A remote session can't change Tychicus's permissions." },
+					error: {
+						code: ERR.PERMISSION_DENIED,
+						message: "A remote session can't change Local Studio's permissions.",
+					},
 				});
 				return;
 			}
@@ -1056,7 +1064,7 @@ function onHostMessage(message: HostToExt): void {
 						.query({})
 						.then((groups) =>
 							groups
-								.filter((g) => /^(?:Tychicus|Polycarp|Tabkyra)/.test(g.title ?? "")) // product-name allowlist: legacy tab group titles
+								.filter((g) => /^(?:Local Studio|Tychicus|Polycarp|Tabkyra) ·/.test(g.title ?? "")) // product-name allowlist: legacy tab group titles
 								.map((g) => ({ id: g.id, title: g.title, windowId: g.windowId })),
 						)
 						.catch(() => []),
@@ -1159,7 +1167,7 @@ function onHostMessage(message: HostToExt): void {
 					error: {
 						code: ERR.INTERNAL,
 						message:
-							"Tychicus is installing an update and reloads in a few seconds. Repeat the request once the bridge reconnects.",
+							"Local Studio is installing an update and reloads in a few seconds. Repeat the request once the bridge reconnects.",
 					},
 				});
 				return;

@@ -71,7 +71,15 @@ import {
 	waitFor,
 } from "../browser/page.js";
 import { type BrowserSession, TabLimitError, takeNotices } from "../browser/session.js";
-import { IDLE_MS, LOADED_QUIET_MS, settle, settleStart, unsettledNote, WAIT_SETTLE } from "../browser/settle.js";
+import {
+	IDLE_MS,
+	LOADED_QUIET_MS,
+	newTabJoins,
+	settle,
+	settleStart,
+	unsettledNote,
+	WAIT_SETTLE,
+} from "../browser/settle.js";
 import { isPdfTab, pdfText } from "../offscreen/pdf-client.js";
 import { parseFilterValue } from "../site-edits/feed-match.js";
 import {
@@ -229,6 +237,8 @@ async function settleAfter(
 			...(options.idle && !inFrame ? { idleMs: IDLE_MS } : {}),
 			...(options.loaded ? { loadedQuietMs: LOADED_QUIET_MS } : {}),
 		}).catch(() => undefined);
+		const had = options.before?.tabs;
+		if (had) await newTabJoins(tabId, since, () => ctx.session.tabIds.some((t) => !had.includes(t)), ctx.aborted);
 		ctx.mark?.("settle");
 		const out: Record<string, unknown> = settled ? unsettledNote(settled) : {};
 		const kinds = new Set<EffectKind>();
@@ -333,9 +343,13 @@ function limitError(limit: HardLimit | "other-site" | "closed-root", partway: bo
 			ERR.BAD_PARAMS,
 			`${said}: the focus is inside a part of the page it keeps closed (a closed shadow root), where Tychicus can't see which field has it. Call tabs_show and ask the user to type it.`,
 		);
+	const ask =
+		limit === "password-field"
+			? "call tabs_show with password_ref (and username_ref) so the user types it in a window of its own, then submit the form. Where that says the field can't be used, or for a new account, call tabs_show with wait and let the user type it on the page."
+			: "call tabs_show with wait and let the user enter it on the page and submit the form.";
 	return new BridgeError(
 		ERR.PERMISSION_DENIED,
-		`${said}: this field ${limitWhy(limit)}. Tychicus never lets an agent enter passwords or payment details, in any permission mode. Leave it empty and do not submit the form: fill in the rest, call tabs_show, and ask the user to enter it themselves.`,
+		`${said}: this field ${limitWhy(limit)}. No permission mode lets an agent enter passwords or payment details. Fill in the rest, then ${ask}`,
 	);
 }
 
@@ -501,7 +515,7 @@ async function refuseGuardedLanding<T extends { url: string }>(
 }
 
 const GUARDED_LANDING =
-	"That page led to this computer's Tychicus approval address, which an agent never opens. The tab was reset to a blank page.";
+	"That page led to this computer's Local Studio approval address, which an agent never opens. The tab was reset to a blank page.";
 
 /** How long after a navigation starts a late redirect is still caught. */
 const GUARD_WATCH_MS = 120000;
@@ -1474,7 +1488,7 @@ export const handlers: Record<string, Handler> = {
 			if (heard.pending)
 				throw new BridgeError(
 					ERR.TIMEOUT,
-					"Tychicus's Cancel for this dialog has not come back from the page in 5 s, so it may already be cancelled. Call handle_dialog again in a moment, or read_page to see the page.",
+					"Local Studio's Cancel for this dialog has not come back from the page in 5 s, so it may already be cancelled. Call handle_dialog again in a moment, or read_page to see the page.",
 				);
 			// The box fixed when the call arrived, and no other (sol-F3 of the review of PR 200): a box that opened since is
 			// one this call never saw, so it is never answered in its place.

@@ -6,8 +6,11 @@
 
 export type ConnectRoute = "none" | "remote" | "hub" | "link";
 
-/** What a "remote" route runs on: Tailscale Funnel, the person's own front door, a Cloudflare tunnel, or `tailscale serve` for the tailnet only. */
-export type RemoteKind = "funnel" | "custom" | "cloudflare" | "tailnet";
+/**
+ * What a "remote" route runs on: Tailscale Funnel, the person's own front door, a Cloudflare tunnel, `tailscale serve` for the
+ * tailnet only, or a relay Worker on the person's own Cloudflare account.
+ */
+export type RemoteKind = "funnel" | "custom" | "cloudflare" | "tailnet" | "relay";
 
 /** The five steps of "Set up with Cloudflare", in order. */
 export const TUNNEL_STEPS = ["cloudflared", "signin", "route", "tunnel", "check"] as const;

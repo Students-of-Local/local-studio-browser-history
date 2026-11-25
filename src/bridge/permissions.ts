@@ -10,7 +10,7 @@
  * Auto asks before a sensitive site (mail, a bank, a password manager: risk-rules.ts) even for a frontier model.
  *
  * Unknown hosts raise a permission request that the harness shows (MCP elicitation) or that the user answers in
- * Settings > Agents. What no mode opens (Tychicus's own pages, guarded hosts) is checked before the mode.
+ * Settings > Agents. What no mode opens (the extension's own pages, guarded hosts) is checked before the mode.
  */
 import type { ModelTier } from "./protocol.js";
 import { sensitiveSite } from "./risk-rules.js";
