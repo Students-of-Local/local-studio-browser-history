@@ -18,7 +18,7 @@ import { CLOUDFLARE_SERVICE, cloudflareConfigFile, topLevelValue } from "./cloud
 import { launcherBinary, launcherValid, which } from "./harness.ts";
 import { hubFile } from "./hub-state.ts";
 import { mintApprovalCode, passcodeSet, setPasscode } from "./oauth.ts";
-import { RELAY_SERVICE, relayStateFile } from "./relay.ts";
+import { RELAY_SERVICE, relayStateFile, workerStays } from "./relay.ts";
 import { loadRemoteConfig, type RemoteConfig, remoteFile, saveRemoteConfig } from "./remote-config.ts";
 import { funnelOff, openFunnel, proofLines, type SetupOptions, serveWaitMs, tailnetOff, waitForServe } from "./remote-setup.ts";
 import { agentStep, printReport, type SetupReport, setupExitCode } from "./remote-state.ts";
@@ -205,7 +205,7 @@ export async function remoteJoin(options: JoinOptions = {}): Promise<number> {
 		removedRelay = r.ok;
 		if (!r.ok) return rollback(`This install's relay connector couldn't be stopped: ${r.failure ?? r.notes.join(" ")}.`, "service");
 		rmSync(relayStateFile(), { force: true });
-		say(`${sym.ok} Stopped this install's relay connector. The relay Worker ${previous?.relay?.name ?? ""} stays on your Cloudflare account; a computer that still has its key can connect until you delete it.`);
+		say(`${sym.ok} Stopped this install's relay connector.`);
 	}
 	if (ownFunnel) {
 		const r = funnelOff(tsBin);
@@ -232,6 +232,7 @@ export async function remoteJoin(options: JoinOptions = {}): Promise<number> {
 	}
 	// The way in, by setup's rules (runSetup): a passcode unless --no-passcode, and a connect code when asked or for a person at a terminal.
 	const connectorUrl = `${publicUrl}/mcp`;
+	const worker = previous?.relay ? ` ${workerStays(previous.relay)}` : "";
 	const madePasscode = options.passcode === true && !passcodeSet() ? setPasscode() : undefined;
 	if (madePasscode) say(`${sym.ok} Passcode, shown once (it re-approves an assistant you already approved):\n\n  ${madePasscode}\n`);
 	let connect: { code: string; expiresAt: number } | undefined;
@@ -245,14 +246,14 @@ export async function remoteJoin(options: JoinOptions = {}): Promise<number> {
 	}
 	const way = { connectorUrl, ...(madePasscode ? { passcode: madePasscode } : {}), passcodeSet: passcodeSet() };
 	if (options.connectCode && !connect) {
-		const why = `Joined Local Studio's ${record.route} route at ${connectorUrl}, but the connect code couldn't be made (${connectProblem}). remote.json is kept. Make one with ${COMMAND_NAME} token approval-code.`;
+		const why = `Joined Local Studio's ${record.route} route at ${connectorUrl}, but the connect code couldn't be made (${connectProblem}). remote.json is kept. Make one with ${COMMAND_NAME} token approval-code.${worker}`;
 		return finish({ ok: false, state: "problem", code: "connect_code", message: why, ...way, connectCodeProblem: connectProblem }, all, true);
 	}
 	if (connect) say(`${sym.ok} Connect code: ${connect.code}. Type it on the approval page when you add Local Studio to an assistant; it works once, for 10 minutes.`);
 	return finish({
 		ok: true,
 		state: "on",
-		message: `Joined Local Studio's ${record.route} route: ${connectorUrl} reaches serve on 127.0.0.1:${port}${aliases.length ? `, and so ${aliases.length === 1 ? "does" : "do"} ${aliases.map((a) => `https://${a}/mcp`).join(", ")} while connectors move` : ""}. No tunnel of the helper's own runs now.`,
+		message: `Joined Local Studio's ${record.route} route: ${connectorUrl} reaches serve on 127.0.0.1:${port}${aliases.length ? `, and so ${aliases.length === 1 ? "does" : "do"} ${aliases.map((a) => `https://${a}/mcp`).join(", ")} while connectors move` : ""}. No tunnel of the helper's own runs now.${worker}`,
 		...way,
 		...(connect ? { connectCode: connect.code, connectCodeExpiresAt: connect.expiresAt } : {}),
 		next: { kind: "add_connector", url: connectorUrl },
@@ -388,9 +389,9 @@ export async function setupThroughLocalStudio(options: SetupOptions): Promise<nu
 		return fail(errorText(err), "route_record");
 	}
 	if (record) {
-		const asked = options.cloudflare !== undefined ? "cloudflare" : options.tailnet ? "tailnet" : options.tailscale ? "funnel" : undefined;
+		const asked = options.relay !== undefined ? "relay" : options.cloudflare !== undefined ? "cloudflare" : options.tailnet ? "tailnet" : options.tailscale ? "funnel" : undefined;
 		if (asked && asked !== record.route) {
-			const flag = asked === "cloudflare" ? "--cloudflare" : asked === "tailnet" ? "--tailnet" : "--tailscale";
+			const flag = asked === "relay" ? "--relay" : asked === "cloudflare" ? "--cloudflare" : asked === "tailnet" ? "--tailnet" : "--tailscale";
 			return fail(
 				`Local Studio already runs a ${record.route} route for ${record.hostname}, and a machine has one tunnel, so ${COMMAND_NAME} can't set up a ${asked} route here. Run local-studio tunnel off first to change the route, or run ${COMMAND_NAME} remote setup without ${flag} to join the ${record.route} route. Nothing was changed.`,
 				"route_mismatch",

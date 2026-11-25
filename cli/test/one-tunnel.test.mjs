@@ -482,6 +482,7 @@ test("remote join puts remote.json, serve and Tychicus's own tunnel back when th
 function relayRoute(s, port) {
 	const key = randomBytes(32).toString("base64url");
 	writeFileSync(join(s.config, "remote.json"), JSON.stringify({ publicUrl: "https://tychicus-relay.box.workers.dev", port, route: "relay", relay: { name: "tychicus-relay", key } }), { mode: 0o600 });
+	writeFileSync(join(s.config, "relay-state.json"), JSON.stringify({ state: "connected", at: Date.now(), pid: process.pid }));
 	const launcher = s.launcher();
 	const file = s.serviceFileOf("relay");
 	mkdirSync(dirname(file), { recursive: true });
@@ -507,6 +508,8 @@ test("remote join over the relay route stops its connector, and a failed proof p
 		const r = await s.runAsync(["remote", "join", "--json"], {}, { hooks: true });
 		assert.equal(r.code, 0, r.out);
 		assert.equal(existsSync(s.serviceFileOf("relay")), false, "the connector's service is gone");
+		assert.equal(existsSync(join(s.config, "relay-state.json")), false, "and its state");
+		assert.match(JSON.parse(r.out).message, /npx wrangler@[\d.]+ delete tychicus-relay/, "the report says the Worker stays and how to delete it");
 		assert.deepEqual(s.remoteJson(), { publicUrl: `https://${STUDIO}`, port: local.port, route: "custom" });
 	} finally {
 		await local.close();
@@ -674,7 +677,7 @@ test("with Local Studio's record already there, a route flag for another route r
 	try {
 		localStudioStub(s);
 		s.writeRecord({ v: 1, owner: "local-studio", route: "cloudflare", hostname: STUDIO, ports: { mcp: local.port } });
-		for (const flag of [["--tailnet"], ["--tailscale"]]) {
+		for (const flag of [["--tailnet"], ["--tailscale"], ["--relay"]]) {
 			const r = await s.runAsync(["remote", "setup", ...flag, "--no-service", "--json"], {}, { hooks: true });
 			assert.equal(r.code, 1, r.out);
 			const report = r.json();

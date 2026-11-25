@@ -64,6 +64,8 @@ export interface RemoteTestHooks {
 	resolve?: (host: string) => Promise<string[]>;
 	/** `remote join`'s proof for one address, replaced whole (a test with no public server behind the record's hostname). */
 	proof?: (publicUrl: string) => Promise<ProofCheck[]>;
+	/** On the relay route: setup's end-to-end check through the relay, sent here instead (no relay on workers.dev in a test). */
+	relayFetch?: typeof fetch;
 }
 
 const HOOKS = Symbol.for("polycarp.remote-test.hooks");

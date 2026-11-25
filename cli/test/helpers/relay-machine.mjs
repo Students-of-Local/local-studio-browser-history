@@ -14,8 +14,12 @@ export const ACCOUNT = "0123456789abcdef0123456789abcdef";
 export const ADDRESS = "https://tychicus-relay.test-sub.workers.dev";
 export const unix = process.platform === "linux" || process.platform === "darwin";
 
-/** A machine with node alone on PATH, stub service managers, and TYCHICUS_NPX at a script that answers like wrangler. */
-export function machine(root, name, { whoami = { loggedIn: true, accounts: [{ id: ACCOUNT, name: "Mine" }] }, deploy = "ok" } = {}) {
+/**
+ * A machine with node alone on PATH, stub service managers, and TYCHICUS_NPX at a script that answers like wrangler. A `login` writes
+ * a signed-in file, and whoami answers `afterLogin` from then on when one is given; `loginCode` is what it exits with. `starts` is
+ * the state the connector writes when the service manager is asked to start it, `refused` the one it writes the first time.
+ */
+export function machine(root, name, { whoami = { loggedIn: true, accounts: [{ id: ACCOUNT, name: "Mine" }] }, afterLogin, loginCode = 0, deploy = "ok", keyed = false, worker = false, starts, refused = false, secret = "ok" } = {}) {
 	const dir = join(root, name);
 	const bin = join(dir, "bin");
 	const home = join(dir, "home");
@@ -30,29 +34,63 @@ export function machine(root, name, { whoami = { loggedIn: true, accounts: [{ id
 	};
 	script(join(bin, "launchctl"), `#!/bin/sh\necho "launchctl $*" >> ${log}\ncase "$1" in\nprint) exit 1 ;;\nesac\n`);
 	script(join(bin, "systemctl"), `#!/bin/sh\necho "systemctl $*" >> ${log}\n`);
+	if (starts) {
+		const manager = (name, verb) =>
+			script(
+				join(bin, name),
+				`#!${process.execPath}
+const { appendFileSync, existsSync, readFileSync, rmSync, writeFileSync } = require("node:fs");
+const up = ${JSON.stringify(join(dir, "connector-up"))};
+const args = process.argv.slice(2).join(" ");
+appendFileSync(${JSON.stringify(log)}, "${name} " + args + "\\n");
+if (/^bootout/.test(args)) rmSync(up, { force: true });
+if (/(restart|bootstrap).*relay/.test(args)) appendFileSync(up + "-starts", "x");
+if (${verb}.test(args)) writeFileSync(up, "");
+if (${verb}.test(args)) writeFileSync(${JSON.stringify(join(cfg, "relay-state.json"))}, JSON.stringify({ state: ${refused} && !(existsSync(up + "-starts") && readFileSync(up + "-starts", "utf8").length > 1) ? "unauthorized" : ${JSON.stringify(starts)}, at: Date.now(), pid: ${process.pid} }));
+if (args.includes("is-active") && existsSync(up)) console.log("active");
+if (process.argv[2] === "print") existsSync(up) ? console.log("state = running") : process.exit(1);
+`,
+			);
+		manager("launchctl", "/^(bootstrap|kickstart).*relay/");
+		manager("systemctl", "/(enable|restart|start).*relay/");
+	}
 	const npx = join(dir, "npx.mjs");
 	script(
 		npx,
 		`#!${process.execPath}
-import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 const [yes, pkg, ...args] = process.argv.slice(2);
 appendFileSync(${JSON.stringify(log)}, ["npx", yes, pkg, ...args, "account=" + (process.env.CLOUDFLARE_ACCOUNT_ID ?? ""), "metrics=" + process.env.WRANGLER_SEND_METRICS].join(" ") + "\\n");
-const whoami = ${JSON.stringify(whoami)};
-if (args[0] === "whoami") {
+const signedIn = ${JSON.stringify(join(dir, "signed-in"))};
+const whoami = existsSync(signedIn) ? ${JSON.stringify(afterLogin ?? whoami)} : ${JSON.stringify(whoami)};
+if (args[0] === "login") {
+	writeFileSync(signedIn, "");
+	process.exit(${loginCode});
+} else if (args[0] === "whoami") {
 	if (whoami === "out") { console.log("You are not authenticated. Please run wrangler login."); process.exit(1); }
 	console.log(JSON.stringify(whoami));
 } else if (args[0] === "deploy") {
+	writeFileSync(${JSON.stringify(join(dir, "tag"))}, args[2]);
 	if (${JSON.stringify(deploy)} === "subdomain") { console.error("You need to register a workers.dev subdomain before publishing to workers.dev"); process.exit(1); }
-	writeFileSync(process.env.WRANGLER_OUTPUT_FILE_PATH, JSON.stringify({ type: "deploy", targets: ["https://" + args[2] + ".test-sub.workers.dev"] }) + "\\n");
+	writeFileSync(process.env.WRANGLER_OUTPUT_FILE_PATH, JSON.stringify({ type: "deploy", targets: ["https://" + args.at(-1) + ".test-sub.workers.dev"] }) + "\\n");
+} else if (args[1] === "list") {
+	const tag = existsSync(${JSON.stringify(join(dir, "tag"))}) ? readFileSync(${JSON.stringify(join(dir, "tag"))}, "utf8") : undefined;
+	if (!${keyed} && !${worker} && !tag) { console.error("This Worker does not exist on your account. [code: 10007]"); process.exit(1); }
+	console.log(JSON.stringify(args[0] === "versions" ? [{ annotations: tag ? { "workers/tag": tag } : {} }] : ${worker} ? [] : [{ name: "RELAY_KEY", type: "secret_text" }]));
+} else if (args[0] === "secret" && ${JSON.stringify(secret)} === "fail") {
+	console.error("boom");
+	process.exit(1);
 } else if (args[0] === "secret") {
 	writeFileSync(${JSON.stringify(join(dir, "secret"))}, readFileSync(0, "utf8"));
 }
 `,
 	);
 	const env = { HOME: home, TYCHICUS_CONFIG_DIR: cfg, TABKYRA_CONFIG_DIR: cfg, NO_COLOR: "1", PATH: bin, TYCHICUS_NPX: npx, TABKYRA_APPLICATIONS_DIR: join(dir, "apps"), TABKYRA_DOH_URL: "http://127.0.0.1:9/dns-query" };
-	const run = (args, extra = {}, { hooks = false } = {}) =>
+	/** `hooks` preloads relay-hooks.mjs; `input` is stdin, a pipe the person "types" into (with TABKYRA_ASSUME_TTY for a terminal). */
+	const run = (args, extra = {}, { hooks = false, input } = {}) =>
 		new Promise((resolve) => {
-			const child = spawn(process.execPath, [...(hooks ? ["--import", HOOKS] : []), cli, ...args], { env: { ...env, ...extra }, stdio: ["ignore", "pipe", "pipe"] });
+			const child = spawn(process.execPath, [...(hooks ? ["--import", HOOKS] : []), cli, ...args], { env: { ...env, ...extra }, stdio: [input === undefined ? "ignore" : "pipe", "pipe", "pipe"] });
+			child.stdin?.end(input);
 			let stdout = "";
 			let stderr = "";
 			child.stdout.on("data", (d) => (stdout += d));
