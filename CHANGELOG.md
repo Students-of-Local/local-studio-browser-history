@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-11-25
+
 ### Added
 - Sign in without giving an agent your password. An agent that reaches a sign-in form can ask for it (`tabs_show` with `username_ref` and
   `password_ref`), and a small window pops up that names the site and takes your username and password. They go straight into the page's
