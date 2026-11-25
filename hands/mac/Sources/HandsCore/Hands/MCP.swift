@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// The stdio MCP server behind `tychicus-hands mcp`: JSON-RPC 2.0, one message per line. It owns no
@@ -134,11 +135,16 @@ public struct HandsMCP {
     }
 
     /// The picture a `shot`, or a `snapshot` with screenshot: true, carries: a label that it is untrusted and how its pixels
-    /// map to window points, then the image, fitted and cropped to `zoom` (`ShotImage`).
+    /// map to window points, then the image, fitted and cropped to `zoom` (`ShotImage`). The file must still hold the bytes
+    /// the capture wrote: another capture may have taken its name since, and its picture is another window's.
     func imageParts(verb: String?, arguments: [String: JSONValue], data: JSONValue?) -> [JSONValue]? {
         let shot = verb == "shot" ? data : verb == "snapshot" ? data?["screenshot"] : nil
         guard let shot, let path = shot["path"]?.string, let png = readImage(path) else { return nil }
         let window = data?["window"]?.int ?? data?["target"]?["window"]?.int ?? arguments["window"]?.int ?? 0
+        guard (shot["sha256"] ?? shot["evidence"]?["sha256"])?.string == SHA256.hash(data: png).map({ String(format: "%02x", $0) }).joined() else {
+            let why = "No image of window \(window): its file was replaced after the capture. Take another shot, under another name."
+            return [.object(["type": "text", "text": .string(why)])]
+        }
         let zoom = (try? ShotImage.region(arguments["zoom"].map { $0.string ?? $0.text }).get()) ?? nil
         let points = CGSize(width: shot["points"]?["width"]?.double ?? 0, height: shot["points"]?["height"]?.double ?? 0)
         guard let p = ShotImage.picture(png: png, points: points, zoom: zoom) else {
