@@ -25,7 +25,7 @@ export async function loadTs(source) {
 			format: "esm",
 			outfile: out,
 			packages: "bundle",
-			loader: { ".pub": "text", ".md": "text" },
+			loader: { ".pub": "text", ".md": "text", ".toml": "text" },
 			define: { __TABKYRA_BUILD__: "null" },
 			logLevel: "silent",
 		});
