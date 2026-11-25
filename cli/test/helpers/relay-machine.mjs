@@ -16,9 +16,10 @@ export const unix = process.platform === "linux" || process.platform === "darwin
 
 /**
  * A machine with node alone on PATH, stub service managers, and TYCHICUS_NPX at a script that answers like wrangler. A `login` writes
- * a signed-in file, and whoami answers `afterLogin` from then on when one is given; `loginCode` is what it exits with.
+ * a signed-in file, and whoami answers `afterLogin` from then on when one is given; `loginCode` is what it exits with. `starts` is
+ * the state the connector writes when the service manager is asked to start it.
  */
-export function machine(root, name, { whoami = { loggedIn: true, accounts: [{ id: ACCOUNT, name: "Mine" }] }, afterLogin, loginCode = 0, deploy = "ok", keyed = false, worker = false } = {}) {
+export function machine(root, name, { whoami = { loggedIn: true, accounts: [{ id: ACCOUNT, name: "Mine" }] }, afterLogin, loginCode = 0, deploy = "ok", keyed = false, worker = false, starts } = {}) {
 	const dir = join(root, name);
 	const bin = join(dir, "bin");
 	const home = join(dir, "home");
@@ -33,6 +34,25 @@ export function machine(root, name, { whoami = { loggedIn: true, accounts: [{ id
 	};
 	script(join(bin, "launchctl"), `#!/bin/sh\necho "launchctl $*" >> ${log}\ncase "$1" in\nprint) exit 1 ;;\nesac\n`);
 	script(join(bin, "systemctl"), `#!/bin/sh\necho "systemctl $*" >> ${log}\n`);
+	if (starts) {
+		const manager = (name, verb) =>
+			script(
+				join(bin, name),
+				`#!${process.execPath}
+const { appendFileSync, existsSync, rmSync, writeFileSync } = require("node:fs");
+const up = ${JSON.stringify(join(dir, "connector-up"))};
+const args = process.argv.slice(2).join(" ");
+appendFileSync(${JSON.stringify(log)}, "${name} " + args + "\\n");
+if (/^bootout/.test(args)) rmSync(up, { force: true });
+if (${verb}.test(args)) writeFileSync(up, "");
+if (${verb}.test(args)) writeFileSync(${JSON.stringify(join(cfg, "relay-state.json"))}, JSON.stringify({ state: ${JSON.stringify(starts)}, at: Date.now(), pid: ${process.pid} }));
+if (args.includes("is-active") && existsSync(up)) console.log("active");
+if (process.argv[2] === "print") existsSync(up) ? console.log("state = running") : process.exit(1);
+`,
+			);
+		manager("launchctl", "/^(bootstrap|kickstart).*relay/");
+		manager("systemctl", "/(enable|restart|start).*relay/");
+	}
 	const npx = join(dir, "npx.mjs");
 	script(
 		npx,

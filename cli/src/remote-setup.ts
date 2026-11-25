@@ -70,7 +70,7 @@ import { loadRemoteConfig, type RelayConfig, type RemoteConfig, reachedOnTailnet
 import { type RouteRecord, readRouteRecord, routeRecordFile, TYCHICUS_PATHS } from "./route-record.ts";
 import { applyMounts, funnelOn443, handlersOn443, type Mount, mountTarget, planMounts, readServeState, removeMounts, type ServeState, wantedMounts } from "./tailnet.ts";
 import { cloudflareTunnelPaths, setupThroughLocalStudio } from "./remote-join.ts";
-import { generateRelayKey, RELAY_SERVICE, readRelayStatus, relayStateFile } from "./relay.ts";
+import { generateRelayKey, RELAY_SERVICE, readRelayStatus, relaySetupCommand, relayStateFile } from "./relay.ts";
 import { DEFAULT_RELAY_NAME, deploy as deployRelay, login as relayLogin, npxBinary, onboardingUrl, putKey as putRelayKey, WRANGLER_VERSION, whoami as relayWhoami } from "./relay-setup.ts";
 import { verify as verifyRelay } from "./relay-verify.ts";
 
@@ -1407,13 +1407,13 @@ function relayCheck(config: RemoteConfig): Check {
 	const file = serviceFile(RELAY_SERVICE);
 	if (!file || !existsSync(file)) return { name: "relay", status: "fail", detail: `The relay connector's service is gone. Run ${COMMAND_NAME} remote fix.` };
 	const { state } = relayView();
-	const name = config.relay?.name ?? "relay";
+	const name = config.relay?.name ?? DEFAULT_RELAY_NAME;
 	if (state === "connected") return { name: "relay", status: "ok", detail: `${name} connected; requests reach 127.0.0.1:${config.port}` };
 	if (state === "connecting" || state === "disconnected") return { name: "relay", status: "warn", detail: `${name} ${state}; the connector keeps trying. Its log: ${serviceLogHint(RELAY_SERVICE)}` };
-	const again = `${COMMAND_NAME} remote off && ${COMMAND_NAME} remote setup`;
+	const again = relaySetupCommand(name);
 	const why: Record<string, string> = {
 		unauthorized: `The relay refused the key. To set a new one, run ${again}.`,
-		replaced: `Another computer connected to ${name} with this key and took over. On the computer that should have it, run ${again}.`,
+		replaced: `Another connector took over ${name} with this key. On the computer that should have it, run ${again}.`,
 		outdated: `The relay speaks another protocol version. Update ${COMMAND_NAME}, then run ${COMMAND_NAME} remote fix.`,
 	};
 	return { name: "relay", status: "fail", detail: why[state] ?? `The connector isn't running. Run ${COMMAND_NAME} remote fix.` };

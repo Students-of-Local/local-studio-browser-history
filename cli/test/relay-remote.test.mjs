@@ -197,29 +197,44 @@ test("remote fix on the relay route: a refused key means setup again, and a conn
 		const refused = await m.run(["remote", "fix", "--dry-run", "--json"]);
 		assert.equal(refused.json().code, "relay_unauthorized", refused.stdout);
 		assert.match(refused.json().message, /refused its key/);
-		assert.match(refused.json().message, /tychicus remote off && tychicus remote setup\./, "what fix prints is a command setup takes");
-		const setup = await m.run(["remote", "setup", "--json"]);
-		assert.notEqual(setup.code, 0, "setup alone refuses to replace a relay route");
-		assert.match(setup.stdout, /remote off/);
+		assert.equal(refused.json().next.command, "tychicus remote setup --relay tychicus-relay", "fix keeps the relay's own name");
 		rmSync(join(m.cfg, "relay-state.json"));
 		const down = await m.run(["remote", "fix", "--dry-run", "--json"]);
 		assert.ok(down.json().actions.some((a) => a.kind === "restart_relay"), down.stdout);
+		const before = m.calls().length;
 		const started = await m.run(["remote", "fix", "--yes", "--json"], { TYCHICUS_FIX_SERVICE_WAIT_MS: "300" });
 		assert.notEqual(started.code, 0, "a connector that never reached the relay isn't a fix");
 		assert.equal(started.json().code, "restart_relay", started.stdout);
-		assert.ok(m.calls().some((l) => /relay/.test(l)), "the service manager was asked to start the connector");
+		assert.ok(m.calls().slice(before).some((l) => /^(systemctl .*(enable|restart|start) .*tychicus-relay|launchctl (bootstrap|kickstart) .*relay)/.test(l)), "the service manager was asked to start the connector");
 		const check = async (state) => {
 			writeFileSync(join(m.cfg, "relay-state.json"), JSON.stringify({ state, at: Date.now(), pid: process.pid }));
 			return (await m.run(["remote", "status", "--json"])).json().checks.find((c) => c.name === "relay");
 		};
 		assert.equal((await check("connected")).status, "ok");
 		assert.equal((await check("disconnected")).status, "warn");
-		for (const [state, advice] of [["unauthorized", /remote off && tychicus remote setup\./], ["replaced", /remote off && tychicus remote setup\./], ["outdated", /remote fix\./], ["stopped", /remote fix\./]]) {
+		for (const [state, advice] of [["unauthorized", /remote setup --relay tychicus-relay\./], ["replaced", /remote setup --relay tychicus-relay\./], ["outdated", /remote fix\./], ["stopped", /remote fix\./]]) {
 			const c = await check(state);
 			assert.equal(c.status, "fail", state);
 			assert.match(c.detail, advice);
 		}
 		assert.deepEqual(m.wrangler(), []);
+	} finally {
+		await serve.close();
+	}
+});
+
+test("remote fix on an outdated relay restarts the connector first, and names setup only when it is still outdated", { skip: !unix }, async () => {
+	const serve = await serveStandIn();
+	try {
+		for (const starts of ["connected", "outdated"]) {
+			const m = machine(root, `fix-outdated-${starts}`, { starts });
+			writeFileSync(join(m.cfg, "remote.json"), JSON.stringify({ publicUrl: ADDRESS, port: serve.port, route: "relay", relay: { name: "my-relay", key: "k".repeat(43) } }), { mode: 0o600 });
+			writeFileSync(join(m.cfg, "relay-state.json"), JSON.stringify({ state: "outdated", at: Date.now() - 60_000, pid: process.pid }));
+			const r = (await m.run(["remote", "fix", "--yes", "--json"], { TYCHICUS_FIX_SERVICE_WAIT_MS: "2000" })).json();
+			assert.equal(r.actions[0]?.kind, "restart_relay", JSON.stringify(r));
+			assert.equal(r.actions[0].status, starts === "connected" ? "done" : "failed", JSON.stringify(r));
+			if (starts === "outdated") assert.equal(r.next.command, "tychicus remote setup --relay my-relay");
+		}
 	} finally {
 		await serve.close();
 	}

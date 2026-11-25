@@ -19,6 +19,7 @@ import { launcherBinary, launcherValid, which } from "./harness.ts";
 import { hubFile } from "./hub-state.ts";
 import { mintApprovalCode, passcodeSet, setPasscode } from "./oauth.ts";
 import { RELAY_SERVICE, relayStateFile } from "./relay.ts";
+import { WRANGLER_VERSION } from "./relay-setup.ts";
 import { loadRemoteConfig, type RemoteConfig, remoteFile, saveRemoteConfig } from "./remote-config.ts";
 import { funnelOff, openFunnel, proofLines, type SetupOptions, serveWaitMs, tailnetOff, waitForServe } from "./remote-setup.ts";
 import { agentStep, printReport, type SetupReport, setupExitCode } from "./remote-state.ts";
@@ -205,7 +206,7 @@ export async function remoteJoin(options: JoinOptions = {}): Promise<number> {
 		removedRelay = r.ok;
 		if (!r.ok) return rollback(`This install's relay connector couldn't be stopped: ${r.failure ?? r.notes.join(" ")}.`, "service");
 		rmSync(relayStateFile(), { force: true });
-		say(`${sym.ok} Stopped this install's relay connector. The relay Worker ${previous?.relay?.name ?? ""} stays on your Cloudflare account; a computer that still has its key can connect until you delete it.`);
+		say(`${sym.ok} Stopped this install's relay connector.`);
 	}
 	if (ownFunnel) {
 		const r = funnelOff(tsBin);
@@ -232,6 +233,7 @@ export async function remoteJoin(options: JoinOptions = {}): Promise<number> {
 	}
 	// The way in, by setup's rules (runSetup): a passcode unless --no-passcode, and a connect code when asked or for a person at a terminal.
 	const connectorUrl = `${publicUrl}/mcp`;
+	const worker = previous?.relay ? ` The relay Worker ${previous.relay.name} stays on your Cloudflare account; a computer that still has its key can connect until you delete it: npx wrangler@${WRANGLER_VERSION} delete ${previous.relay.name}` : "";
 	const madePasscode = options.passcode === true && !passcodeSet() ? setPasscode() : undefined;
 	if (madePasscode) say(`${sym.ok} Passcode, shown once (it re-approves an assistant you already approved):\n\n  ${madePasscode}\n`);
 	let connect: { code: string; expiresAt: number } | undefined;
@@ -252,7 +254,7 @@ export async function remoteJoin(options: JoinOptions = {}): Promise<number> {
 	return finish({
 		ok: true,
 		state: "on",
-		message: `Joined Local Studio's ${record.route} route: ${connectorUrl} reaches serve on 127.0.0.1:${port}${aliases.length ? `, and so ${aliases.length === 1 ? "does" : "do"} ${aliases.map((a) => `https://${a}/mcp`).join(", ")} while connectors move` : ""}. No tunnel of the helper's own runs now.`,
+		message: `Joined Local Studio's ${record.route} route: ${connectorUrl} reaches serve on 127.0.0.1:${port}${aliases.length ? `, and so ${aliases.length === 1 ? "does" : "do"} ${aliases.map((a) => `https://${a}/mcp`).join(", ")} while connectors move` : ""}. No tunnel of the helper's own runs now.${worker}`,
 		...way,
 		...(connect ? { connectCode: connect.code, connectCodeExpiresAt: connect.expiresAt } : {}),
 		next: { kind: "add_connector", url: connectorUrl },

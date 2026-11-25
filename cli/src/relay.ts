@@ -29,6 +29,9 @@ export const RELAY_SERVICE: ServiceSpec = {
 /** serve's health check: the path setup asks for through the relay to prove a request reaches serve and comes back. */
 export const HEALTH_PATH = "/v1/health";
 
+/** The command that sets a relay up again with its saved name: a new key, and the Worker this version speaks to. */
+export const relaySetupCommand = (name: string): string => `${COMMAND_NAME} remote setup --relay ${name}`;
+
 /** RELAY_KEY: 32 bytes from the OS random source, base64url without padding (43 characters), as the relay requires. */
 export function generateRelayKey(): string {
 	return randomBytes(32).toString("base64url");
