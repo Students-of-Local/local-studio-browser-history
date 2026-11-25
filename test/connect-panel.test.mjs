@@ -525,12 +525,13 @@ test("setupTunnel needs a click gesture, and its request waits seven minutes", a
 	assert.match(read("src/connect/client.ts"), /method === "setupTunnel" \? SETUP_TIMEOUT_MS/);
 });
 
-test("the one-button flow (with its Cloudflare form) shows for route none, Funnel and Cloudflare, and not for a custom address, a hub or a link", async () => {
+test("the one-button flow (with its Cloudflare form) shows for route none, the relay, Funnel and Cloudflare, and not for a custom address, a hub or a link", async () => {
 	const { remoteFlowFor } = await import("../src/connect/remote-flow.ts");
 	const base = { passcodeSet: false, theme: { preset: "default" } };
 	assert.equal(remoteFlowFor({ ...base, route: "none" }), true);
 	assert.equal(remoteFlowFor({ ...base, route: "remote", remoteKind: "funnel", publicUrl: "https://m.ts.net:8443" }), true);
 	assert.equal(remoteFlowFor({ ...base, route: "remote", remoteKind: "cloudflare", publicUrl: "https://p.example.com" }), true);
+	assert.equal(remoteFlowFor({ ...base, route: "remote", remoteKind: "relay", publicUrl: "https://r.s.workers.dev" }), true);
 	assert.equal(remoteFlowFor({ ...base, route: "remote", remoteKind: "custom", publicUrl: "https://p.example.com" }), false);
 	assert.equal(remoteFlowFor({ ...base, route: "hub", publicUrl: "https://hub.example.com" }), false);
 	assert.equal(remoteFlowFor({ ...base, route: "link" }), false);
@@ -628,11 +629,11 @@ test("each next.kind the helper sends draws its sentence and its button", async 
 test("the flow advances by itself: signing in, allowing Funnel and DNS all poll, and nothing asks for a try-again press", async () => {
 	const { flowScreen, pollFor, settleRun, STATE_POLL_MS, FUNNEL_POLL_MS } = await import("../src/connect/remote-flow.ts");
 	const routes = { tailscale: { installed: true, signedIn: false }, cloudflare: { installed: false, signedIn: false } };
-	// Choose: Tailscale is recommended when it is installed.
-	const choose = flowScreen({ status: status(), remote: { state: "tailscale_signed_out", message: "", routes } });
+	// Choose: the relay is recommended, whatever is installed.
+	const choose = flowScreen({ status: status(), remote: { state: "tailscale_signed_out", message: "", routes, relaySetup: true } });
 	assert.equal(choose.kind, "choose");
-	assert.equal(choose.recommended, "tailscale");
-	assert.equal(flowScreen({ status: status(), remote: { state: "tailscale_missing", message: "", routes: { ...routes, tailscale: { installed: false, signedIn: false } } } }).recommended, undefined);
+	assert.equal(choose.recommended, "relay");
+	assert.equal(flowScreen({ status: status(), remote: { state: "tailscale_missing", message: "", routes: { ...routes, tailscale: { installed: false, signedIn: false } }, relaySetup: true } }).recommended, "relay");
 	// Signed out -> polls -> the next state answers -> Ready, with no press in between.
 	const input = { status: status(), chosen: "tailscale", remote: { state: "tailscale_signed_out", message: "", next: { kind: "sign_in", command: "tailscale up" } } };
 	const s1 = flowScreen(input);
@@ -725,4 +726,81 @@ test("a quiet poll changes nothing on screen (no jitter): equal answers are not 
 	// The countdown re-renders only when its text changes, and the wait line keeps its height when empty.
 	assert.match(flow, /countdown\(this\.code\.expiresAt, this\.now\) !== countdown\(this\.code\.expiresAt, now\)/);
 	assert.match(flow, /min-h-4 text-xs text-muted-foreground" role="status"/);
+});
+
+test("the relay: one button, the terminal command while nothing is saved, then the connector's live state", async () => {
+	const { flowScreen, pollFor, STATE_POLL_MS, RELAY_POLL_MS } = await import("../src/connect/remote-flow.ts");
+	const { RELAY_COPY } = await import("../src/connect/remote-copy.ts");
+	const { RELAY_STATES } = await import("../src/connect/types.ts");
+	// Pressed: the command, polling until setup in the terminal saves the route.
+	const guide = flowScreen({ status: status(), chosen: "relay", remote: { state: "ready", message: "", relaySetup: true } });
+	assert.deepEqual(guide, { kind: "relay" });
+	assert.deepEqual(pollFor(guide, {}), { method: "remoteState", everyMs: RELAY_POLL_MS });
+	// A helper from before the relay answers without relaySetup: not recommended, and no command that sets up something else.
+	const old = { state: "ready", message: "" };
+	assert.equal(flowScreen({ status: status(), remote: old }).recommended, undefined);
+	assert.deepEqual(flowScreen({ status: status(), chosen: "relay", remote: old }), { kind: "relay", outdated: true });
+	// Saved: every state but connected is drawn as itself and keeps polling; connected is the result, still live.
+	for (const state of RELAY_STATES) {
+		assert.ok(RELAY_COPY.states[state], state);
+		const screen = flowScreen({ status: RELAY, remote: relayIs(state, { kind: "run_command", command: "tychicus remote fix" }) });
+		assert.equal(screen.kind, state === "connected" ? "result" : "relay", state);
+		assert.deepEqual(screen.relay, { state });
+		assert.equal(screen.connectorUrl, "https://r.s.workers.dev/mcp");
+		if (state !== "connected") assert.equal(screen.command, "tychicus remote fix", "the helper's command, not one made here");
+		assert.deepEqual(pollFor(screen, {}), { method: "remoteState", everyMs: state === "connected" ? RELAY_POLL_MS : STATE_POLL_MS });
+	}
+	// The button, the copy box and the live line are drawn.
+	const flow = read("src/dialogs/RemoteFlow.ts");
+	assert.match(flow, /\$\{card\("relay"\)\}\$\{card\("tailscale"\)\}/);
+	assert.match(flow, /copyBox\(RELAY_COPY\.commandLabel, command/);
+	assert.match(flow, /data-relay-state=\$\{relay\.state\}/);
+});
+
+const RELAY = { route: "remote", remoteKind: "relay", publicUrl: "https://r.s.workers.dev", passcodeSet: false, theme: { preset: "default" } };
+const relayIs = (state, next) => ({ state: state === "connected" ? "on" : "problem", message: "", route: "relay", relay: { state }, ...(next ? { next } : {}) });
+
+test("a saved relay draws nothing about another route: an old answer, an old refusal or an open Cloudflare form", async () => {
+	const { flowScreen, pollFor, relayMoved, STATE_POLL_MS } = await import("../src/connect/remote-flow.ts");
+	const funnel = { state: "on", message: "", route: "funnel", connectorUrl: "https://m.ts.net:8443/mcp" };
+	for (const remote of [undefined, funnel]) {
+		const screen = flowScreen({ status: RELAY, ...(remote ? { remote } : {}), checks: [{ name: "dns", status: "ok", detail: "" }] });
+		assert.equal(screen.kind, "loading", "never On before the connector's own state");
+		assert.deepEqual(pollFor(screen, { status: RELAY }), { method: "remoteState", everyMs: STATE_POLL_MS });
+	}
+	// A helper from before the connector's state: the words to update it, not "Checking..." for good.
+	const old = flowScreen({ status: RELAY, remote: { state: "on", message: "" } });
+	assert.deepEqual(old, { kind: "relay", connectorUrl: "https://r.s.workers.dev/mcp", outdated: true });
+	assert.equal(read("src/dialogs/RemoteFlow.ts").match(/if \(asked !== this\.routeAsked\) return;/g)?.length, 3, "an answer about the old route is dropped");
+	const refused = { state: "funnel_not_allowed", message: "" };
+	for (const input of [{ run: refused }, { run: funnel }, { chosen: "cloudflare" }, { chosen: "cloudflare", run: refused, runFromForm: true }]) {
+		assert.equal(flowScreen({ status: RELAY, remote: relayIs("connected"), ...input }).connectorUrl, "https://r.s.workers.dev/mcp");
+		assert.equal(flowScreen({ status: RELAY, remote: relayIs("stopped"), ...input }).kind, "relay");
+	}
+	const other = { ...RELAY, remoteKind: "funnel", publicUrl: "https://m.ts.net:8443" };
+	assert.equal(relayMoved(other, RELAY), true);
+	assert.equal(relayMoved(RELAY, status()), true);
+	assert.equal(relayMoved(RELAY, { ...RELAY, publicUrl: "https://b.s.workers.dev" }), true);
+	assert.equal(relayMoved(RELAY, { ...RELAY, passcodeSet: true }), false);
+	assert.equal(relayMoved(other, status()), false, "the other routes keep what they found");
+});
+
+test("the relay connected again: its outside checks run again", async () => {
+	const { relayCameBack } = await import("../src/connect/remote-flow.ts");
+	const { RELAY_STATES } = await import("../src/connect/types.ts");
+	for (const state of RELAY_STATES) {
+		assert.equal(relayCameBack(relayIs(state), relayIs("connected")), state !== "connected", state);
+		assert.equal(relayCameBack(relayIs(state), relayIs("disconnected")), false);
+	}
+	assert.equal(relayCameBack(undefined, relayIs("connected")), false, "the first answer clears nothing");
+	const ask = read("src/dialogs/RemoteFlow.ts");
+	assert.equal(ask.match(/if \(relayCameBack\(this\.remote, answer\)\) this\.forgetChecks\(\);\s*if \(!sameAnswer/g)?.length, 2, "both polls, before the answer is taken");
+});
+
+test("a retry on a relay is Repair, never Tailscale's setup", async () => {
+	const { retryFor, routeOf } = await import("../src/connect/remote-flow.ts");
+	assert.equal(retryFor(routeOf(RELAY)), "repair");
+	assert.equal(retryFor("cloudflare"), "form");
+	assert.equal(retryFor("tailscale"), "turn_on");
+	assert.equal(retryFor(undefined), "turn_on");
 });

@@ -58,7 +58,7 @@ test("first-F2: the operator step after the Funnel retry gave up says so, copies
 	// The element draws the command for it and Check again runs Turn on when nothing is saved.
 	const el = read("src/dialogs/RemoteFlow.ts");
 	assert.match(el, /copy\.key === "tailscale_operator_check"/);
-	assert.match(el, /case "open_funnel":\s*if \(this\.status\?\.route === "remote"\) void this\.openFunnel\(\);\s*else void this\.turnOn\(\);/);
+	assert.match(el, /case "open_funnel":\s*if \(this\.status\?\.route === "remote" && this\.routeNow\(\) !== "relay"\) void this\.openFunnel\(\);\s*else this\.retry\(\);/);
 });
 
 test("first-F3: the choose screen slows its poll once the routes are read", () => {
