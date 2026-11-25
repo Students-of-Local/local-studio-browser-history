@@ -6,7 +6,8 @@
  * registers itself from there. Only after that works does the `release` pointer (a symlink, a junction on Windows)
  * move to the new version, and the extension is copied to one fixed real folder, so the browser keeps loading it
  * from the same place. A running copy (the native host the browser started, an MCP server) keeps its own folder:
- * an old version is removed only once no program runs from it.
+ * an old version is removed only once no program runs from it. On a Mac the new version's own program copies its
+ * computer-use helper (`bin/tychicus-hands`) to ~/.local/bin, where `findHelper` (computer.ts) looks.
  *
  * The check is as strong as the program that runs it: a tampered archive could carry a `tychicus` that skips it. To
  * check before running anything from the download, run
@@ -16,8 +17,10 @@
 
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, renameSync, rmdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { basename, delimiter, dirname, join, relative, resolve, sep } from "node:path";
+import { HANDS_COMMAND } from "./computer.ts";
 import { browserDirs } from "./install.ts";
 import { releaseBase, releaseProgram, releaseRoot } from "./paths.ts";
 import { eukheSettingsPath, localStudioPluginsDir, PLUGINS } from "./local-studio.ts";
@@ -295,6 +298,68 @@ export function refreshExtension(versionDir: string, base: string = releaseBase(
 	return dest;
 }
 
+/** Where a release puts the Mac computer-use helper: `~/.local/bin/tychicus-hands`, which `findHelper` checks. */
+export function handsInstallPath(home: string = homedir()): string {
+	return join(home, ".local", "bin", HANDS_COMMAND);
+}
+
+/** The computer-use helper a version folder carries, if it carries one for this computer (macOS only, for now). */
+export function versionHands(versionDir: string, platform: string = process.platform): string | undefined {
+	if (platform !== "darwin") return undefined;
+	const path = join(versionDir, "bin", HANDS_COMMAND);
+	return existsSync(path) ? path : undefined;
+}
+
+/**
+ * Copy the version's computer-use helper to `handsInstallPath()`. Copied, not linked: macOS ties the Accessibility grant
+ * to the program's real path and, for a program signed ad hoc, to its hash, so one fixed path keeps one entry in System
+ * Settings; a link there is replaced by the copy for the same reason. The same bytes are left alone (the grant stays);
+ * new bytes go in with a rename, so a running copy keeps its file. `replaced` says an earlier helper was there. Undefined
+ * when the version carries no helper here.
+ */
+export function installHands(versionDir: string, platform: string = process.platform): { path: string; changed: boolean; replaced: boolean } | undefined {
+	const from = versionHands(versionDir, platform);
+	if (!from) return undefined;
+	const dest = handsInstallPath();
+	const was = lstatSync(dest, { throwIfNoEntry: false });
+	if (was?.isFile() && sha256File(dest) === sha256File(from)) {
+		chmodSync(dest, 0o755);
+		return { path: dest, changed: false, replaced: false };
+	}
+	mkdirSync(dirname(dest), { recursive: true });
+	const staged = `${dest}.new-${process.pid}`;
+	try {
+		copyFileSync(from, staged);
+		chmodSync(staged, 0o755);
+		renameSync(staged, dest);
+	} finally {
+		rmSync(staged, { force: true });
+	}
+	return { path: dest, changed: true, replaced: was !== undefined };
+}
+
+/**
+ * What to tell the person after the helper changed. A grant to the app an agent runs in (Terminal, say) still holds; a
+ * grant to the helper itself doesn't, because macOS matches a program signed ad hoc by its hash.
+ */
+export function handsGrantLine(path: string): string {
+	return `If ${HANDS_COMMAND} is listed in System Settings > Privacy & Security > Accessibility, this update needs it allowed again (it is signed ad hoc, so macOS treats each build as new): select it, click -, then click + and add ${path}. computer_status names whatever else macOS needs allowed.`;
+}
+
+/**
+ * `installHands`, said. Called by the new version's own `install` under `install --release`, so an older program that is
+ * upgrading gets the helper too. A copy that fails doesn't stop the browser half: computer use waits for the next install.
+ */
+export function reportHands(versionDir: string): void {
+	try {
+		const hands = installHands(versionDir);
+		if (hands) console.log(`${sym.ok} Computer-use helper ${c.dim(hands.path)}${hands.changed ? "" : " is already this version"}`);
+		if (hands?.replaced) console.log(`${sym.warn} ${handsGrantLine(hands.path)}`);
+	} catch (err) {
+		console.log(`${sym.warn} The computer-use helper wasn't copied to ${handsInstallPath()}: ${(err as Error).message}`);
+	}
+}
+
 /**
  * The version folders some running program was started from, or undefined where that can't be told (then nothing is
  * pruned). Linux reads /proc/<pid>/exe, macOS asks ps; Windows is answered by the rename in pruneVersions.
@@ -419,6 +484,7 @@ export async function installFromRelease(dir: string, options: { dryRun?: boolea
 		}
 		console.log(`${sym.ok} Then would point ${c.dim(`${root} -> ${target}`)}, copy its extension to ${c.dim(releaseExtensionDir(base))} and remove older versions no program runs from`);
 		await linkOnPath({ dryRun: true });
+		if (process.platform === "darwin") console.log(`${sym.ok} Then would copy its computer-use helper, if it has one, to ${c.dim(handsInstallPath())}`);
 		const stale = staleServices(versionPath(target), { root, before: real(root) }).map((s) => `${serviceName(s.spec)} (${s.running})`);
 		if (stale.length) console.log(`${sym.ok} Then would ${options.noRestart ? "name" : "restart"} the services on another version: ${stale.join(", ")}`);
 		return 0;
