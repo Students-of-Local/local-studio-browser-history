@@ -33,6 +33,13 @@ public enum HandsCaller {
     public static func isRemote(_ caller: String?) -> Bool { caller?.hasPrefix("remote ") == true }
 }
 
+/// The saved access mode, read again each time it is asked and never more than Default (`AgentAccessMode.forRemote`).
+public struct SavedAccessMode {
+    private let read: () -> String?
+    public init(_ read: @escaping () -> String?) { self.read = read }
+    public var current: AgentAccessMode { AgentAccessMode(saved: read()).forRemote }
+}
+
 /// How much of this Mac agents may use, picked by Donovan in Settings > Agents and kept until he changes it.
 /// Every mode keeps the background-only rules: no app activation, no raised window, no global keys or clicks,
 /// no action while he is using an app (it waits until the app has been out of the front `UserUse.quiet` seconds; reads

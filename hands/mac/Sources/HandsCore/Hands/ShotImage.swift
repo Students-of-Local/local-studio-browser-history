@@ -49,8 +49,8 @@ public enum ShotImage {
 
     /// A capture as the router reports it.
     public struct Captured: Equatable, Sendable {
-        public var path: String, width: Int, height: Int, points: CGSize
-        public init(path: String, width: Int, height: Int, points: CGSize) { self.path = path; self.width = width; self.height = height; self.points = points }
+        public var path: String, width: Int, height: Int, points: CGSize, sha256: String
+        public init(path: String, width: Int, height: Int, points: CGSize, sha256: String) { self.path = path; self.width = width; self.height = height; self.points = points; self.sha256 = sha256 }
     }
 
     public static func pointsJSON(_ s: CGSize) -> JSONValue { .object(["width": .double(Double(s.width)), "height": .double(Double(s.height))]) }
@@ -70,7 +70,7 @@ public enum ShotImage {
         switch beforeCapture(zoom: zoom, points: zoom == nil ? nil : points(w), capture: { capture(w) }) {
         case .failure(let e): o["screenshot_error"] = .string(e.message)
         case .success(let r):
-            o["screenshot"] = .object(["path": .string(r.path), "width": .int(r.width), "height": .int(r.height), "points": pointsJSON(r.points)])
+            o["screenshot"] = .object(["path": .string(r.path), "width": .int(r.width), "height": .int(r.height), "points": pointsJSON(r.points), "sha256": .string(r.sha256)])
         }
         return o
     }

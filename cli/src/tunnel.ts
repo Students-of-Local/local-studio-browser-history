@@ -170,7 +170,7 @@ export async function cloudflareTunnel(options: { port: number; off: boolean; ti
 	if (!bin) {
 		return {
 			ok: false,
-			message: `cloudflared isn't installed. A quick tunnel is for local testing with a token; claude.ai, ChatGPT and grok.com can't use one. For them, run ${COMMAND_NAME} remote setup, which needs no cloudflared.`,
+			message: `cloudflared isn't installed. A quick tunnel is for local testing with a token; claude.ai, ChatGPT and grok.com can't use one. For them, run ${COMMAND_NAME} remote setup: its default relay needs no cloudflared.`,
 		};
 	}
 	mkdirSync(configDir(), { recursive: true });

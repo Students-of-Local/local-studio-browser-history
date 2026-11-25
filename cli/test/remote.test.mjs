@@ -1028,7 +1028,7 @@ test("remote setup with a service requested and no working launcher exits 3 and 
 	const s = remoteScenario("no-launcher");
 	const r = s.run(["remote", "setup", "--tailscale"]);
 	assert.equal(r.code, 3, r.out);
-	assert.match(r.out, /Run tychicus install --browser <name> for the browser you use Local Studio in \(.*plain install registers every browser on this computer\) first, then tychicus remote setup again\./);
+	assert.match(r.out, /Run tychicus install --browser <name> for the browser you use Local Studio in \(.*plain install registers every browser on this computer\) first, then tychicus remote setup --tailscale again\./);
 	assert.equal(existsSync(s.serviceFile()), false);
 	assert.equal(s.hasRemoteJson(), false);
 	assert.ok(!s.calls().some((x) => x.startsWith("tailscale funnel")), s.calls().join("\n"));
