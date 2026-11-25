@@ -1,6 +1,6 @@
 /**
  * One public route per machine (docs/decisions.md, D59; baney75/local-studio docs/tunnel.md). Local Studio owns it on every route
- * (hosted, cloudflare, tailnet): it carries Tychicus's nine paths to serve and Local Studio's two to local-studio-serve, and anything
+ * (cloudflare, tailnet): it carries Tychicus's nine paths to serve and Local Studio's two to local-studio-serve, and anything
  * else is a 404. Local Studio writes the route record, `<Local Studio data dir>/tunnel/route.json`; Tychicus only reads it, to join
  * that route (`remote join`). A machine without Local Studio keeps Tychicus's own route, with the same exact paths.
  *
@@ -43,7 +43,7 @@ export function exactPathsRegex(paths: readonly string[]): string {
 export const TYCHICUS_PATH_REGEX = exactPathsRegex(TYCHICUS_PATHS);
 
 export type RouteOwner = "tychicus" | "local-studio";
-export type RouteKind = "hosted" | "cloudflare" | "tailnet";
+export type RouteKind = "cloudflare" | "tailnet";
 
 export interface RouteRecord {
 	v: 1;
@@ -91,7 +91,7 @@ export function validateRouteRecord(raw: unknown, file: string = routeRecordFile
 	if (extra.length) bad(`it has fields version 1 doesn't define (${extra.join(", ")})`);
 	if (r.v !== 1) bad(`v is ${JSON.stringify(r.v)}, and only version 1 is known`);
 	if (r.owner !== "tychicus" && r.owner !== "local-studio") bad("owner must be tychicus or local-studio");
-	if (r.route !== "hosted" && r.route !== "cloudflare" && r.route !== "tailnet") bad("route must be hosted, cloudflare or tailnet");
+	if (r.route !== "cloudflare" && r.route !== "tailnet") bad("route must be cloudflare or tailnet");
 	if (typeof r.hostname !== "string" || !validHostname(r.hostname)) bad("hostname must be a lowercase DNS name such as tychicus.example.com");
 	const aliases = r.aliases;
 	if (aliases !== undefined) {

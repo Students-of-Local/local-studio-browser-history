@@ -2400,7 +2400,7 @@ tab moved to another site; one field alone).
 
 ## D70. `remote setup` defaults to a relay on the person's own Cloudflare account (Claude, 2026-11-24)
 
-**Context.** The owner wants one click and no waitlist: a person makes their own free relay on their own Cloudflare
+**Context.** The owner wants one click: a person makes their own free relay on their own Cloudflare
 account. Tailscale Funnel needs a Tailscale account and an admin's yes; a Cloudflare tunnel with a fixed name needs a
 domain. The relay Worker in baney75/local-studio-tunnels (`relay/`) needs neither: its address is
 `<name>.<subdomain>.workers.dev`, and a connector on this computer dials out to it.
@@ -2414,6 +2414,8 @@ domain. The relay Worker in baney75/local-studio-tunnels (`relay/`) needs neithe
 - Every setup run makes a new key, saved in `remote.json` at 0600.
 - The relay forwards serve's nine paths and `/v1/health` only, so a hub stays off it.
 - `remote off` leaves the Worker on the account and prints the delete command. Deleting it can't be undone.
+- D59's handling of a Local Studio that gates tunnel setup is gone: such a build is a refusal, like any
+  `local-studio tunnel setup` that answers JSON and fails. A tailnet route it left to Tychicus stays Tychicus's own.
 - The relay needs Node.js 22 or later for its built-in WebSocket. Setup refuses older ones with Node's download page.
 
 **Why.**

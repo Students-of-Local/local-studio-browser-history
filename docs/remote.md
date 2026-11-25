@@ -249,20 +249,11 @@ Tychicus only reads it and never creates Local Studio's folder. The route carrie
   code `route_mismatch`: run `local-studio tunnel off` first, or run setup without the flag to join. Without a record, `--cloudflare <name>` or `--tailnet` runs
   `local-studio tunnel setup` with that route and `--json` when `local-studio` is on PATH, then joins. A Local Studio
   folder alone proves nothing (`install --local-studio` makes one). Funnel, no route, `--public-url`, and a re-run on
-  this install's own Funnel or Cloudflare route stay Tychicus's own setup; `remote join` moves that route.
-- Local Studio has no hosted tunnels and no waitlist: its tunnel setup runs on every channel, on your own Cloudflare
-  account, and `local-studio tunnel byo` gives the steps ([its guide](https://github.com/baney75/local-studio/blob/main/docs/tunnel.md#your-own-cloudflare-tunnel-step-by-step)).
-  Only an older Local Studio still gates tunnel setup and answers `state: "waitlist"`. Then Tychicus says that build is
-  older and how to share its tunnel once updated (`local-studio update apply`, or reinstall): on a Cloudflare route
-  `local-studio tunnel adopt`, which takes the route over and joins Tychicus; on a tailnet route `tychicus remote off`,
-  then `tychicus remote setup --tailnet` again. It gives the Funnel
-  command for claude.ai, ChatGPT and grok.com with no domain (free: `tychicus remote setup --tailscale`), and sets up the
-  route that was asked for, its own. It never passes on a signup address. Asked for `--tailnet`, it says first that web
-  assistants can't use a tailnet-only address, and the Funnel command starts with `tychicus remote off`. `--json` puts
-  Local Studio's `state` and `channel` in `localStudio` (never its `url`, `next` or `message`), and adds `waitlist` (the name stays for agents): `channel`, and `next`
-  (`{ "kind": "run_command", "command", "why" }`), the Funnel command an agent runs with the person's yes; `why` carries
-  the update advice. The report's own `next` is unchanged. A `local-studio` that answers no JSON (a build from before tunnel setup) also
-  leaves Tychicus its own route. One that answers JSON and fails is a refusal with code `local_studio`.
+  this install's own Funnel, Cloudflare or relay route stay Tychicus's own setup; `remote join` moves that route.
+- Local Studio's Cloudflare route runs on your own Cloudflare account; `local-studio tunnel byo` gives the steps
+  ([its guide](https://github.com/baney75/local-studio/blob/main/docs/tunnel.md#your-own-cloudflare-tunnel-step-by-step)).
+  A `local-studio` that answers no JSON (a build from before tunnel setup) leaves Tychicus its own route. One that answers
+  JSON and fails is a refusal with code `local_studio`.
 - Setup through Local Studio makes the passcode and connect code the way its own setup does: a passcode unless
   `--no-passcode`, a connect code for `--connect-code` or a person at a terminal, and code `connect_code` when one asked
   for can't be made. `remote test` and `remote fix` check a joined tailnet route from inside the tailnet.

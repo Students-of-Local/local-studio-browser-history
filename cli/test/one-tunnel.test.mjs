@@ -45,7 +45,6 @@ export { cloudflareIngress, renderCloudflareConfig } from "@src/cloudflare.ts";
 export { planMounts, wantedMounts } from "@src/tailnet.ts";
 export { tailnetDnsCheck } from "@src/remote-test.ts";
 export { agentStep } from "@src/remote-state.ts";
-export { waitlistAdvice } from "@src/remote-join.ts";
 export { oauthForHost } from "@src/oauth.ts";
 `);
 
@@ -72,7 +71,8 @@ test("Tychicus only reads the record: no write or remove, and a malformed record
 		[{ ...good, v: 2 }, /only version 1/],
 		[{ ...good, extra: true }, /fields version 1 doesn't define \(extra\)/],
 		[{ ...good, owner: "someone" }, /owner must be/],
-		[{ ...good, route: "funnel" }, /route must be hosted, cloudflare or tailnet/],
+		[{ ...good, route: "funnel" }, /route must be cloudflare or tailnet/],
+		[{ ...good, route: "hosted" }, /route must be cloudflare or tailnet/],
 		[{ ...good, hostname: "Studio.Example.com" }, /hostname must be/],
 		[{ ...good, aliases: "old.example.com" }, /aliases must be a list/],
 		[{ ...good, aliases: ["https://old.example.com"] }, /aliases must be a list of lowercase DNS names/],
@@ -97,7 +97,6 @@ test("every setup and join report names the agent's next step", () => {
 	const s = mod.agentStep;
 	assert.equal(s({ ok: true, state: "on" }), "ready");
 	assert.equal(s({ ok: true, state: "on" }, true), "joined");
-	assert.equal(s({ ok: false, state: "waitlist" }), "waitlist");
 	assert.equal(s({ ok: false, state: "tailscale_signed_out" }), "needs_signin");
 	assert.equal(s({ ok: false, state: "problem", code: "cloudflare_login" }), "needs_signin");
 	assert.equal(s({ ok: false, state: "problem", next: { kind: "sign_in" } }), "needs_signin");
@@ -580,7 +579,7 @@ test("remote join refuses without a record, with a record that isn't Local Studi
 	assert.match(none.json().message, /no route record/);
 	s.writeRecord({ v: 1, owner: "tychicus", route: "cloudflare", hostname: CF_HOST, ports: { mcp: 8787 } });
 	assert.match((await s.runAsync(["remote", "join"])).stderr, /only Local Studio's route can be joined/);
-	s.writeRecord({ v: 1, owner: "local-studio", route: "hosted", hostname: STUDIO, ports: { mcp: 8787 } });
+	s.writeRecord({ v: 1, owner: "local-studio", route: "cloudflare", hostname: STUDIO, ports: { mcp: 8787 } });
 	const port = await s.runAsync(["remote", "join", "--json", "--port", "9999"]);
 	assert.equal(port.json().code, "local_port");
 	writeFileSync(s.recordFile, "[]");
@@ -688,9 +687,12 @@ test("with Local Studio's record already there, a route flag for another route r
 			assert.equal(s.remoteJson(), undefined, "nothing joined");
 			assert.deepEqual(s.proved(), []);
 		}
-		s.writeRecord({ v: 1, owner: "local-studio", route: "hosted", hostname: STUDIO, ports: { mcp: local.port } });
+		// --cloudflare on a tailnet record, the one mismatch left for it now that every record is cloudflare or tailnet.
+		s.writeRecord({ v: 1, owner: "local-studio", route: "tailnet", hostname: DNS, ports: { mcp: local.port } });
 		const other = (await s.runAsync(["remote", "setup", "--cloudflare", "other.example.com", "--no-service", "--json"], {}, { hooks: true })).json();
 		assert.equal(other.code, "route_mismatch");
+		assert.equal(s.remoteJson(), undefined, "nothing joined");
+		s.writeRecord({ v: 1, owner: "local-studio", route: "cloudflare", hostname: STUDIO, ports: { mcp: local.port } });
 		const plain = await s.runAsync(["remote", "setup", "--no-service"], {}, { hooks: true });
 		assert.equal(plain.code, 0, plain.out);
 		assert.equal(s.remoteJson().publicUrl, `https://${STUDIO}`);
@@ -698,93 +700,6 @@ test("with Local Studio's record already there, a route flag for another route r
 	} finally {
 		await local.close();
 	}
-});
-
-// An older Local Studio gated tunnel setup and sent a signup address. Tychicus never passes it on: every Local Studio tunnel runs
-// on the person's own Cloudflare account now (baney75/local-studio#123), so the advice is to update Local Studio.
-const WAITLIST = "https://local-studio-waitlist.magnus-b37.workers.dev";
-
-/**
- * The advice an older Local Studio gets, said to a person or an agent: update it, then share its tunnel the way that works for the
- * route Tychicus made (a rerun of setup on Tychicus's own Cloudflare route would keep it Tychicus's), and no signup.
- */
-function assertUpdateAdvice(text, route) {
-	assert.ok(!text.includes(WAITLIST), text);
-	assert.doesNotMatch(text, /join the waitlist|on a waitlist|waitlisted|hosted route|sign up/i);
-	assert.match(text, /local-studio update apply/);
-	if (route === "cloudflare") {
-		assert.match(text, /local-studio tunnel adopt/);
-		assert.doesNotMatch(text, /remote setup --cloudflare|remote setup again/);
-	} else {
-		assert.match(text, /\S*tychicus remote off and \S*tychicus remote setup --tailnet again/);
-		assert.doesNotMatch(text, /Cloudflare account|tunnel byo|tunnel adopt/);
-	}
-}
-
-test("an older Local Studio that gates tunnel setup: setup says to update it, gives no signup address and sets up Tychicus's own route", { skip: unixOnly }, async () => {
-	const s = scenario("defer-waitlist");
-	const answer = { state: "waitlist", next: { kind: "open_page", url: WAITLIST }, url: WAITLIST, channel: "stable", message: `Join the waitlist at ${WAITLIST}` };
-	localStudioStub(s, { answer, exit: 3 });
-	const local = await localServe(`https://${DNS}/mcp`);
-	try {
-		const args = ["remote", "setup", "--tailnet", "--no-service", "--no-passcode", "--port", String(local.port)];
-		const r = await s.runAsync([...args, "--json"]);
-		const report = r.json();
-		assert.notEqual(report.state, "waitlist", r.out);
-		assert.deepEqual(report.localStudio, { state: "waitlist", channel: "stable" }, "only Local Studio's state and channel, no signup url or next");
-		assert.ok(!JSON.stringify(report).includes(WAITLIST), r.out);
-		// An agent gets the update advice and the Funnel step web assistants need, beside Local Studio's answer; the report's own
-		// next is unchanged.
-		assert.equal(report.waitlist.url, undefined);
-		assert.equal(report.waitlist.channel, "stable");
-		assertUpdateAdvice(report.waitlist.next.why, "tailnet");
-		assert.deepEqual(report.waitlist.next.kind, "run_command");
-		assert.match(report.waitlist.next.command, /^\S*tychicus remote off && \S*tychicus remote setup --tailscale --no-passcode$/);
-		assert.match(report.waitlist.next.why, /claude\.ai, ChatGPT or grok\.com/);
-		assert.match(report.waitlist.next.why, /Tailscale Funnel/);
-		assert.notEqual(report.next?.command, report.waitlist.next.command, "the report's own next is not replaced");
-		assert.deepEqual(s.calls().filter((x) => x.startsWith("local-studio")), ["local-studio tunnel setup --tailnet --json"]);
-		assert.deepEqual(s.remoteJson(), { publicUrl: `https://${DNS}`, port: local.port, route: "tailnet" }, "Tychicus's own tailnet route");
-		assert.equal(Object.keys(handlers(s)).length, TYCHICUS_PATHS.length);
-		const text = await s.runAsync(args);
-		assert.match(text.out, /stable channel/);
-		assertUpdateAdvice(text.out, "tailnet");
-		assert.doesNotMatch(text.out, /undefined/);
-		// Said up front, before the tailnet route is made: web assistants can't use it, and Funnel is their free route with no domain.
-		const warn = text.out.indexOf("can't use a tailnet-only address");
-		assert.ok(warn >= 0, text.out);
-		assert.match(text.out, /Their free route with no domain is Tailscale Funnel: \S*tychicus remote off, then \S*tychicus remote setup --tailscale/);
-		const tailnetNote = text.out.indexOf("Tailnet only:");
-		assert.ok(tailnetNote < 0 || warn < tailnetNote, "the Funnel advice comes before the route is set up");
-	} finally {
-		await local.close();
-	}
-});
-
-test("an older Local Studio's advice says to update it, how to share its tunnel for the route made, Tailscale Funnel, and no signup page", () => {
-	const answer = { state: "waitlist", next: { kind: "open_page", url: WAITLIST }, url: WAITLIST, channel: "nightly" };
-	const tailnet = mod.waitlistAdvice(answer, "tailnet");
-	assert.match(tailnet.lines[0], /older build that still gates tunnel setup \(nightly channel\)/);
-	assertUpdateAdvice(tailnet.lines.join("\n"), "tailnet");
-	assertUpdateAdvice(tailnet.advice.next.why, "tailnet");
-	assert.match(tailnet.lines.join("\n"), /claude\.ai, ChatGPT and grok\.com .* can't use a tailnet-only address/);
-	assert.match(tailnet.advice.next.command, /remote off && \S*tychicus remote setup --tailscale --no-passcode$/);
-	assert.deepEqual({ url: tailnet.advice.url, channel: tailnet.advice.channel, kind: tailnet.advice.next.kind }, { url: undefined, channel: "nightly", kind: "run_command" });
-
-	const cloudflare = mod.waitlistAdvice(answer, "cloudflare");
-	assert.match(cloudflare.lines.join("\n"), /need a public route\. Your Cloudflare route is one\. Without a domain on Cloudflare, Tailscale Funnel is the free one: \S*tychicus remote off, then \S*tychicus remote setup --tailscale/);
-	assert.match(cloudflare.advice.next.command, /^\S*tychicus remote off && \S*tychicus remote setup --tailscale --no-passcode$/);
-	assert.match(cloudflare.advice.next.why, /only if it can't be made/);
-	assertUpdateAdvice(cloudflare.lines.join("\n"), "cloudflare");
-	assertUpdateAdvice(cloudflare.advice.next.why, "cloudflare");
-
-	// A signup URL inside Local Studio's own next is dropped too, and the channel may be missing.
-	const bare = mod.waitlistAdvice({ state: "waitlist", next: { url: WAITLIST } }, "tailnet");
-	assert.equal(bare.advice.url, undefined);
-	assert.equal(bare.advice.channel, undefined);
-	assert.match(bare.lines[0], /older build that still gates tunnel setup\. To share one tunnel with it later, update Local Studio/);
-	assertUpdateAdvice(bare.lines.join("\n"), "tailnet");
-	assert.doesNotMatch(bare.lines.join("\n"), /undefined/);
 });
 
 test("a local-studio without tunnel setup leaves Tychicus its own route; one whose tunnel setup fails is a refusal", { skip: unixOnly }, async () => {
@@ -803,6 +718,26 @@ test("a local-studio without tunnel setup leaves Tychicus its own route; one who
 		assert.match(b.message, /failed \(exit 1\): Tailscale isn't running/);
 		assert.equal(broken.remoteJson(), undefined);
 		assert.deepEqual(mountCalls(broken), []);
+
+		// An old build that answers with a signup page: a refusal that says to update, and the page is never passed on.
+		const signup = "https://signup.example.com";
+		const gated = scenario("defer-gated");
+		localStudioStub(gated, { answer: { state: "waitlist", url: signup, next: { kind: "open_page", url: signup }, channel: "stable", message: `Sign up at ${signup}` }, exit: 3 });
+		for (const json of [["--json"], []]) {
+			const g = await gated.runAsync(["remote", "setup", "--tailnet", "--no-service", "--no-passcode", ...json]);
+			assert.equal(g.code, 1, g.out);
+			assert.match(g.out, /local-studio update apply/);
+			assert.ok(!g.out.includes(signup), g.out);
+			if (json.length) assert.equal(g.json().code, "local_studio");
+			assert.equal(gated.remoteJson(), undefined);
+			assert.deepEqual(mountCalls(gated), []);
+		}
+		// The tailnet route such a build left this install stays its own: setup runs it again.
+		writeFileSync(join(gated.config, "remote.json"), JSON.stringify({ publicUrl: `https://${DNS}`, port: local.port, route: "tailnet" }));
+		const again = await gated.runAsync(["remote", "setup", "--tailnet", "--no-service", "--no-passcode", "--json"]);
+		assert.notEqual(again.json().code, "local_studio", again.out);
+		assert.ok(!again.out.includes(signup), again.out);
+		assert.notDeepEqual(mountCalls(gated), []);
 	} finally {
 		await local.close();
 	}
@@ -926,7 +861,7 @@ test("off, setup, fix and join refuse a service set up for another config folder
 	writeFileSync(join(s.config, "remote.json"), JSON.stringify({ publicUrl: `https://${CF_HOST}`, port: 18787, route: "cloudflare" }));
 	writeFileSync(join(s.config, "cloudflared.yml"), `tunnel: ${TUNNEL_ID}\ncredentials-file: /imported/${TUNNEL_ID}.json\n`, { mode: 0o600 });
 	const remoteBefore = s.remoteJsonText();
-	s.writeRecord({ v: 1, owner: "local-studio", route: "hosted", hostname: STUDIO, ports: { mcp: 18787 } });
+	s.writeRecord({ v: 1, owner: "local-studio", route: "cloudflare", hostname: STUDIO, ports: { mcp: 18787 } });
 	const runs = [
 		["remote", "off", "--json"],
 		["remote", "setup", "--tailnet", "--no-service", "--json"],
