@@ -1313,11 +1313,11 @@ test("remote setup --cloudflare with no name reaches the hostname question, last
 
 test("remote setup --no-wait in a terminal asks nothing: no download question, and a missing npx names the routes that need none (first-F2)", async () => {
 	const s = scenario("nowait-noask", { tailscale: false });
-	const r = await runTyped(s, ["remote", "setup", "--no-wait"], undefined, {}, 15_000);
+	const r = await runTyped(s, ["remote", "setup", "--no-wait", "--no-passcode"], undefined, {}, 15_000);
 	assert.equal(r.hung, false, `it waited on stdin: ${r.stdout}`);
 	// No route named means the relay, which needs npx; this machine has none, so it says where to get it and asks nothing.
 	assert.equal(r.code, 3, r.stdout + r.stderr);
-	assert.match(r.stderr, /npx isn't on PATH.*tychicus remote setup --tailscale, or --cloudflare/);
+	assert.match(r.stderr, /npx isn't on PATH.*tychicus remote setup --tailscale --no-passcode, or tychicus remote setup --cloudflare <name on your domain> --no-passcode\./);
 	const cf = scenario("nowait-nodownload", { tailscale: false });
 	const d = await runTyped(cf, ["remote", "setup", "--no-wait", "--cloudflare", CF_HOST], undefined, {}, 15_000);
 	assert.equal(d.hung, false);

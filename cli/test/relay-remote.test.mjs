@@ -162,7 +162,9 @@ test("a named route never reaches wrangler, and plain setup on a saved --public-
 	const m = machine(root, "no-relay");
 	assert.equal((await m.run(["remote", "setup", "--tailscale", "--json"])).json().state, "tailscale_missing");
 	writeFileSync(join(m.cfg, "remote.json"), JSON.stringify({ publicUrl: "https://front.example.com", port: 1, route: "custom" }), { mode: 0o600 });
-	await m.run(["remote", "setup", "--no-service", "--no-passcode", "--json", "--port", "1"]);
+	const kept = await m.run(["remote", "setup", "--no-service", "--no-passcode", "--json", "--port", "2"]);
+	assert.equal(kept.json().code, "serve", "past the plan: only nothing listening on the port stops it");
+	assert.equal(m.remoteJson().port, 2);
 	assert.equal(m.remoteJson().publicUrl, "https://front.example.com");
 	assert.equal(m.remoteJson().route, "custom");
 	assert.deepEqual(m.wrangler(), []);
